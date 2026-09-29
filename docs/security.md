@@ -72,6 +72,11 @@ This is the hard case, and it is worth being plain about it.
   broker raises the bar; it cannot replace the OS's own isolation.
 - **Windows and macOS** code signing makes the program identity sturdier, not
   perfect.
+- **Where vaults live is secretvault's own business.** Registering,
+  forgetting or creating a vault, choosing the default, and setting up or
+  joining sync are refused to every program but secretvault's own. A
+  program that could register a folder of its own as the default would
+  have the next secrets saved where it can read them.
 
 **What does help:**
 - Short auto-lock times, so the vault is unlocked less of the time.
@@ -204,6 +209,7 @@ refuse rather than guess:
 | Gap | Planned fix |
 | --- | --- |
 | Rollback and withholding of revisions is not detected | signed checkpoints (M6) |
+| Whoever can write to a synced folder, or the sync server, can plant an epoch record that locks every device out until it is removed (denial of service, not disclosure) | signed checkpoints (M6) |
 | Revisions are not signed per device | device signatures (M6) |
 | On Windows and macOS, screen lock and sleep do not lock vaults yet (idle time and explicit locks do) | session notifications on those platforms |
 | Windows and macOS identify programs by path and hash, not by publisher signature | Authenticode and code-signing checks |

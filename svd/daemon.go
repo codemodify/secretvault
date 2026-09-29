@@ -25,6 +25,7 @@ import (
 	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svrpc"
+	"github.com/codemodify/secretvault/svsync"
 )
 
 // ErrRunning is a second daemon on a socket that already has one.
@@ -83,6 +84,9 @@ type Daemon struct {
 	desktop Prompter
 	ss      *secretService // the Secret Service face, when serving
 	ssStop  func()
+
+	syncCtx context.Context  // set by StartSync; nil while the daemon does not sync
+	syncID  *svsync.Identity // this device's key for sync servers
 }
 
 // New prepares a daemon: it reads the config and opens (locked) every
@@ -171,6 +175,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 		ln.Close()
 	}()
 	defer d.LockAll("daemon stopping")
+	defer d.stopAllSync()
 	for {
 		conn, err := ln.Accept()
 		if err != nil {

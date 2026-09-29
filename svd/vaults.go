@@ -17,8 +17,9 @@ import (
 
 // managedVault is a registered vault and its lock state.
 type managedVault struct {
-	cfg VaultConfig
-	v   *svcore.Vault // nil when the folder is missing
+	cfg   VaultConfig
+	v     *svcore.Vault   // nil when the folder is missing
+	store svstore.Backend // the vault's folder, as the sync sees it (hook)
 
 	// prompt serialises prompts about this vault, so ten requests arriving
 	// together cause one prompt, not ten.
@@ -26,6 +27,7 @@ type managedVault struct {
 
 	mu   sync.Mutex
 	idle *time.Timer
+	sync *vaultSync // when the vault syncs with a server
 }
 
 func (d *Daemon) openVault(vc VaultConfig) (*managedVault, error) {
@@ -37,7 +39,7 @@ func (d *Daemon) openVault(vc VaultConfig) (*managedVault, error) {
 	if _, err := os.Stat(filepath.Join(vc.Path, svformat.DescriptorName)); err != nil {
 		return mv, fmt.Errorf("no vault there")
 	}
-	v, err := svcore.Open(store, d.svOpts)
+	v, err := svcore.Open(d.hook(mv, store), d.svOpts)
 	if err != nil {
 		return mv, err
 	}
@@ -124,13 +126,19 @@ func (d *Daemon) lock(mv *managedVault, why string) {
 	if mv.v == nil || mv.v.Locked() {
 		return
 	}
+	mv.v.Lock()
+	d.locked(mv, why)
+}
+
+// locked does what follows a vault locking, whether the daemon locked it
+// or it locked itself (after a rotation elsewhere).
+func (d *Daemon) locked(mv *managedVault, why string) {
 	mv.mu.Lock()
 	if mv.idle != nil {
 		mv.idle.Stop()
 		mv.idle = nil
 	}
 	mv.mu.Unlock()
-	mv.v.Lock()
 	d.broker.Locked(mv.v.ID())
 	d.opts.Log(fmt.Sprintf("locked %s (%s)", mv.cfg.Name, why))
 	d.notify(svrpc.EVaultLocked, svrpc.VaultEvent{Vault: mv.cfg.Name})
@@ -172,10 +180,12 @@ func (d *Daemon) createVault(p svrpc.VaultCreateParams) (*managedVault, string, 
 	if err != nil {
 		return nil, "", err
 	}
-	v, _, err := svcore.Create(store, suite, svcore.NewSlot{Type: svformat.SlotPassphrase, Label: "passphrase", Passphrase: p.Passphrase}, d.svOpts)
+	mv := &managedVault{cfg: VaultConfig{Name: p.Name, Path: path, AutoLock: DefaultAutoLock}}
+	v, _, err := svcore.Create(d.hook(mv, store), suite, svcore.NewSlot{Type: svformat.SlotPassphrase, Label: "passphrase", Passphrase: p.Passphrase}, d.svOpts)
 	if err != nil {
 		return nil, "", err
 	}
+	mv.v = v
 	recovery := ""
 	if p.Recovery {
 		info, err := v.AddSlot(svcore.NewSlot{Type: svformat.SlotRecovery, Label: "recovery key"})
@@ -185,7 +195,6 @@ func (d *Daemon) createVault(p svrpc.VaultCreateParams) (*managedVault, string, 
 		}
 		recovery = info.RecoveryKey
 	}
-	mv := &managedVault{cfg: VaultConfig{Name: p.Name, Path: path, AutoLock: DefaultAutoLock}, v: v}
 	if err := d.register(mv); err != nil {
 		v.Lock()
 		return nil, "", err
@@ -244,6 +253,7 @@ func (d *Daemon) forgetVault(name string) error {
 		return err
 	}
 	d.lock(mv, "forgotten")
+	d.stopSync(mv)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.vaults, mv.cfg.Name)

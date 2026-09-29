@@ -12,6 +12,7 @@ import (
 
 	"github.com/codemodify/secretvault/svformat"
 	"github.com/codemodify/secretvault/svrpc"
+	"github.com/codemodify/secretvault/svsync"
 )
 
 // Config is secretvaultd's settings, kept in <home>/config.json (0600).
@@ -34,6 +35,10 @@ type VaultConfig struct {
 	Name     string         `json:"name"`
 	Path     string         `json:"path"`
 	AutoLock svrpc.AutoLock `json:"auto_lock"`
+
+	// Sync is the server the vault is kept in step with, if any
+	// (`secretvault sync setup` or `sync join`).
+	Sync *svsync.Remote `json:"sync,omitempty"`
 }
 
 // PromptConfig says how desktop prompts are shown.

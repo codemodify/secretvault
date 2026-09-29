@@ -106,6 +106,10 @@ $ export SSH_AUTH_SOCK=$XDG_RUNTIME_DIR/secretvault/ssh-agent.sock
 $ ssh-add ~/.ssh/id_ed25519                  # the key moves into the vault
 $ bin/secretvault run --env-file app.env -- ./server   # API_KEY=sv://-/prod/api in app.env
 $ bin/secretvault keyring takeover --dry-run # become the desktop's keyring (Linux)
+
+$ bin/secretvault sync setup https://sync.example.com:8443 --fingerprint FP --admin-token-file token
+$ bin/secretvault sync invite                # then, on the other device:
+$ bin/secretvault sync join 'secretvault-sync:?...' --name personal
 ```
 
 For git and docker, link the CLI under their helper names:

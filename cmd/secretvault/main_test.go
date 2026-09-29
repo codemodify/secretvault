@@ -234,6 +234,10 @@ func TestSeveralVaults(t *testing.T) {
 	if got := h.ok("", h.with("--vault", "work2", "get", "w")...); got != "w\n" {
 		t.Fatalf("a re-added vault: %q", got)
 	}
+	// --vault after the command works as well as before it.
+	if got := h.ok("", h.with("get", "w", "--vault", "work2")...); got != "w\n" {
+		t.Fatalf("--vault after the command: %q", got)
+	}
 }
 
 func TestUpdatingKeepsWhatIsNotGiven(t *testing.T) {

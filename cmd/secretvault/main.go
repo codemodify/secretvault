@@ -157,6 +157,7 @@ func init() {
 		{"lock", "lock a vault, or all of them (--all)", (*cli).cmdLock},
 		{"status", "show the daemon and its vaults", (*cli).cmdStatus},
 		{"vault", "list, add, forget or choose the default vault", (*cli).cmdVault},
+		{"sync", "keep a vault in step with a sync server: setup, join, invite, status, now, devices, off", (*cli).cmdSync},
 		{"set", "store or update an item", (*cli).cmdSet},
 		{"get", "print an item's secret, a field, or the whole item", (*cli).cmdGet},
 		{"ls", "list items", (*cli).cmdList},
@@ -282,6 +283,9 @@ func parse(fs *flag.FlagSet, args []string, minArgs, maxArgs int, usage string) 
 func (c *cli) flags(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(c.stderr)
+	// --vault is global, and works after the command too, where people
+	// tend to type it.
+	fs.StringVar(&c.vault, "vault", c.vault, "the vault to use (default: the default vault)")
 	return fs
 }
 

@@ -105,6 +105,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	d.WatchSession(ctx) // lock on screen lock, sleep and logout
+	d.StartSync(ctx)    // keep synced vaults in step with their servers
 	if d.SSHAgentEnabled() {
 		agentSock := svrpc.SSHAgentSocket()
 		if aln, acleanup, err := svd.Listen(agentSock); err != nil {

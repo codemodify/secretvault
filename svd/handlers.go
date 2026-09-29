@@ -86,6 +86,10 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		if err := decode(&p); err != nil {
 			return nil, err
 		}
+		if !cl.cli {
+			clear(p.Passphrase)
+			return nil, errOwnPrograms
+		}
 		mv, recovery, err := d.createVault(p)
 		clear(p.Passphrase)
 		if err != nil {
@@ -99,6 +103,12 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		if err := decode(&p); err != nil {
 			return nil, err
 		}
+		// A program that could register a folder of its own, or make it
+		// the default, would have the next secrets stored where it can
+		// read them.
+		if !cl.cli {
+			return nil, errOwnPrograms
+		}
 		mv, err := d.addVault(p)
 		if err != nil {
 			return nil, err
@@ -110,12 +120,18 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		if err := decode(&p); err != nil {
 			return nil, err
 		}
+		if !cl.cli {
+			return nil, errOwnPrograms
+		}
 		return nil, d.forgetVault(p.Vault)
 
 	case svrpc.MVaultDefault:
 		var p svrpc.VaultRef
 		if err := decode(&p); err != nil {
 			return nil, err
+		}
+		if !cl.cli {
+			return nil, errOwnPrograms
 		}
 		return nil, d.setDefault(p.Vault)
 
@@ -242,6 +258,11 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		}
 		if len(p.Passphrase) < MinPassphrase {
 			return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "the passphrase is too short: use at least %d characters", MinPassphrase)
+		}
+		// Two devices rotating apart would fork the vault: rotate the
+		// newest copy, and send the new epoch out at once (hook).
+		if err := d.syncBefore(ctx, mv, "rotating its key"); err != nil {
+			return nil, err
 		}
 		specs := []svcore.NewSlot{{Type: svformat.SlotPassphrase, Label: "passphrase", Passphrase: p.Passphrase}}
 		if p.Recovery {

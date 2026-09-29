@@ -30,6 +30,12 @@ type WatchOptions struct {
 	// Failed is called after a sync that failed. Watch tries again after
 	// a pause that doubles with every failure, up to MaxBackoff.
 	Failed func(error)
+
+	// Starting is called as each sync starts, and Synced after it ends,
+	// whatever its outcome (after Changed or Failed): for status
+	// displays, and for whoever waits on a sync they triggered.
+	Starting func()
+	Synced   func(Report, error)
 }
 
 // MaxBackoff is the longest Watch waits after a failed sync.
@@ -49,6 +55,9 @@ func Watch(ctx context.Context, local svstore.Backend, c *Client, st *State, o W
 	o.Wait = min(o.Wait, svserver.MaxWait)
 	var backoff time.Duration
 	for {
+		if o.Starting != nil {
+			o.Starting()
+		}
 		rep, err := Sync(ctx, local, c, st)
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -56,10 +65,13 @@ func Watch(ctx context.Context, local svstore.Backend, c *Client, st *State, o W
 		if rep.Changed() && o.Changed != nil {
 			o.Changed(rep)
 		}
+		if err != nil && o.Failed != nil {
+			o.Failed(err)
+		}
+		if o.Synced != nil {
+			o.Synced(rep, err)
+		}
 		if err != nil {
-			if o.Failed != nil {
-				o.Failed(err)
-			}
 			backoff = min(max(2*backoff, time.Second), MaxBackoff)
 			pause(ctx, backoff, o.Trigger)
 			continue

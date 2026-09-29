@@ -274,12 +274,25 @@ ever added. That gives three sync modes on one format:
    sides hold with different contents (a vault key rotated on two devices
    at once) stops the sync rather than being overwritten.
 
+   secretvaultd runs the sync: for each vault whose config names a
+   server, a watcher keeps the folder in step for as long as the daemon
+   runs, locked or not (it moves ciphertext only). It syncs when the
+   server reports a change, when the daemon itself writes to the vault,
+   and once a minute; what it fetches is read into the open vault at once,
+   and a vault rotated on another device locks itself here, since its key
+   is no longer current. A rotation syncs first and is refused if it
+   cannot, so that two devices never rotate apart. This device's key
+   (`sync-device.key`) and what it knows of each server (`sync/`) live in
+   the data directory, outside the vault folders. Only secretvault's own
+   programs may set sync up, join, invite or turn it off.
+
    It later relays phone approvals. An official hosted service may come
    later; the design keeps it possible, and it would see no more than a
    self-hosted server does.
 
 Sharing a vault with a person adds a `recipient` keyslot for their identity.
-Removing them properly needs a new epoch (VMK rotation), planned for M6.
+Removing them properly takes a new epoch (`secretvault unshare`, which
+rotates the vault master key).
 
 ## The faces in detail
 

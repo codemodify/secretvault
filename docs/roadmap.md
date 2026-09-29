@@ -195,9 +195,14 @@ correctly across all four verification levels.
   - Each device has its own identity.
   - Enrolment by QR code from a device that is already trusted.
   - Optional per-device signatures on revisions.
-- **Own-server sync.** `secretvaultd --mode=server` as a zero-knowledge hub
-  (it stores ciphertext files only), with push.
+- **Own-server sync (done).** `secretvault-server` is a zero-knowledge hub
+  (it stores ciphertext files only) that tells devices of changes at once.
+  The daemon keeps each synced vault in step, locked or not, and reads
+  what arrives into the open vault; a rotation made elsewhere locks the
+  vault here. `secretvault sync setup | invite | join | status | now |
+  devices | rm-device | off`.
 - **Synced-folder mode, hardened.** Signed checkpoints detect rollback.
+- **Still to come for sync:** the invite as a QR code; a hosted service.
 - **Sharing with people (done).** `share` and `unshare`, and `vault rotate`.
   Master-key rotation is crash-safe, and history stays readable down the
   epoch chain.

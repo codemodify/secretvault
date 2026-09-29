@@ -148,6 +148,7 @@ func (h *harness) start() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
+	d.StartSync(ctx)
 	go func() { d.Serve(ctx, ln); close(done) }()
 	h.d = d
 	h.stop = func() { cancel(); <-done; cleanup() }
