@@ -94,7 +94,9 @@ func (c *cli) cmdSync(args []string) error {
 		return nil
 
 	case "invite":
-		if _, err := parse(fs, args[1:], 0, 0, ""); err != nil {
+		qr := fs.Bool("qr", false, "also show the invite as a QR code, for the new device to scan")
+		light := fs.Bool("light", false, "--qr: draw for a terminal with dark text on a light background")
+		if _, err := parse(fs, args[1:], 0, 0, "[--qr [--light]]"); err != nil {
 			return err
 		}
 		cl, err := c.open(&u)
@@ -111,6 +113,13 @@ func (c *cli) cmdSync(args []string) error {
 		fmt.Fprintln(c.stdout)
 		fmt.Fprintln(c.stdout, "    secretvault sync join '"+inv.Invite+"'")
 		fmt.Fprintln(c.stdout)
+		if *qr {
+			fmt.Fprintln(c.stdout, "Or scan it (it holds the same one-time code):")
+			if err := c.printQR(inv.Invite, *light); err != nil {
+				return err
+			}
+			fmt.Fprintln(c.stdout)
+		}
 		fmt.Fprintln(c.stdout, "It gets the vault's ciphertext; opening it still takes the passphrase, or a keyslot you add for it.")
 		return nil
 

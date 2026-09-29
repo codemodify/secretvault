@@ -530,18 +530,26 @@ func (c *cli) contactQR(args []string) error {
 		fmt.Fprintln(c.stdout, uri)
 		return nil
 	}
-	code, err := svqr.Encode([]byte(uri), svqr.M)
+	if err := c.printQR(uri, *light); err != nil {
+		return err
+	}
+	fmt.Fprintln(c.stdout, uri)
+	return nil
+}
+
+// printQR draws text as a QR code on the terminal: black on white where
+// the terminal takes colours; else light modules drawn, for the usual
+// light text on a dark background (light: dark modules, for a light one).
+func (c *cli) printQR(text string, light bool) error {
+	code, err := svqr.Encode([]byte(text), svqr.M)
 	if err != nil {
 		return err
 	}
-	// Black on white where the terminal takes colours; else light
-	// modules drawn, for the usual light text on a dark background.
-	opts := svqr.TerminalOptions{Quiet: 2, Invert: !*light}
-	if f, ok := c.stdout.(*os.File); ok && term.IsTerminal(int(f.Fd())) && !*light {
+	opts := svqr.TerminalOptions{Quiet: 2, Invert: !light}
+	if f, ok := c.stdout.(*os.File); ok && term.IsTerminal(int(f.Fd())) && !light {
 		opts.Colour = true
 	}
 	fmt.Fprint(c.stdout, code.Terminal(opts))
-	fmt.Fprintln(c.stdout, uri)
 	return nil
 }
 

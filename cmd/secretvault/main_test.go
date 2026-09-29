@@ -135,6 +135,7 @@ func newHarness(t *testing.T, tweaks ...func(*svd.Options)) *harness {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
+	d.StartSync(ctx)
 	go func() { d.Serve(ctx, ln); close(done) }()
 	t.Cleanup(func() { cancel(); <-done; cleanup() })
 	return h

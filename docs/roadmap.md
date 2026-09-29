@@ -314,7 +314,8 @@ correctly across all four verification levels.
   vault here. `secretvault sync setup | invite | join | status | now |
   devices | rm-device | off`.
 - **Synced-folder mode, hardened.** Signed checkpoints detect rollback.
-- **Still to come for sync:** the invite as a QR code; a hosted service.
+- **Still to come for sync:** a hosted service. (`sync invite --qr` shows
+  the invite as a QR code for the new device to scan.)
 - **Sharing with people (done).** `share` and `unshare`, and `vault rotate`.
   Master-key rotation is crash-safe, and history stays readable down the
   epoch chain. Epoch records are authenticated under the previous key, so
