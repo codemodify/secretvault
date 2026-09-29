@@ -507,13 +507,24 @@ answer only after asking the person, through the same program.
   its vault locks (the `vault.locked` event, or Ctrl+L, clears the screen at
   once), when the window is hidden in the tray, and on quit. So are the
   history's revisions, the editor's secret fields, a generated password and
-  a new vault's recovery key, when they close.
+  a new vault's recovery key, when they close, and whatever replaces them on
+  the screen closes them first. An edit is never thrown away for something
+  else (a new item, another vault): it is saved or cancelled first, and the
+  dialogs it opened (the generator, a file chooser) go with it.
+- **Answers that come late.** The daemon answers after the screen may have
+  moved on. An answer for a vault no longer shown, or one that locked
+  meanwhile, is dropped and wiped, as is a newer one's elder; what a
+  request would have sent is wiped when it is sent, or at once if there is
+  no daemon to send it to.
 - **Copies** go to uitoolkit's secret clipboard: CLIPBOARD only, marked for
   clipboard managers not to keep, cleared after 30 seconds and on quit, and
   taken back when the vault they came from locks.
 - **Out of sight.** While a secret shows, the window asks to be left out of
-  screenshots and screen sharing (honoured on Windows and macOS), and the
-  passphrase dialog holds the keyboard where the platform allows.
+  screenshots and screen sharing (honoured on Windows and macOS). The
+  daemon's questions are asked in [`gui/secretui`](../gui/secretui)'s
+  dialog window, as `secretvault-gui-prompt` asks its own: out of captures
+  where the platform allows, and holding the keyboard while the passphrase
+  field has it.
 
 Where a secret still becomes a Go string:
 - a one-time password key, while svotp parses it, and the code svotp

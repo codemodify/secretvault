@@ -118,8 +118,9 @@ copy and edit a login without the CLI.
   - a tray icon to open it, search, lock every vault and quit; closing the
     window hides it there.
 
-  The daemon asks it for passphrases in a dialog window of its own, into a
-  `SecretField`, and knows it by its executable. Secret values are drawn
+  The daemon asks it for passphrases in a dialog window of its own (the
+  prompt's, from `gui/secretui`), into a `SecretField`, and knows it by
+  its executable. Secret values are drawn
   from byte slices rather than Go strings, kept out of screen captures
   where the platform allows, and wiped on leaving an item, on lock, on
   hiding to the tray and on quit.

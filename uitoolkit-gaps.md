@@ -8,7 +8,7 @@ maintainers.
 - `secretvault-gui`, the manager, needed items 1, 2 and 7–11. It is built,
   on items 1–4, 6, 7 and 9, and on the folder-picking file dialog and the
   virtualised tables below. It works around item 8.
-- Items 12–17 are new, found while building the prompt, and items 18–23
+- Items 12–17 are new, found while building the prompt, and items 18–24
   while building the manager. None blocks either; each says what the
   program does in the meantime.
 
@@ -37,9 +37,10 @@ maintainers.
 | 21 | A wrapping label's height in a column | Open (new; a bug) |
 | 22 | Clicking something scrolled out of view, in a test | Open (new) |
 | 23 | Knowing that the tray icon is shown | Open (new) |
+| 24 | A widget taken out of the tree still has its window | Open (new; a bug) |
 
 The first findings come from reading uitoolkit's source at v0.20.x (file
-references are to that tree); 12–23 come from building on it after v0.21.0.
+references are to that tree); 12–24 come from building on it after v0.21.0.
 Each item says where the gap is, proposes an API in uitoolkit's own style,
 and gives a "done when" check. The names are suggestions; the behaviour is
 the requirement.
@@ -319,7 +320,11 @@ symbols in text; item names are the user's, and can still hold emoji.
   matters.
 - **Meanwhile.** `secretui.MatchDesktop` applies the default pack's dark
   sibling, or the plain `dark` pack, when the desktop prefers dark and
-  nobody has chosen a look. A saved choice is left alone.
+  nobody has chosen a look. A saved choice is left alone. The manager,
+  which stays up while the desktop changes, calls `secretui.FollowDesktop`
+  instead: it turns `FollowDesktop` on, in the `light` and `dark` pair
+  when the default pack has no dark sibling, and so follows the desktop
+  both ways while it runs.
 - **Proposal.** A fresh appearance follows the desktop (`FollowDesktop` on
   in `DefaultAppearance`), and the default pack has a dark sibling in every
   build (a `plastik-night`), or `SchemeVariant` falls back to `dark` for a
@@ -334,7 +339,9 @@ symbols in text; item names are the user's, and can still hold emoji.
   `Form`'s) `ColGap` and `RowGap`, are device pixels. `Wrap.Gap` and
   `ButtonBox.Gap` are 1x lengths that the toolkit scales. So a dialog's
   margins halve on a 2x display unless the program multiplies them itself.
-  The prompt does that, by `style.Dip(look, 1)` when it builds.
+  The prompt does that, by `style.Dip(look, 1)` when it builds, and so do
+  the manager's passphrase dialogs. The manager's main window does not yet:
+  its gaps are the same pixels at any scale.
 - **Proposal.** Treat them as 1x lengths and scale them by the look, as
   `Wrap` does. Where device pixels are wanted, add an opt-out, rather than
   the other way round.
@@ -427,7 +434,9 @@ symbols in text; item names are the user's, and can still hold emoji.
   close wipes them.
 - **Workaround.** The manager never stacks: its editor, history and vault
   pages are pages beside the list, not dialogs, so the generator, a
-  confirmation or a file dialog can go over them.
+  confirmation or a file dialog can go over them. A dialog that arrives
+  on its own (a new vault's recovery key, when the daemon answers) waits
+  for the one up to be done with rather than replace it.
 - **Proposal.** `ShowOverlay` pushes and `DismissOverlay` pops the top
   overlay only, whose `OnClose` alone runs; focus goes back to the one
   underneath.
@@ -482,6 +491,26 @@ symbols in text; item names are the user's, and can still hold emoji.
   comes or goes.
 - **Done when:** on GNOME without the extension `Shown` is false, and
   turning the extension on makes it true without a restart.
+
+### 24. A widget taken out of the tree still has its window
+
+- **Today** (`widget/base.go`, `Remove`, `ClearChildren`). Taking a child
+  out clears its parent but not its host, which it and its subtree keep:
+  `Add` sets the host, and nothing unsets it. So a component cannot tell
+  that it has left the screen, and whatever it is referenced from keeps the
+  window reachable through it. The manager kept its coloured labels (muted,
+  warning, danger) in a list, to colour them again when the look changed,
+  and dropped from it the ones whose host was gone: none ever was, and the
+  list grew with every item selected.
+- **Workaround.** A coloured label takes its colour from the look it is
+  measured and painted in (`tonedLabel` in `gui/svmanager/layout.go`), so
+  nothing has to keep track of it.
+- **Proposal.** `Remove` and `ClearChildren` call `SetHost(nil)` on what
+  they take out, as `Add` sets it. And a label coloured by a palette role
+  (`Label.Role = style.RoleDanger`, or `Muted`), which follows the look by
+  itself, would make the workaround unnecessary.
+- **Done when:** after `Remove(c)`, `c.Host()` is nil, and so is every
+  descendant's; adding `c` back gives them the host again.
 
 ---
 
