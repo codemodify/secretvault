@@ -141,6 +141,22 @@ func TestAVaultUnlockedWhileShownLockedWaitsToBeAsked(t *testing.T) {
 	h.waitFor("the items", func() bool { return h.m.listed && len(h.m.entries) == 4 })
 }
 
+// Enter on a locked vault unlocks it; the items then take the keyboard.
+func TestEnterOnALockedVaultUnlocksIt(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{})
+	h.waitText("Vault personal is locked")
+	h.win().FocusOn(h.m.ui.vaultList)
+	h.win().Press(platform.KeyReturn)
+	d := h.asking()
+	d.win.Type(pass)
+	d.win.Press(platform.KeyReturn)
+	h.waitFor("the items", func() bool { return h.m.listed && len(h.m.entries) == 4 })
+	if h.win().Focus() != h.m.ui.items {
+		t.Fatalf("after unlocking the keyboard is on %T", h.win().Focus())
+	}
+}
+
 func TestCancellingThePromptSaysSo(t *testing.T) {
 	h := newHarness(t)
 	h.start(Options{})
