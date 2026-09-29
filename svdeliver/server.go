@@ -427,12 +427,12 @@ const msgNoSecret = "no such secret, or not allowed"
 
 // call is one request being answered.
 type call struct {
-	w    http.ResponseWriter
-	r    *http.Request
-	ip   string
-	now  time.Time
-	body []byte
-	a    AuditEntry
+	w     http.ResponseWriter
+	r     *http.Request
+	ip    string
+	now   time.Time
+	limit int64 // the most of the body decode reads
+	a     AuditEntry
 }
 
 // Body limits.
@@ -441,26 +441,18 @@ const (
 	maxAdminBody = 512 << 10
 )
 
-// handle registers h behind rate limiting, reading up to limit bytes of
-// body first. A request goes in the audit log once h names its operation
-// (c.a.Op).
+// handle registers h behind rate limiting. h reads the body, of up to
+// limit bytes, with c.decode: after authenticating, so that strangers
+// cannot make the server read large bodies. A request goes in the audit
+// log once h names its operation (c.a.Op).
 func (s *Server) handle(pattern string, limit int64, h func(c *call)) {
 	s.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-		c := &call{w: w, r: r, ip: clientIP(r), now: s.cfg.Now()}
+		c := &call{w: w, r: r, ip: clientIP(r), now: s.cfg.Now(), limit: limit}
 		c.a = AuditEntry{Time: c.now.UTC(), IP: c.ip}
 		if ok, wait := s.limits.allow(c.ip, c.now); !ok {
 			w.Header().Set("Retry-After", strconv.Itoa(int(wait/time.Second)+1))
 			reply(w, http.StatusTooManyRequests, ErrorBody{Error: "too many requests; slow down"})
 			return
-		}
-		if limit > 0 {
-			body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
-			if err != nil {
-				c.a.Op = "request"
-				s.fail(c, &apiError{status: http.StatusRequestEntityTooLarge, msg: fmt.Sprintf("the body is larger than %d bytes, or could not be read", limit)})
-				return
-			}
-			c.body = body
 		}
 		h(c)
 	})
@@ -496,7 +488,11 @@ func checkAdmin(r *http.Request, v *view) *apiError {
 // decode reads the request's JSON body into v, refusing unknown members
 // so that a mistyped one is not silently ignored.
 func (c *call) decode(v any) *apiError {
-	d := json.NewDecoder(bytes.NewReader(c.body))
+	body, err := io.ReadAll(http.MaxBytesReader(c.w, c.r.Body, c.limit))
+	if err != nil {
+		return &apiError{status: http.StatusRequestEntityTooLarge, msg: fmt.Sprintf("the body is larger than %d bytes, or could not be read", c.limit)}
+	}
+	d := json.NewDecoder(bytes.NewReader(body))
 	d.DisallowUnknownFields()
 	if err := d.Decode(v); err != nil {
 		return &apiError{status: http.StatusBadRequest, msg: "the body is not what this call takes: " + err.Error()}

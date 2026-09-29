@@ -33,7 +33,10 @@ type deliveryVault struct {
 	problem   error
 	tried     time.Time
 	refreshed time.Time
+	closed    bool // removed, or the server sealed: never opened again
 }
+
+var errClosed = errors.New("the vault was removed, or the server sealed")
 
 const reopenEvery = 5 * time.Second
 
@@ -41,6 +44,11 @@ const reopenEvery = 5 * time.Second
 func (d *deliveryVault) get(ids map[svcrypto.Suite]*svcrypto.Identity, now time.Time) (*svcore.Vault, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	// A request that began before the vault was removed, or the server
+	// sealed, must not open it again, to linger unseen.
+	if d.closed {
+		return nil, errClosed
+	}
 	if d.v != nil && !d.v.Locked() {
 		if now.Sub(d.refreshed) < time.Second && !now.Before(d.refreshed) {
 			return d.v, nil
@@ -105,6 +113,7 @@ func (d *deliveryVault) state(ids map[svcrypto.Suite]*svcrypto.Identity, now tim
 func (d *deliveryVault) close() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.closed = true
 	if d.v != nil {
 		d.v.Lock()
 		d.v = nil

@@ -861,6 +861,37 @@ func TestAVaultNotYetSharedOpensOnceItIs(t *testing.T) {
 	}
 }
 
+func TestAClosedVaultIsNeverOpenedAgain(t *testing.T) {
+	f := newFixture(t)
+	f.unsealed()
+	v := f.srv.current()
+	dv := v.vaults["main"]
+	if _, err := dv.get(v.ids, f.clock.now()); err != nil {
+		t.Fatal(err)
+	}
+	// A request that took the view before the vault went must not bring
+	// it back.
+	dv.close()
+	f.clock.add(time.Hour)
+	if _, err := dv.get(v.ids, f.clock.now()); !errors.Is(err, errClosed) {
+		t.Fatalf("a closed vault opened again: %v", err)
+	}
+}
+
+func TestStrangersCannotMakeTheServerReadBodies(t *testing.T) {
+	f := newFixture(t)
+	f.unsealed()
+	big := strings.Repeat("x", maxAdminBody+1)
+	code, body := f.do(f.http.Client(), http.MethodPut, "/v1/deliver/admin/roles/x", "svda_wrong", big)
+	if code != http.StatusUnauthorized {
+		t.Fatalf("a large body with a wrong admin token: %d %s", code, body)
+	}
+	code, body = f.do(f.http.Client(), http.MethodPut, "/v1/deliver/admin/roles/x", f.res.AdminToken, big)
+	if code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("a large body from the admin: %d %s", code, body)
+	}
+}
+
 func TestDeliveryVaultsAreOnlyRead(t *testing.T) {
 	v, err := openVaultReadOnly(newFixture(t).vaultDir)
 	if err != nil {

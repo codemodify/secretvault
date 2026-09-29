@@ -405,6 +405,14 @@ an older split is caught, and every share given so far is forgotten. The
 operator whose share completes a rekey sees all the new shares; hand them
 out from there.
 
+**Anyone who can reach a sealed server** can hold up its unsealing: the
+unseal call needs no credential but a share (as it must: the shares are
+the credential), so they can reset the progress, or spoil it with a share
+of their own making, which fails the combination and starts it again.
+They learn nothing by it. Keep the API where only operators and machines
+reach it (`-deliver-listen` on an internal address), and requests are rate
+limited per address.
+
 ## Keys in memory
 
 secretvault is written in Go, which moves and copies memory on its own.
