@@ -5,9 +5,12 @@ maintainers.
 
 - `secretvault-gui-prompt` asks for passphrases and consent. Items 1–6
   blocked it; uitoolkit now has all six, and the prompt is built on them.
-- `secretvault-gui`, the manager, needs items 1, 2 and 7–11.
-- Items 12–17 are new, found while building the prompt. None blocks it; each
-  says what the prompt does in the meantime.
+- `secretvault-gui`, the manager, needed items 1, 2 and 7–11. It is built,
+  on items 1–4, 6, 7 and 9, and on the folder-picking file dialog and the
+  virtualised tables below. It works around item 8.
+- Items 12–17 are new, found while building the prompt, and items 18–22
+  while building the manager. None blocks either; each says what the
+  program does in the meantime.
 
 | # | Item | State in uitoolkit (after v0.21.0) |
 | --- | --- | --- |
@@ -28,9 +31,14 @@ maintainers.
 | 15 | A window as tall as its content | Open (new) |
 | 16 | A default button that looks it | Open (new) |
 | 17 | A wrapping label measured at its own width | Open (new; a bug) |
+| 18 | Giving a secret field a value | Open (new) |
+| 19 | A secret text area | Open (new) |
+| 20 | Dialogs that stack | Open (new) |
+| 21 | A wrapping label's height in a column | Open (new; a bug) |
+| 22 | Clicking something scrolled out of view, in a test | Open (new) |
 
 The first findings come from reading uitoolkit's source at v0.20.x (file
-references are to that tree); 12–17 come from building on it after v0.21.0.
+references are to that tree); 12–22 come from building on it after v0.21.0.
 Each item says where the gap is, proposes an API in uitoolkit's own style,
 and gives a "done when" check. The names are suggestions; the behaviour is
 the requirement.
@@ -216,6 +224,12 @@ relies on.
 secretvault's CLI and TUI speak the Wayland and X11 clipboard protocols
 themselves; the GUI should use this.
 
+**Status: done** (`uitoolkit.ClipboardSetSecret`). The manager copies
+through it, clears after 30 seconds, and clears its own copy when the vault
+it came from locks (`SecretClip.Clear`, which leaves somebody else's copy
+alone). One limit uitoolkit states itself: on X11 the owner serves the
+selection from a Go string while it holds it.
+
 ### 8. Showing a secret without making it a string
 
 - **Proposal.** `widgets.NewSecretLabel(value func() []byte)`:
@@ -226,21 +240,44 @@ themselves; the GUI should use this.
 
   This is for the item view's "show password" and for TOTP codes.
 
+**Status: open; the manager has its own.** uitoolkit's byte-slice text
+path, `style.Font.DrawBytes` (made for `SecretField`'s "show"), is enough
+to build it outside the toolkit, and `secretText` in
+`gui/svmanager/secret.go` is that widget: a fixed-length mask when hidden
+(so the screen does not say how long the secret is), `DrawBytes` from the
+caller's slice when revealed, several lines for a key, and an
+accessibility node that says "concealed" and nothing else. It holds the
+caller's bytes rather than a copy; `Forget` lets go of them, and the caller
+wipes them. It could move into uitoolkit as it is. **Done when** a
+`SecretLabel` does the above, and a test shows a revealed value never
+reaches the shape cache (`style.ShapeCacheKeysForTest`) or the
+accessibility tree.
+
 ### 9. A tray menu on macOS
 
 `SetMenu` stores the rows but shows nothing
 (`platform/status_darwin.go:178`). The manager's tray needs Lock all,
 Unlock, Search and Quit on every platform.
 
+**Status: done in uitoolkit** (`SetMenu` builds an NSMenu). The manager's
+tray menu (open, search, lock all, quit) is in the window's own menus too.
+
 ### 10. Search-as-you-type suggestions
 
 The same as comms-mail's gap 1: a popup that does not take the keyboard from
 the field it belongs to, so typing continues while suggestions update.
 
+**Status: done in uitoolkit** (`widget.SetPopupKeysPass`); the manager did
+not need it: its search filters the item list in place as you type.
+
 ### 11. Symbol and emoji fallback
 
 The same as comms-mail's gap 2: ✓, ✗, → and emoji in item names render as
 boxes.
+
+**Status: open.** The manager uses the toolkit's icons for its marks (the
+default vault's star, a conflict's warning, a file's paperclip) rather than
+symbols in text; item names are the user's, and can still hold emoji.
 
 ---
 
@@ -353,13 +390,96 @@ boxes.
 
 ---
 
+## Found while building the manager
+
+### 18. Giving a secret field a value
+
+- **Today.** A `SecretField` takes its contents only as typing and pasting.
+  The manager's editor has to show an item's existing password in one, so
+  it feeds the bytes in one rune at a time through `TextInput`, the path a
+  key press takes. That works and makes no string, but it is a key press
+  per character, and a value with a control character cannot go in at all.
+- **Proposal.** `f.SetBytes(b []byte)`: the field copies b into its own
+  buffer (growing it the way typing does, wiping what it drops); the caller
+  keeps b and wipes it.
+- **Done when:** `SetBytes` then `Bytes` gives the same bytes back, the old
+  buffer is zero afterwards, and nothing converts b to a string.
+
+### 19. A secret text area
+
+- **Today.** Some secrets are several lines: PEM and OpenSSH private keys.
+  `SecretField` is one line, and a `TextArea` holds a string.
+- **Workaround.** The manager's editor keeps such a value as it is, or
+  replaces it with a file's contents, read straight into bytes; it cannot
+  be edited in place.
+- **Proposal.** `widgets.NewSecretArea()`: `SecretField`'s rules (a byte
+  buffer edited in place, no copy, cut, drag or PRIMARY, no input method, a
+  mask by default) over several lines.
+- **Done when:** a PEM key can be pasted into it, shown and hidden, and
+  read back with `Bytes`, with the same tests as `SecretField`.
+
+### 20. Dialogs that stack
+
+- **Today.** A window has one overlay. Showing a second dismisses the
+  first and runs its `OnClose`, so a confirmation raised from inside a
+  dialog closes that dialog, and a dialog that wipes its secret fields on
+  close wipes them.
+- **Workaround.** The manager never stacks: its editor, history and vault
+  pages are pages beside the list, not dialogs, so the generator, a
+  confirmation or a file dialog can go over them.
+- **Proposal.** `ShowOverlay` pushes and `DismissOverlay` pops the top
+  overlay only, whose `OnClose` alone runs; focus goes back to the one
+  underneath.
+- **Done when:** a confirmation shown over a dialog returns to it, with its
+  fields as they were.
+
+### 21. A wrapping label's height in a column
+
+- **Today** (`layout/flex.go`, `heightForWidth`). A column measures a
+  wrapping label at the width it is offered, and the second,
+  height-for-width pass is for rows only. In an `Overlay` card that comes
+  out narrower than it was offered, the label wraps into more lines than
+  were measured, and the card is too short: its last lines and its buttons
+  are drawn outside it, and clicks on them miss. The manager's
+  confirmations did this with a long program path in the text.
+- **Workaround.** The manager pins a dialog's body to one width
+  (`fixedWidth` in `gui/svmanager/dialogs.go`), so it is measured and laid
+  out at the same width.
+- **Also.** A `Wrap` of buttons exactly as wide as the space it gets can
+  measure as two lines and lay out as one (a float rounding in `flow`),
+  leaving a line's height of empty space under it: the same kind of
+  disagreement between measuring and laying out as item 17.
+- **Proposal.** Height-for-width in columns too: measure a child again at
+  its final width when that differs from the width it was measured at.
+- **Done when:** a dialog with a long wrapping message fits its text and
+  its buttons at any window width.
+
+### 22. Clicking something scrolled out of view, in a test
+
+- **Today.** `Window.ClickComponent` clicks where the component's box is,
+  which for a button below a `ScrollView`'s fold is outside the view, so
+  the click lands on nothing. The manager's tests scroll to it first
+  (`ScrollView.Reveal`).
+- **Proposal.** `ClickComponent` reveals the component first, as a person
+  scrolls to what they are about to click, and `FocusOn` likewise.
+- **Done when:** `ClickComponent` on a button below the fold presses it.
+
+---
+
 ## Also worth knowing (not blocking)
 
 - **The file dialog** could not pick folders or suggest a save name
   (comms-mail gaps 9 and 12); it can now (7da97df). The manager needs both
-  for import, export and choosing where a vault lives.
+  for import, export and choosing where a vault lives; it saves attachments
+  under their own names with it.
 - **Large lists.** If `TableView` does not already virtualise its rows, the
-  item list needs it (10,000 items is a realistic vault).
+  item list needs it (10,000 items is a realistic vault). **It does**; the
+  manager's item list is one.
 - **Clearing on lock.** When the daemon says a vault locked, the manager
   wipes and hides every revealed secret. That is our code, but it relies on
-  item 8's `Hide()` really dropping what it drew from.
+  item 8's `Hide()` really dropping what it drew from. **Done**, with the
+  manager's own `secretText` (item 8): `Forget` drops its hold on the bytes,
+  which the manager has already zeroed, and the frame is redrawn at once.
+- **A copy that says it has gone.** `SecretClip` clears itself after its
+  timeout without telling anyone, so the manager cannot say "the clipboard
+  was cleared" when it was. `SecretClip.OnCleared(func())` would do.

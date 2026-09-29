@@ -101,8 +101,33 @@ copy and edit a login without the CLI.
   for passphrases in a dialog of its own. Concealed values are drawn and
   typed from byte slices rather than Go strings, and wiped on leaving an
   item, on lock and on quit.
-- **Not yet in it:** resolving conflicts (they are shown, not merged),
-  creating vaults, keyslots, and attachments.
+- **`secretvault-gui` is built** (`gui/svmanager`, on uitoolkit):
+  - vaults with their lock state and the default marked, the folders item
+    names make, and instant search;
+  - items with concealed values masked until revealed, one field at a
+    time, and live TOTP codes with a countdown; files saved, attached and
+    removed; history, with a conflict's winner and its other heads marked,
+    each one viewable and copyable;
+  - an editor with starter fields by kind, fields added and removed, and a
+    generator of characters or words; rename, and delete after asking;
+  - copies through uitoolkit's secret clipboard, cleared after 30 seconds
+    and taken back when their vault locks, and "copy and minimise";
+  - new vaults (either cipher suite, a recovery key shown once), unlock,
+    lock, lock all, the default vault, sync status, grants (and revoking
+    them) and the audit log;
+  - a tray icon to open it, search, lock every vault and quit; closing the
+    window hides it there.
+
+  The daemon asks it for passphrases in a dialog window of its own, into a
+  `SecretField`, and knows it by its executable. Secret values are drawn
+  from byte slices rather than Go strings, kept out of screen captures
+  where the platform allows, and wiped on leaving an item, on lock, on
+  hiding to the tray and on quit.
+- **Not yet in either manager:** resolving conflicts (they are shown, not
+  merged), keyslots (a new passphrase, a recovery key later, rotation),
+  import and export, setting sync up, the first-run flow, and settings
+  (auto-lock, the clipboard's timeout). The TUI does not create vaults or
+  handle attachments yet.
 
 ## M3: OS keyring and browser (Linux keyring done)
 

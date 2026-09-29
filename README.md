@@ -14,12 +14,13 @@ It never phones home. Sync goes through your own server, a folder you
 already sync, or nothing.
 
 > **Status: pre-release.** On Linux, the vault engine, the daemon with its
-> consent prompts, the CLI and the terminal manager work, and so do the
-> desktop keyring (Secret Service), the SSH agent, sync, import, OpenPGP,
-> age, browser autofill, the trust store, encrypted containers, and host
-> mode for a server's systemd units; Windows and macOS builds compile but
-> are not yet exercised. Unlocking with a FIDO2 security key works on
-> Linux, tested against a software key but not yet against real ones. What remains is in
+> consent prompts, the CLI, and the terminal and desktop managers work, and
+> so do the desktop keyring (Secret Service), the SSH agent, sync, import,
+> OpenPGP, age, browser autofill, the trust store, encrypted containers,
+> and host mode for a server's systemd units; Windows and macOS builds
+> compile but are not yet exercised. Unlocking with a FIDO2 security key
+> works on Linux, tested against a software key but not yet against real
+> ones. What remains is in
 > [docs/roadmap.md](docs/roadmap.md). The format may still change, and
 > nothing has been audited: do not keep anything here that exists nowhere
 > else yet.
@@ -43,7 +44,7 @@ decision. If there is none, it asks you.
 | --- | --- |
 | **`secretvaultd`** | The daemon: holds the keys, opens the vaults, brokers every access, keeps the audit log. It links no UI code. With `--host`, the machine's system service that hands its services their secrets. |
 | **`secretvault`** | The CLI, a client of the daemon (which it starts when needed). |
-| **`secretvault-gui`** | The desktop manager, on [uitoolkit](https://github.com/codemodify/uitoolkit), with a tray icon. *(stub)* |
+| **`secretvault-gui`** | The desktop manager, on [uitoolkit](https://github.com/codemodify/uitoolkit): vaults and their folders, instant search, items masked until revealed, one-time codes, files, history and conflicts, the generator, grants and the audit log, and a tray icon to search and lock everything. It asks for passphrases in a window of its own. |
 | **`secretvault-tui`** | The terminal manager: vaults, items, one-time codes, the generator, history, grants and the audit log, full-screen. |
 | **`secretvault-tui-prompt`** | Asks you on a terminal, over the pinentry protocol: a pinentry for gpg-agent, an askpass helper, and (`--agent`) the daemon's prompter where there is no desktop. |
 | **`secretvault-gui-prompt`** | The same in a small window: the desktop prompt secretvaultd starts for each question, a pinentry for gpg-agent, and an askpass helper. The passphrase field holds bytes, never a string, and the keyboard is held while you type. |
@@ -145,6 +146,7 @@ $ bin/secretvault vault login on            # open it when you log in, like a lo
 $ bin/secretvault lock --all
 $ bin/secretvault status
 $ bin/secretvault-tui                        # the same, full-screen: ? lists the keys
+$ bin/secretvault-gui                        # and in a window, with a tray icon: F1 lists the keys
 
 $ export SSH_AUTH_SOCK=$XDG_RUNTIME_DIR/secretvault/ssh-agent.sock
 $ ssh-add ~/.ssh/id_ed25519                  # the key moves into the vault
@@ -383,9 +385,7 @@ where it stops. In short:
 | [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys) | locked memory, process hardening | BSD-3-Clause |
 | [golang.org/x/term](https://pkg.go.dev/golang.org/x/term) | passphrase entry without echo | BSD-3-Clause |
 | [tview](https://github.com/rivo/tview), [tcell](https://github.com/gdamore/tcell) | `secretvault-tui` only | MIT, Apache-2.0 |
-
-Planned: [uitoolkit](https://github.com/codemodify/uitoolkit) in the GUI
-binaries only.
+| [uitoolkit](https://github.com/codemodify/uitoolkit), [paintengine2d](https://github.com/codemodify/paintengine2d) | the desktop programs only, a module of their own ([`gui/`](gui)) | The Free License |
 
 Everything else, including D-Bus, LUKS2, OpenPGP, CMS, MIME, CTAP2 and PC/SC, is
 written here.

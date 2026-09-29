@@ -71,7 +71,7 @@ Secret Service returns to a GNOME application.
 | --- | --- |
 | `secretvaultd` | The daemon. It holds the keys and is the only process on a machine of people's that opens vaults. It runs in user or host mode; server mode is `secretvault-server` (below). It links no UI code, which a test enforces. |
 | `secretvault` | The CLI, a pure client of the daemon, which it starts if needed. In M0 only, it opens vault folders directly. |
-| `secretvault-gui` | The desktop manager on [uitoolkit](https://github.com/codemodify/uitoolkit), with a tray icon. |
+| `secretvault-gui` | The desktop manager on [uitoolkit](https://github.com/codemodify/uitoolkit), with a tray icon. The daemon asks it for passphrases in a window of its own. |
 | `secretvault-tui` | The full-screen terminal manager, built on tview/tcell. |
 | `secretvault-gui-prompt` | A small, focused window that asks for a passphrase or a decision. It is also a pinentry and askpass. |
 | `secretvault-tui-prompt` | The same on a terminal, and a `pkttyagent`-style prompt agent for sessions without a display. |
@@ -109,8 +109,8 @@ comms-chat-lan do ([`svrpc`](../svrpc)). Methods are `noun.verb`, for example
 `vault.unlock`, `item.get` and `grant.revoke`.
 
 - **Both directions.** The daemon calls back into secretvault's own
-  terminal programs, the CLI and `secretvault-tui` (`prompt.ask`), to
-  prompt on their terminal.
+  programs (`prompt.ask`): the CLI and `secretvault-tui`, to prompt on
+  their terminal, and `secretvault-gui`, to prompt in a window of its own.
 - **Events.** Events are notifications without an id, for example
   `vault.locked` and `item.changed`.
 
@@ -164,6 +164,16 @@ secretvault's own CLI on a terminal is a special case. It is known by its
 start time), so "allowed until the vault locks" covers that terminal, not
 every copy of the CLI. `secretvault-tui` is treated the same way.
 
+`secretvault-gui` is one of secretvault's own programs too, and proves
+itself the same way, with the passphrase, but in a window, not on a
+terminal. So it is known by its **executable**, like any other program,
+even when it was started from a terminal: what it proved in its window
+says nothing about who types in that terminal, and the CLI there is still
+asked. Proving covers the GUI's connection until the vault locks; nothing
+is remembered for its executable unless someone decides so ahead of time
+(`secretvault grant`), and it is never shown a consent question, since
+every question the daemon puts to it is a passphrase.
+
 ### What is decided
 
 A grant covers (program, item or whole vault, operation). The operation is
@@ -196,7 +206,8 @@ The manager (and `secretvault audit`) shows the log, and offers "revoke"
 next to each grant.
 
 **Who may be asked for a passphrase.** Only secretvault's own programs: the
-CLI and `secretvault-tui` on their terminal, and the prompt programs. Any
+CLI and `secretvault-tui` on their terminal, `secretvault-gui` in its own
+window, and the prompt programs. Any
 other program asked to collect a passphrase would learn it, so programs
 never get one; the person is asked by the desktop prompt instead.
 
@@ -212,7 +223,8 @@ and operation, and why, when the program gives a reason.
 The daemon chooses a prompter in this order:
 
 1. The terminal of the CLI (or `secretvault-tui`) that made the request,
-   for its own requests only. The TUI asks in a dialog drawn inside it.
+   for its own requests only. The TUI asks in a dialog drawn inside it;
+   `secretvault-gui` asks in a dialog window of its own.
 2. A registered `secretvault-tui-prompt --agent`.
 3. The desktop prompt, when there is a desktop (a Wayland or X11 display on
    Linux; always on Windows and macOS). The daemon starts a fresh one for
@@ -471,6 +483,50 @@ rotates the vault master key).
     and Windows' registry keys written but untested). A manifest already
     there (KeePassXC's) is kept, and `uninstall` puts it back exactly,
     recorded as `keyring takeover` records its changes.
+
+#### The desktop manager
+
+`secretvault-gui` ([`gui/svmanager`](../gui/svmanager)) is a client of the
+daemon like the CLI and the TUI, and holds no keys. Everything that talks
+to the daemon runs off the interface's goroutine, because the daemon may
+answer only after asking the person, through the same program.
+
+- **Selecting is not opening.** Selecting an item shows what the list
+  already knows (kind, label, tags, attributes, files); its fields are
+  fetched when it is opened (Enter), because every fetch is a read that the
+  daemon records in the audit log.
+- **Concealed values** stay in the byte slices they arrived in. uitoolkit's
+  labels draw Go strings and keep each one shaped in the face's cache for
+  the face's life, so a secret never goes into one: it is drawn straight
+  from its bytes (`style.Font.DrawBytes`, which caches nothing), masked
+  with a fixed-length mask until revealed, one field at a time, and told to
+  assistive technology as "concealed" with no content. One-time codes and
+  generated passwords are drawn the same way. Secrets are typed into
+  uitoolkit's `SecretField`.
+- **Wiping.** The open item's values are zeroed when the item is left, when
+  its vault locks (the `vault.locked` event, or Ctrl+L, clears the screen at
+  once), when the window is hidden in the tray, and on quit. So are the
+  history's revisions, the editor's secret fields, a generated password and
+  a new vault's recovery key, when they close.
+- **Copies** go to uitoolkit's secret clipboard: CLIPBOARD only, marked for
+  clipboard managers not to keep, cleared after 30 seconds and on quit, and
+  taken back when the vault they came from locks.
+- **Out of sight.** While a secret shows, the window asks to be left out of
+  screenshots and screen sharing (honoured on Windows and macOS), and the
+  passphrase dialog holds the keyboard where the platform allows.
+
+Where a secret still becomes a Go string:
+- a one-time password key, while svotp parses it, and the code svotp
+  makes;
+- a new vault's recovery key, which the daemon's answer carries as a string;
+- the values of fields that are not secret (text, URLs, e-mail);
+- what JSON encoding and decoding make on the way to and from the daemon,
+  as for every client;
+- on X11, the copy uitoolkit serves the clipboard from while it owns it.
+
+A key of several lines (a PEM private key) does not fit a one-line
+`SecretField` and uitoolkit has no secret text area, so the editor keeps it
+as it is, or replaces it from a file read straight into bytes.
 
 ### Trust store and identities
 
@@ -797,7 +853,7 @@ projects, with `sv` as the prefix:
 | `svdeliver` | secret delivery: the server's API, seal, auth, policy, audit | M8 |
 | `svcsi` | the Secrets Store CSI driver provider | M8 |
 | `svage` | age files and the age plugin protocol | M8 |
-| `gui/` (a module of its own), `svtui` | the desktop programs, with `gui/secretui` for what they share when asking about secrets; the terminal manager | M1–M2 |
+| `gui/` (a module of its own), `svtui` | the desktop programs (`gui/svmanager` is the manager), with `gui/secretui` for what they share when asking about secrets; the terminal manager | M1–M2 |
 
 **Dependencies:**
 - **Allowed:**
@@ -809,7 +865,8 @@ projects, with `sv` as the prefix:
     speaks),
     `golang.org/x/sys`,
     `golang.org/x/term`;
-  - `github.com/codemodify/uitoolkit` in the GUI binaries only;
+  - `github.com/codemodify/uitoolkit` in the GUI binaries only, which are a
+    Go module of their own (`gui/`), so nothing else can come to import it;
   - `tview`/`tcell` in the TUI only.
 - **Everything else is our own code**, including D-Bus, OpenPGP, CTAP2, PC/SC,
   TPM2 and the Assuan protocol.
