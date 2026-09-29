@@ -55,6 +55,11 @@ type SignerResult struct {
 	// ErrWrongUsage, ErrAddressMismatch and ErrCertInvalid, joined.
 	CertificateErr error
 
+	// Verified says the signature is mathematically correct for the
+	// content and Certificate's key, whatever the policy or the
+	// certificate's state say.
+	Verified bool
+
 	Signer *SignerInfo
 	// Certificate is the signer's certificate, when it was found; Chains
 	// are the chains built from it to a root.
@@ -174,7 +179,7 @@ func (sd *SignedData) verifySigner(si *SignerInfo, content []byte, pool []*x509.
 			lastErr = err
 			continue
 		}
-		r.Certificate = cert
+		r.Certificate, r.Verified = cert, true
 		r.SignatureErr = weakKey(cert)
 		if r.SignatureErr == nil {
 			r.SignatureErr = checkSigningCertificate(si, cert)

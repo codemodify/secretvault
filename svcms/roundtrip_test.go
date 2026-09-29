@@ -3,9 +3,11 @@ package svcms
 import (
 	"bytes"
 	"crypto"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -366,5 +368,34 @@ func TestBERToDER(t *testing.T) {
 	deep = append(deep, bytes.Repeat([]byte{0, 0}, 100)...)
 	if _, err := toDER(deep, DefaultLimits); !errors.Is(err, ErrLimit) {
 		t.Fatalf("deep nesting: %v", err)
+	}
+}
+
+// The ESS signing-certificate attribute stops another certificate for the
+// same key, with the same issuer and serial, being put in the signer's
+// place.
+func TestSigningCertificateSubstitution(t *testing.T) {
+	p := getPKI(t)
+	u := p.user(t, userOpts{keyType: "p256", email: "alice@example.org"})
+	tmpl := *u.cert
+	tmpl.Subject.CommonName = "Someone else entirely"
+	tmpl.EmailAddresses = []string{"mallory@example.org"}
+	der, err := x509.CreateCertificate(rand.Reader, &tmpl, p.inter, u.key.Public(), p.interKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	twin, _ := x509.ParseCertificate(der)
+	if twin.SerialNumber.Cmp(u.cert.SerialNumber) != 0 {
+		t.Fatal("the twin has another serial")
+	}
+	sig, err := Sign([]byte("x"), u.key, []*x509.Certificate{u.cert}, SignOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sd, _ := ParseSignedData(sig, nil)
+	sd.Certificates = []*x509.Certificate{twin}
+	res, _ := sd.Verify(VerifyOptions{Content: []byte("x"), Roots: []*x509.Certificate{p.root}, Intermediates: []*x509.Certificate{p.inter}})
+	if res[0].Valid || !errors.Is(res[0].SignatureErr, ErrBadSignature) || !strings.Contains(res[0].SignatureErr.Error(), "signing-certificate") {
+		t.Fatalf("got %v", res[0].SignatureErr)
 	}
 }
