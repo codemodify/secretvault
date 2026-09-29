@@ -91,26 +91,35 @@ Later, small helpers are the same binary under other names (dispatched on
 ## Talking to the daemon
 
 Clients speak JSON-RPC 2.0, one object per line, as comms-mail and
-comms-chat-lan do. Methods are `noun.verb`, for example `vault.unlock`,
-`item.get` and `grant.revoke`. Events are notifications without an id, for
-example `vault.locked` and `prompt.request`.
+comms-chat-lan do ([`svrpc`](../svrpc)). Methods are `noun.verb`, for example
+`vault.unlock`, `item.get` and `grant.revoke`.
+
+- **Both directions.** The daemon calls back into secretvault's own CLI
+  (`prompt.ask`) to prompt on its terminal.
+- **Events.** Events are notifications without an id, for example
+  `vault.locked` and `item.changed`.
 
 | OS | Transport | Who may connect |
 | --- | --- | --- |
-| Linux, BSD | Unix socket `$XDG_RUNTIME_DIR/secretvaultd.sock`, 0600 in a 0700 directory, with a lock file | same uid, checked with `SO_PEERCRED` |
-| macOS | Unix socket under `$TMPDIR`, 0600 | same uid, checked with `LOCAL_PEERCRED`; the caller's audit token via `LOCAL_PEERTOKEN` |
-| Windows | named pipe `\\.\pipe\secretvaultd-<user SID>`, with a DACL for the owner only | same SID, checked with `GetNamedPipeClientProcessId` and the token |
+| Linux, BSD | Unix socket `$XDG_RUNTIME_DIR/secretvault/secretvaultd.sock`, 0600 in a 0700 directory, with a lock file | same uid, checked with `SO_PEERCRED` |
+| macOS | Unix socket `$TMPDIR/secretvault-<uid>/secretvaultd.sock`, 0600 | same uid, checked with `LOCAL_PEERCRED` and `LOCAL_PEERPID` |
+| Windows | AF_UNIX socket `%LOCALAPPDATA%\secretvault\run\secretvaultd.sock`, with a lock file held by `LockFileEx` | same user SID, checked through `SIO_AF_UNIX_GETPEERPID` and the peer's token |
 
-The Go client library (in the root package, `secretvault`) is what comms-mail
-calls through its `keyringKey` hook.
+`SECRETVAULT_SOCK` overrides the path. A client that finds no daemon starts
+the `secretvaultd` installed beside it, which logs to `secretvaultd.log`
+beside the socket.
+
+The Go client library is the root package, `secretvault`. comms-mail calls it
+through its `keyringKey` hook; see [clients.md](clients.md).
 
 ## The consent broker
 
 ### Who is asking
 
-Each face finds the calling process: through the socket's peer credentials,
-D-Bus `GetConnectionCredentials`, or the pipe client's process ID. It then
-names the program:
+Each face finds the calling process through the socket's peer credentials
+or D-Bus `GetConnectionCredentials`. The kernel's word on the peer's user is
+the boundary: a peer running as another user is refused. The daemon then
+names the program ([`svpeer`](../svpeer)):
 
 - **Windows.** The image path, and the Authenticode publisher if the file is
   signed.
@@ -125,12 +134,25 @@ names the program:
     about again after it changes).
 
 A remembered "always allow" matches on path plus publisher signature where a
-signature exists. Anything else falls back to the Linux rules above.
+signature exists. Anything else falls back to the Linux rules above. Two more
+cases:
+
+- **Interpreters.** For `python3`, `bash`, `node` and the like, the script
+  is part of the identity: "tool.py run by python3", not "python3".
+- **Unreadable programs.** A program that hides its executable (by making
+  itself non-dumpable, as ssh-agent does) is known only by its process ID. It
+  is asked every time, and no lasting decision can attach to it.
+
+secretvault's own CLI on a terminal is a special case. It is known by its
+**terminal session** (terminal device, session ID and the session leader's
+start time), so "allowed until the vault locks" covers that terminal, not
+every copy of the CLI.
 
 ### What is decided
 
 A grant covers (program, item or whole vault, operation). The operation is
-one of read, write, sign, decrypt or delete.
+one of read, list, write, delete or manage. Sign and decrypt arrive with the
+trust store in M5.
 
 | Answer | Lasts |
 | --- | --- |
@@ -141,8 +163,27 @@ one of read, write, sign, decrypt or delete.
 
 Grants are stored in the vault as their own encrypted record type, tied to
 the device (a program's identity only means something on one machine).
-Every access, whether allowed or denied, goes to a local encrypted audit log.
-The manager shows the log and offers "revoke" next to each grant.
+Grants can also be made ahead of time (`secretvault grant allow /usr/bin/backup
+--item backup/key`), for programs that run where nobody can be asked.
+
+**Audit log.** Every access, whether allowed or denied, goes to an audit log
+on this device ([`svbroker`](../svbroker)):
+- **Sealed to a public key.** Entries are sealed with HPKE to a key derived
+  from the vault key. The daemon can therefore record refusals while the vault
+  is locked, but only an unlocked vault can read them.
+- **Chained.** Entries are chained by hash, so removing one shows.
+
+The manager (and `secretvault audit`) shows the log, and offers "revoke"
+next to each grant.
+
+**Who may be asked for a passphrase.** Only secretvault's own programs: the
+CLI on its terminal and the prompt programs. Any other program asked to
+collect a passphrase would learn it, so programs never get one; the person is
+asked by the desktop prompt instead.
+
+**How the CLI proves itself.** The CLI proves it is the person by taking the
+vault's passphrase on its terminal, as sudo does. A "y" typed into a terminal
+proves nothing: a program can create a terminal and type into it.
 
 ### Prompts
 
@@ -151,14 +192,23 @@ and operation, and why, when the program gives a reason.
 
 The daemon chooses a prompter in this order:
 
-1. The terminal of the CLI that made the request.
+1. The terminal of the CLI that made the request (for its own requests
+   only).
 2. A registered `secretvault-tui-prompt --agent`.
-3. `secretvault-gui-prompt` on the session's display.
+3. The desktop prompt. Until `secretvault-gui-prompt` exists, this is the
+   system's pinentry: pinentry-gnome3 on GNOME-like desktops, else
+   pinentry-qt or pinentry-gtk. It is taken only from `/usr/bin`,
+   `/usr/local/bin` and `/bin`, never looked up on `PATH`.
 4. Later, the phone companion.
 
-Prompters speak the **pinentry protocol** (Assuan), so they double as
-`pinentry` for gpg-agent and as askpass helpers. The daemon uses only the
-prompter binaries installed next to itself, never whatever is on `PATH`.
+With nobody to ask, the answer is no, and the error says how to decide
+ahead of time.
+
+Prompters speak the **pinentry protocol** (Assuan, [`svprompt`](../svprompt)),
+so they double as `pinentry` for gpg-agent and as askpass helpers.
+secretvault's own prompters understand an extension (`ADDCHOICE`, `CHOOSE`)
+for the four-way consent question. A plain pinentry gets three buttons:
+allow once, allow until locked, and deny.
 
 The GUI prompt needs work in uitoolkit first: see
 [../uitoolkit-gaps.md](../uitoolkit-gaps.md). The main items:
@@ -291,6 +341,10 @@ Removing them properly needs a new epoch (VMK rotation), planned for M6.
   - **Our API:** `verify(signature, digest, claimed signer)` → valid or not,
     which key, and its verification level. Also `sign`, `decrypt` and
     `encrypt-to`, each through the consent broker.
+  - **Whole messages:** `mail.inspect(raw message)` recognises PGP/MIME,
+    inline PGP and S/MIME (signed, encrypted, both, nested). It returns the
+    decrypted body, with consent, and a verdict per signature, so a mail
+    client needs one call and no crypto of its own.
   - **Agents:** a gpg-agent-compatible agent (so gpg, pass, git and
     Thunderbird's external-GnuPG mode work) and an SSH agent, which also
     covers git signing.
@@ -367,10 +421,12 @@ projects, with `sv` as the prefix:
 | `svformat` | the v1 on-disk format | M0 |
 | `svstore` | where vault files live | M0 |
 | `svcore` | the vault engine | M0 |
-| `svprompt` | asking people (terminal today; the pinentry protocol in M1) | M0 |
-| `secretvault` (root) | version; later the client library | M0 |
-| `svd`, `svrpc` | daemon, and the JSON-RPC wire protocol | M1 |
-| `svbroker` | caller identification, grants, audit | M1 |
+| `svprompt` | the pinentry protocol, both directions | M1 |
+| `svterm` | prompting on a terminal (kept out of the daemon) | M1 |
+| `secretvault` (root) | the client library | M1 |
+| `svd`, `svrpc` | the daemon, and the JSON-RPC wire protocol | M1 |
+| `svpeer` | who is on the other end of a connection | M1 |
+| `svbroker` | grants and the audit log | M1 |
 | `svdbus`, `svsecretservice` | our D-Bus implementation and the Secret Service face | M3 |
 | `svpgp`, `svcms`, `svtrust` | OpenPGP, S/MIME, the trust store | M5 |
 | `svfido`, `svpcsc`, `svtpm` | hardware tokens and TPM | M4 |
@@ -403,7 +459,7 @@ All on x86-64 and ARM64.
 
 | Area | Linux | Windows | macOS |
 | --- | --- | --- | --- |
-| Daemon socket and caller identification | Unix socket, `SO_PEERCRED` | named pipe, image and Authenticode | Unix socket, audit token and code signature |
+| Daemon socket and caller identification | Unix socket, `SO_PEERCRED` | AF_UNIX socket, peer PID and token; Authenticode later | Unix socket, `LOCAL_PEERCRED`; code signature later |
 | System keyring | replaced (Secret Service) | bridged; passkey provider later | bridged; AutoFill extension later |
 | Login unlock | PAM | DPAPI slot | login Keychain item |
 | Quick unlock | fingerprint via fprintd, YubiKey, TPM | Windows Hello, YubiKey, TPM | Touch ID, YubiKey, Secure Enclave |

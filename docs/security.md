@@ -152,14 +152,15 @@ Wiping keys in Go is therefore hygiene, not a guarantee. What it does:
 - **Test vectors.** Pinned against independent implementations (the reference
   Argon2 CLI and Python's hashlib), and golden revisions for each suite.
 
-## Known gaps in milestone 0
+## Known gaps
 
 | Gap | Planned fix |
 | --- | --- |
 | Rollback and withholding of revisions is not detected | signed checkpoints (M6) |
 | Removing a keyslot does not revoke a key already used | epoch rotation (M6) |
 | Revisions are not signed per device | device signatures (M6) |
-| No consent broker or audit log yet: the CLI opens vaults directly and asks for the passphrase on each run | the daemon (M1) |
+| Screen lock and sleep do not lock vaults yet (idle time, logout and explicit locks do) | D-Bus session signals (M1, with the D-Bus library) |
+| Windows and macOS identify programs by path and hash, not by publisher signature | Authenticode and code-signing checks |
 | Unknown JSON fields in an item are dropped when an older version rewrites it | fixed before the format freeze |
 | The format is not frozen | format freeze (M10) |
 

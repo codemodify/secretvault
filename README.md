@@ -13,12 +13,12 @@ One secret store for Linux, Windows and macOS, written in Go.
 It never phones home. Sync goes through your own server, a folder you
 already sync, or nothing.
 
-> **Status: pre-release (milestone 0).** The vault format and engine exist
-> and are tested, and a CLI drives them. The daemon, the consent prompts,
-> the desktop app and everything else are planned in
-> [docs/roadmap.md](docs/roadmap.md). The format may still change, and
-> nothing has been audited: do not keep anything here that exists nowhere
-> else yet.
+> **Status: pre-release (milestone 1).** The vault engine, the daemon with
+> its consent prompts, and the CLI work on Linux; Windows and macOS builds
+> compile but are not yet exercised. The desktop app, the system keyring and
+> everything else are planned in [docs/roadmap.md](docs/roadmap.md). The
+> format may still change, and nothing has been audited: do not keep
+> anything here that exists nowhere else yet.
 
 ## How it fits together
 
@@ -37,11 +37,12 @@ decision. If there is none, it asks you.
 
 | Binary | What it does |
 | --- | --- |
-| **`secretvaultd`** | The daemon: holds the keys, opens the vaults, brokers every access. It links no UI code. *(stub)* |
-| **`secretvault`** | The CLI. In M0 it opens vault folders directly; from M1 it is a client of the daemon. |
+| **`secretvaultd`** | The daemon: holds the keys, opens the vaults, brokers every access, keeps the audit log. It links no UI code. |
+| **`secretvault`** | The CLI, a client of the daemon (which it starts when needed). |
 | **`secretvault-gui`** | The desktop manager, on [uitoolkit](https://github.com/codemodify/uitoolkit), with a tray icon. *(stub)* |
 | **`secretvault-tui`** | The terminal manager. *(stub)* |
-| **`secretvault-gui-prompt`**, **`secretvault-tui-prompt`** | The windows that ask you, over the pinentry protocol, so they double as pinentry and askpass. *(stubs)* |
+| **`secretvault-tui-prompt`** | Asks you on a terminal, over the pinentry protocol: a pinentry for gpg-agent, an askpass helper, and (`--agent`) the daemon's prompter where there is no desktop. |
+| **`secretvault-gui-prompt`** | The same as a window. *(stub; until then the desktop's own pinentry asks)* |
 
 | Package | Holds |
 | --- | --- |
@@ -49,7 +50,12 @@ decision. If there is none, it asks you.
 | [`svformat`](svformat) | The v1 on-disk format ([spec](docs/format.md)) |
 | [`svstore`](svstore) | Where vault files live |
 | [`svcore`](svcore) | The vault engine: keyslots, items, revisions, conflicts |
-| [`svprompt`](svprompt) | Asking people for secrets |
+| [`svrpc`](svrpc) | The daemon protocol (JSON-RPC over a local socket) |
+| [`svd`](svd) | The daemon, as a library |
+| [`svpeer`](svpeer) | Who is on the other end of a connection |
+| [`svbroker`](svbroker) | Remembered decisions, and the audit log |
+| [`svprompt`](svprompt), [`svterm`](svterm) | Asking people: the pinentry protocol, and terminals |
+| [`secretvault`](client.go) | The Go client library |
 
 A vault is a folder of files that are only ever added, never rewritten, so
 anything that copies files can sync it without two devices editing the same
@@ -63,33 +69,42 @@ file. Nothing about an item is readable in the folder, including its name.
 
 ## Build and try
 
-Go 1.26 or newer. No cgo:
+Go 1.26 or newer. No cgo. Build the binaries into one directory; the CLI
+starts the daemon beside it when needed:
 
 ```bash
 git clone https://github.com/codemodify/secretvault
 cd secretvault
-go build ./cmd/secretvault
+go build -o bin/ ./cmd/secretvault ./cmd/secretvaultd ./cmd/secretvault-tui-prompt
+bin/secretvaultd install        # optional: start at every login (systemd user unit)
 ```
 
 ```console
-$ ./secretvault init --recovery            # asks for a new passphrase, prints a recovery key
-$ ./secretvault set web/github.com --kind login --field username=ada   # asks for the password
-$ ./secretvault get web/github.com
+$ bin/secretvault init --recovery            # asks for a new passphrase, prints a recovery key
+$ bin/secretvault set web/github.com --kind login --field username=ada   # asks for the password
+$ bin/secretvault get web/github.com         # first use in this terminal asks for the passphrase
 hunter2
-$ ./secretvault set api/token --generate 32   # generate, store, and print a secret
-$ ./secretvault ls -l
-$ ./secretvault history web/github.com
-$ ./secretvault slot add keyfile ~/usb/vault.key --create   # another way in
-$ ./secretvault verify                       # re-authenticate every file
+$ bin/secretvault set api/token --generate 32   # generate, store, and print a secret
+$ bin/secretvault ls -l
+$ bin/secretvault history web/github.com
+$ bin/secretvault grant list                 # what programs may do
+$ bin/secretvault audit                      # who accessed what
+$ bin/secretvault lock --all
+$ bin/secretvault status
 ```
 
-- **Default vault location:**
-  - Linux: `~/.local/share/secretvault/vaults/default`;
-  - macOS: `~/Library/Application Support/secretvault/…`;
-  - Windows: `%LOCALAPPDATA%\secretvault\…`.
-- **Overrides:** `--vault DIR` or `SECRETVAULT_VAULT`.
-- **Unlocking:** every command asks for the passphrase on the terminal, or
-  takes `--passphrase-file`, `--keyfile`, `--identity` or `--recovery`.
+- **The daemon owns the vaults.** Vaults live under
+  `~/.local/share/secretvault/vaults/` (macOS: `~/Library/Application
+  Support/secretvault/…`; Windows: `%LOCALAPPDATA%\secretvault\…`), or
+  anywhere with `init --path DIR`. `vault add NAME DIR` registers an
+  existing one, and `--vault NAME` picks one.
+- **Proving it is you.** The first command in a terminal asks for the vault's
+  passphrase there, which allows that terminal until the vault locks. Or pass
+  `--passphrase-file`, `--keyfile`, `--identity` or `--recovery`.
+- **Other programs** asking for a secret get a desktop prompt (your system's
+  pinentry, until secretvault's own window exists): allow once, until
+  locked, always, or deny. [docs/clients.md](docs/clients.md) is for their
+  authors.
 
 ## Security: read this
 
@@ -110,6 +125,7 @@ where it stops. In short:
 | Document | What's in it |
 | --- | --- |
 | [docs/architecture.md](docs/architecture.md) | The design: processes, the consent broker, vaults, sync, every face |
+| [docs/clients.md](docs/clients.md) | Using secretvault from a program: Go and the raw protocol |
 | [docs/format.md](docs/format.md) | The v1 vault format, byte by byte |
 | [docs/security.md](docs/security.md) | The threat model and known gaps |
 | [docs/roadmap.md](docs/roadmap.md) | Milestones M0–M10, and the decisions log |

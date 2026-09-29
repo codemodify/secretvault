@@ -22,7 +22,7 @@ The order below is the planned order, and they can overlap.
 **Done when:** `go test -race ./...` passes, and the tree builds with
 `CGO_ENABLED=0` for Linux, Windows and macOS on amd64 and arm64.
 
-## M1: the daemon and consent broker
+## M1: the daemon and consent broker (done on Linux)
 
 - **`secretvaultd` user mode.**
   - Transport: the Unix socket, or a named pipe on Windows, with same-user
@@ -49,6 +49,19 @@ The order below is the planned order, and they can overlap.
   from the remembered grant.
 - Locking the screen locks the vault.
 - A process of another user is refused.
+
+**Where it stands.**
+- **Built and tested on Linux.** Everything above except screen-lock and
+  sleep detection, which waits for the D-Bus library (M3's, brought forward).
+- **The comms-mail wiring** is described in [clients.md](clients.md), and
+  lands on comms-mail's side.
+- **The desktop prompt** is the system's pinentry until
+  `secretvault-gui-prompt` can be built (see uitoolkit-gaps.md).
+- **Windows and macOS code compiles.** Caller identification there does not
+  yet read publisher signatures.
+- **Added along the way:** `grant allow` (decide for a program ahead of
+  time), and an audit log sealed so it can be written while locked but read
+  only when unlocked.
 
 ## M2: the desktop password manager
 
@@ -117,6 +130,14 @@ the token.
   - **S/MIME:** built on `crypto/x509`, plus our own CMS (`svcms`).
 - **The API.** `verify`, `sign`, `decrypt` and `encrypt-to`, all through the
   consent broker.
+- **Mail messages, whole.** Hand over a raw email and get back what it is,
+  for both OpenPGP and S/MIME:
+  - its structure: PGP/MIME (RFC 3156), inline PGP, S/MIME detached,
+    opaque and enveloped (RFC 8551), nested sign-and-encrypt, protected and
+    Autocrypt headers;
+  - the decrypted body, with consent;
+  - each signature's verdict: valid or not, who signed, how well that
+    person's key is verified, and whether the key changed since last seen.
 - **Agents.** A gpg-agent-compatible agent and an SSH agent (including git
   signing).
 - **OS certificate stores.** Contacts' certificates are published to the
@@ -125,7 +146,8 @@ the token.
   YubiKey is present.
 
 **Done when:** comms-mail signs, encrypts, decrypts and verifies OpenPGP and
-S/MIME mail through secretvault, and answers "is this signed by Alice?"
+S/MIME mail through secretvault, recognising every structure above from the
+raw message,, and answers "is this signed by Alice?"
 correctly across all four verification levels.
 
 ## M6: sync and sharing
