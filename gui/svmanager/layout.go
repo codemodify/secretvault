@@ -32,7 +32,7 @@ type ui struct {
 	folders   *widgets.TreeView
 	search    *searchField
 	items     *widgets.TableView
-	itemsNote *widgets.Label
+	itemsNote *tonedLabel
 	browse    *widgets.Splitter // the items, and the item beside them
 	main      *slot             // shows browse, or a vault's page
 	pane      *slot             // the right-hand pane beside the items
@@ -43,8 +43,6 @@ type ui struct {
 	itemMenu  map[string]*widgets.MenuItem // and on there being an item
 
 	view *itemView // the item page, when it is up
-
-	tones []toned
 }
 
 // A tone is a colour taken from the look when it is painted, so a label
@@ -58,16 +56,31 @@ const (
 	toneWarning
 )
 
-type toned struct {
-	l *widgets.Label
-	t tone
+// tonedLabel is a label in a tone of the look's palette, read again at
+// every paint. It keeps no list of such labels to recolour when the look
+// changes: a page that is thrown away takes its labels with it.
+type tonedLabel struct {
+	*widgets.Label
+	tone tone
 }
 
-// tint colours l by tone t, now and whenever the look changes.
-func (m *Manager) tint(l *widgets.Label, t tone) *widgets.Label {
-	m.ui.tones = append(m.ui.tones, toned{l, t})
-	l.Color = toneColor(m.win.Look(), t)
+// toned is a label with text in tone t.
+func toned(text string, t tone) *tonedLabel {
+	l := &tonedLabel{Label: widgets.NewLabel(text), tone: t}
+	l.Label.Init(l)
 	return l
+}
+
+func (l *tonedLabel) Paint(ctx *paintengine2d.Context) {
+	l.Color = toneColor(l.Look(), l.tone)
+	l.Label.Paint(ctx)
+}
+
+func (l *tonedLabel) Measure(c layout.Constraints) paintengine2d.Point {
+	// The colour picks the face (a muted label may be drawn in a lighter
+	// one), so it is settled before measuring too.
+	l.Color = toneColor(l.Look(), l.tone)
+	return l.Label.Measure(c)
 }
 
 func toneColor(lk style.LookAndFeel, t tone) paintengine2d.Color {
@@ -83,25 +96,8 @@ func toneColor(lk style.LookAndFeel, t tone) paintengine2d.Color {
 	return p.TextMuted
 }
 
-// retint follows a change of look. Labels that have left the window are
-// let go of.
-func (m *Manager) retint() {
-	keep := m.ui.tones[:0]
-	for _, t := range m.ui.tones {
-		if t.l.Host() == nil {
-			continue
-		}
-		t.l.Color = toneColor(m.win.Look(), t.t)
-		t.l.Invalidate()
-		keep = append(keep, t)
-	}
-	m.ui.tones = keep
-}
-
 // muted is a label in the look's muted text colour.
-func (m *Manager) muted(text string) *widgets.Label {
-	return m.tint(widgets.NewLabel(text), toneMuted)
-}
+func (m *Manager) muted(text string) *tonedLabel { return toned(text, toneMuted) }
 
 // heading is a section's title.
 func heading(text string) *widgets.Label {
@@ -162,7 +158,6 @@ func (m *Manager) build() {
 	u.column.AddFlex(outer, 1)
 	m.win.SetContent(newShortcutRoot(u.column, m.key))
 	m.win.SetInitialFocus(u.items)
-	m.app.OnLookChange(func() { m.post(m.retint) })
 	m.showEmpty()
 	m.drawStatus()
 }
@@ -181,7 +176,7 @@ func (m *Manager) buildMenu() *widgets.MenuBar {
 			item(u.vaultMenu, "New item", "Ctrl+N", func() { m.newItem(nil) }),
 			item(nil, "New vault…", "", m.newVault),
 			widgets.Sep(),
-			item(nil, "Password generator…", "Ctrl+G", func() { m.showGenerator(nil) }),
+			item(nil, "Password generator…", "Ctrl+G", m.openGenerator),
 			widgets.Sep(),
 			item(nil, "Close window", "Ctrl+W", m.closeWindow),
 			item(nil, "Quit", "Ctrl+Q", m.Quit),
@@ -226,7 +221,11 @@ func (m *Manager) enableMenus() {
 		m.ui.vaultMenu["Lock"].Disabled = v.Locked
 		m.ui.vaultMenu["Make default"].Disabled = v.Default
 	}
-	none := m.gone || m.targetName() == ""
+	// The vault's page covers the items: what acts on an item waits
+	// until they are back, rather than act on a pane nobody can see.
+	page := m.showingVaultPage()
+	m.ui.vaultMenu["New item"].Disabled = m.ui.vaultMenu["New item"].Disabled || page
+	none := m.gone || m.targetName() == "" || page
 	for _, it := range m.ui.itemMenu {
 		it.Disabled = none
 	}
@@ -365,7 +364,7 @@ func (m *Manager) key(e widget.KeyEvent) bool {
 		// keyboard: the list, or the item beside it. Anywhere else (a
 		// field that had nothing left to delete, the folders) it does
 		// nothing, rather than reach the menu's Delete.
-		if focus == widget.Component(m.ui.items) || (m.editor == nil && isUnder(focus, m.ui.pane)) {
+		if focus == widget.Component(m.ui.items) || (m.editor == nil && !m.showingHistory() && isUnder(focus, m.ui.pane)) {
 			m.deleteItem()
 		}
 		return true

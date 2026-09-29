@@ -38,7 +38,7 @@ func (m *Manager) showVaultPage(tab int) {
 		m.say("Save or cancel the edit first.")
 		return
 	}
-	vault := m.vault
+	vault, gen := m.vault, m.listGen
 	if vault == "" {
 		return
 	}
@@ -60,11 +60,11 @@ func (m *Manager) showVaultPage(tab int) {
 			m.reloadVaults()
 			return
 		}
-		if vault != m.vault || m.editor != nil {
-			return
+		if vault != m.vault || gen != m.listGen || m.editor != nil {
+			return // the vault shown changed or locked, or an edit began
 		}
+		m.leaveHistory()
 		m.closeItem()
-		m.wipeHistory()
 		p := &vaultPage{vault: vault, grants: grants, audit: audit}
 		if len(syncs) > 0 {
 			p.sync = &syncs[0]
@@ -214,6 +214,7 @@ func (m *Manager) drawVaultPage(tab int) {
 	} else if tab == 1 {
 		m.win.RequestFocus(atable)
 	}
+	m.enableMenus()
 }
 
 // syncTab says how the vault's sync is doing. It is for reading: setting
@@ -248,12 +249,12 @@ func (m *Manager) syncTab(p *vaultPage) widget.Component {
 	}
 	col := widgets.NewColumn(g).WithGap(gap).WithPad(gap)
 	if s.Error != "" {
-		e := m.tint(widgets.NewLabel("The last sync failed: "+s.Error), toneDanger)
+		e := toned("The last sync failed: "+s.Error, toneDanger)
 		e.Wrap = true
 		col.Add(e)
 	}
 	if s.Kept > 0 {
-		k := m.tint(widgets.NewLabel(fmt.Sprintf("%d keyslot removals were refused, because they would have left the vault with no key.", s.Kept)), toneWarning)
+		k := toned(fmt.Sprintf("%d keyslot removals were refused, because they would have left the vault with no key.", s.Kept), toneWarning)
 		k.Wrap = true
 		col.Add(k)
 	}
@@ -301,5 +302,6 @@ func (m *Manager) closeVaultPage() {
 		m.ui.main.Set(m.ui.browse)
 		m.showSelected()
 		m.win.RequestFocus(m.ui.items)
+		m.enableMenus()
 	}
 }

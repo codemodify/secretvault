@@ -181,6 +181,9 @@ func (m *Manager) vaultActivated(i int) {
 	v := m.vaults[i]
 	if v.Name != m.vault {
 		m.showVault(v.Name, false)
+		if v.Name != m.vault {
+			return // an edit is open
+		}
 	}
 	switch {
 	case v.Locked:
@@ -194,29 +197,38 @@ func (m *Manager) vaultActivated(i int) {
 
 // showVault shows a vault's items. A locked vault is listed only when
 // unlock is set: listing it makes the daemon ask for its passphrase.
+//
+// Another vault is not shown while an edit is open: the edit is not
+// thrown away for it. The vault shown changes before anything is taken
+// down, so that nothing of the last one is drawn again while this one's
+// items are fetched.
 func (m *Manager) showVault(name string, unlock bool) {
-	if name != m.vault {
-		m.closeItem()
-		m.wipeHistory()
-		if m.editor != nil {
-			m.editor.close()
-		}
-		m.closeVaultPage()
-		m.folder = ""
+	other := name != m.vault
+	if other && m.editor != nil {
+		m.say("Save or cancel the edit first.")
+		m.drawVaults() // the selection goes back to the vault being edited
+		return
 	}
 	m.vault = name
 	m.listGen++
 	m.listing = false
 	m.entries, m.shown, m.listed = nil, nil, false
+	if other {
+		m.folder, m.cursor = "", ""
+		m.closeVaultPage()
+		m.leaveHistory()
+		m.closeItem()
+	}
 	m.drawVaults()
 	m.drawFolders()
-	if v := m.vaultInfo(name); v != nil && v.Locked && !unlock {
-		m.drawItems()
-		m.showLocked()
-		m.drawStatus()
-		return
+	if v := m.vaultInfo(name); v == nil || !v.Locked || unlock {
+		m.loadItems()
 	}
-	m.loadItems()
+	m.drawItems()
+	if m.cur == nil && m.editor == nil && !m.showingVaultPage() && !m.showingHistory() {
+		m.showSelected()
+	}
+	m.drawStatus()
 }
 
 // unlockVault unlocks a vault ("" for the one shown); the daemon asks for
@@ -299,7 +311,7 @@ func (m *Manager) vaultLocked(vault string) {
 	if v := m.vaultInfo(vault); v != nil {
 		v.Locked = true
 	}
-	if m.copied != nil && (vault == m.vault || m.copiedFrom == vault) {
+	if m.copied != nil && m.copiedFrom == vault {
 		m.copied.Clear()
 		m.copied = nil
 	}
@@ -320,7 +332,7 @@ func (m *Manager) vaultLocked(vault string) {
 	m.drawVaults()
 	m.drawFolders()
 	m.drawItems()
-	m.showLocked()
+	m.showSelected() // which says it is locked, or that the daemon has gone
 	m.drawStatus()
 }
 
@@ -365,7 +377,7 @@ func (m *Manager) newVault() {
 	pass := widgets.NewSecretField("At least 8 characters")
 	again := widgets.NewSecretField("The same again")
 	recovery := widgets.NewCheckbox("Make a recovery key, shown once", true, nil)
-	problem := m.tint(widgets.NewLabel(""), toneDanger)
+	problem := toned("", toneDanger)
 	problem.Wrap = true
 
 	form := widgets.NewForm()
@@ -407,7 +419,6 @@ func (m *Manager) newVault() {
 		d.Close()
 		var res svrpc.VaultCreateResult
 		m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
-			defer clear(params.Passphrase)
 			res, err = c.CreateVault(ctx, params)
 			return err
 		}, func(err error) {
@@ -421,7 +432,7 @@ func (m *Manager) newVault() {
 			if res.RecoveryKey != "" {
 				m.showRecoveryKey(res.Vault.Name, []byte(res.RecoveryKey))
 			}
-		})
+		}, params.Passphrase)
 	}
 	pass.OnSubmit = func(*widgets.SecretField) { m.win.RequestFocus(again) }
 	again.OnSubmit = func(*widgets.SecretField) { create.OnClick() }
@@ -436,10 +447,17 @@ func (m *Manager) newVault() {
 
 // showRecoveryKey shows a new vault's recovery key, once. It is kept
 // nowhere, here or in the daemon; key is wiped when the dialog closes.
+// A window has one dialog at a time, and showing another takes the one up
+// down: so the key waits for whatever dialog is up to be done with,
+// rather than take it down (or be taken down, and wiped, unread).
 //
 // The daemon's answer carried it as a string (svrpc.VaultCreateResult),
 // which cannot be wiped: that copy lasts until the collector takes it.
 func (m *Manager) showRecoveryKey(vault string, key []byte) {
+	m.whenNoDialog(func() { m.recoveryKeyDialog(vault, key) }, func() { clear(key) })
+}
+
+func (m *Manager) recoveryKeyDialog(vault string, key []byte) {
 	text := newSecretText(key)
 	text.SetReveal(true)
 	text.SetAccessibleName("Recovery key")
@@ -448,7 +466,7 @@ func (m *Manager) showRecoveryKey(vault string, key []byte) {
 	note.Wrap = true
 	body := widgets.NewColumn(note, text).WithGap(12)
 	var d *dialog
-	copyBtn := widgets.NewButton("Copy", func() { m.copyValue(key, "The recovery key") })
+	copyBtn := widgets.NewButton("Copy", func() { m.copyValue(key, "The recovery key", vault) })
 	done := widgets.NewButton("I have written it down", func() { d.Close() })
 	buttons := widgets.NewButtonBox().
 		AddButton(done, widgets.RoleAccept).

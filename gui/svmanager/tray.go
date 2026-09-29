@@ -2,10 +2,9 @@ package svmanager
 
 import (
 	"context"
-	"math"
 	"time"
 
-	"github.com/codemodify/paintengine2d"
+	"github.com/codemodify/secretvault/gui/secretui"
 	"github.com/codemodify/secretvault/svdbus"
 	"github.com/codemodify/uitoolkit/platform"
 )
@@ -20,7 +19,7 @@ func (m *Manager) startTray() {
 		ID:      "secretvault-gui",
 		Title:   "secretvault",
 		Tooltip: "secretvault",
-		Icon:    platform.StatusIcon{Name: "secretvault", Image: padlock(22)},
+		Icon:    platform.StatusIcon{Name: "secretvault", Image: secretui.Icon(22)},
 		Menu:    m.trayMenu(),
 		OnClick: func() { m.post(m.showWindow) },
 	})
@@ -130,22 +129,4 @@ func (m *Manager) showWindow() {
 func (m *Manager) quickSearch() {
 	m.showWindow()
 	m.focusSearch()
-}
-
-// padlock draws the tray's icon: a padlock, side pixels square, in white
-// on a dark round tile, which reads on light and dark panels alike.
-func padlock(side int) *paintengine2d.Image {
-	img := paintengine2d.NewImage(side, side)
-	ctx := paintengine2d.NewContext(img)
-	s := float32(side)
-	ctx.DrawRoundRect(paintengine2d.XYWH(0, 0, s, s), s*0.22, s*0.22, paintengine2d.Fill(paintengine2d.RGB(0.16, 0.30, 0.52)))
-	white := paintengine2d.RGB(1, 1, 1)
-	// The shackle: a half ring above the body.
-	ctx.DrawArc(paintengine2d.Pt(s*0.5, s*0.46), s*0.18, s*0.2, math.Pi, math.Pi, paintengine2d.StrokePaint(white, s*0.09))
-	ctx.DrawLine(paintengine2d.Pt(s*0.32, s*0.46), paintengine2d.Pt(s*0.32, s*0.52), paintengine2d.StrokePaint(white, s*0.09))
-	ctx.DrawLine(paintengine2d.Pt(s*0.68, s*0.46), paintengine2d.Pt(s*0.68, s*0.52), paintengine2d.StrokePaint(white, s*0.09))
-	// The body, and its keyhole.
-	ctx.DrawRoundRect(paintengine2d.XYWH(s*0.22, s*0.48, s*0.56, s*0.36), s*0.06, s*0.06, paintengine2d.Fill(white))
-	ctx.DrawCircle(paintengine2d.Pt(s*0.5, s*0.63), s*0.06, paintengine2d.Fill(paintengine2d.RGB(0.16, 0.30, 0.52)))
-	return img
 }

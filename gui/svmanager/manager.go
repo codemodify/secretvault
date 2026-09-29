@@ -39,9 +39,11 @@ import (
 
 	"github.com/codemodify/uitoolkit/app"
 	"github.com/codemodify/uitoolkit/platform"
+	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/gui/secretui"
 	"github.com/codemodify/secretvault/svotp"
 	"github.com/codemodify/secretvault/svrpc"
 )
@@ -139,6 +141,7 @@ type Manager struct {
 	editor  *editor       // the open item editor
 	asking  *promptDialog // the daemon's question on the screen
 	promptN int
+	waiting []waiting // dialogs waiting for the window to have none up
 
 	gen      generator // the generator's settings, kept between uses
 	hidden   bool      // the window is hidden in the tray
@@ -186,7 +189,7 @@ func New(opts Options) (*Manager, error) {
 		return nil, err
 	}
 	m.win = win
-	win.SetIcon(padlock(16), padlock(24), padlock(32), padlock(48), padlock(64), padlock(128))
+	win.SetIcon(secretui.Icon(16), secretui.Icon(24), secretui.Icon(32), secretui.Icon(48), secretui.Icon(64), secretui.Icon(128))
 	win.SetOnCloseRequest(m.closeRequested)
 	m.build()
 	if opts.Tray {
@@ -245,6 +248,15 @@ func (m *Manager) shutdown() {
 			m.copied.Clear()
 			m.copied = nil
 		}
+		for _, w := range m.waiting {
+			w.drop()
+		}
+		m.waiting = nil
+		if m.ui != nil && m.win.Overlay() != nil {
+			// A dialog up wipes what it holds as it goes (a recovery
+			// key, a generated password, a passphrase being typed).
+			widget.DismissOverlay(m.root())
+		}
 		if m.tray != nil {
 			m.tray.Close()
 		}
@@ -279,9 +291,16 @@ func (m *Manager) post(fn func()) {
 // and then hands its error to then on the interface's goroutine. The
 // daemon may answer only after asking the person, through this program,
 // so waiting for it here would hang both.
-func (m *Manager) call(fn func(ctx context.Context, c *secretvault.Client) error, then func(error)) {
+//
+// sent are the secrets fn sends, which are wiped once fn is done with
+// them, or at once when there is no daemon to send them to and fn is not
+// run at all.
+func (m *Manager) call(fn func(ctx context.Context, c *secretvault.Client) error, then func(error), sent ...[]byte) {
 	c := m.client
 	if c == nil || m.gone {
+		for _, b := range sent {
+			clear(b)
+		}
 		then(errGone)
 		return
 	}
@@ -291,6 +310,9 @@ func (m *Manager) call(fn func(ctx context.Context, c *secretvault.Client) error
 		ctx, cancel := context.WithTimeout(m.ctx, callTimeout)
 		err := fn(ctx, c)
 		cancel()
+		for _, b := range sent {
+			clear(b)
+		}
 		m.post(func() {
 			m.busy--
 			then(err)
@@ -376,6 +398,13 @@ func (m *Manager) daemonGone() {
 	if m.asking != nil {
 		m.dropPrompt(m.asking.id) // nobody is waiting for the answer now
 	}
+	if m.copied != nil {
+		// Its vault's locking can no longer be heard of: the daemon
+		// that went away most likely took every vault's keys with it.
+		m.copied.Clear()
+		m.copied = nil
+	}
+	m.listGen++ // an answer on its way is from a daemon that has gone
 	m.closeItem()
 	m.wipeHistory()
 	if m.editor != nil {
@@ -401,6 +430,7 @@ func (m *Manager) tick() {
 			if m.hasOTP.Load() {
 				m.post(m.drawCodes)
 			}
+			m.post(m.nextDialog)
 		case <-m.done:
 			return
 		}

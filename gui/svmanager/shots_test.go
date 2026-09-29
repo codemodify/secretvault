@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/codemodify/secretvault/gui/secretui"
 	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/uitoolkit"
 	"github.com/codemodify/uitoolkit/app"
@@ -36,7 +37,7 @@ func TestScreenshots(t *testing.T) {
 		t.Setenv("UITK_COLOR_SCHEME", scheme)
 		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		a := uitoolkit.New(uitoolkit.Options{Headless: true, Scale: 1, DisableLookWatch: true})
-		FollowTheDesktop(a)
+		secretui.FollowDesktop(a)
 		h := newHarness(t)
 		h.start(Options{App: a})
 		h.waitText("Vault personal is locked")

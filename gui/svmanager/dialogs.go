@@ -34,6 +34,7 @@ func (m *Manager) showDialog(title string, body widget.Component, buttons *widge
 			onClose()
 		}
 		m.syncCapture()
+		m.post(m.nextDialog) // once the overlay is gone
 	}
 	widget.ShowOverlay(m.root(), d.overlay)
 	m.syncCapture()
@@ -90,6 +91,33 @@ func (d *dialog) Close() {
 		// It was never shown (a window with no host): end it all the same.
 		d.overlay.Dismissed()
 	}
+}
+
+// waiting is a dialog that waits for the window to have none up.
+type waiting struct {
+	show func()
+	drop func() // it will not be shown: the manager is quitting
+}
+
+// whenNoDialog shows a dialog now if the window has none up, and else
+// once it has none: whatever is up (a dialog, the file chooser) is left
+// to be finished with. drop runs instead of show if the manager quits
+// first.
+func (m *Manager) whenNoDialog(show, drop func()) {
+	m.waiting = append(m.waiting, waiting{show, drop})
+	m.nextDialog()
+}
+
+// nextDialog shows the first dialog waiting, if the window has none up.
+// A dialog of showDialog's calls it as it goes, and tick every second,
+// for the overlays that are not showDialog's.
+func (m *Manager) nextDialog() {
+	if len(m.waiting) == 0 || m.win.Overlay() != nil {
+		return
+	}
+	w := m.waiting[0]
+	m.waiting = m.waiting[1:]
+	w.show()
 }
 
 // confirm asks before doing something that cannot be taken back.

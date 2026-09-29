@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codemodify/uitoolkit"
 	"github.com/codemodify/uitoolkit/a11y"
 	"github.com/codemodify/uitoolkit/a11y/a11ytest"
 	"github.com/codemodify/uitoolkit/platform"
@@ -59,8 +58,14 @@ func TestUnlockingAsksForThePassphraseInItsOwnWindow(t *testing.T) {
 
 	h.win().Press(platform.KeyU, platform.ModCtrl)
 	d := h.asking()
-	if d.win == h.win() || d.win.Title() != "Unlock vault personal" {
+	if d.win == h.win() || d.win.Title() != "secretvault: Unlock vault personal" {
 		t.Fatalf("the question is not in a window of its own: %q", d.win.Title())
+	}
+	// secretui's dialog window, as secretvault-gui-prompt's questions are.
+	o := d.win.Surface().(*platform.Offscreen)
+	if o.WindowRole() != platform.RoleDialog || !o.Centered() || !o.KeepAboveRequested() || !o.ExcludeFromCapture() {
+		t.Fatalf("the question's window: role %v, centred %v, above %v, out of captures %v",
+			o.WindowRole(), o.Centered(), o.KeepAboveRequested(), o.ExcludeFromCapture())
 	}
 	if s := windowText(d.win); !strings.Contains(s, `Enter the passphrase of vault "personal"`) {
 		t.Fatalf("the dialog says:\n%s", s)
@@ -68,6 +73,9 @@ func TestUnlockingAsksForThePassphraseInItsOwnWindow(t *testing.T) {
 	field := d.fields[0]
 	if d.win.Focus() != field {
 		t.Fatalf("the passphrase field does not have the keyboard: %T", d.win.Focus())
+	}
+	if !o.SecureInput() || !d.frame.Holding() {
+		t.Fatal("the keyboard is not held while the passphrase is typed")
 	}
 	d.win.Type("not the passphrase")
 	if s := windowText(d.win); strings.Contains(s, "not the passphrase") {
@@ -110,7 +118,7 @@ func TestAVaultUnlockedElsewhereAsksTheGUIToProveItself(t *testing.T) {
 	h.prove() // the CLI unlocks it
 	h.start(Options{})
 	d := h.asking()
-	if d.win.Title() != "Allow svmanager.test" || !strings.Contains(windowText(d.win), "has not used vault") {
+	if d.win.Title() != "secretvault: Allow svmanager.test" || !strings.Contains(windowText(d.win), "has not used vault") {
 		t.Fatalf("the GUI was asked %q:\n%s", d.win.Title(), windowText(d.win))
 	}
 	d.win.Type(pass)
@@ -1142,37 +1150,6 @@ func TestTheWindowsAreAccessible(t *testing.T) {
 	a11ytest.Audit(t, "the editor", h.win().AccessibleTree())
 	h.win().Press(platform.KeyG, platform.ModCtrl)
 	a11ytest.Audit(t, "the generator", h.win().AccessibleTree())
-}
-
-// With no look chosen, the manager follows the desktop's light or dark
-// mode; a look chosen in uitoolkit's Settings is kept.
-func TestTheLookFollowsTheDesktop(t *testing.T) {
-	dark := func(lk style.LookAndFeel) bool {
-		c := lk.Palette().Background
-		return c.R+c.G+c.B < 1.5
-	}
-	for _, scheme := range []string{"dark", "light"} {
-		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-		t.Setenv("UITK_COLOR_SCHEME", scheme)
-		a := uitoolkit.New(uitoolkit.Options{Headless: true, DisableLookWatch: true})
-		FollowTheDesktop(a)
-		if !a.Appearance().FollowDesktop || dark(a.Look()) != (scheme == "dark") {
-			t.Errorf("in a %s desktop: following %v, the look is dark: %v", scheme, a.Appearance().FollowDesktop, dark(a.Look()))
-		}
-	}
-	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
-	if err := os.MkdirAll(filepath.Join(cfg, "uitoolkit"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(uitoolkit.AppearancePath(), []byte(`{"version": 2}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	a := uitoolkit.New(uitoolkit.Options{Headless: true, DisableLookWatch: true})
-	FollowTheDesktop(a)
-	if a.Appearance().FollowDesktop {
-		t.Error("a look chosen in Settings was overridden")
-	}
 }
 
 func TestWithNoTrayClosingTheWindowQuits(t *testing.T) {

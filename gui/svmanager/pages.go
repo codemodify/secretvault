@@ -49,8 +49,12 @@ func (m *Manager) showLocked() {
 		m.ui.pane.Set(m.message("Vault "+v.Name+" is missing", "Its folder, "+v.Path+", is not there. Is a drive missing?"))
 		return
 	}
-	if !v.Locked && m.listing {
-		m.ui.pane.Set(m.message("Vault "+v.Name, "Listing its items…"))
+	if m.listing {
+		text := "Listing its items…"
+		if v.Locked {
+			text = "Waiting for its passphrase…"
+		}
+		m.ui.pane.Set(m.message("Vault "+v.Name, text))
 		return
 	}
 	if !v.Locked {
@@ -85,6 +89,9 @@ func (m *Manager) showGone() {
 // showSelected shows what the list knows of the selected item, or that
 // nothing is selected.
 func (m *Manager) showSelected() {
+	// Whatever the pane showed goes: an item that was open is wiped, not
+	// left held behind a preview.
+	m.dropItem()
 	switch v := m.vaultInfo(m.vault); {
 	case m.gone:
 		m.showGone()
@@ -205,13 +212,21 @@ func groupCode(code string) string {
 	return code[:h] + " " + code[h:]
 }
 
-// toggleRevealAll is Ctrl+R: the open item's concealed values, all shown
-// or all hidden. An item that is only selected is opened, revealed.
+// toggleRevealAll is Ctrl+R: the concealed values of what the pane shows
+// (the open item, the revision open in its history, the editor), all
+// shown or all hidden. An item that is only selected is opened, revealed.
 func (m *Manager) toggleRevealAll() {
 	switch {
+	case m.editor != nil:
+		m.editor.toggleReveal()
+	case m.showingHistory():
+		// In the history, the revision shown is what Ctrl+R is about.
+		if m.hist != nil && m.hist.view != nil {
+			m.hist.view.toggleAll()
+		}
 	case m.ui.view.open():
 		m.ui.view.toggleAll()
-	case m.cursor != "" && m.editor == nil:
+	case m.cursor != "" && m.editor == nil && !m.showingVaultPage():
 		m.openItem(m.cursor, true)
 	}
 }

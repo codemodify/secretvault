@@ -354,6 +354,10 @@ func (m *Manager) openItem(name string, reveal bool) {
 		m.say("Save or cancel the edit first.")
 		return
 	}
+	// The item takes the place of whatever page was up: a history goes,
+	// wiped, and so does the vault's page over the items.
+	m.closeVaultPage()
+	m.leaveHistory()
 	m.closeItem()
 	gen, vault := m.itemGen, m.vault
 	m.say("Opening %s…", name)
@@ -415,9 +419,19 @@ func parseOTP(v []byte) (*svotp.Key, error) {
 }
 
 // closeItem leaves the open item: its values are wiped, and taken off the
-// screen.
+// screen, and what is selected shows in its place.
 func (m *Manager) closeItem() {
-	m.itemGen++
+	m.itemGen++ // an open on its way is not wanted now
+	m.dropItem()
+	if m.ui != nil && m.editor == nil && !m.showingVaultPage() && !m.showingHistory() {
+		m.showSelected()
+	}
+	m.syncCapture()
+}
+
+// dropItem wipes the open item and lets the screen go of it, and does
+// nothing else.
+func (m *Manager) dropItem() {
 	if m.ui != nil && m.ui.view != nil {
 		m.ui.view.forget()
 		m.ui.view = nil
@@ -431,74 +445,76 @@ func (m *Manager) closeItem() {
 	}
 	m.otp = map[int]*svotp.Key{}
 	m.hasOTP.Store(false)
-	if m.ui != nil && m.editor == nil && !m.showingVaultPage() && !m.showingHistory() {
-		m.showSelected()
-	}
-	m.syncCapture()
 }
 
 // withItem runs fn on the target item: the open one, or else the one
-// selected, fetched for the purpose and wiped afterwards.
-func (m *Manager) withItem(fn func(e *svrpc.Entry)) {
+// selected, fetched for the purpose and wiped afterwards. fn is told which
+// vault the item is from. A fetch whose answer comes after the vault shown
+// has changed, or locked, is dropped: fn would act on another vault's
+// screen.
+func (m *Manager) withItem(fn func(vault string, e *svrpc.Entry)) {
 	name := m.targetName()
 	if name == "" {
 		m.say("Choose an item first.")
 		return
 	}
 	if m.cur != nil && m.cur.Item.Name == name {
-		fn(m.cur)
+		fn(m.vault, m.cur)
 		return
 	}
-	vault := m.vault
+	vault, gen := m.vault, m.listGen
 	var e svrpc.Entry
 	m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 		e, err = c.Get(ctx, vault, name)
 		return err
 	}, func(err error) {
 		defer wipeItem(&e.Item)
-		if err != nil {
+		switch {
+		case vault != m.vault || gen != m.listGen:
+			return // the vault shown changed, or locked, meanwhile
+		case err != nil:
 			m.fail(err)
 			return
 		}
-		fn(&e)
+		fn(vault, &e)
 	})
 }
 
 // copySecret copies the target item's password (its primary secret).
 func (m *Manager) copySecret() {
-	m.withItem(func(e *svrpc.Entry) {
+	m.withItem(func(vault string, e *svrpc.Entry) {
 		f, ok := secretField(&e.Item)
 		if !ok {
 			m.say("%s has no secret to copy.", e.Item.Name)
 			return
 		}
-		m.copyValue(f.Value, "The "+f.Name)
+		m.copyValue(f.Value, "The "+f.Name, vault)
 	})
 }
 
 // copyAndMinimise copies the password and gets the window out of the way
 // of the program it is to be pasted into.
 func (m *Manager) copyAndMinimise() {
-	m.withItem(func(e *svrpc.Entry) {
+	m.withItem(func(vault string, e *svrpc.Entry) {
 		f, ok := secretField(&e.Item)
 		if !ok {
 			m.say("%s has no secret to copy.", e.Item.Name)
 			return
 		}
-		if m.copyValue(f.Value, "The "+f.Name) {
+		if m.copyValue(f.Value, "The "+f.Name, vault) {
 			m.minimise()
 		}
 	})
 }
 
 func (m *Manager) copyUsername() {
-	m.withItem(func(e *svrpc.Entry) {
+	m.withItem(func(vault string, e *svrpc.Entry) {
 		if f, ok := usernameField(&e.Item); ok {
-			m.copyValue(f.Value, "The "+f.Name)
+			m.copyValue(f.Value, "The "+f.Name, vault)
 			return
 		}
 		if name := e.Item.Attrs["username"]; name != "" {
-			m.copyValue([]byte(name), "The username")
+			m.copyValue([]byte(name), "The username", vault)
 			return
 		}
 		m.say("%s has no username.", e.Item.Name)
@@ -506,7 +522,7 @@ func (m *Manager) copyUsername() {
 }
 
 func (m *Manager) copyCode() {
-	m.withItem(func(e *svrpc.Entry) {
+	m.withItem(func(vault string, e *svrpc.Entry) {
 		for _, f := range e.Item.Fields {
 			if f.Type != svcore.FieldOTP {
 				continue
@@ -518,7 +534,7 @@ func (m *Manager) copyCode() {
 			}
 			code, _ := k.Code(m.now())
 			k.Wipe()
-			m.copyValue([]byte(code), "The one-time code")
+			m.copyValue([]byte(code), "The one-time code", vault)
 			return
 		}
 		m.say("%s has no one-time password.", e.Item.Name)
@@ -527,14 +543,15 @@ func (m *Manager) copyCode() {
 
 // copyValue puts a copy of v on the clipboard, for the clipboard to wipe;
 // v itself stays with its owner, who may wipe it at any time. what says
-// what it was, for the status bar.
-func (m *Manager) copyValue(v []byte, what string) bool {
+// what it was, for the status bar; vault is the vault it came from, whose
+// locking takes it back ("" for none: a generated password).
+func (m *Manager) copyValue(v []byte, what, vault string) bool {
 	if len(v) == 0 {
 		m.say("That is empty: nothing was copied.")
 		return false
 	}
 	m.copied = m.clip.SetSecret(append([]byte(nil), v...), m.ttl)
-	m.copiedFrom = m.vault
+	m.copiedFrom = vault
 	m.say("%s is on the clipboard for %d seconds.", what, int(m.ttl.Seconds()))
 	return true
 }
@@ -655,6 +672,7 @@ func (m *Manager) reopen() {
 		return
 	}
 	name := m.cur.Item.Name
+	m.itemGen++ // a reopen already on its way brings an older item
 	vault, gen := m.vault, m.itemGen
 	revealed := m.ui.view.revealedFields()
 	var e svrpc.Entry
@@ -683,6 +701,7 @@ func (m *Manager) reopen() {
 
 // focusSearch is Ctrl+F.
 func (m *Manager) focusSearch() {
+	m.closeVaultPage() // which covers the search
 	m.win.RequestFocus(m.ui.search)
 	m.ui.search.SelectAll()
 }

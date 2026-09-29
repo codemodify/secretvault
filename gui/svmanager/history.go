@@ -41,7 +41,7 @@ func (m *Manager) showHistory() {
 		m.say("Choose an item first.")
 		return
 	}
-	vault := m.vault
+	vault, gen := m.vault, m.listGen
 	var cur svrpc.Entry
 	var hist []svrpc.Entry
 	m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
@@ -52,7 +52,10 @@ func (m *Manager) showHistory() {
 		hist, err = c.History(ctx, vault, name)
 		return err
 	}, func(err error) {
-		if err != nil || vault != m.vault || m.editor != nil {
+		// Dropped, wiped, if meanwhile the vault shown changed or locked
+		// (vaultLocked moves listGen on), an edit began, or the vault's
+		// page went up.
+		if err != nil || vault != m.vault || gen != m.listGen || m.editor != nil || m.showingVaultPage() {
 			wipeEntries(hist)
 			if err != nil {
 				m.fail(err)
@@ -144,13 +147,12 @@ func (m *Manager) openRevision(i int) {
 	}
 	if h.view != nil {
 		h.view.forget()
-		for _, k := range h.view.keys {
-			k.Wipe()
-		}
 	}
 	h.opened = i
 	e := &h.entries[i]
-	h.view = m.newItemView(e, viewRevision, otpKeys(&e.Item))
+	// No one-time codes for a revision: its key stays masked, and is not
+	// parsed (which would make a string of it) for a code nobody needs.
+	h.view = m.newItemView(e, viewRevision, nil)
 	label := "Revision " + short(e.Rev)
 	switch {
 	case e.Rev == h.cur:
@@ -180,6 +182,16 @@ func (m *Manager) closeHistory() {
 	m.win.RequestFocus(m.ui.items)
 }
 
+// leaveHistory takes the history down, wiping its revisions, and shows
+// the selection in its place: for whatever is about to replace it.
+func (m *Manager) leaveHistory() {
+	showing := m.showingHistory()
+	m.wipeHistory()
+	if showing {
+		m.showSelected()
+	}
+}
+
 // wipeHistory forgets the history page's revisions, wiping them.
 func (m *Manager) wipeHistory() {
 	h := m.hist
@@ -188,9 +200,6 @@ func (m *Manager) wipeHistory() {
 	}
 	if h.view != nil {
 		h.view.forget()
-		for _, k := range h.view.keys {
-			k.Wipe()
-		}
 	}
 	wipeEntries(h.entries)
 	m.hist = nil

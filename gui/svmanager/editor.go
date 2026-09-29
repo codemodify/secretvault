@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -38,13 +37,19 @@ type editor struct {
 	attrs   *widgets.TextArea
 	fields  []*fieldEditor
 	grid    *widgets.Grid
-	problem *widgets.Label
+	problem *tonedLabel
 	reveal  *widgets.Button
 	shown   bool // secrets are revealed
 	touched bool // a field was typed into: a new item keeps its fields when the kind changes
 	saving  bool
+	closed  bool // saved or cancelled: nothing may go into it now
 
 	lastSecret *widgets.SecretField // the secret field last typed into, for the generator
+
+	// cancels take down what the editor opened over itself (the
+	// generator, "Add a field", a file dialog) when it closes, so that
+	// none of them can act on it afterwards.
+	cancels []func()
 }
 
 // fieldEditor is one field in the editor.
@@ -106,8 +111,7 @@ func (m *Manager) newItem(generated []byte) {
 		m.say("Vault %s is locked: Ctrl+U unlocks it.", m.vault)
 		return
 	}
-	ed := m.openEditor(nil)
-	if generated != nil {
+	if ed := m.openEditor(nil); ed != nil && generated != nil {
 		ed.useGenerated(generated)
 	}
 }
@@ -115,16 +119,23 @@ func (m *Manager) newItem(generated []byte) {
 // editItem opens the editor on the target item.
 func (m *Manager) editItem() {
 	if m.editor != nil {
+		m.say("Save or cancel the edit first.")
 		return
 	}
-	m.withItem(func(e *svrpc.Entry) { m.openEditor(e) })
+	m.withItem(func(_ string, e *svrpc.Entry) { m.openEditor(e) })
 }
 
-// openEditor puts the editor up, on a copy of e (nil for a new item).
+// openEditor puts the editor up, on a copy of e (nil for a new item), in
+// the vault shown, which e is from (withItem sees to that). An edit
+// already open is never discarded for another: it is saved or cancelled
+// first, and then this returns nil.
 func (m *Manager) openEditor(e *svrpc.Entry) *editor {
 	if m.editor != nil {
-		m.editor.close()
+		m.say("Save or cancel the edit first.")
+		return nil
 	}
+	m.closeVaultPage()
+	m.leaveHistory()
 	ed := &editor{m: m, vault: m.vault}
 	m.editor = ed
 	it := svrpc.Item{Kind: "login"}
@@ -169,7 +180,7 @@ func (m *Manager) openEditor(e *svrpc.Entry) *editor {
 	}
 	m.closeItem()
 
-	ed.problem = m.tint(widgets.NewLabel(""), toneDanger)
+	ed.problem = toned("", toneDanger)
 	ed.problem.Wrap = true
 	save := tip(widgets.NewButton("Save", ed.save), "Ctrl+S")
 	save.Primary = true
@@ -177,7 +188,7 @@ func (m *Manager) openEditor(e *svrpc.Entry) *editor {
 	buttons := widgets.NewWrap(
 		save,
 		tip(widgets.NewButton("Add field…", ed.askField), "Ctrl+Shift+N"),
-		tip(widgets.NewButton("Generate password…", func() { m.showGenerator(ed.useGenerated) }), "Ctrl+G"),
+		tip(widgets.NewButton("Generate password…", ed.generate), "Ctrl+G"),
 		ed.reveal,
 		tip(widgets.NewButton("Cancel", ed.close), "Escape"),
 	)
@@ -206,7 +217,7 @@ func (ed *editor) key(e widget.KeyEvent) bool {
 	case e.Key == platform.KeyR && e.Mods.Ctrl():
 		ed.toggleReveal()
 	case e.Key == platform.KeyG && e.Mods.Ctrl():
-		ed.m.showGenerator(ed.useGenerated)
+		ed.generate()
 	case e.Key == platform.KeyN && e.Mods.Ctrl() && e.Mods.Shift():
 		ed.askField()
 	case e.Key == platform.KeyEscape:
@@ -227,6 +238,19 @@ func (ed *editor) addField(name, typ string, value []byte) *fieldEditor {
 		s.Reveal = ed.shown
 		setSecret(s, value)
 		s.OnChange = func(f *widgets.SecretField) {
+			if ed.closed {
+				return // the editor's own wipe as it closes
+			}
+			if ed.shown {
+				// What is typed shows: the window stays out of captures
+				// while it does.
+				ed.m.syncCapture()
+			}
+			if f.Empty() {
+				// Emptied (and setSecret empties before it fills): that
+				// says nothing about where a generated password goes.
+				return
+			}
 			ed.touched = true
 			ed.lastSecret = f
 		}
@@ -309,11 +333,11 @@ func (ed *editor) layoutFields() {
 // replaceFromFile replaces a kept value with a file's contents, read
 // straight into bytes.
 func (ed *editor) replaceFromFile(fe *fieldEditor) {
-	ed.m.pickFile(false, "", func(path string) {
-		if path == "" {
+	cancel := ed.m.pickFile(false, "", func(path string) {
+		if path == "" || ed.closed || !slices.Contains(ed.fields, fe) {
 			return
 		}
-		b, err := os.ReadFile(path)
+		b, err := readFile(path)
 		if err != nil {
 			ed.problem.SetText(sentence(err.Error()))
 			return
@@ -323,6 +347,14 @@ func (ed *editor) replaceFromFile(fe *fieldEditor) {
 		ed.touched = true
 		ed.layoutFields()
 	})
+	ed.cancels = append(ed.cancels, cancel)
+}
+
+// generate opens the password generator, whose Use fills in the password.
+func (ed *editor) generate() {
+	if d := ed.m.showGenerator(ed.useGenerated); d != nil {
+		ed.cancels = append(ed.cancels, d.Close)
+	}
 }
 
 // removeField takes a field out, wiping it.
@@ -414,6 +446,9 @@ func (ed *editor) hideSecrets() {
 // useGenerated puts a generated password in the secret field last typed
 // into, else the item's password field, else a new one.
 func (ed *editor) useGenerated(pw []byte) {
+	if ed.closed {
+		return // the edit is over: the password goes nowhere
+	}
 	target := ed.lastSecret
 	if target == nil {
 		for _, n := range []string{"password", "secret"} {
@@ -445,13 +480,17 @@ func (ed *editor) askField() {
 	m := ed.m
 	name := widgets.NewTextField("", "", nil)
 	typ := widgets.NewComboBox(fieldTypes, 0, nil)
-	problem := m.tint(widgets.NewLabel(""), toneDanger)
+	problem := toned("", toneDanger)
 	form := widgets.NewForm()
 	form.AddRow("Name", name)
 	form.AddRow("Type", typ)
 	var d *dialog
 	add := widgets.NewButton("Add", nil)
 	add.OnClick = func() {
+		if ed.closed {
+			d.Close()
+			return
+		}
 		n := strings.TrimSpace(name.Text)
 		if n == "" {
 			problem.SetText("Give the field a name.")
@@ -473,6 +512,7 @@ func (ed *editor) askField() {
 	buttons := widgets.NewButtonBox().AddButton(add, widgets.RoleAccept).
 		AddButton(widgets.NewButton("Cancel", func() { d.Close() }), widgets.RoleReject)
 	d = m.showDialog("Add a field", widgets.NewColumn(form, problem).WithGap(gap), buttons, name, nil)
+	ed.cancels = append(ed.cancels, d.Close)
 }
 
 // item reads the form. The caller wipes the fields' values.
@@ -525,7 +565,7 @@ func (ed *editor) save() {
 		return
 	}
 	ed.problem.SetText("")
-	vault, orig, name := ed.vault, ed.orig, it.Name
+	vault, orig, name, gen := ed.vault, ed.orig, it.Name, m.listGen
 	ed.saving = true
 	renamed := false
 	m.call(func(ctx context.Context, c *secretvault.Client) error {
@@ -539,6 +579,7 @@ func (ed *editor) save() {
 		_, err := c.Put(ctx, vault, it)
 		return err
 	}, func(err error) {
+		wipeItem(&it) // also when the call never ran (no daemon)
 		ed.saving = false
 		if renamed {
 			ed.orig = name
@@ -552,7 +593,7 @@ func (ed *editor) save() {
 			ed.close()
 		}
 		m.say("Saved %s.", name)
-		if vault == m.vault {
+		if vault == m.vault && gen == m.listGen {
 			m.cursor = name
 			m.openItem(name, false)
 			m.loadItems()
@@ -560,8 +601,14 @@ func (ed *editor) save() {
 	})
 }
 
-// close closes the editor, wiping what was typed into it.
+// close closes the editor, wiping what was typed into it, and takes down
+// whatever it opened over itself.
 func (ed *editor) close() {
+	ed.closed = true
+	for _, cancel := range ed.cancels {
+		cancel()
+	}
+	ed.cancels = nil
 	ed.wipe()
 	if ed.m.editor != ed {
 		return

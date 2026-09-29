@@ -8,10 +8,11 @@ import (
 
 	"github.com/codemodify/uitoolkit/app"
 	"github.com/codemodify/uitoolkit/layout"
-	"github.com/codemodify/uitoolkit/platform"
+	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 
+	"github.com/codemodify/secretvault/gui/secretui"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -20,9 +21,10 @@ import (
 // or to allow this program to use one), it asks for the vault's passphrase
 // through prompt.ask, and the question is put here, in a dialog window of
 // its own, above the others and centred, whether or not the main window
-// is showing. While it is up it holds the keyboard where the platform
-// allows (uitoolkit's SetSecureInput) and stays out of screenshots where
-// the platform allows (SetExcludeFromCapture). The passphrase is typed
+// is showing: secretui's, which secretvault-gui-prompt asks in too. While
+// the passphrase field has the keyboard the window holds it where the
+// platform allows (uitoolkit's SetSecureInput), and it stays out of
+// screenshots where the platform allows (SetExcludeFromCapture). The passphrase is typed
 // into a SecretField, whose contents never become a string, and wiped as
 // soon as it is sent.
 
@@ -30,9 +32,10 @@ import (
 type promptDialog struct {
 	id       int
 	win      *app.Window
+	frame    *secretui.Frame
 	fields   []*widgets.SecretField
-	problem  *widgets.Label
-	answer   chan<- svrpc.PromptAnswer // buffered: one answer
+	problem  *tonedLabel
+	answer   chan svrpc.PromptAnswer // buffered: one answer
 	answered bool
 }
 
@@ -62,13 +65,21 @@ func (m *Manager) prompt(ctx context.Context, q svrpc.PromptAsk) (svrpc.PromptAn
 	case <-ctx.Done():
 	case <-m.done:
 	}
+	// Taken down on the interface's goroutine, and only then is the
+	// channel emptied: an answer given meanwhile is wiped, not left in it.
+	dropped := make(chan struct{})
 	m.post(func() {
 		select {
 		case id := <-shown:
 			m.dropPrompt(id)
 		default:
 		}
+		close(dropped)
 	})
+	select {
+	case <-dropped:
+	case <-m.done: // shutdown has taken it down
+	}
 	select {
 	case a := <-answer:
 		clear(a.Secret)
@@ -77,11 +88,15 @@ func (m *Manager) prompt(ctx context.Context, q svrpc.PromptAsk) (svrpc.PromptAn
 	return svrpc.PromptAnswer{Canceled: true}, nil
 }
 
-// promptWidth is the dialog's width, in the look's 1x pixels.
+// promptWidth is the dialog's width, in logical pixels.
 const promptWidth = 480
 
-// showPrompt puts a question up and returns its number.
-func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan<- svrpc.PromptAnswer) int {
+// showPrompt puts a question up and returns its number. It is asked in
+// secretui's frame and window, as secretvault-gui-prompt asks its
+// questions: the same header, and a dialog window that is centred, above
+// the others, out of screen captures where the platform allows, and that
+// holds the keyboard while the passphrase field has it.
+func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan svrpc.PromptAnswer) int {
 	if m.asking != nil {
 		m.dropPrompt(m.asking.id)
 	}
@@ -89,9 +104,8 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan<- svrpc.PromptAnswer
 	d := &promptDialog{id: m.promptN, answer: answer}
 	title := strings.TrimSpace(q.Title)
 	if title == "" {
-		title = "secretvault"
+		title = "Passphrase"
 	}
-	var win *app.Window // made below, once the dialog knows how tall it is
 	m.asking = d
 
 	finish := func(a svrpc.PromptAnswer) {
@@ -105,11 +119,17 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan<- svrpc.PromptAnswer
 	}
 	cancel := func() { finish(svrpc.PromptAnswer{Canceled: true}) }
 
-	desc := widgets.NewLabel(strings.TrimSpace(q.Description))
-	desc.Wrap = true
-	d.problem = m.tint(widgets.NewLabel(q.Error), toneDanger)
+	// Columns and forms space their children in device pixels, so the
+	// lengths here are scaled to the display as the widgets are.
+	s := style.Dip(m.app.Look(), 1)
+	col := widgets.NewColumn().WithGap(10*s).WithPadding(20*s, 16*s, 20*s, 16*s)
+	if text := strings.TrimSpace(q.Description); text != "" {
+		desc := widgets.NewLabel(text)
+		desc.Wrap = true
+		col.Add(desc)
+	}
+	d.problem = toned(q.Error, toneDanger)
 	d.problem.Wrap = true
-	col := widgets.NewColumn(heading(title), desc).WithGap(10).WithPad(16)
 	buttons := widgets.NewButtonBox()
 	var focus widget.Component
 
@@ -132,6 +152,7 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan<- svrpc.PromptAnswer
 		first.SetAccessibleName(promptLabel(q.Prompt, "Passphrase"))
 		d.fields = append(d.fields, first)
 		form := widgets.NewForm()
+		form.ColGap, form.RowGap = form.ColGap*s, form.RowGap*s
 		form.AddRow(promptLabel(q.Prompt, "Passphrase"), first)
 		ok := widgets.NewButton("Unlock", nil)
 		submit := func() {
@@ -146,7 +167,7 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan<- svrpc.PromptAnswer
 			again.SetAccessibleName("Repeat")
 			d.fields = append(d.fields, again)
 			form.AddRow("Repeat", again)
-			first.OnSubmit = func(*widgets.SecretField) { win.RequestFocus(again) }
+			first.OnSubmit = func(*widgets.SecretField) { d.win.RequestFocus(again) }
 			submit = func() {
 				a, b := first.Bytes(), again.Bytes()
 				defer clear(b)
@@ -162,7 +183,7 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan<- svrpc.PromptAnswer
 				clear(a)
 				first.Wipe()
 				again.Wipe()
-				win.RequestFocus(first)
+				d.win.RequestFocus(first)
 			}
 			again.OnSubmit = func(*widgets.SecretField) { submit() }
 		} else {
@@ -180,28 +201,9 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan<- svrpc.PromptAnswer
 	}
 	col.Add(widgets.NewRow(widgets.NewSpacer(), buttons).WithJustify(layout.JustifyEnd))
 
-	root := newShortcutRoot(col, func(e widget.KeyEvent) bool {
-		if e.Key == platform.KeyEscape {
-			cancel()
-			return true
-		}
-		return false
-	})
-	// As tall as what it says, measured in the main window's look before
-	// the dialog's own window exists, so that it is made that size and
-	// centred as it is.
-	root.SetHost(m.win)
-	scale := m.win.Scale()
-	if scale <= 0 {
-		scale = 1
-	}
-	need := root.Measure(layout.Loose(float32(promptWidth)*scale, 4000*scale))
-	root.SetHost(nil)
-	win, err := m.app.NewWindow(platform.WindowOptions{
-		Title: title, Width: promptWidth, Height: int(need.Y/scale) + 8,
-		Role: platform.RoleDialog, Center: true, KeepAbove: true, Sizing: platform.SizingFixed,
-		Headless: m.opts.Headless,
-	})
+	d.frame = secretui.NewFrame(title, col)
+	d.frame.OnEscape = cancel
+	win, err := secretui.Open(m.app, secretui.Name+": "+title, promptWidth, d.frame)
 	if err != nil {
 		m.asking = nil
 		d.answered = true
@@ -209,15 +211,11 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan<- svrpc.PromptAnswer
 		return d.id
 	}
 	d.win = win
-	win.SetContent(root)
 	win.SetInitialFocus(focus)
 	win.SetOnCloseRequest(func() bool {
 		cancel()
 		return false // cancel has closed it already
 	})
-	win.SetSecureInput(true)
-	win.SetExcludeFromCapture(true)
-	win.Activate()
 	win.RequestFocus(focus)
 	return d.id
 }
@@ -237,8 +235,10 @@ func (m *Manager) dropPrompt(id int) {
 		d.answer <- svrpc.PromptAnswer{Canceled: true}
 	}
 	m.asking = nil
+	if d.frame != nil {
+		d.frame.Release()
+	}
 	if d.win != nil && !d.win.Closed() {
-		d.win.SetSecureInput(false)
 		d.win.Close()
 	}
 }

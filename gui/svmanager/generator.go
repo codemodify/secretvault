@@ -101,15 +101,16 @@ func appendSecret(buf, p []byte) []byte {
 
 // showGenerator shows the password generator. With use, its Use button
 // hands the password over (to the editor); without, it offers to copy the
-// password or to make a new item with it.
-func (m *Manager) showGenerator(use func([]byte)) {
+// password or to make a new item with it. It returns the dialog, for whoever
+// opened it to take it down.
+func (m *Manager) showGenerator(use func([]byte)) *dialog {
 	g := &m.gen
 	var pw []byte
 	preview := newSecretText(nil)
 	preview.SetReveal(true)
 	preview.SetAccessibleName("Generated password")
 	strength := m.muted("")
-	problem := m.tint(widgets.NewLabel(""), toneDanger)
+	problem := toned("", toneDanger)
 
 	regenerate := func() {
 		p, err := g.make()
@@ -193,7 +194,7 @@ func (m *Manager) showGenerator(use func([]byte)) {
 		})
 		buttons.AddButton(first, widgets.RoleAccept)
 	} else {
-		first = widgets.NewButton("Copy", func() { m.copyValue(pw, "The password") })
+		first = widgets.NewButton("Copy", func() { m.copyValue(pw, "The password", "") })
 		buttons.AddButton(first, widgets.RoleAccept)
 		buttons.AddButton(widgets.NewButton("New item with it", func() {
 			p := append([]byte(nil), pw...)
@@ -210,6 +211,17 @@ func (m *Manager) showGenerator(use func([]byte)) {
 		clear(pw)
 		pw = nil
 	})
+	return d
+}
+
+// openGenerator is the generator from the menu. While an edit is open it
+// is the editor's, and hands the password to it.
+func (m *Manager) openGenerator() {
+	if m.editor != nil {
+		m.editor.generate()
+		return
+	}
+	m.showGenerator(nil)
 }
 
 // verdict says in words what the bits mean.

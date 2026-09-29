@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
@@ -15,14 +16,16 @@ import (
 
 // Files attached to items: saving one to disk, attaching one, removing
 // one. Contents go between the disk and the daemon in byte slices, which
-// are wiped once written.
+// are wiped once written. The item shows its files as they are once the
+// daemon says the item changed (item.changed), as it does for any change.
 
 // pickFile asks for a file to save to (save) or to read, and calls done
-// with its path, or "" for none.
-func (m *Manager) pickFile(save bool, suggested string, done func(string)) {
+// with its path, or "" for none. It returns a function that takes the
+// question down unanswered, for a caller that goes away first.
+func (m *Manager) pickFile(save bool, suggested string, done func(string)) (cancel func()) {
 	if m.opts.PickFile != nil {
 		m.opts.PickFile(save, suggested, done)
-		return
+		return func() {}
 	}
 	home, _ := os.UserHomeDir()
 	opts := widgets.FileDialogOptions{Path: home, OnPick: done, OnCancel: func() { done("") }}
@@ -35,6 +38,12 @@ func (m *Manager) pickFile(save bool, suggested string, done func(string)) {
 		opts.Title = "Choose a file"
 	}
 	widgets.ShowFileDialog(m.root(), opts)
+	shown := m.win.Overlay()
+	return func() {
+		if shown != nil && m.win.Overlay() == shown {
+			widget.DismissOverlay(m.root())
+		}
+	}
 }
 
 // saveFile writes an item's file to disk, where the person says.
@@ -61,18 +70,37 @@ func (m *Manager) saveFile(item, name string) {
 	})
 }
 
-// writeFile writes data to a new file only its owner can read, replacing
-// what was there.
+// writeFile puts data at path in a file only its owner can read. It is
+// written beside path under another name and then renamed over it, so a
+// file that was there is replaced whole, mode and all, rather than
+// truncated and left as readable as it was.
 func writeFile(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
 	if err != nil {
 		return err
 	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
+	tmp := f.Name()
+	ok := false
+	defer func() {
+		if !ok {
+			f.Close()
+			os.Remove(tmp)
+		}
+	}()
+	if err := f.Chmod(0o600); err != nil {
 		return err
 	}
-	return f.Close()
+	if _, err := f.Write(data); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	ok = true
+	return nil
 }
 
 // attachFile attaches a file from disk to an item, replacing one of the
@@ -90,7 +118,6 @@ func (m *Manager) attachFile(item string) {
 		}
 		name := filepath.Base(path)
 		m.call(func(ctx context.Context, c *secretvault.Client) error {
-			defer clear(data)
 			_, err := c.Attach(ctx, svrpc.FileAttachParams{Vault: vault, Item: item, Name: name, Data: data})
 			return err
 		}, func(err error) {
@@ -99,12 +126,12 @@ func (m *Manager) attachFile(item string) {
 				return
 			}
 			m.say("Attached %s to %s.", name, item)
-			m.afterFiles(vault, item)
-		})
+		}, data)
 	})
 }
 
-// readFile reads a file to attach, no larger than one message can carry.
+// readFile reads a file, no larger than one message can carry, into bytes
+// the caller wipes.
 func readFile(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -136,19 +163,6 @@ func (m *Manager) removeFile(item, name string) {
 				return
 			}
 			m.say("Removed %s from %s.", name, item)
-			m.afterFiles(vault, item)
 		})
 	})
-}
-
-// afterFiles shows an item whose files changed as it is now. The daemon
-// says item.changed too, but only once the list is current.
-func (m *Manager) afterFiles(vault, item string) {
-	if vault != m.vault {
-		return
-	}
-	if m.cur != nil && m.cur.Item.Name == item {
-		m.reopen()
-	}
-	m.loadItems()
 }
