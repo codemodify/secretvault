@@ -646,7 +646,7 @@ func (d *Daemon) syncJoin(ctx context.Context, cl *client, decode func(any) erro
 		return fail(errors.New("the server has no vault under that name yet"))
 	}
 	r := inv.Remote
-	mv, err := d.openVault(VaultConfig{Name: p.Name, Path: path, AutoLock: DefaultAutoLock, Sync: &r})
+	mv, err := d.openVault(VaultConfig{Name: p.Name, Path: path, AutoLock: d.defaultAutoLock(), Sync: &r})
 	if err != nil {
 		return fail(err)
 	}

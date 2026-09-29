@@ -3,6 +3,7 @@
 package svd
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -10,6 +11,11 @@ import (
 
 	"golang.org/x/sys/windows"
 )
+
+// ListenHost is for host mode, which runs on Linux only.
+func (d *Daemon) ListenHost() (*HostListeners, error) {
+	return nil, errors.New("svd: host mode runs on Linux only")
+}
 
 // On Windows secretvaultd listens on an AF_UNIX socket (Windows 10 1803
 // and later) inside %LOCALAPPDATA%, which only the user can reach. A

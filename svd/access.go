@@ -84,6 +84,11 @@ func (d *Daemon) ensureUnlocked(ctx context.Context, cl *client, mv *managedVaul
 	if !mv.v.Locked() {
 		return false, false, nil
 	}
+	if d.host != nil {
+		// The host daemon asks nobody: its identity opens the vault, or
+		// nothing does (host.go).
+		return false, false, d.hostUnlock(mv)
+	}
 	mv.prompt.Lock()
 	defer mv.prompt.Unlock()
 	if !mv.v.Locked() {
@@ -187,6 +192,11 @@ func (d *Daemon) authorizeEveryTime(ctx context.Context, cl *client, mv *managed
 // decide is authorize after the vault is unlocked. prompted and own say
 // how that unlock went (see ensureUnlocked).
 func (d *Daemon) decide(ctx context.Context, cl *client, mv *managedVault, item, itemName string, op svbroker.Op, why string, prompted, own bool, record func(string, string)) error {
+	if cl.role == roleAdmin {
+		record("allowed", "the host's administrator")
+		d.touch(mv)
+		return nil
+	}
 	if own {
 		record("allowed", "proved the passphrase")
 		d.touch(mv)

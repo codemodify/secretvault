@@ -51,6 +51,11 @@ func mapErr(err error) error {
 }
 
 func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode func(any) error) (any, error) {
+	if cl.role == roleService && method != svrpc.MHello && method != svrpc.MHostResolve {
+		// A local service may read the references the host policy lists
+		// for it, and do nothing else.
+		return nil, svrpc.Errorf(svrpc.CodeDenied, "the host daemon only resolves sv:// references here (%s), and not %s", svrpc.MHostResolve, method)
+	}
 	switch method {
 	case svrpc.MHello:
 		var p svrpc.HelloParams
@@ -75,6 +80,9 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		}
 		if !cl.cli {
 			return nil, svrpc.Errorf(svrpc.CodeDenied, "%v", errNotCLI)
+		}
+		if d.host != nil {
+			return nil, svrpc.Errorf(svrpc.CodeDenied, "the host daemon is no desktop's keyring")
 		}
 		return nil, d.setSecretService(ctx, p.Enable)
 
@@ -640,6 +648,9 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		if err := decode(&p); err != nil {
 			return nil, err
 		}
+		if d.host != nil {
+			return nil, svrpc.Errorf(svrpc.CodeDenied, "the host daemon asks nobody, so it takes no prompter")
+		}
 		// The prompter sees the passphrases typed into it: only
 		// secretvault's own programs may be it.
 		if !cl.cli && !d.opts.IsPromptAgent(cl.proc) {
@@ -726,25 +737,31 @@ func keyFrom(mv *managedVault, k *svrpc.Key) (svcore.Key, func(), error) {
 		}
 		return svcore.RecoveryKey(rk), func() { clear(rk); wipe() }, nil
 	case "identity":
-		for _, line := range strings.Split(string(k.Secret), "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			suite, priv, err := svformat.ParseIdentity(line)
-			if err != nil {
-				return nil, wipe, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
-			}
-			id, err := suite.ParseIdentity(priv)
-			clear(priv)
-			if err != nil {
-				return nil, wipe, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
-			}
-			return svcore.IdentityKey(id), wipe, nil
+		id, err := parseIdentity(k.Secret)
+		if err != nil {
+			return nil, wipe, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
 		}
-		return nil, wipe, svrpc.Errorf(svrpc.CodeInvalidParams, "no identity in what was given")
+		return svcore.IdentityKey(id), wipe, nil
 	}
 	return nil, wipe, svrpc.Errorf(svrpc.CodeInvalidParams, "unknown key type %q", k.Type)
+}
+
+// parseIdentity reads the first identity in the text of an identity file
+// (# comments and blank lines, then SV-IDENTITY-1-...).
+func parseIdentity(text []byte) (*svcrypto.Identity, error) {
+	for _, line := range strings.Split(string(text), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		suite, priv, err := svformat.ParseIdentity(line)
+		if err != nil {
+			return nil, err
+		}
+		defer clear(priv)
+		return suite.ParseIdentity(priv)
+	}
+	return nil, errors.New("no identity in what was given")
 }
 
 func slotInfo(mv *managedVault, s svcore.SlotInfo) svrpc.SlotInfo {

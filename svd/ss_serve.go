@@ -10,18 +10,19 @@ import (
 // Running the Secret Service face as the config says.
 
 // SSHAgentEnabled reports whether the config wants the SSH agent socket.
+// The host daemon never serves one.
 func (d *Daemon) SSHAgentEnabled() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return !d.cfg.NoSSHAgent
+	return !d.cfg.NoSSHAgent && d.host == nil
 }
 
 // SecretServiceEnabled reports whether the config asks for the Secret
-// Service.
+// Service. The host daemon never serves it.
 func (d *Daemon) SecretServiceEnabled() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.cfg.SecretService
+	return d.cfg.SecretService && d.host == nil
 }
 
 // StartSecretService connects to the session bus and serves the Secret

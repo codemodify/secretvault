@@ -77,8 +77,8 @@ func configPath(home string) string { return filepath.Join(home, "config.json") 
 
 // loadConfig reads the config, and registers any vault folder found under
 // <home>/vaults that it does not list yet (vaults made before the daemon
-// existed, or copied in by hand).
-func loadConfig(home string) (*Config, error) {
+// existed, or copied in by hand), locking as autoLock says.
+func loadConfig(home string, autoLock svrpc.AutoLock) (*Config, error) {
 	cfg := &Config{}
 	b, err := os.ReadFile(configPath(home))
 	switch {
@@ -106,7 +106,7 @@ func loadConfig(home string) (*Config, error) {
 	}
 	sort.Strings(found)
 	for _, name := range found {
-		cfg.Vaults = append(cfg.Vaults, VaultConfig{Name: name, Path: filepath.Join(home, "vaults", name), AutoLock: DefaultAutoLock})
+		cfg.Vaults = append(cfg.Vaults, VaultConfig{Name: name, Path: filepath.Join(home, "vaults", name), AutoLock: autoLock})
 	}
 	if cfg.Default == "" && len(cfg.Vaults) > 0 {
 		cfg.Default = cfg.Vaults[0].Name
@@ -125,14 +125,21 @@ func (c *Config) save(home string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(home, 0o700); err != nil {
+	return writeAtomic(configPath(home), append(b, '\n'))
+}
+
+// writeAtomic replaces the file at path with b (mode 0600): readers see
+// the old file or the new one, never half of either.
+func writeAtomic(path string, b []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(home, ".config-*")
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+"-*")
 	if err != nil {
 		return err
 	}
-	_, err = tmp.Write(append(b, '\n'))
+	_, err = tmp.Write(b)
 	if err == nil {
 		err = tmp.Sync()
 	}
@@ -140,7 +147,7 @@ func (c *Config) save(home string) error {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Rename(tmp.Name(), configPath(home))
+		err = os.Rename(tmp.Name(), path)
 	}
 	if err != nil {
 		os.Remove(tmp.Name())

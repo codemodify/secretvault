@@ -207,7 +207,7 @@ func (d *Daemon) createVault(p svrpc.VaultCreateParams) (*managedVault, string, 
 	if err != nil {
 		return nil, "", err
 	}
-	mv := &managedVault{cfg: VaultConfig{Name: p.Name, Path: path, AutoLock: DefaultAutoLock}}
+	mv := &managedVault{cfg: VaultConfig{Name: p.Name, Path: path, AutoLock: d.defaultAutoLock()}}
 	v, _, err := svcore.Create(d.hook(mv, store), suite, svcore.NewSlot{Type: svformat.SlotPassphrase, Label: "passphrase", Passphrase: p.Passphrase}, d.svOpts)
 	if err != nil {
 		return nil, "", err
@@ -263,7 +263,7 @@ func (d *Daemon) addVault(p svrpc.VaultAddParams) (*managedVault, error) {
 	if err != nil {
 		return nil, err
 	}
-	mv, err := d.openVault(VaultConfig{Name: p.Name, Path: path, AutoLock: DefaultAutoLock})
+	mv, err := d.openVault(VaultConfig{Name: p.Name, Path: path, AutoLock: d.defaultAutoLock()})
 	if err != nil {
 		return nil, svrpc.Errorf(svrpc.CodeNotFound, "%s: %v", path, err)
 	}

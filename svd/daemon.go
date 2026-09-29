@@ -34,9 +34,28 @@ import (
 // ErrRunning is a second daemon on a socket that already has one.
 var ErrRunning = errors.New("a secretvaultd is already running")
 
+// Mode is who the daemon serves (docs/architecture.md, "Daemon modes").
+type Mode int
+
+const (
+	// ModeUser is a person's own daemon, in their session: it asks them
+	// before any program uses a secret.
+	ModeUser Mode = iota
+	// ModeHost is the machine's system service (host.go): it serves the
+	// machine's services by policy, and never asks anyone.
+	ModeHost
+)
+
 // Options configure a daemon.
 type Options struct {
-	// Home is the data directory (svcore.Home() when "").
+	// Mode is ModeUser (the default) or ModeHost.
+	Mode Mode
+
+	// Host configures host mode.
+	Host HostOptions
+
+	// Home is the data directory (svcore.Home() when "", or in host mode
+	// svrpc.HostDataDir()).
 	Home string
 
 	// Socket is the path it serves, for Status.
@@ -66,8 +85,9 @@ type Options struct {
 	// Desktop, when set, replaces the desktop prompter (tests).
 	Desktop Prompter
 
-	// Peer identifies a connection's program (svpeer.FromConn when nil;
-	// tests stand in fake programs).
+	// Peer identifies a connection's program (svpeer.FromConn when nil,
+	// or in host mode svpeer.FromConnAnyUser; tests stand in fake
+	// programs).
 	Peer func(net.Conn) (*svpeer.Process, error)
 
 	// Launcher identifies the program that started a browser relay: the
@@ -114,11 +134,20 @@ type Daemon struct {
 
 	syncCtx context.Context  // set by StartSync; nil while the daemon does not sync
 	syncID  *svsync.Identity // this device's key for sync servers
+
+	host *hostState // host mode's identity, policy and log; nil in user mode
 }
 
 // New prepares a daemon: it reads the config and opens (locked) every
 // registered vault.
 func New(opts Options) (*Daemon, error) {
+	host := opts.Mode == ModeHost
+	if host && runtime.GOOS != "linux" {
+		return nil, errors.New("svd: host mode runs on Linux only: it serves systemd's credentials")
+	}
+	if opts.Home == "" && host {
+		opts.Home = svrpc.HostDataDir()
+	}
 	if opts.Home == "" {
 		h, err := svcore.Home()
 		if err != nil {
@@ -134,6 +163,9 @@ func New(opts Options) (*Daemon, error) {
 	}
 	if opts.Peer == nil {
 		opts.Peer = svpeer.FromConn
+		if host {
+			opts.Peer = svpeer.FromConnAnyUser // services of other users, by policy
+		}
 	}
 	if opts.Launcher == nil {
 		opts.Launcher = func(relay *svpeer.Process) (*svpeer.Process, error) { return svpeer.Parent(relay.PID) }
@@ -160,7 +192,11 @@ func New(opts Options) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := loadConfig(opts.Home)
+	autoLock := DefaultAutoLock
+	if host {
+		autoLock = svrpc.AutoLock{} // nothing locks on idle unless the config says so
+	}
+	cfg, err := loadConfig(opts.Home, autoLock)
 	if err != nil {
 		return nil, err
 	}
@@ -181,11 +217,28 @@ func New(opts Options) (*Daemon, error) {
 		}
 		d.vaults[vc.Name] = mv // kept even when missing: it shows as unavailable
 	}
+	if host {
+		// Nobody is there to ask: no desktop prompt, ever.
+		if err := d.startHost(); err != nil {
+			return nil, err
+		}
+		return d, nil
+	}
 	d.desktop = opts.Desktop
 	if d.desktop == nil {
 		d.desktop = desktopPrompter(cfg.Prompt)
 	}
 	return d, nil
+}
+
+// defaultAutoLock is how a newly registered vault locks itself: after 15
+// idle minutes, on screen lock and on sleep for a person; never, for the
+// host (the vault's auto_lock in config.json changes it).
+func (d *Daemon) defaultAutoLock() svrpc.AutoLock {
+	if d.host != nil {
+		return svrpc.AutoLock{}
+	}
+	return DefaultAutoLock
 }
 
 // sibling matches the named secretvault program installed beside the
@@ -206,14 +259,24 @@ func sibling(name string) func(*svpeer.Process) bool {
 	}
 }
 
-// Serve accepts clients on ln until ctx ends, then locks every vault.
+// Serve accepts clients on ln until ctx ends, then locks every vault. In
+// host mode ln is root's admin socket.
 func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
+	defer d.LockAll("daemon stopping")
+	defer d.stopAllSync()
+	r := roleUser
+	if d.host != nil {
+		r = roleAdmin
+	}
+	return accept(ctx, ln, func(c net.Conn) { d.serveConn(c, r) })
+}
+
+// accept hands every connection on ln to serve until ctx ends.
+func accept(ctx context.Context, ln net.Listener, serve func(net.Conn)) error {
 	go func() {
 		<-ctx.Done()
 		ln.Close()
 	}()
-	defer d.LockAll("daemon stopping")
-	defer d.stopAllSync()
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -226,15 +289,25 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 			}
 			return err
 		}
-		go d.serveConn(conn)
+		go serve(conn)
 	}
 }
+
+// role is what a connection may do, by the socket it came in on.
+type role int
+
+const (
+	roleUser    role = iota // a person's daemon: consent decides
+	roleAdmin               // host mode, the admin socket: root, who may do anything
+	roleService             // host mode, the services socket: what the policy lists
+)
 
 // client is one connected program.
 type client struct {
 	conn      *svrpc.Conn
 	proc      *svpeer.Process
-	cli       bool // secretvault's own CLI
+	role      role
+	cli       bool // secretvault's own CLI (in host mode, root on the admin socket)
 	name      string
 	canPrompt bool
 
@@ -267,17 +340,32 @@ func (c *client) display() string {
 
 // mayPrompt reports whether the daemon may ask this client to prompt for
 // a passphrase: only secretvault's own CLI, and only when it offered. Any
-// other program asked to collect a passphrase would learn it.
-func (c *client) mayPrompt() bool { return c.cli && c.canPrompt }
+// other program asked to collect a passphrase would learn it. The host
+// daemon asks nobody.
+func (c *client) mayPrompt() bool { return c.role == roleUser && c.cli && c.canPrompt }
 
-func (d *Daemon) serveConn(nc net.Conn) {
+func (d *Daemon) serveConn(nc net.Conn, r role) {
 	proc, err := d.opts.Peer(nc)
 	if err != nil {
 		d.opts.Log("refused a connection: " + err.Error())
 		nc.Close()
 		return
 	}
-	cl := &client{proc: proc, cli: d.opts.IsCLI(proc)}
+	cl := &client{proc: proc, role: r}
+	switch r {
+	case roleUser:
+		cl.cli = d.opts.IsCLI(proc)
+	case roleAdmin:
+		// The admin socket is 0600 already; the kernel's word on the peer
+		// is checked too. The host daemon runs as root, so this is root,
+		// who is trusted as secretvault's own programs are.
+		if proc.UID != os.Getuid() {
+			d.opts.Log(fmt.Sprintf("refused process %d of uid %d on the admin socket", proc.PID, proc.UID))
+			nc.Close()
+			return
+		}
+		cl.cli = true
+	}
 	cl.conn = svrpc.NewConn(nc, d.handle)
 	cl.conn.Value = cl
 	d.mu.Lock()
@@ -303,9 +391,10 @@ func (d *Daemon) notify(method string, ev svrpc.VaultEvent) {
 	var all []*client
 	var faces []func(string, svrpc.VaultEvent)
 	for c := range d.clients {
-		if c.events != nil {
+		switch {
+		case c.events != nil:
 			faces = append(faces, c.events)
-		} else {
+		case c.role != roleService: // local services hear nothing about vaults
 			all = append(all, c)
 		}
 	}
@@ -322,6 +411,11 @@ func (d *Daemon) notify(method string, ev svrpc.VaultEvent) {
 func (d *Daemon) Status() svrpc.Status {
 	st := svrpc.Status{Version: secretvault.Version, PID: os.Getpid(), Home: d.home, Socket: d.opts.Socket}
 	st.Vaults = d.vaultInfos()
+	if d.host != nil {
+		st.Mode = "host"
+		st.Prompts = "none (the host daemon asks nobody)"
+		return st
+	}
 	st.Prompts = "none (no desktop prompter found)"
 	if d.desktop != nil {
 		st.Prompts = d.desktop.Describe()
