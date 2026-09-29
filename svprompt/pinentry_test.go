@@ -196,8 +196,74 @@ func TestEscapingRoundTrips(t *testing.T) {
 		if got := unescape(escape(s)); got != s {
 			t.Errorf("escape round trip of %q gave %q", s, got)
 		}
-		if got := string(unescapeBytes(escapeData([]byte(s)))); got != s {
+		if got := string(appendUnescaped(nil, appendData(nil, []byte(s)))); got != s {
 			t.Errorf("data round trip of %q gave %q", s, got)
+		}
+	}
+}
+
+// A long secret goes out as several D lines, none over the limit and none
+// splitting an escape, and comes back whole.
+func TestDataLinesKeepToTheLimit(t *testing.T) {
+	secret := bytes.Repeat([]byte("ab%\n"), 600)
+	var out bytes.Buffer
+	if err := writeData(&out, secret); err != nil {
+		t.Fatal(err)
+	}
+	var got []byte
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("%d line(s)", len(lines))
+	}
+	for _, l := range lines {
+		if len(l) > maxLine || !strings.HasPrefix(l, "D ") {
+			t.Fatalf("line of %d bytes: %.20q", len(l), l)
+		}
+		if i := strings.LastIndexByte(l, '%'); i >= 0 && i > len(l)-3 {
+			t.Fatalf("an escape is split: ...%q", l[len(l)-5:])
+		}
+		got = appendUnescaped(got, []byte(l[2:]))
+	}
+	if !bytes.Equal(got, secret) {
+		t.Fatal("the secret did not come back whole")
+	}
+	if out.Reset(); writeData(&out, nil) != nil || out.Len() != 0 {
+		t.Fatalf("an empty secret sent %q", out.String())
+	}
+}
+
+// The reader the daemon hears a pinentry through wipes each line once the
+// next is read, and everything when the session ends.
+func TestTheLineReaderWipesWhatItRead(t *testing.T) {
+	l := newLineReader(strings.NewReader("D s3cret\nOK\n"))
+	line, err := l.next()
+	if err != nil || string(line) != "D s3cret" {
+		t.Fatalf("%q, %v", line, err)
+	}
+	if line, err = l.next(); err != nil || string(line) != "OK" {
+		t.Fatalf("%q, %v", line, err)
+	}
+	if bytes.Contains(l.buf, []byte("s3cret")) {
+		t.Fatal("the D line is still in the buffer after the next line was read")
+	}
+	l.wipe()
+	if bytes.ContainsFunc(l.buf, func(r rune) bool { return r != 0 }) {
+		t.Fatal("wipe left bytes behind")
+	}
+	if _, err := l.next(); !errors.Is(err, io.EOF) {
+		t.Fatalf("after the end: %v", err)
+	}
+}
+
+func TestButtonLabelsLoseTheirMnemonics(t *testing.T) {
+	for in, want := range map[string]string{"_OK": "OK", "_Cancel": "Cancel", "Allow once": "Allow once", "a__b": "a_b", "__init__": "_init_"} {
+		if got := plainLabel(in); got != want {
+			t.Errorf("plainLabel(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for _, s := range []string{"a_b", "_", "Allow until the vault locks"} {
+		if got := plainLabel(label(s)); got != s {
+			t.Errorf("label round trip of %q gave %q", s, got)
 		}
 	}
 }

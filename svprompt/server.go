@@ -86,13 +86,13 @@ func Serve(r io.Reader, w io.Writer, ui UI, flavor string) error {
 			req.Error = arg
 			okLine()
 		case "SETOK":
-			req.OK = strings.ReplaceAll(arg, "__", "_")
+			req.OK = plainLabel(arg)
 			okLine()
 		case "SETCANCEL":
-			req.Cancel = strings.ReplaceAll(arg, "__", "_")
+			req.Cancel = plainLabel(arg)
 			okLine()
 		case "SETNOTOK":
-			notOK = strings.ReplaceAll(arg, "__", "_")
+			notOK = plainLabel(arg)
 			okLine()
 		case "SETREPEAT":
 			req.Repeat = arg
@@ -104,7 +104,10 @@ func Serve(r io.Reader, w io.Writer, ui UI, flavor string) error {
 			n, _ := strconv.Atoi(arg)
 			req.Timeout = time.Duration(n) * time.Second
 			okLine()
-		case "SETKEYINFO", "SETREPEATERROR", "SETQUALITYBAR", "SETQUALITYBAR_TT", "SETGENPIN", "SETGENPIN_TT":
+		case "SETREPEATERROR":
+			req.RepeatError = arg
+			okLine()
+		case "SETKEYINFO", "SETQUALITYBAR", "SETQUALITYBAR_TT", "SETGENPIN", "SETGENPIN_TT":
 			okLine() // accepted and ignored
 		case "GETINFO":
 			switch arg {
@@ -142,17 +145,14 @@ func Serve(r io.Reader, w io.Writer, ui UI, flavor string) error {
 			if req.Repeat != "" {
 				send("S PIN_REPEATED")
 			}
-			// Long secrets span several D lines.
-			enc := escapeData(pin)
+			// Straight to w, past out: send flushes every line, so
+			// nothing is waiting there, and the secret must not be left
+			// in out's array. writeData escapes on bytes and wipes what
+			// it built; long secrets span several D lines.
+			err = writeData(w, pin)
 			clear(pin)
-			for len(enc) > 0 {
-				n := min(len(enc), maxLine-2)
-				// Do not split a %XX escape.
-				if i := strings.LastIndexByte(enc[:n], '%'); i >= 0 && i > n-3 {
-					n = i
-				}
-				send("D %s", enc[:n])
-				enc = enc[n:]
+			if err != nil {
+				return err
 			}
 			okLine()
 		case "CONFIRM":
