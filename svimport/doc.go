@@ -34,10 +34,12 @@
 //   - Name: the source's folder path (KeePass groups below the root,
 //     Bitwarden folders or collections, 1Password and Proton Pass vaults,
 //     Aegis groups, CXF collections), then the title, under
-//     Options.Prefix. A '/' in a title or folder name becomes '-', control
-//     characters become spaces, "." and ".." become "_" and "__", an empty
-//     title becomes "untitled", and over-long names are shortened. A name
-//     already taken gets " (2)", " (3)"... Label is the source's title.
+//     Options.Prefix. A '/' in a title or folder name becomes '-', except
+//     in the formats that nest folders by it (Bitwarden folders and
+//     collections, CSV folder columns); control characters become spaces,
+//     "." and ".." become "_" and "__", an empty title becomes "untitled",
+//     and over-long names are shortened. A name already taken gets " (2)",
+//     " (3)"... Label is the source's title.
 //   - Kind: "login" for usernames, passwords, URLs and OTP keys; "note"
 //     for secure notes; "card"; "identity" (also for 1Password's driver's
 //     licences, passports and social security numbers, and CXF's identity

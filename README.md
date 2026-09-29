@@ -93,6 +93,8 @@ hunter2
 $ bin/secretvault set api/token --generate 32   # generate, store, and print a secret
 $ bin/secretvault ls -l
 $ bin/secretvault history web/github.com
+$ bin/secretvault import auto ~/Downloads/passwords.kdbx --prefix imported/keepass   # or Bitwarden, 1Password, CSV...
+$ bin/secretvault export kdbx backup.kdbx    # asks for the new file's passphrase
 $ bin/secretvault grant list                 # what programs may do
 $ bin/secretvault audit                      # who accessed what
 $ bin/secretvault lock --all
