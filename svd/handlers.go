@@ -155,6 +155,11 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		if p.Key.Type == svformat.SlotFIDO2 {
 			// The key plugged in; its PIN and touch are asked for like a
 			// passphrase would be, one question about the vault at a time.
+			if creds, err := mv.v.FIDO2Credentials(); err != nil {
+				return nil, err
+			} else if len(creds) == 0 {
+				return nil, svrpc.Errorf(svrpc.CodeNotFound, "vault %q has no security key keyslot; add one with 'secretvault slot add fido2'", mv.cfg.Name)
+			}
 			pr, _ := d.passphrasePrompter(cl)
 			key = svcore.SecurityKey(d.securityKeys(ctx, pr, "Unlock vault "+mv.cfg.Name,
 				fmt.Sprintf("%s asks to unlock vault %q with a security key.", cl.display(), mv.cfg.Name)))

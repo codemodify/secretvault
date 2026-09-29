@@ -501,6 +501,39 @@ func TestPINTokensAreRefusedWhereTheyDoNotApply(t *testing.T) {
 	}
 }
 
+// hmac-secret takes one salt or two; two give the outputs each would.
+func TestTwoSaltsGiveTwoOutputs(t *testing.T) {
+	for _, o := range []fidotest.Options{{Name: "protocol 2"}, {Name: "protocol 1", CTAP20: true}} {
+		a := plug(t, o)
+		e, err := keys(&person{}, a).Enroll(ctx(t), rpID, nil, salt, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := svfido.NewDevice(ctx(t), a.Transport(), "k")
+		if err != nil {
+			t.Fatal(err)
+		}
+		other := bytes.Repeat([]byte{9}, 32)
+		as, err := d.GetAssertion(ctx(t), &svfido.AssertionRequest{ClientDataHash: make([]byte, 32), RPID: rpID,
+			Allow: [][]byte{e.ID}, Salts: [][]byte{salt, other}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, one, err := keys(&person{}, a).Evaluate(ctx(t), []svfido.Credential{{ID: e.ID, RPID: rpID, Salt: other}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(as.HMACSecret) != 2 || !bytes.Equal(as.HMACSecret[0], e.Output) || !bytes.Equal(as.HMACSecret[1], one) {
+			t.Fatalf("%s: two salts gave %x", o.Name, as.HMACSecret)
+		}
+		if _, err := d.GetAssertion(ctx(t), &svfido.AssertionRequest{ClientDataHash: make([]byte, 32), RPID: rpID,
+			Allow: [][]byte{e.ID}, Salts: [][]byte{salt, other, salt}}); err == nil {
+			t.Fatal("three salts were sent")
+		}
+		d.Close()
+	}
+}
+
 func TestAnUnpluggedKeyIsSaidToBeGone(t *testing.T) {
 	a := plug(t, fidotest.Options{Touch: func(ctx context.Context) error {
 		time.Sleep(100 * time.Millisecond)

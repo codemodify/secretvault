@@ -336,8 +336,9 @@ func TestAKeyThatIsNotHereSaysSo(t *testing.T) {
 		!strings.Contains(err.Error(), "no security key is plugged in") {
 		t.Fatalf("no key to enrol: %v", err)
 	}
-	if _, err := cli.Unlock(ctx(t), "", &svrpc.Key{Type: svformat.SlotFIDO2}); err == nil {
-		t.Fatal("a vault with no fido2 slot was unlocked with a key")
+	if _, err := cli.Unlock(ctx(t), "", &svrpc.Key{Type: svformat.SlotFIDO2}); !errors.Is(err, svrpc.ErrNotFound) ||
+		!strings.Contains(err.Error(), "has no security key keyslot; add one with 'secretvault slot add fido2'") {
+		t.Fatalf("a vault with no fido2 slot, unlocked with a key: %v", err)
 	}
 	h.keys.plug(t, fidotest.Options{Name: "U2F only", NoHMAC: true})
 	if _, err := cli.AddSlot(ctx(t), svrpc.SlotAddParams{Type: svformat.SlotFIDO2}); err == nil || !strings.Contains(err.Error(), "hmac-secret") {
