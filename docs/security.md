@@ -620,6 +620,7 @@ by UDisks2 and the kernel's dm-crypt.
 | The delivery server's policy can be rolled back to an older sealed copy by whoever can write its directory | a counter kept where they cannot write (the TPM) |
 | The delivery server's audit log can be cut short and extended by whoever can write its directory | entries MACed while unsealed; shipping the log off the machine |
 | An ID token can be replayed to the delivery server until it expires | remembering token IDs (`jti`) until then |
+| The daemon's audit log shows lines removed from its middle, but whoever can write its files can cut it short and append entries that chain on | a signed checkpoint of the log's head, kept where they cannot write |
 | Token CIDR limits see the TCP peer: behind a proxy, the proxy | trusted proxies' `X-Forwarded-For` |
 
 ## Reporting a vulnerability
