@@ -228,7 +228,8 @@ $ gpg --decrypt message.asc
   agent-socket`) becomes a link to the daemon's, which the daemon makes
   again whenever it starts. gpg.conf names secretvault as the
   `agent-program`, so a gpg that finds no agent starts the daemon rather
-  than GnuPG's own gpg-agent. `--remove` undoes it.
+  than GnuPG's own gpg-agent. `--remove` undoes it. For `~/.gnupg`, mask
+  systemd's `gpg-agent*.socket` units first, as gpg-setup says.
 - **Consent.** Each signature is asked about as signing with the key's
   item, and each decryption as decrypting, naming gpg; "always" covers
   everything that runs gpg. A key whose item says `confirm=always`
@@ -468,10 +469,10 @@ The tests include:
 - OpenPGP against the RFC 9580 test vectors and GnuPG 2.4, both ways, with
   every byte of signatures and ciphertexts tampered with, and fuzzing;
 - gpg itself signing (detached, inline, cleartext) and decrypting with
-  Ed25519/Curve25519, P-256 and RSA keys held in the vault, through the
-  gpg-agent face, with consent allowed, denied, remembered and asked every
-  time; keygrips against gpg's own for every kind of key it makes; and the
-  protocol fed junk and fuzzed;
+  Ed25519/Curve25519, P-256, P-384, P-521 and RSA keys held in the vault,
+  through the gpg-agent face, with consent allowed, denied, remembered and
+  asked every time; keygrips against gpg's own for every kind of key it
+  makes; and the protocol fed junk and fuzzed;
 - CMS, S/MIME and PKCS #12 against OpenSSL 3, both ways: its signatures
   (detached, opaque, streamed, RSA-PSS, ECDSA, Ed25519), enveloped messages
   to RSA and EC keys, and PKCS #12 files (default, legacy, PBMAC1), and

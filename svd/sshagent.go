@@ -35,19 +35,24 @@ import (
 // OpSign is signing with a key held in a vault.
 const OpSign = svbroker.OpSign
 
-// ServeSSHAgent answers the SSH agent protocol on ln until ctx ends, and
-// links the SSH agent socket of the GnuPG homes pointed at the daemon to
-// ln's socket (gpgagent_link.go).
+// ServeSSHAgent answers the SSH agent protocol on ln, from a goroutine of
+// its own, until ctx ends. By the time it returns, the SSH agent sockets
+// of the GnuPG homes pointed at the daemon are linked to ln's
+// (gpgagent_link.go).
 func (d *Daemon) ServeSSHAgent(ctx context.Context, ln net.Listener) {
 	d.mu.Lock()
 	d.sshSock = ln.Addr().String()
 	d.mu.Unlock()
+	d.relinkGnuPG(true)
+	go d.acceptSSHAgent(ctx, ln)
+}
+
+func (d *Daemon) acceptSSHAgent(ctx context.Context, ln net.Listener) {
 	defer func() {
 		d.mu.Lock()
 		d.sshSock = ""
 		d.mu.Unlock()
 	}()
-	d.relinkGnuPG(true)
 	go func() { <-ctx.Done(); ln.Close() }()
 	for {
 		conn, err := ln.Accept()

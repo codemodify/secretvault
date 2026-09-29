@@ -53,19 +53,26 @@ func (d *Daemon) GPGAgentEnabled() bool {
 	return !d.cfg.NoGPGAgent && d.host == nil && runtime.GOOS != "windows"
 }
 
-// ServeGPGAgent answers gpg-agent's protocol on ln until ctx ends, and
-// links the GnuPG homes pointed at it to ln's socket.
+// ServeGPGAgent answers gpg-agent's protocol on ln, from a goroutine of
+// its own, until ctx ends. By the time it returns, the GnuPG homes
+// pointed at the daemon are linked to ln's socket, and gnupg.link knows
+// it: call it before the daemon's own socket is served, which gpg's
+// agent-program may be waiting on.
 func (d *Daemon) ServeGPGAgent(ctx context.Context, ln net.Listener) {
 	sock := ln.Addr().String()
 	d.mu.Lock()
 	d.gpgSock = sock
 	d.mu.Unlock()
+	d.relinkGnuPG(false)
+	go d.acceptGPGAgent(ctx, ln, sock)
+}
+
+func (d *Daemon) acceptGPGAgent(ctx context.Context, ln net.Listener, sock string) {
 	defer func() {
 		d.mu.Lock()
 		d.gpgSock = ""
 		d.mu.Unlock()
 	}()
-	d.relinkGnuPG(false)
 	go func() { <-ctx.Done(); ln.Close() }()
 	for {
 		conn, err := ln.Accept()

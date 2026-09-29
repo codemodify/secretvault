@@ -30,7 +30,7 @@ func sshHarness(t *testing.T) (*harness, string, string) {
 	t.Cleanup(cleanup)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go h.d.ServeSSHAgent(ctx, ln)
+	h.d.ServeSSHAgent(ctx, ln)
 	t.Setenv("SSH_AUTH_SOCK", sock)
 	dir := t.TempDir()
 	key := filepath.Join(dir, "id_ed25519")

@@ -107,18 +107,22 @@ func (c *cli) pgpGnuPGSetup(args []string) error {
 		return err
 	}
 	sshSock, _ := gnupgDir(gpgconf, home, "agent-ssh-socket")
-	exe, err := os.Executable()
+	exe, err := stableExecutable()
 	if err != nil {
 		return err
-	}
-	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = resolved
 	}
 	agentProgram := "agent-program " + exe + "|" + gpgAgentProgramFlag
 	_, homeErr := os.Stat(home)
 	unreachable := unreachableKeys(home, keys)
+	if sameDir(home, defaultGnuPGHome()) {
+		fmt.Fprintf(c.stdout, "%s is your own GnuPG home: gpg will use secretvault's keys, and no longer gpg-agent's.\n"+
+			"Where systemd starts gpg-agent by its sockets, stop that first: systemctl --user mask --now gpg-agent.socket gpg-agent-ssh.socket gpg-agent-extra.socket gpg-agent-browser.socket\n", home)
+	}
 
 	if *dryRun {
+		// gpgconf made the socket directory it named; a dry run leaves
+		// nothing behind, and gpg makes it again when it needs it.
+		forgetSocketDir(sock)
 		fmt.Fprintf(c.stdout, "Pointing the GnuPG home %s at secretvault would:\n", home)
 		if homeErr != nil {
 			fmt.Fprintf(c.stdout, "- make the directory %s (0700)\n", home)
@@ -262,7 +266,7 @@ func (c *cli) gnupgRemove(ctx context.Context, home string, dryRun bool) error {
 		if err != nil {
 			return err
 		}
-		if !slices.Contains(st.GnuPGHomes, home) {
+		if !slices.ContainsFunc(st.GnuPGHomes, func(h string) bool { return sameDir(h, home) }) {
 			fmt.Fprintf(c.stdout, "%s is not pointed at secretvault.\n", home)
 			return nil
 		}
@@ -319,6 +323,53 @@ func (c *cli) gpgAgentStart(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// stableExecutable is this program's path as gpg.conf should name it: as
+// found on PATH when that is this program (/usr/bin/secretvault, a
+// profile's bin), which outlives an upgrade that moves the file itself
+// (a Homebrew Cellar, the Nix store), else its own path.
+func stableExecutable() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if p, err := exec.LookPath("secretvault"); err == nil && filepath.IsAbs(p) {
+		if a, err1 := os.Stat(p); err1 == nil {
+			if b, err2 := os.Stat(exe); err2 == nil && os.SameFile(a, b) {
+				return p, nil
+			}
+		}
+	}
+	return exe, nil
+}
+
+// defaultGnuPGHome is the home gpg uses when none is named: $GNUPGHOME,
+// else ~/.gnupg.
+func defaultGnuPGHome() string {
+	if h := os.Getenv("GNUPGHOME"); h != "" {
+		return h
+	}
+	h, _ := os.UserHomeDir()
+	return filepath.Join(h, ".gnupg")
+}
+
+// sameDir reports whether two paths are the same directory.
+func sameDir(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	fa, err1 := os.Stat(a)
+	fb, err2 := os.Stat(b)
+	return err1 == nil && err2 == nil && os.SameFile(fa, fb)
+}
+
+// forgetSocketDir removes the per-home socket directory (d.HASH) holding
+// sock, if it is empty.
+func forgetSocketDir(sock string) {
+	if dir := filepath.Dir(sock); strings.HasPrefix(filepath.Base(dir), "d.") {
+		os.Remove(dir) // only ever removes an empty directory
+	}
 }
 
 // gnupgPrograms finds gpg (named, or on PATH) and the gpgconf beside it.
@@ -426,8 +477,12 @@ func removeAgentProgram(conf string) error {
 	return writeConf(conf, strings.Join(out, "\n"))
 }
 
-// writeConf replaces a file, keeping its mode (0600 for a new one).
+// writeConf replaces a file, keeping its mode (0600 for a new one); a
+// link is followed, and the file it leads to replaced.
 func writeConf(path, text string) error {
+	if target, err := filepath.EvalSymlinks(path); err == nil {
+		path = target
+	}
 	mode := os.FileMode(0o600)
 	if fi, err := os.Stat(path); err == nil {
 		mode = fi.Mode().Perm()

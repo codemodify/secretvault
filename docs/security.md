@@ -172,11 +172,14 @@ as you can talk to it, gpg or not.
   "decrypting"; here only a message properly padded for encryption comes
   back, and every other failure is one error. A program allowed to decrypt
   can still use the answers as a padding oracle, as against any PKCS #1
-  v1.5 decryption; it can decrypt your messages anyway. For ECDH it gets
-  the shared point for any valid point it sends; points that are not on
-  the curve, or not canonical, or give no shared secret, are refused.
-  A part is used only for what its self-signature allows: an encryption
-  subkey never signs, and a key not bound to encrypt never decrypts.
+  v1.5 decryption. It can decrypt your messages anyway; with an RSA key
+  that both signs and encrypts (rare: gpg makes a subkey for each), a
+  great many decryptions allowed "always" could in the end make it a
+  signature. For ECDH it gets the shared point for any valid point it
+  sends; points that are not on the curve, or not canonical, or give no
+  shared secret, are refused. A part is used only for what its
+  self-signature allows: an encryption subkey never signs, and a key not
+  bound to encrypt never decrypts.
 - **Nothing comes in or goes out.** Secret keys cannot be exported,
   imported, made, deleted or given a new passphrase through gpg; that is
   `secretvault pgp`, with its own consent.
@@ -190,7 +193,11 @@ as you can talk to it, gpg or not.
   a socket or a link there, never a file. A program running as you can
   replace the link with its own agent, or change the home's gpg.conf; gpg
   then talks to that instead, as it could already make gpg do by other
-  means.
+  means. While the link is missing (after a reboot, before the daemon
+  starts), gpg starts secretvault, but gpgsm, gpg-connect-agent and
+  systemd's gpg-agent sockets start GnuPG's own gpg-agent, which holds
+  none of the vault's keys: the daemon takes the socket back when it
+  starts.
 
 ### Someone who once held a key
 

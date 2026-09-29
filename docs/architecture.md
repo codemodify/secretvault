@@ -716,10 +716,12 @@ as it is, or replaces it from a file read straight into bytes.
       made, and **decrypting** (`SETKEY`, `PKDECRYPT`, the ciphertext asked
       for by `INQUIRE CIPHERTEXT`) gives back ECDH's shared point, from
       which gpg makes the key-wrapping key itself, or RSA's session key.
-      For RSA gpg-agent gives back the raw result, padding and all; here
-      only a message that was properly padded comes back, so that nothing
-      can be signed by decrypting it. The algorithms' values travel as
-      libgcrypt's S-expressions.
+      For RSA gpg-agent gives back the raw result, padding and all, which
+      signs whatever it is given; here only a message that was properly
+      padded comes back ([security.md](security.md#the-gpg-agent-face)
+      says what that leaves). The algorithms' values travel as libgcrypt's
+      S-expressions. A person's refusal reaches gpg as "fully cancelled",
+      so it asks about no other key.
     - **Consent** is the pgp methods': `sign` and `decrypt` on the key's
       item, asked about naming the program on the socket (gpg), and every
       time for an item with `confirm=always` (which `KEYINFO` shows as

@@ -135,7 +135,7 @@ func runUser() {
 			log.Printf("the SSH agent: %v", err)
 		} else {
 			defer acleanup()
-			go d.ServeSSHAgent(ctx, aln)
+			d.ServeSSHAgent(ctx, aln)
 			log.Printf("SSH agent on %s (export SSH_AUTH_SOCK=%s)", agentSock, agentSock)
 		}
 	}
@@ -145,7 +145,7 @@ func runUser() {
 			log.Printf("the gpg-agent face: %v", err)
 		} else {
 			defer gcleanup()
-			go d.ServeGPGAgent(ctx, gln)
+			d.ServeGPGAgent(ctx, gln)
 			log.Printf("gpg-agent on %s ('secretvault pgp gpg-setup' points GnuPG at it)", gpgSock)
 		}
 	}

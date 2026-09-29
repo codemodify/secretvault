@@ -84,6 +84,7 @@ const (
 	CodeNotTrusted     = 98
 	CodeCanceled       = 99
 	CodeDecryptFailed  = 152
+	CodeFullyCanceled  = 198
 	CodeForbidden      = 251
 	CodeFalse          = 256
 	codeLineTooLong    = 263
@@ -117,6 +118,9 @@ type session struct {
 	hash     svpgp.HashAlgorithm
 	digest   []byte // SETHASH
 	loopback bool   // OPTION pinentry-mode=loopback
+	// aware: OPTION agent-awareness=2.1.0 or later, so a person's refusal
+	// is FULLY_CANCELED, which stops gpg trying the next key.
+	aware bool
 }
 
 // Serve speaks gpg-agent's protocol on rw until the client says BYE or
@@ -210,9 +214,16 @@ func (s *session) fail(e *Error) error {
 		return r
 	}, e.Message)
 	if len(msg) > 800 {
-		msg = msg[:800]
+		msg = strings.ToValidUTF8(msg[:800], "")
 	}
-	return s.line(fmt.Sprintf("ERR %d %s", sourceAgent|e.Code, msg))
+	code := e.Code
+	if code == CodeCanceled && s.aware {
+		// As gpg-agent answers when its window is closed: the person
+		// has decided, and gpg should not go on to ask about another
+		// key.
+		code = CodeFullyCanceled
+	}
+	return s.line(fmt.Sprintf("ERR %d %s", sourceAgent|code, msg))
 }
 
 // status writes an S line.
@@ -515,10 +526,32 @@ func (s *session) option(arg string) error {
 	if strings.HasPrefix(name, "-") || name == "" {
 		return Errorf(codeSyntax, "option should not begin with one dash")
 	}
-	if name == "pinentry-mode" {
+	switch name {
+	case "pinentry-mode":
 		s.loopback = value == "loopback"
+	case "agent-awareness":
+		s.aware = versionAtLeast(value, 2, 1, 0)
 	}
 	return nil
+}
+
+// versionAtLeast reports whether "MAJOR.MINOR.MICRO..." is at least the
+// version given.
+func versionAtLeast(v string, major, minor, micro int) bool {
+	var got [3]int
+	for i, part := range strings.SplitN(v, ".", 3) {
+		n := 0
+		for n < len(part) && part[n] >= '0' && part[n] <= '9' {
+			n++
+		}
+		got[i], _ = strconv.Atoi(part[:n])
+	}
+	for i, want := range [3]int{major, minor, micro} {
+		if got[i] != want {
+			return got[i] > want
+		}
+	}
+	return true
 }
 
 func (s *session) getinfo(what string) error {
@@ -867,14 +900,21 @@ func (s *session) pkdecrypt() error {
 		return asError(err)
 	}
 	defer clear(value)
+	var prefix []byte
 	if alg.name() == "rsa" {
 		if err := s.status("PADDING", "0"); err != nil {
 			return err
 		}
 	} else if isCurve25519(k.Algorithm, k.Public) {
-		value = append([]byte{0x40}, value...)
+		prefix = []byte{0x40}
 	}
-	out := param("value", value)
+	// (5:valueN:V), made in one array, which is wiped: V is a session
+	// key, or what makes one.
+	out := make([]byte, 0, 20+len(prefix)+len(value))
+	out = append(out, "(5:value"...)
+	out = strconv.AppendInt(out, int64(len(prefix)+len(value)), 10)
+	out = append(append(append(out, ':'), prefix...), value...)
+	out = append(out, ')')
 	defer clear(out)
 	return s.data(out)
 }

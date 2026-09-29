@@ -275,6 +275,12 @@ func TestTheConversationGPGHas(t *testing.T) {
 	// The key the backend refuses: gpg hears that it was cancelled.
 	c.ok("SETHASH --hash=sha256 " + strings.Repeat("00", 32))
 	c.fails("PKSIGN", CodeCanceled)
+	// ... fully cancelled, to a gpg that knows the code: it asks about no
+	// other key.
+	c.ok("OPTION agent-awareness=2.1.0")
+	c.fails("PKSIGN", CodeFullyCanceled)
+	c.ok("OPTION agent-awareness=2.0.9")
+	c.fails("PKSIGN", CodeCanceled)
 	// Signing with the encryption subkey is the backend's to refuse.
 	c.ok("SIGKEY " + cvHex)
 	c.ok("SETHASH 8 " + hex.EncodeToString(digest[:]))

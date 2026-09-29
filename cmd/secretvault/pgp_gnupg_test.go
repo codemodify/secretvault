@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -33,6 +34,19 @@ func gnupgTools(t *testing.T) (gpg, gpgconf string) {
 	return gpg, gpgconf
 }
 
+// gnupgCleanup kills, when the test ends, whatever agent a GnuPG home
+// has (the link leads to the test's daemon, which only answers), and
+// removes the socket directory gpgconf made for it, and the link in it.
+func gnupgCleanup(t *testing.T, gpgconf, home string) {
+	t.Cleanup(func() {
+		for _, args := range [][]string{{"--kill", "all"}, {"--remove-socketdir"}} {
+			cmd := exec.Command(gpgconf, append([]string{"--homedir", home}, args...)...)
+			cmd.Env = append(slices.DeleteFunc(os.Environ(), func(e string) bool { return strings.HasPrefix(e, "GNUPGHOME=") }), "GNUPGHOME="+home)
+			cmd.Run()
+		}
+	})
+}
+
 // serveGPGAgent starts the daemon's gpg-agent face.
 func (h *harness) serveGPGAgent() string {
 	h.t.Helper()
@@ -44,12 +58,7 @@ func (h *harness) serveGPGAgent() string {
 	h.t.Cleanup(cleanup)
 	ctx, cancel := context.WithCancel(context.Background())
 	h.t.Cleanup(cancel)
-	go h.d.ServeGPGAgent(ctx, ln)
-	for range 100 {
-		if out := h.ok("", "status"); strings.Contains(out, "gpg:") {
-			break
-		}
-	}
+	h.d.ServeGPGAgent(ctx, ln)
 	return sock
 }
 
@@ -70,15 +79,12 @@ func TestGPGSetupPointsAGnuPGHomeAtTheDaemon(t *testing.T) {
 		}
 		return append(env, "GNUPGHOME="+home)
 	}
-	t.Cleanup(func() {
-		cmd := exec.Command(gpgconf, "--homedir", home, "--remove-socketdir")
-		cmd.Env = env()
-		cmd.Run()
-	})
+	gnupgCleanup(t, gpgconf, home)
 	agentSock, err := gnupgDir(gpgconf, home, "agent-socket")
 	if err != nil {
 		t.Fatal(err)
 	}
+	forgetSocketDir(agentSock)
 
 	// --dry-run says what would happen, and nothing does.
 	out := h.ok("", h.with("pgp", "gpg-setup", "--gnupghome", home, "--gpg", gpg, "--dry-run")...)
@@ -87,6 +93,9 @@ func TestGPGSetupPointsAGnuPGHomeAtTheDaemon(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("the dry run does not say %q:\n%s", want, out)
 		}
+	}
+	if _, err := os.Stat(filepath.Dir(agentSock)); err == nil && filepath.Dir(agentSock) != home {
+		t.Fatalf("the dry run left the socket directory %s", filepath.Dir(agentSock))
 	}
 	if _, err := os.Stat(home); err == nil {
 		t.Fatal("the dry run made the home")
@@ -155,6 +164,7 @@ func TestGPGSetupPointsAGnuPGHomeAtTheDaemon(t *testing.T) {
 	}
 	// A home that was never set up is not linked that way.
 	other := t.TempDir()
+	gnupgCleanup(t, gpgconf, other)
 	if _, _, code := h.run("", "--homedir", other, "--use-standard-socket", gpgAgentProgramFlag, "--daemon"); code == 0 {
 		t.Fatal("linked a home nobody set up")
 	}

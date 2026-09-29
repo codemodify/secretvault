@@ -70,8 +70,8 @@ func checkSocketPath(path, name string) error {
 	if path == "" {
 		return nil
 	}
-	if !filepath.IsAbs(path) || filepath.Base(path) != name {
-		return svrpc.Errorf(svrpc.CodeInvalidParams, "%q is not a GnuPG socket path (an absolute path ending in %s)", path, name)
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || filepath.Base(path) != name {
+		return svrpc.Errorf(svrpc.CodeInvalidParams, "%q is not a GnuPG socket path (a clean absolute path ending in %s)", path, name)
 	}
 	return nil
 }
@@ -136,6 +136,9 @@ func (d *Daemon) gnupgLink(_ context.Context, cl *client, decode func(any) error
 	want := GnuPGHome{Home: home, Socket: p.Socket, SSHSocket: p.SSHSocket}
 	if p.Relink {
 		if idx < 0 {
+			// gpg started secretvault as its agent-program, which has no
+			// stderr to say this on: the log says it.
+			d.opts.Log(fmt.Sprintf("gpg looked for its agent in %s, which is not pointed at secretvault", home))
 			return nil, svrpc.Errorf(svrpc.CodeNotFound, "%s is not pointed at secretvault: run 'secretvault pgp gpg-setup --gnupghome %s'", home, home)
 		}
 		if want.Socket == "" {
@@ -146,23 +149,30 @@ func (d *Daemon) gnupgLink(_ context.Context, cl *client, decode func(any) error
 		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "where gpg looks for its agent in %s is missing (gpgconf --list-dirs agent-socket)", home)
 	}
 	if err := linkSocket(want.Socket, agent); err != nil {
+		d.opts.Log(fmt.Sprintf("GnuPG home %s: %v", home, err))
 		return nil, svrpc.Errorf(svrpc.CodeFailed, "%v", err)
+	}
+	if !p.Relink {
+		d.mu.Lock()
+		d.cfg.GnuPG = slices.DeleteFunc(d.cfg.GnuPG, func(h GnuPGHome) bool { return idx >= 0 && h.Home == known.Home })
+		d.cfg.GnuPG = append(d.cfg.GnuPG, want)
+		err := d.cfg.save(d.home)
+		d.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
 	}
 	res := svrpc.GnuPGLinkResult{Agent: agent}
 	if want.SSHSocket != "" && ssh != "" {
+		// Its SSH agent is an extra: a link that cannot be made is said in
+		// the log, and gpg works without it.
 		if err := linkSocket(want.SSHSocket, ssh); err != nil {
-			return nil, svrpc.Errorf(svrpc.CodeFailed, "%v", err)
+			d.opts.Log(fmt.Sprintf("GnuPG home %s: %v", home, err))
+		} else {
+			res.SSHAgent = ssh
 		}
-		res.SSHAgent = ssh
 	}
-	if p.Relink {
-		return res, nil
-	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.cfg.GnuPG = slices.DeleteFunc(d.cfg.GnuPG, func(h GnuPGHome) bool { return idx >= 0 && h.Home == known.Home })
-	d.cfg.GnuPG = append(d.cfg.GnuPG, want)
-	return res, d.cfg.save(d.home)
+	return res, nil
 }
 
 // linkSocket makes path a symbolic link to target, replacing a socket or

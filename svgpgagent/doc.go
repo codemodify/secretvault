@@ -23,8 +23,13 @@
 //     NIST curves, 0x40 || u on Curve25519, as libgcrypt writes them); for
 //     RSA the session key with its padding already removed, which a
 //     "PADDING 0" status says. gpg-agent sends RSA's raw result instead,
-//     padding and all; this server's backend only gives back a message
-//     that was properly padded, so that decrypting cannot be used to sign.
+//     padding and all, which signs whatever it is given; this server's
+//     backend only gives back a message that was properly padded. (Whether
+//     a message was is still a padding oracle, as for any PKCS #1 v1.5
+//     decryption: docs/security.md.)
+//   - A refusal is "Operation cancelled"; to a gpg that says it knows the
+//     code (OPTION agent-awareness=2.1.0), "fully cancelled", so that gpg
+//     does not go on to ask about another key.
 //   - Every OPTION is accepted (they tell a pinentry where to show).
 //     GETINFO answers version, pid, socket_name, ssh_socket_name,
 //     s2k_count and cmd_has_option. RESET, NOP, BYE, HELP,

@@ -249,7 +249,7 @@ func init() {
 var errUsage = errors.New("usage")
 
 func (c *cli) run(args []string) int {
-	if slices.Contains(args, gpgAgentProgramFlag) {
+	if slices.Contains(args, gpgAgentProgramFlag) && slices.Contains(args, "--daemon") {
 		return c.gpgAgentStart(args) // gpg starting its agent (pgp_gnupg.go)
 	}
 	global := flag.NewFlagSet("secretvault", flag.ContinueOnError)

@@ -39,7 +39,7 @@ type Config struct {
 
 	// GnuPG are the GnuPG homes pointed at the gpg-agent face
 	// (`secretvault pgp gpg-setup`), linked again each time the daemon
-	// starts (gpgagent.go).
+	// starts (gpgagent_link.go).
 	GnuPG []GnuPGHome `json:"gnupg,omitempty"`
 
 	// ContactsVault is the vault contacts are kept in ("" for the default

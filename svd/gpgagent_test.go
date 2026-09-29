@@ -70,7 +70,7 @@ func gpgHomeCleanup(home string) {
 	}
 }
 
-// gpgMadeKeys are secret keys gpg made: P-256 and RSA, each with an
+// gpgMadeKeys are secret keys gpg made: P-256, P-384, P-521 and RSA, each with an
 // encryption subkey, armored, without a passphrase.
 var gpgMadeKeys = sync.OnceValues(func() (map[string][]byte, error) {
 	home, err := os.MkdirTemp("", "svgpgkeys")
@@ -92,6 +92,8 @@ var gpgMadeKeys = sync.OnceValues(func() (map[string][]byte, error) {
 	keys := map[string][]byte{}
 	for _, k := range []struct{ name, uid, algo string }{
 		{"p256", "Nist Tester <p256@example.org>", "nistp256"},
+		{"p384", "Nist Tester <p384@example.org>", "nistp384"},
+		{"p521", "Nist Tester <p521@example.org>", "nistp521"},
 		{"rsa", "Rsa Tester <rsa@example.org>", "rsa3072"},
 	} {
 		if _, err := run("--quick-generate-key", k.uid, k.algo, "cert,sign", "never"); err != nil {
@@ -141,18 +143,12 @@ func gpgHarness(t *testing.T) (*harness, *secretvault.Client, *gnupg) {
 	t.Cleanup(cleanup)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go h.d.ServeGPGAgent(ctx, ln)
+	h.d.ServeGPGAgent(ctx, ln)
 
 	g := &gnupg{t: t, home: t.TempDir()}
 	os.Chmod(g.home, 0o700)
 	t.Cleanup(func() { gpgHomeCleanup(g.home) })
 	agentSock := g.gpgconf("agent-socket")
-	for range 50 { // ServeGPGAgent records its socket as it starts
-		if a, _ := h.d.gnupgSockets(); a != "" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 	if _, err := cli.LinkGnuPG(ctxT(t), svrpc.GnuPGLinkParams{Home: g.home, Socket: agentSock}); err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +285,7 @@ func (g *gnupg) verifies(k vaultKey, data, sig []byte, detached bool) {
 
 func TestGPGSignsWithKeysInTheVault(t *testing.T) {
 	h, cli, g := gpgHarness(t)
-	keys := []vaultKey{addNewKey(t, cli, g), addGPGKey(t, cli, g, "p256", nil), addGPGKey(t, cli, g, "rsa", nil)}
+	keys := allKeys(t, cli, g)
 
 	// gpg lists them as secret keys it can use.
 	out := g.must(nil, "--with-colons", "--list-secret-keys")
@@ -298,8 +294,10 @@ func TestGPGSignsWithKeysInTheVault(t *testing.T) {
 			t.Fatalf("gpg -K does not list %s:\n%s", k.fpr, out)
 		}
 	}
-	if strings.Contains(string(out), "sec:u:") && strings.Count(string(out), "\nssb:") != 3 {
-		t.Fatalf("gpg -K:\n%s", out)
+	// Each primary key and subkey is there, not a stub ("+", not "#").
+	secs := regexp.MustCompile(`(?m)^(sec|ssb):([^:]*:){13}\+:`).FindAll(out, -1)
+	if len(secs) != 2*len(keys) {
+		t.Fatalf("gpg -K lists %d usable (sub)keys, want %d:\n%s", len(secs), 2*len(keys), out)
 	}
 
 	data := []byte("signed by a key that never leaves the vault\n")
@@ -320,14 +318,14 @@ func TestGPGSignsWithKeysInTheVault(t *testing.T) {
 		g.verifies(k, nil, clear, false)
 		h.desk.done(t)
 	}
-	if n := h.desk.count(); n != 3 {
-		t.Fatalf("asked %d times for three keys, each allowed always", n)
+	if n := h.desk.count(); n != len(keys) {
+		t.Fatalf("asked %d times for %d keys, each allowed always", n, len(keys))
 	}
 }
 
 func TestGPGDecryptsWithKeysInTheVault(t *testing.T) {
 	h, cli, g := gpgHarness(t)
-	keys := []vaultKey{addNewKey(t, cli, g), addGPGKey(t, cli, g, "p256", nil), addGPGKey(t, cli, g, "rsa", nil)}
+	keys := allKeys(t, cli, g)
 	for i, k := range keys {
 		secret := []byte(fmt.Sprintf("for key %d only\n", i))
 		// Encrypted by gpg, to the key's encryption subkey...
@@ -356,9 +354,34 @@ func TestGPGDecryptsWithKeysInTheVault(t *testing.T) {
 		}
 		h.desk.done(t)
 	}
-	if n := h.desk.count(); n != 3 {
+	if n := h.desk.count(); n != len(keys) {
 		t.Fatalf("asked %d times", n)
 	}
+
+	// A message to two of the keys: saying no to the first stops gpg,
+	// which asks about no other.
+	ct := g.must([]byte("to both"), "--encrypt", "--recipient", keys[0].fpr, "--recipient", keys[1].fpr)
+	h.d.LockAll("test") // "until locked" ends
+	h.desk.script("pass:"+string(pass), "choose:"+svrpc.ChoiceDeny)
+	if _, status, err := g.run(ct, "--decrypt"); err == nil {
+		t.Fatalf("decrypted after a refusal:\n%s", status)
+	}
+	if n := h.desk.count(); n != len(keys)+2 {
+		t.Fatalf("asked %d more times after one refusal", n-len(keys)-2)
+	}
+	h.desk.done(t)
+}
+
+// allKeys puts a key of each kind in the vault: Ed25519 with a
+// Curve25519 subkey made in the daemon, and gpg's P-256, P-384, P-521 and
+// RSA keys.
+func allKeys(t *testing.T, cli *secretvault.Client, g *gnupg) []vaultKey {
+	t.Helper()
+	keys := []vaultKey{addNewKey(t, cli, g)}
+	for _, which := range []string{"p256", "p384", "p521", "rsa"} {
+		keys = append(keys, addGPGKey(t, cli, g, which, nil))
+	}
+	return keys
 }
 
 func TestGPGIsAskedAboutAsAnyProgramIs(t *testing.T) {
@@ -380,9 +403,10 @@ func TestGPGIsAskedAboutAsAnyProgramIs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Denied: gpg is told the operation was cancelled.
+	// Denied: gpg is told the operation was fully cancelled (it asks
+	// about no other key).
 	h.desk.script("choose:" + svrpc.ChoiceDeny)
-	if err := sign(); err == nil || !strings.Contains(err.Error(), "Operation cancelled") {
+	if err := sign(); err == nil || !strings.Contains(err.Error(), "Operation fully cancelled") {
 		t.Fatalf("a denied signature: %v", err)
 	}
 	// Dismissed: likewise.
