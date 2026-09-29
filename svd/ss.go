@@ -104,6 +104,9 @@ func (d *Daemon) ServeSecretService(ctx context.Context, bus *svdbus.Conn, queue
 	if err := bus.ExportSubtree(ssRoot, svdbus.Subtree{Lookup: ss.lookup, Children: ss.children}); err != nil {
 		return err
 	}
+	if err := bus.Export(portalPath, ss.portalInterface()); err != nil {
+		return err
+	}
 	// Programs that leave: their sessions close and their grants on this
 	// connection go.
 	if _, err := bus.SubscribeFunc(ctx, svdbus.MatchRule{Type: svdbus.TypeSignal, Sender: "org.freedesktop.DBus",

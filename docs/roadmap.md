@@ -129,8 +129,13 @@ copy and edit a login without the CLI.
   against a real gnome-keyring.
 - **Taking over.** `secretvault keyring takeover` (with `--dry-run`) makes
   the switch in user files only, and `restore` undoes it.
-- **Still to do:** the Flatpak portal backend (it needs a system-wide
-  portal file), CredMan and Keychain bridges, and browser autofill.
+- **The Flatpak Secret portal backend is built.** It gives each app its
+  own key under the usual per-app consent, and answers only
+  xdg-desktop-portal itself. It needs no system-wide file: it answers on
+  `org.freedesktop.secrets`, where `gnome-keyring.portal` points, and the
+  takeover writes the user's copy of the desktop's `portals.conf` choosing
+  that backend (on KDE, instead of kwallet).
+- **Still to do:** CredMan and Keychain bridges, and browser autofill.
 
 ## M4: hardware
 

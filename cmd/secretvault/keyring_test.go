@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -21,10 +22,31 @@ func TestTheGnomeKeyringUnitKeepsItsOtherComponents(t *testing.T) {
 	}
 }
 
+// portalSystem lays out a system's xdg-desktop-portal files in a temp dir
+// and points the XDG variables at it: gnome-keyring.portal when
+// withBackend, and a <desktop>-portals.conf picking secret for Secret.
+func portalSystem(t *testing.T, desktop, secret string, withBackend bool) string {
+	t.Helper()
+	sys := t.TempDir()
+	data := filepath.Join(sys, "share")
+	os.MkdirAll(filepath.Join(data, "xdg-desktop-portal", "portals"), 0o755)
+	if withBackend {
+		os.WriteFile(filepath.Join(data, "xdg-desktop-portal", "portals", "gnome-keyring.portal"),
+			[]byte("[portal]\nDBusName=org.freedesktop.secrets\nInterfaces=org.freedesktop.impl.portal.Secret\nUseIn=gnome\n"), 0o644)
+	}
+	os.WriteFile(filepath.Join(data, "xdg-desktop-portal", strings.ToLower(desktop)+"-portals.conf"),
+		[]byte("[preferred]\ndefault="+strings.ToLower(desktop)+"\norg.freedesktop.impl.portal.Secret="+secret+"\n"), 0o644)
+	t.Setenv("XDG_DATA_DIRS", data)
+	t.Setenv("XDG_CONFIG_DIRS", filepath.Join(sys, "etc"))
+	t.Setenv("XDG_CURRENT_DESKTOP", desktop)
+	return sys
+}
+
 func TestATakeoverPlanForGnomeKeyringWritesOnlyUserFiles(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	portalSystem(t, "GNOME", "gnome-keyring", true)
 	saved := commandRunner
 	t.Cleanup(func() { commandRunner = saved })
 	commandRunner = func(name string, args ...string) ([]byte, error) {
@@ -64,6 +86,8 @@ func TestATakeoverPlanForGnomeKeyringWritesOnlyUserFiles(t *testing.T) {
 
 func TestOtherKeyringsGetStepsToDoByHand(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	portalSystem(t, "GNOME", "gnome-keyring", true)
 	for exe, want := range map[string]string{
 		"/usr/bin/ksecretd":   "KWallet",
 		"/usr/bin/keepassxc":  "KeePassXC",
@@ -73,5 +97,67 @@ func TestOtherKeyringsGetStepsToDoByHand(t *testing.T) {
 		if len(p.notes) != 1 || !strings.Contains(p.notes[0], want) {
 			t.Errorf("%s: notes %v", exe, p.notes)
 		}
+	}
+}
+
+func TestFlatpakAppsSecretPortalIsPointedAtSecretvault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	userConf := filepath.Join(home, "config", "xdg-desktop-portal", "kde-portals.conf")
+
+	// KDE picks kwallet: a copy of its file, with only Secret changed.
+	portalSystem(t, "KDE", "kwallet", true)
+	p, _ := planTakeover("/usr/bin/ksecretd", "/x/secretvaultd")
+	conf, ok := p.files[userConf]
+	if !ok {
+		t.Fatalf("no user portals.conf in the plan: %v", p.order)
+	}
+	if !strings.Contains(conf, "default=kde\n") || !strings.Contains(conf, "org.freedesktop.impl.portal.Secret=gnome-keyring\n") || strings.Contains(conf, "kwallet") {
+		t.Fatalf("the copy:\n%s", conf)
+	}
+	if !slices.Contains(p.restart, "xdg-desktop-portal.service") {
+		t.Fatalf("restarts: %v", p.restart)
+	}
+
+	// GNOME already picks gnome-keyring: nothing to write.
+	portalSystem(t, "GNOME", "gnome-keyring", true)
+	p, _ = planTakeover("/usr/bin/ksecretd", "/x/secretvaultd")
+	for _, f := range p.order {
+		if strings.Contains(f, "xdg-desktop-portal") {
+			t.Fatalf("GNOME got %s", f)
+		}
+	}
+
+	// The user's own file is never overwritten: they are told what to set.
+	portalSystem(t, "KDE", "kwallet", true)
+	os.MkdirAll(filepath.Dir(userConf), 0o755)
+	os.WriteFile(userConf, []byte("[preferred]\ndefault=kde\n"), 0o644)
+	p, _ = planTakeover("/usr/bin/ksecretd", "/x/secretvaultd")
+	if _, ok := p.files[userConf]; ok || !strings.Contains(strings.Join(p.notes, "\n"), userConf) {
+		t.Fatalf("the user's file: planned %v, notes %v", ok, p.notes)
+	}
+	os.Remove(userConf)
+
+	// With no backend that reaches org.freedesktop.secrets, it says so.
+	portalSystem(t, "KDE", "kwallet", false)
+	p, _ = planTakeover("/usr/bin/ksecretd", "/x/secretvaultd")
+	if _, ok := p.files[userConf]; ok || !strings.Contains(strings.Join(p.notes, "\n"), "Flatpak apps keep theirs") {
+		t.Fatalf("no backend: planned %v, notes %v", ok, p.notes)
+	}
+}
+
+func TestWithPortalChangesOnlyTheSecretLine(t *testing.T) {
+	for in, want := range map[string]string{
+		"[preferred]\ndefault=kde\norg.freedesktop.impl.portal.Secret=kwallet\n": "[preferred]\ndefault=kde\norg.freedesktop.impl.portal.Secret=gnome-keyring\n",
+		"[preferred]\ndefault=gtk\n": "[preferred]\norg.freedesktop.impl.portal.Secret=gnome-keyring\ndefault=gtk\n",
+		"# only a comment\n":         "# only a comment\n[preferred]\norg.freedesktop.impl.portal.Secret=gnome-keyring\n",
+	} {
+		if got, changed := withPortal(in, portalSecret, gnomeKeyringPortal); !changed || got != want {
+			t.Errorf("withPortal(%q) = %q, %v", in, got, changed)
+		}
+	}
+	if _, changed := withPortal("[preferred]\norg.freedesktop.impl.portal.Secret=gnome-keyring\n", portalSecret, gnomeKeyringPortal); changed {
+		t.Error("an unchanged file was changed")
 	}
 }

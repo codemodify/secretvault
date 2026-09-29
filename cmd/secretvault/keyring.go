@@ -326,7 +326,112 @@ func planTakeover(exe, daemon string) (*plan, error) {
 	case exe != "":
 		p.notes = append(p.notes, filepath.Base(exe)+" holds the keyring: turn off its Secret Service integration")
 	}
+	planPortal(p)
 	return p, nil
+}
+
+// portalSecret is the portals.conf key that picks the Secret portal's
+// backend, and gnomeKeyringPortal the backend that reaches whoever owns
+// org.freedesktop.secrets (gnome-keyring.portal says DBusName=
+// org.freedesktop.secrets): after the takeover, secretvaultd.
+const (
+	portalSecret       = "org.freedesktop.impl.portal.Secret"
+	gnomeKeyringPortal = "gnome-keyring"
+)
+
+// planPortal makes Flatpak apps' Secret portal reach secretvault. The
+// desktop's portals.conf may pick another backend (KDE picks kwallet);
+// xdg-desktop-portal reads the first such file it finds, the user's before
+// the system's, without merging, so the plan writes a copy of the one in
+// force into the user's config, with only the Secret line changed.
+func planPortal(p *plan) {
+	var dataDirs []string
+	for _, d := range filepath.SplitList(orDefault(os.Getenv("XDG_DATA_DIRS"), "/usr/local/share:/usr/share")) {
+		dataDirs = append(dataDirs, filepath.Join(d, "xdg-desktop-portal"))
+	}
+	found := false
+	for _, d := range dataDirs {
+		if b, err := os.ReadFile(filepath.Join(d, "portals", gnomeKeyringPortal+".portal")); err == nil && strings.Contains(string(b), "DBusName=org.freedesktop.secrets") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		p.notes = append(p.notes, "no Secret portal backend reaches org.freedesktop.secrets here (gnome-keyring.portal is not installed): Flatpak apps keep theirs")
+		return
+	}
+	var names []string
+	for _, desk := range strings.Split(os.Getenv("XDG_CURRENT_DESKTOP"), ":") {
+		if desk != "" {
+			names = append(names, strings.ToLower(desk)+"-portals.conf")
+		}
+	}
+	names = append(names, "portals.conf")
+	userConf := filepath.Join(userDir("XDG_CONFIG_HOME", ".config"), "xdg-desktop-portal")
+	var confDirs []string
+	for _, d := range filepath.SplitList(orDefault(os.Getenv("XDG_CONFIG_DIRS"), "/etc/xdg")) {
+		confDirs = append(confDirs, filepath.Join(d, "xdg-desktop-portal"))
+	}
+	for _, n := range names {
+		if _, err := os.Stat(filepath.Join(userConf, n)); err == nil {
+			p.notes = append(p.notes, "for Flatpak apps, set "+portalSecret+"="+gnomeKeyringPortal+" under [preferred] in "+filepath.Join(userConf, n))
+			return
+		}
+	}
+	for _, n := range names {
+		for _, d := range append(confDirs, dataDirs...) {
+			b, err := os.ReadFile(filepath.Join(d, n))
+			if err != nil {
+				continue
+			}
+			conf, changed := withPortal(string(b), portalSecret, gnomeKeyringPortal)
+			if changed {
+				p.file(filepath.Join(userConf, n), "# Written by 'secretvault keyring takeover', from "+filepath.Join(d, n)+":\n"+
+					"# the same, but Flatpak apps' secrets come from secretvault.\n"+conf)
+				p.restart = append(p.restart, "xdg-desktop-portal.service")
+			}
+			return
+		}
+	}
+	p.file(filepath.Join(userConf, "portals.conf"), "# Written by 'secretvault keyring takeover'.\n[preferred]\n"+portalSecret+"="+gnomeKeyringPortal+"\n")
+	p.restart = append(p.restart, "xdg-desktop-portal.service")
+}
+
+// withPortal sets key=value under [preferred] in a portals.conf,
+// reporting whether that changed anything.
+func withPortal(conf, key, value string) (string, bool) {
+	lines := strings.Split(strings.TrimRight(conf, "\n"), "\n")
+	section, preferred := "", -1
+	for i, line := range lines {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "[") {
+			section = t
+			if t == "[preferred]" {
+				preferred = i
+			}
+			continue
+		}
+		if k, v, ok := strings.Cut(t, "="); ok && section == "[preferred]" && strings.TrimSpace(k) == key {
+			if strings.TrimSpace(v) == value {
+				return conf, false
+			}
+			lines[i] = key + "=" + value
+			return strings.Join(lines, "\n") + "\n", true
+		}
+	}
+	if preferred < 0 {
+		lines = append(lines, "[preferred]")
+		preferred = len(lines) - 1
+	}
+	lines = append(lines[:preferred+1], append([]string{key + "=" + value}, lines[preferred+1:]...)...)
+	return strings.Join(lines, "\n") + "\n", true
+}
+
+func orDefault(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
 }
 
 func (c *cli) keyringTakeover(args []string) error {

@@ -313,11 +313,19 @@ rotates the vault master key).
     at the default vault. Secret Service attributes map to item attributes.
     The `session` collection is an in-memory vault.
   - **Portal.** The Flatpak portal backend (`org.freedesktop.impl.portal.Secret`)
-    gives sandboxed apps their per-app secret.
+    gives sandboxed apps their per-app secret: a key of each app's own
+    (`flatpak/<app id>` in the default vault, made on first use), under the
+    usual per-app consent. It answers on the Secret Service's connection at
+    `/org/freedesktop/portal/desktop`, which `gnome-keyring.portal` points
+    at, and only to xdg-desktop-portal itself: anyone else on the bus could
+    otherwise ask for any app's key.
   - **Take-over and undo.** `secretvault keyring takeover` imports what the
     current keyring holds, then changes only user files (recorded for
     `restore`):
     - a D-Bus activation file for `org.freedesktop.secrets`;
+    - where the desktop's `portals.conf` picks another Secret portal backend
+      (KDE picks kwallet), the user's copy of it choosing `gnome-keyring`,
+      which then reaches secretvault;
     - for gnome-keyring, its "secrets" autostart entry hidden and a systemd
       drop-in that keeps its pkcs11 component.
 

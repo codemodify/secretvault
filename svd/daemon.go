@@ -50,6 +50,12 @@ type Options struct {
 	// means: the one in the daemon's own directory.
 	IsPromptAgent func(*svpeer.Process) bool
 
+	// IsPortal reports whether a caller on the bus is xdg-desktop-portal,
+	// the only one that may ask for a Flatpak app's secret (portal.go).
+	// Nil means: a program named xdg-desktop-portal that the
+	// administrator installed.
+	IsPortal func(*svpeer.Process) bool
+
 	// Desktop, when set, replaces the desktop prompter (tests).
 	Desktop Prompter
 
@@ -117,6 +123,11 @@ func New(opts Options) (*Daemon, error) {
 	}
 	if opts.IsPromptAgent == nil {
 		opts.IsPromptAgent = sibling("secretvault-tui-prompt")
+	}
+	if opts.IsPortal == nil {
+		opts.IsPortal = func(p *svpeer.Process) bool {
+			return p.SystemOwned && filepath.Base(p.Exe) == "xdg-desktop-portal"
+		}
 	}
 	device, err := svcore.Device(opts.Home)
 	if err != nil {
