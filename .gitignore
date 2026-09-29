@@ -5,6 +5,7 @@
 /secretvault-tui-prompt
 /secretvault-gui
 /secretvault-gui-prompt
+/secretvault-server
 *.exe
 *.exe~
 *.dll
