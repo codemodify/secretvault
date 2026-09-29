@@ -33,12 +33,14 @@
 //	read sv://VAULT/ITEM[#FIELD]            print one value ("-" is the default vault)
 //	run [--env-file F] -- CMD               run CMD with sv:// references in its environment resolved
 //	inject [-i IN] [-o OUT]                 fill {{ sv://... }} references in a template
-//
-// Installed as git-credential-secretvault or docker-credential-secretvault
-// (symlinks to this program), it is git's or docker's credential helper.
+//	age keygen|recipient|identity|encrypt|decrypt   age files with vault-held keys
 //	identity new|pub           make or show a recipient identity
 //	verify                     re-authenticate every file of the vault
 //	version                    print the version
+//
+// Installed as git-credential-secretvault or docker-credential-secretvault
+// (symlinks to this program), it is git's or docker's credential helper;
+// as age-plugin-secretvault, the age plugin for identities kept in vaults.
 //
 // Commands that use a vault also take --passphrase-file FILE, --keyfile
 // FILE, --identity FILE or --recovery, to unlock (and prove it is you)
@@ -89,6 +91,10 @@ type cli struct {
 
 	// clip, when set, replaces copying to the real clipboard (tests).
 	clip func(secret []byte, ttl time.Duration) (string, error)
+
+	// clientName is the name the daemon's logs give this connection
+	// ("secretvault" when empty).
+	clientName string
 
 	vault  string
 	client *secretvault.Client
@@ -157,6 +163,8 @@ func init() {
 		{"inject", "fill {{ sv://... }} references in a template", (*cli).cmdInject},
 		{"git-credential", "git's credential helper (get, store, erase)", (*cli).cmdGitCredential},
 		{"docker-credential", "docker's credential helper (get, store, erase, list)", (*cli).cmdDockerCredential},
+		{"age", "age files with vault-held keys: keygen, recipient, identity, encrypt, decrypt", (*cli).cmdAge},
+		{"age-plugin", "age's plugin protocol (run as age-plugin-secretvault)", (*cli).cmdAgePlugin},
 		{"identity", "make (new) or show (pub) a recipient identity", (*cli).cmdIdentity},
 		{"verify", "re-authenticate every file of the vault", (*cli).cmdVerify},
 		{"version", "print the version", (*cli).cmdVersion},

@@ -272,7 +272,10 @@ self-hosted, and it is not a compatibility endpoint for the clouds' APIs.
 **secretvault** has its own format (a decision). Its stream construction is
 age's STREAM, and its recipients are the same ML-KEM-768 + X25519 hybrid.
 It meets both tools through `age-plugin-secretvault`: age, SOPS, gopass,
-passage and chezmoi can then decrypt with keys that never leave the daemon.
+passage and chezmoi can then decrypt with keys kept in a vault, which leave
+the daemon only for the plugin, and only after the person agrees. The age
+format itself is implemented in our own code (`svage`), so `secretvault age`
+encrypts and decrypts without age installed.
 
 ## Interfaces secretvault will speak
 

@@ -141,6 +141,10 @@ Wiping keys in Go is therefore hygiene, not a guarantee. What it does:
   - Item names, labels and attributes are Go strings, which cannot be zeroed.
     Secrets belong in fields, not names.
   - The `sv1-nist` PBKDF2 call takes the passphrase as a string.
+  - An age identity used by `age-plugin-secretvault` or `secretvault age
+    decrypt` becomes, in that process, a `crypto/ecdh` or `crypto/hpke` key,
+    which cannot be zeroed. Its text is wiped once parsed, and the process
+    exits when the file key is unwrapped.
   - The Go runtime may have copied anything before it was wiped.
 
 ## Cryptographic choices
@@ -155,12 +159,16 @@ Wiping keys in Go is therefore hygiene, not a guarantee. What it does:
   secret-dependent branches. For OpenPGP, `svpgp` also implements the modes
   the standard library lacks, on top of `crypto/aes`: OCB (RFC 7253), EAX,
   CFB and AES key wrap (RFC 3394), each checked against its published test
-  vectors.
+  vectors. For age, `svage` adds Bech32, and the two point conversions SSH
+  and hardware-token recipients need (Ed25519 to X25519, and P-256
+  decompression), which only ever see public keys.
 - **Nonces.** Every AEAD message gets a fresh random nonce. It is 192-bit for
   XChaCha20. For AES-GCM, a per-message key is derived from a 256-bit salt.
   Streams use counters under a per-stream key.
 - **Test vectors.** Pinned against independent implementations (the reference
-  Argon2 CLI and Python's hashlib), and golden revisions for each suite.
+  Argon2 CLI and Python's hashlib), and golden revisions for each suite. The
+  age implementation passes all of the C2SP CCTV age vectors, and reads what
+  the reference age implementation writes for the types they leave out.
 
 ## OpenPGP
 

@@ -418,7 +418,22 @@ Removing them properly needs a new epoch (VMK rotation), planned for M6.
 - **Kubernetes.** A provider for External Secrets Operator's webhook, and our
   own Secrets Store CSI driver provider.
 - **SOPS and age.** `age-plugin-secretvault` makes vault-held keys usable by
-  age, SOPS, gopass and chezmoi without the key leaving the daemon.
+  age, rage, SOPS, gopass and chezmoi.
+  - **The key.** An item of kind `key`: the field `age_identity` holds an
+    X25519 or post-quantum age identity, and `age_recipient` (a field and an
+    attribute) its public half, a plain `age1...`/`age1pq1...` that anyone
+    can encrypt to without secretvault. `secretvault age keygen` makes one.
+  - **The identity string** is `AGE-PLUGIN-SECRETVAULT-1...`, Bech32 of
+    `VAULT/ITEM`: it names the item and holds no key.
+  - **The plugin** is the CLI under that name (multicall). For each file it
+    asks the daemon for the item, which asks the person like any other
+    request, then unwraps the file key in its own process and exits. It
+    never prompts itself (its stdin and stdout belong to age), and it asks
+    for nothing unless the file has an X25519 or post-quantum stanza. The
+    key leaves the daemon for that process only, after consent.
+  - **Our own code** (`svage`): the format, the recipient types (including
+    SSH keys and scrypt, for `secretvault age encrypt|decrypt`), and both
+    ends of the plugin protocol, checked against the C2SP CCTV vectors.
 
 ### Tokens and 2FA
 
@@ -458,13 +473,15 @@ projects, with `sv` as the prefix:
 | `svfido`, `svpcsc`, `svtpm` | hardware tokens and TPM | M4 |
 | `svsync`, `svserver` | sync, and the server API | M6, M8 |
 | `svcontainer`, `svmount` | containers, and per-OS mounting | M7 |
+| `svage` | age files and the age plugin protocol | M8 |
 | `svgui`, `svtui` | the managers and prompts | M1–M2 |
 
 **Dependencies:**
 - **Allowed:**
   - the Go standard library;
-  - `golang.org/x/crypto` (Argon2, ChaCha20-Poly1305; and for OpenPGP,
-    CAST5, Blowfish and Twofish to read old data, and cryptobyte for ECDSA
+  - `golang.org/x/crypto` (Argon2, ChaCha20-Poly1305, scrypt for age
+    passphrases, `ssh` for SSH key formats; and for OpenPGP, CAST5,
+    Blowfish and Twofish to read old data, and cryptobyte for ECDSA
     signatures), `golang.org/x/sys`,
     `golang.org/x/term`;
   - `github.com/codemodify/uitoolkit` in the GUI binaries only;

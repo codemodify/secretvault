@@ -222,7 +222,10 @@ flight.
   - Path policies, a hash-chained audit log, and Shamir unseal.
 - **Kubernetes.** A provider for External Secrets Operator's webhook, and our
   own CSI driver provider.
-- **SOPS and age.** `age-plugin-secretvault`.
+- **SOPS and age (done).** `age-plugin-secretvault`, and `secretvault age`
+  (`keygen`, `recipient`, `identity`, `encrypt`, `decrypt`) on our own age
+  implementation (`svage`), including the post-quantum recipients of age
+  v1.3.
 
 **Done when:** a systemd service, a Kubernetes pod and a GitHub Actions job
 each receive a secret, and none of them stores a credential.

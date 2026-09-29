@@ -23,6 +23,7 @@ import (
 //
 //	git-credential-secretvault get|store|erase    git's credential helper protocol
 //	docker-credential-secretvault get|store|erase|list
+//	age-plugin-secretvault --age-plugin=...       age's plugin protocol (age_plugin.go)
 //	secretvault read sv://VAULT/ITEM[#FIELD]     print one value
 //	secretvault run [--env-file F] -- CMD ...    run CMD with sv:// references in its
 //	                                             environment resolved
@@ -493,6 +494,8 @@ func helperName(argv0 string) string {
 		return "git-credential"
 	case "docker-credential-secretvault":
 		return "docker-credential"
+	case "age-plugin-secretvault":
+		return "age-plugin"
 	}
 	return ""
 }

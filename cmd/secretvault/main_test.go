@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/codemodify/secretvault/svd"
 	"github.com/codemodify/secretvault/svformat"
 	"github.com/codemodify/secretvault/svpeer"
+	"github.com/codemodify/secretvault/svrpc"
 )
 
 type harness struct {
@@ -26,7 +28,45 @@ type harness struct {
 	home     string
 	sock     string
 	passFile string
-	answers  []string // what the terminal "types", in order
+	answers  []string  // what the terminal "types", in order
+	desk     *fakeDesk // the desktop prompt, for programs other than the CLI
+}
+
+// fakeDesk stands in for the desktop prompt: it records what it is asked
+// and answers as the test says, cancelling when it has not been told.
+type fakeDesk struct {
+	mu         sync.Mutex
+	asked      []string
+	passphrase string // typed when asked for a vault's passphrase
+	choice     string // picked when asked to decide about a program
+}
+
+func (d *fakeDesk) Passphrase(_ context.Context, q svrpc.PromptAsk) ([]byte, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.asked = append(d.asked, "passphrase: "+q.Description)
+	if d.passphrase == "" {
+		return nil, svrpc.ErrCanceled
+	}
+	return []byte(d.passphrase), nil
+}
+
+func (d *fakeDesk) Choose(_ context.Context, q svrpc.PromptAsk) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.asked = append(d.asked, "choose: "+q.Description)
+	if d.choice == "" {
+		return "", svrpc.ErrCanceled
+	}
+	return d.choice, nil
+}
+
+func (d *fakeDesk) Describe() string { return "test desktop" }
+
+func (d *fakeDesk) questions() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]string(nil), d.asked...)
 }
 
 func newHarness(t *testing.T) *harness {
@@ -42,11 +82,11 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	h := &harness{t: t, dir: dir, home: filepath.Join(dir, "home"), sock: filepath.Join(dir, "s", "d.sock"), passFile: filepath.Join(dir, "pass")}
+	h := &harness{t: t, dir: dir, home: filepath.Join(dir, "home"), sock: filepath.Join(dir, "s", "d.sock"), passFile: filepath.Join(dir, "pass"), desk: &fakeDesk{}}
 	h.write("pass", "correct horse battery staple\n")
 
 	// A real daemon, in-process, which takes this test binary for the CLI.
-	d, err := svd.New(svd.Options{Home: h.home, Socket: h.sock, IsCLI: func(*svpeer.Process) bool { return true }})
+	d, err := svd.New(svd.Options{Home: h.home, Socket: h.sock, Desktop: h.desk, IsCLI: func(*svpeer.Process) bool { return true }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,9 +561,10 @@ func TestDockerStoresAndGetsCredentialsThroughTheHelper(t *testing.T) {
 
 func TestHelperNamesPickTheirCommand(t *testing.T) {
 	for argv0, want := range map[string]string{
-		"/usr/bin/git-credential-secretvault": "git-credential",
-		"docker-credential-secretvault.exe":   "docker-credential",
-		"/usr/bin/secretvault":                "",
+		"/usr/bin/git-credential-secretvault":   "git-credential",
+		"docker-credential-secretvault.exe":     "docker-credential",
+		"/usr/local/bin/age-plugin-secretvault": "age-plugin",
+		"/usr/bin/secretvault":                  "",
 	} {
 		if got := helperName(argv0); got != want {
 			t.Errorf("helperName(%q) = %q", argv0, got)

@@ -59,6 +59,7 @@ decision. If there is none, it asks you.
 | [`svbroker`](svbroker) | Remembered decisions, and the audit log |
 | [`svprompt`](svprompt), [`svterm`](svterm) | Asking people: the pinentry protocol, and terminals |
 | [`svpgp`](svpgp) | OpenPGP, our own: keys, signatures, encryption (RFC 9580, reading RFC 4880) |
+| [`svage`](svage) | age files and the age plugin protocol, both ends |
 | [`secretvault`](client.go) | The Go client library |
 
 A vault is a folder of files that are only ever added, never rewritten, so
@@ -107,6 +108,30 @@ For git and docker, link the CLI under their helper names:
 `git config --global credential.helper secretvault`; likewise
 `docker-credential-secretvault` with `"credsStore": "secretvault"`.
 
+For age and SOPS, link it as their plugin, somewhere on `PATH`:
+
+```console
+$ ln -s secretvault bin/age-plugin-secretvault
+$ bin/secretvault age keygen --name age/sops >> ~/.config/sops/age/keys.txt
+$ tail -2 ~/.config/sops/age/keys.txt
+# recipient: age1...
+AGE-PLUGIN-SECRETVAULT-1...
+$ sops encrypt --age age1... secrets.yaml > secrets.enc.yaml   # or age: in .sops.yaml
+$ sops decrypt secrets.enc.yaml    # the plugin asks secretvaultd for the key
+$ age -d -i ~/.config/sops/age/keys.txt file.age               # age and rage alike
+$ bin/secretvault age decrypt -i sv://-/age/sops file.age      # or no age at all
+```
+
+- **The recipient is a plain age key** (`age1...`, or `age1pq1...` with
+  `--pq`): anyone can encrypt to it without secretvault.
+- **The identity line names the item**, not the key. Decrypting runs
+  `age-plugin-secretvault`, which asks the daemon for the item (the daemon
+  asks you, as for any program), unwraps the file key, and exits.
+- **SOPS** takes plugin identities from version 3.10, through
+  `SOPS_AGE_KEY_FILE`, `SOPS_AGE_KEY` or its keys file. Encrypting to
+  `age1pq1...` needs a SOPS built with age 1.3 or later; decrypting works
+  with any, since the plugin unwraps post-quantum stanzas itself.
+
 - **The daemon owns the vaults.** Vaults live under
   `~/.local/share/secretvault/vaults/` (macOS: `~/Library/Application
   Support/secretvault/…`; Windows: `%LOCALAPPDATA%\secretvault\…`), or
@@ -151,7 +176,7 @@ where it stops. In short:
 | Dependency | For | Licence |
 | --- | --- | --- |
 | Go standard library | nearly everything, including HPKE, ML-KEM, HKDF, PBKDF2, AES-GCM | BSD-3-Clause |
-| [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | Argon2id, XChaCha20-Poly1305; CAST5, Blowfish and Twofish to read old OpenPGP data | BSD-3-Clause |
+| [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | Argon2id, XChaCha20-Poly1305, scrypt, SSH key formats; CAST5, Blowfish and Twofish to read old OpenPGP data | BSD-3-Clause |
 | [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys) | locked memory, process hardening | BSD-3-Clause |
 | [golang.org/x/term](https://pkg.go.dev/golang.org/x/term) | passphrase entry without echo | BSD-3-Clause |
 
@@ -180,6 +205,8 @@ The tests include:
   Argon2 CLI and Python's hashlib);
 - OpenPGP against the RFC 9580 test vectors and GnuPG 2.4, both ways, with
   every byte of signatures and ciphertexts tampered with, and fuzzing.
+- all 147 C2SP CCTV age test vectors, and files the reference age
+  implementation wrote.
 
 ## Licence
 

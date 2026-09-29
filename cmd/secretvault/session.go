@@ -31,6 +31,9 @@ func (c *cli) daemon() (*secretvault.Client, error) {
 		return c.client, nil
 	}
 	opts := secretvault.Options{Name: "secretvault"}
+	if c.clientName != "" {
+		opts.Name = c.clientName
+	}
 	if c.canAsk {
 		opts.Prompter = c.answer
 	}
