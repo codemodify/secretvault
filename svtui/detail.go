@@ -302,20 +302,8 @@ func itemRows(e *svrpc.Entry, reveal bool, keys map[int]*svotp.Key, now time.Tim
 	return rows
 }
 
-// parseOTP reads an otp field: an otpauth:// URI, or a bare base32 seed
-// (a 30-second, six-digit TOTP key, as authenticator apps assume).
-func parseOTP(v []byte) (*svotp.Key, error) {
-	// svotp reads strings, so the key briefly becomes one here.
-	s := strings.TrimSpace(string(v))
-	if len(s) > 8 && strings.EqualFold(s[:8], "otpauth:") {
-		return svotp.Parse(s)
-	}
-	secret, err := svotp.DecodeSecret(s)
-	if err != nil {
-		return nil, err
-	}
-	return &svotp.Key{Type: "totp", Secret: secret, Algorithm: "SHA1", Digits: 6, Period: 30}, nil
-}
+// parseOTP reads an otp field (svotp.ParseField).
+func parseOTP(v []byte) (*svotp.Key, error) { return svotp.ParseField(v) }
 
 // groupCode splits a numeric code in two for reading: "123 456".
 func groupCode(code string) string {

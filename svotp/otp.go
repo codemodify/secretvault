@@ -99,6 +99,22 @@ func Parse(uri string) (*Key, error) {
 	return k, k.check()
 }
 
+// ParseField reads the value of an item's otp field: an otpauth:// URI, or
+// a bare base32 seed (a 30-second, six-digit TOTP key, as authenticator
+// apps assume).
+func ParseField(v []byte) (*Key, error) {
+	// Parse reads strings, so the key briefly becomes one here.
+	s := strings.TrimSpace(string(v))
+	if len(s) > 8 && strings.EqualFold(s[:8], "otpauth:") {
+		return Parse(s)
+	}
+	secret, err := DecodeSecret(s)
+	if err != nil {
+		return nil, err
+	}
+	return &Key{Type: "totp", Secret: secret, Algorithm: "SHA1", Digits: 6, Period: 30}, nil
+}
+
 func (k *Key) check() error {
 	switch {
 	case len(k.Secret) == 0:

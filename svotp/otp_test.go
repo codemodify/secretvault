@@ -91,3 +91,17 @@ func TestBadKeysAreRefused(t *testing.T) {
 		}
 	}
 }
+
+func TestAFieldHoldsAURIOrABareSeed(t *testing.T) {
+	uri, err := ParseField([]byte(" otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&digits=8\n"))
+	if err != nil || uri.Digits != 8 {
+		t.Fatalf("a URI field: %+v, %v", uri, err)
+	}
+	seed, err := ParseField([]byte("jbsw y3dp ehpk 3pxp"))
+	if err != nil || seed.Type != "totp" || seed.Digits != 6 || seed.Period != 30 || seed.Algorithm != "SHA1" {
+		t.Fatalf("a bare seed: %+v, %v", seed, err)
+	}
+	if _, err := ParseField([]byte("no key here!")); err == nil {
+		t.Fatal("a field without a key parsed")
+	}
+}
