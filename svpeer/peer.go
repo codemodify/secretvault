@@ -90,6 +90,26 @@ func FromConn(c net.Conn) (*Process, error) {
 	return p, nil
 }
 
+// FromConnAnyUser is FromConn without the same-user check, for a daemon
+// that serves other users by policy (secretvaultd's host mode): the
+// caller decides what the peer's UID may do.
+func FromConnAnyUser(c net.Conn) (*Process, error) {
+	pid, uid, err := peerCred(c)
+	if err != nil {
+		return nil, err
+	}
+	p, err := Describe(pid)
+	if err != nil {
+		return nil, err
+	}
+	p.UID = uid
+	return p, nil
+}
+
+// PeerCred is the kernel's word on the other end of a local socket: its
+// process and user IDs, whoever it runs as.
+func PeerCred(c net.Conn) (pid, uid int, err error) { return peerCred(c) }
+
 // Describe identifies a process by its ID (for callers known by PID, such
 // as D-Bus clients).
 func Describe(pid int) (*Process, error) {

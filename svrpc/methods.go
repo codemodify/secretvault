@@ -148,6 +148,9 @@ type Status struct {
 	SecretService string `json:"secret_service"`
 	// SSHAgent is the SSH agent socket, "" when off.
 	SSHAgent string `json:"ssh_agent,omitempty"`
+	// Mode is "host" for the host daemon (secretvaultd --host), "" for a
+	// person's own.
+	Mode string `json:"mode,omitempty"`
 }
 
 // VaultRef names a vault.
