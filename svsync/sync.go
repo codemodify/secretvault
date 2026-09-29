@@ -524,14 +524,16 @@ func rank(name string) int {
 		return 0
 	case svserver.Epoch:
 		return 1
+	case svserver.Blob:
+		return 2 // before the revisions that refer to them
 	case svserver.Revision:
-		return 2
-	case svserver.Checkpoint:
 		return 3
-	case svserver.Descriptor:
+	case svserver.Checkpoint:
 		return 4
+	case svserver.Descriptor:
+		return 5
 	}
-	return 5
+	return 6
 }
 
 func byRank(names []string) []string {

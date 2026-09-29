@@ -332,8 +332,17 @@ func (v *Vault) Put(it Item) (Entry, error) {
 		return Entry{}, err
 	}
 	it = it.clone()
+	// Files come only from Attach and Detach: an item written back by a
+	// program that knows nothing of them keeps its own.
+	for i := range it.Files {
+		clear(it.Files[i].Key)
+	}
+	it.Files = nil
 	if id, ok := v.idx.byName[it.Name]; ok {
 		o := v.idx.objects[id]
+		if h := o.heads[0]; !h.deleted && h.item != nil {
+			it.Files = cloneFiles(h.item.Files)
+		}
 		return v.write(id, o.heads, payload{Type: payloadItem, Item: &it})
 	}
 	return v.write(svformat.NewID(), nil, payload{Type: payloadItem, Item: &it})
@@ -485,6 +494,15 @@ func (v *Vault) Verify() (Report, error) {
 		rep.Live++
 		if len(o.heads) > 1 {
 			rep.Conflicts = append(rep.Conflicts, o.entry())
+		}
+		if h := o.heads[0]; h.item != nil {
+			for _, f := range h.item.Files {
+				data, err := v.openBlob(f)
+				clear(data)
+				if err != nil {
+					rep.Problems = append(rep.Problems, Problem{svformat.BlobName(f.Blob), err})
+				}
+			}
 		}
 	}
 	sort.Slice(rep.Conflicts, func(i, j int) bool { return rep.Conflicts[i].Item.Name < rep.Conflicts[j].Item.Name })

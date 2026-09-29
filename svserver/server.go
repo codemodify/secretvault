@@ -18,6 +18,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/codemodify/secretvault/svformat"
 	"github.com/codemodify/secretvault/svstore"
 )
 
@@ -103,7 +104,7 @@ func New(cfg Config) (*Server, error) {
 		done:   make(chan struct{}),
 		vaults: map[string]*vault{},
 	}
-	fileBody := cfg.MaxFileSize
+	fileBody := max(cfg.MaxFileSize, svformat.MaxBlobFile)
 	s.route("POST /v1/vaults/{vault}", anyKey, maxJSONBody, s.createVault)
 	s.route("PUT /v1/vaults/{vault}/files/{name...}", member, fileBody, s.putFile)
 	s.route("GET /v1/vaults/{vault}/files/{name...}", member, 0, s.getFile)
@@ -466,6 +467,11 @@ func (s *Server) putFile(w http.ResponseWriter, r *http.Request, req *request) {
 		// never be able to write.
 		if sum(req.body) != revisionHash(name) {
 			fail(w, http.StatusBadRequest, "the revision's contents do not match its name")
+			return
+		}
+	case Blob:
+		if !svformat.IsBlob(req.body) {
+			fail(w, http.StatusBadRequest, "that is not an attachment")
 			return
 		}
 	case Descriptor, Slot, Epoch:

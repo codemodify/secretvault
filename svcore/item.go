@@ -7,6 +7,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/codemodify/secretvault/svformat"
 )
 
 // An Item is one stored secret with everything about it: a password-manager
@@ -32,6 +34,22 @@ type Item struct {
 
 	// Fields hold the values, secret or not, in order.
 	Fields []Field `json:"fields,omitempty"`
+
+	// Files are the item's attachments (files.go). Put keeps them as they
+	// are; Attach and Detach change them.
+	Files []File `json:"files,omitempty"`
+}
+
+// A File is an attachment: a document, a scan, a key file. Its contents
+// are a blob of their own (svformat.BlobName), sealed under Key, which
+// exists only here.
+type File struct {
+	Name string      `json:"name"`
+	Type string      `json:"type,omitempty"` // a media type, if known
+	Size int64       `json:"size"`
+	Hash []byte      `json:"sha256"`
+	Blob svformat.ID `json:"blob"`
+	Key  []byte      `json:"key"`
 }
 
 // A Field is one named value of an item.
@@ -114,6 +132,9 @@ func (it *Item) Wipe() {
 	for i := range it.Fields {
 		clear(it.Fields[i].Value)
 	}
+	for i := range it.Files {
+		clear(it.Files[i].Key)
+	}
 }
 
 // clone deep-copies the item so callers never share memory with the cache.
@@ -132,6 +153,20 @@ func (it Item) clone() Item {
 	}
 	if len(it.Fields) == 0 {
 		out.Fields = nil
+	}
+	out.Files = cloneFiles(it.Files)
+	return out
+}
+
+func cloneFiles(files []File) []File {
+	if len(files) == 0 {
+		return nil
+	}
+	out := make([]File, len(files))
+	for i, f := range files {
+		out[i] = f
+		out[i].Hash = append([]byte(nil), f.Hash...)
+		out[i].Key = append([]byte(nil), f.Key...)
 	}
 	return out
 }
@@ -175,6 +210,13 @@ func (it *Item) check() error {
 		if f.Type == "" {
 			return fmt.Errorf("svcore: field %q of %q has no type", f.Name, it.Name)
 		}
+	}
+	files := map[string]bool{}
+	for _, f := range it.Files {
+		if err := checkFileName(f.Name); err != nil || files[f.Name] {
+			return fmt.Errorf("svcore: item %q has a bad or repeated file name %q", it.Name, f.Name)
+		}
+		files[f.Name] = true
 	}
 	return nil
 }

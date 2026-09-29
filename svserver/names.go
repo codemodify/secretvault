@@ -28,6 +28,8 @@ const (
 	Revision
 	// Checkpoint is under checkpoints/, reserved for signed checkpoints.
 	Checkpoint
+	// Blob is an attached file's contents, blobs/<id>.svb, written once.
+	Blob
 )
 
 func (k FileKind) String() string {
@@ -42,6 +44,8 @@ func (k FileKind) String() string {
 		return "revision"
 	case Checkpoint:
 		return "checkpoint"
+	case Blob:
+		return "attachment"
 	}
 	return "unknown"
 }
@@ -83,6 +87,10 @@ func ClassifyName(name string) (FileKind, error) {
 		if obj, rev, ok := svformat.ParseRevisionName(name); ok && svformat.RevisionName(obj, rev) == name {
 			return Revision, nil
 		}
+	case strings.HasPrefix(name, svformat.BlobsDir+"/"):
+		if _, ok := svformat.ParseBlobName(name); ok {
+			return Blob, nil
+		}
 	case strings.HasPrefix(name, CheckpointsDir+"/"):
 		if strings.Count(name, "/") <= 3 {
 			return Checkpoint, nil
@@ -116,6 +124,8 @@ func maxSize(k FileKind, maxRevision int64) int64 {
 		return maxRevision
 	case Checkpoint:
 		return MaxCheckpoint
+	case Blob:
+		return svformat.MaxBlobFile
 	}
 	return MaxJSONFile
 }
