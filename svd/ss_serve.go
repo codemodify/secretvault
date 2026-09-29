@@ -9,6 +9,13 @@ import (
 
 // Running the Secret Service face as the config says.
 
+// SSHAgentEnabled reports whether the config wants the SSH agent socket.
+func (d *Daemon) SSHAgentEnabled() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return !d.cfg.NoSSHAgent
+}
+
 // SecretServiceEnabled reports whether the config asks for the Secret
 // Service.
 func (d *Daemon) SecretServiceEnabled() bool {

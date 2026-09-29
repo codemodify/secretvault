@@ -120,7 +120,16 @@ func newHarness(t *testing.T) *harness {
 		procs: make(chan *svpeer.Process, 16), desk: &scripted{}}
 	h.opts = Options{
 		Home: h.home, Socket: h.sock, Desktop: h.desk, IdleUnit: time.Hour,
-		Peer:          func(net.Conn) (*svpeer.Process, error) { return <-h.procs, nil },
+		// A connection is the program the test announced for it, if any,
+		// else the real process behind it (for real clients such as ssh-add).
+		Peer: func(c net.Conn) (*svpeer.Process, error) {
+			select {
+			case p := <-h.procs:
+				return p, nil
+			default:
+				return svpeer.FromConn(c)
+			}
+		},
 		IsCLI:         func(p *svpeer.Process) bool { return filepath.Base(p.Exe) == "secretvault" },
 		IsPromptAgent: func(p *svpeer.Process) bool { return filepath.Base(p.Exe) == "secretvault-tui-prompt" },
 	}

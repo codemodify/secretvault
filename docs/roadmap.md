@@ -164,6 +164,14 @@ the token.
 - **Your own keys** live in the vault, with the token split offered when a
   YubiKey is present.
 
+**Brought forward and done:**
+- **The SSH agent**, tested with OpenSSH's own `ssh-add` and `ssh-keygen -Y`:
+  - keys live in vaults;
+  - each program's first signature is asked about, and `ssh-add -c` keys
+    on every use;
+  - `ssh-add -D` deletes nothing.
+- **The git and docker credential helpers.**
+
 **Done when:** comms-mail signs, encrypts, decrypts and verifies OpenPGP and
 S/MIME mail through secretvault, recognising every structure above from the
 raw message,, and answers "is this signed by Alice?"
@@ -204,8 +212,8 @@ flight.
 ## M8: secret delivery for services
 
 - **Host mode.** TPM unlock, and a systemd `LoadCredential=` socket.
-- **References.** `secretvault run` and `inject` with `sv://vault/item/field`
-  references.
+- **References (done).** `secretvault read`, `run` and `inject` with
+  `sv://VAULT/ITEM#FIELD` references (`-` for the default vault).
 - **Server mode: our own HTTPS API.**
   - Auth: tokens, mTLS, and OIDC (GitHub Actions, GitLab, Kubernetes service
     accounts).

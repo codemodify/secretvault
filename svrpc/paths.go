@@ -34,3 +34,9 @@ func DefaultSocket() string {
 	}
 	return filepath.Join(os.TempDir(), "secretvault-"+strconv.Itoa(os.Getuid()), "secretvaultd.sock")
 }
+
+// SSHAgentSocket is where secretvaultd answers the SSH agent protocol:
+// beside its own socket, as ssh-agent.sock. Point SSH_AUTH_SOCK at it.
+func SSHAgentSocket() string {
+	return filepath.Join(filepath.Dir(DefaultSocket()), "ssh-agent.sock")
+}

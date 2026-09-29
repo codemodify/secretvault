@@ -31,6 +31,7 @@ var verbs = map[svbroker.Op]string{
 	svbroker.OpWrite:  "change",
 	svbroker.OpDelete: "delete",
 	svbroker.OpManage: "manage",
+	svbroker.OpSign:   "sign with",
 }
 
 func describeRequest(cl *client, mv *managedVault, itemName string, op svbroker.Op) string {
@@ -141,6 +142,19 @@ func (d *Daemon) authorize(ctx context.Context, cl *client, mv *managedVault, it
 	return d.decide(ctx, cl, mv, item, itemName, op, why, prompted, own, record)
 }
 
+// authorizeEveryTime is authorize for items that must be confirmed on
+// every use (an SSH key added with ssh-add -c): nothing remembered applies,
+// the person is always asked, and only "once" or "deny" can be answered.
+func (d *Daemon) authorizeEveryTime(ctx context.Context, cl *client, mv *managedVault, item, itemName string, op svbroker.Op) error {
+	why := describeRequest(cl, mv, itemName, op) + "\n(This item is confirmed on every use.)"
+	record := d.recorder(cl, mv, itemName, op)
+	if _, _, err := d.ensureUnlocked(ctx, cl, mv, why); err != nil {
+		record(outcomeOf(err), err.Error())
+		return err
+	}
+	return d.ask(ctx, cl, mv, item, itemName, op, why, record, true)
+}
+
 // decide is authorize after the vault is unlocked. prompted and own say
 // how that unlock went (see ensureUnlocked).
 func (d *Daemon) decide(ctx context.Context, cl *client, mv *managedVault, item, itemName string, op svbroker.Op, why string, prompted, own bool, record func(string, string)) error {
@@ -172,7 +186,7 @@ func (d *Daemon) decide(ctx context.Context, cl *client, mv *managedVault, item,
 		d.touch(mv)
 		return nil
 	}
-	return d.ask(ctx, cl, mv, item, itemName, op, why, record)
+	return d.ask(ctx, cl, mv, item, itemName, op, why, record, false)
 }
 
 // recorder returns a function that writes an outcome to mv's audit log.
@@ -200,11 +214,11 @@ func outcomeOf(err error) string {
 }
 
 // ask puts the request to a person and records the decision.
-func (d *Daemon) ask(ctx context.Context, cl *client, mv *managedVault, item, itemName string, op svbroker.Op, why string, record func(string, string)) error {
+func (d *Daemon) ask(ctx context.Context, cl *client, mv *managedVault, item, itemName string, op svbroker.Op, why string, record func(string, string), everyTime bool) error {
 	mv.prompt.Lock()
 	defer mv.prompt.Unlock()
 	// Someone may have decided while we waited for the prompt lock.
-	if dec, found, err := d.broker.Check(mv.v, cl, cl.identity(), item, op); err == nil && found {
+	if dec, found, err := d.broker.Check(mv.v, cl, cl.identity(), item, op); err == nil && found && !everyTime {
 		if dec.Allows() {
 			record("allowed", "remembered decision")
 			return nil
@@ -213,7 +227,7 @@ func (d *Daemon) ask(ctx context.Context, cl *client, mv *managedVault, item, it
 		return denied(mv)
 	}
 
-	if cl.mayPrompt() {
+	if cl.mayPrompt() && !everyTime {
 		// The CLI proves it is the person with the passphrase, as sudo does.
 		p := rpcPrompter{c: cl}
 		q := svrpc.PromptAsk{
@@ -251,16 +265,20 @@ func (d *Daemon) ask(ctx context.Context, cl *client, mv *managedVault, item, it
 		record("denied", "no way to ask")
 		return err
 	}
+	choices := []svrpc.Choice{
+		{ID: svrpc.ChoiceOnce, Label: "Allow once"},
+		{ID: svrpc.ChoiceLock, Label: "Allow until the vault locks"},
+		{ID: svrpc.ChoiceAlways, Label: "Always allow"},
+		{ID: svrpc.ChoiceDeny, Label: "Deny"},
+	}
+	if everyTime {
+		choices = []svrpc.Choice{{ID: svrpc.ChoiceOnce, Label: "Allow"}, {ID: svrpc.ChoiceDeny, Label: "Deny"}}
+	}
 	choice, err := p.Choose(ctx, svrpc.PromptAsk{
 		Kind:        svrpc.PromptChoose,
 		Title:       "Allow access to vault " + mv.cfg.Name + "?",
 		Description: fmt.Sprintf("%s\n\nProgram: %s\nProcess: %d", why, cl.proc.Exe, cl.proc.PID),
-		Choices: []svrpc.Choice{
-			{ID: svrpc.ChoiceOnce, Label: "Allow once"},
-			{ID: svrpc.ChoiceLock, Label: "Allow until the vault locks"},
-			{ID: svrpc.ChoiceAlways, Label: "Always allow"},
-			{ID: svrpc.ChoiceDeny, Label: "Deny"},
-		},
+		Choices:     choices,
 	})
 	if err != nil {
 		record(outcomeOf(err), err.Error())
@@ -273,6 +291,9 @@ func (d *Daemon) ask(ctx context.Context, cl *client, mv *managedVault, item, it
 		svrpc.ChoiceOnce: svbroker.AllowOnce, svrpc.ChoiceLock: svbroker.AllowUntilLock,
 		svrpc.ChoiceAlways: svbroker.AllowAlways, svrpc.ChoiceDeny: svbroker.DenyOnce,
 	}[choice]
+	if everyTime && dec != svbroker.AllowOnce {
+		dec = svbroker.DenyOnce
+	}
 	if err := d.broker.Remember(mv.v, svbroker.Grant{
 		Identity: cl.identity(), Program: cl.display(), Item: item, ItemName: itemName,
 		Ops: []svbroker.Op{op}, Decision: dec,

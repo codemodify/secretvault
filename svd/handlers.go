@@ -63,6 +63,9 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 	case svrpc.MStatus:
 		st := d.Status()
 		st.SecretService = d.secretServiceState(ctx)
+		if d.SSHAgentEnabled() {
+			st.SSHAgent = svrpc.SSHAgentSocket()
+		}
 		return st, nil
 
 	case svrpc.MKeyringServe:

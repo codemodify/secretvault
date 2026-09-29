@@ -39,10 +39,11 @@ const (
 	OpWrite  Op = "write"  // create or change items
 	OpDelete Op = "delete" // delete items
 	OpManage Op = "manage" // keyslots, grants, the audit log
+	OpSign   Op = "sign"   // sign with a key held in the vault, without seeing it
 )
 
 // AllOps is every operation, for grants that cover a whole vault.
-var AllOps = []Op{OpRead, OpList, OpWrite, OpDelete, OpManage}
+var AllOps = []Op{OpRead, OpList, OpWrite, OpDelete, OpManage, OpSign}
 
 // Decision is what was decided.
 type Decision string

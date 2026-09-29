@@ -91,7 +91,17 @@ $ bin/secretvault grant list                 # what programs may do
 $ bin/secretvault audit                      # who accessed what
 $ bin/secretvault lock --all
 $ bin/secretvault status
+
+$ export SSH_AUTH_SOCK=$XDG_RUNTIME_DIR/secretvault/ssh-agent.sock
+$ ssh-add ~/.ssh/id_ed25519                  # the key moves into the vault
+$ bin/secretvault run --env-file app.env -- ./server   # API_KEY=sv://-/prod/api in app.env
+$ bin/secretvault keyring takeover --dry-run # become the desktop's keyring (Linux)
 ```
+
+For git and docker, link the CLI under their helper names:
+`ln -s secretvault bin/git-credential-secretvault`, then
+`git config --global credential.helper secretvault`; likewise
+`docker-credential-secretvault` with `"credsStore": "secretvault"`.
 
 - **The daemon owns the vaults.** Vaults live under
   `~/.local/share/secretvault/vaults/` (macOS: `~/Library/Application

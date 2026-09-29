@@ -457,3 +457,76 @@ func TestProgramsCanBeAllowedAheadOfTime(t *testing.T) {
 		t.Fatalf("a missing program: %d %q", code, errs)
 	}
 }
+
+func TestReferencesResolveInReadRunAndInject(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok("tok-123", h.with("set", "ci/api", "--field", "user=bot")...)
+	if got := h.ok("", h.with("read", "sv://-/ci/api")...); got != "tok-123\n" {
+		t.Fatalf("read = %q", got)
+	}
+	if got := h.ok("", h.with("read", "sv://default/ci/api#user")...); got != "bot\n" {
+		t.Fatalf("read #user = %q", got)
+	}
+	env := h.write("app.env", "# a comment\nAPI_TOKEN=sv://-/ci/api\nexport PLAIN=\"x\"\n")
+	out := h.ok("", "run", "--passphrase-file", h.passFile, "--env-file", env, "--", "sh", "-c", `printf "%s|%s" "$API_TOKEN" "$PLAIN"`)
+	if out != "tok-123|x" {
+		t.Fatalf("run = %q", out)
+	}
+	if _, _, code := h.run("", "run", "--", "sh", "-c", "exit 7"); code != 7 {
+		t.Fatalf("run passed exit code %d, want 7", code)
+	}
+	got := h.ok("token: {{ sv://-/ci/api }}\nuser: {{sv://-/ci/api#user}}\n", h.with("inject")...)
+	if got != "token: tok-123\nuser: bot\n" {
+		t.Fatalf("inject = %q", got)
+	}
+	if _, errs, code := h.run("", h.with("read", "sv://nope")...); code != 1 || !strings.Contains(errs, "not a reference") {
+		t.Fatalf("a bad reference: %d %q", code, errs)
+	}
+}
+
+func TestGitStoresAndGetsCredentialsThroughTheHelper(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok("protocol=https\nhost=github.com\nusername=ada\npassword=ghp_secret\n\n", h.with("git-credential", "store")...)
+	got := h.ok("protocol=https\nhost=github.com\n\n", h.with("git-credential", "get")...)
+	if got != "username=ada\npassword=ghp_secret\n" {
+		t.Fatalf("get = %q", got)
+	}
+	if got := h.ok("protocol=https\nhost=gitlab.com\n\n", h.with("git-credential", "get")...); got != "" {
+		t.Fatalf("another host's get = %q", got)
+	}
+	h.ok("protocol=https\nhost=github.com\nusername=ada\n\n", h.with("git-credential", "erase")...)
+	if got := h.ok("protocol=https\nhost=github.com\n\n", h.with("git-credential", "get")...); got != "" {
+		t.Fatalf("after erase = %q", got)
+	}
+}
+
+func TestDockerStoresAndGetsCredentialsThroughTheHelper(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok(`{"ServerURL":"https://index.docker.io/v1/","Username":"ada","Secret":"dckr_pat"}`, h.with("docker-credential", "store")...)
+	got := h.ok("https://index.docker.io/v1/", h.with("docker-credential", "get")...)
+	if !strings.Contains(got, `"Username":"ada"`) || !strings.Contains(got, `"Secret":"dckr_pat"`) {
+		t.Fatalf("get = %q", got)
+	}
+	if list := h.ok("", h.with("docker-credential", "list")...); !strings.Contains(list, `"https://index.docker.io/v1/":"ada"`) {
+		t.Fatalf("list = %q", list)
+	}
+	out, _, code := h.run("ghcr.io", h.with("docker-credential", "get")...)
+	if code != 1 || !strings.Contains(out, "credentials not found in native keychain") {
+		t.Fatalf("a missing server: %d %q", code, out)
+	}
+}
+
+func TestHelperNamesPickTheirCommand(t *testing.T) {
+	for argv0, want := range map[string]string{
+		"/usr/bin/git-credential-secretvault": "git-credential",
+		"docker-credential-secretvault.exe":   "docker-credential",
+		"/usr/bin/secretvault":                "",
+	} {
+		if got := helperName(argv0); got != want {
+			t.Errorf("helperName(%q) = %q", argv0, got)
+		}
+	}
+}

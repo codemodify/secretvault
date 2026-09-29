@@ -84,6 +84,8 @@ type Status struct {
 	Prompts string      `json:"prompts"` // how desktop prompts are shown
 	// SecretService says whether the daemon is the desktop's keyring.
 	SecretService string `json:"secret_service"`
+	// SSHAgent is the SSH agent socket, "" when off.
+	SSHAgent string `json:"ssh_agent,omitempty"`
 }
 
 // VaultRef names a vault.

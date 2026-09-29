@@ -150,7 +150,12 @@ func (c *cli) cmdStatus(args []string) error {
 	if st.Socket != "" {
 		fmt.Fprintf(c.stdout, "socket:  %s\n", st.Socket)
 	}
-	fmt.Fprintf(c.stdout, "prompts: %s\n\n", st.Prompts)
+	fmt.Fprintf(c.stdout, "prompts: %s\n", st.Prompts)
+	fmt.Fprintf(c.stdout, "keyring: %s\n", st.SecretService)
+	if st.SSHAgent != "" {
+		fmt.Fprintf(c.stdout, "ssh:     %s (export SSH_AUTH_SOCK=%s)\n", st.SSHAgent, st.SSHAgent)
+	}
+	fmt.Fprintln(c.stdout)
 	if len(st.Vaults) == 0 {
 		fmt.Fprintln(c.stdout, "No vaults yet: create one with 'secretvault init'.")
 		return nil

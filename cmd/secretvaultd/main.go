@@ -16,6 +16,10 @@
 //     `secretvault-tui-prompt --agent`, or the desktop's pinentry
 //     (pinentry-gnome3/-qt/-gtk) until secretvault-gui-prompt exists.
 //
+//   - It is an SSH agent (ssh-agent.sock beside its socket; point
+//     SSH_AUTH_SOCK at it): keys live in vaults, and each program's first
+//     signature is asked about.
+//
 //   - Vaults lock after 15 idle minutes, when the screen locks and before
 //     the machine sleeps (all adjustable per vault); every vault locks when
 //     the user's last session ends and when the daemon stops.
@@ -101,6 +105,16 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	d.WatchSession(ctx) // lock on screen lock, sleep and logout
+	if d.SSHAgentEnabled() {
+		agentSock := svrpc.SSHAgentSocket()
+		if aln, acleanup, err := svd.Listen(agentSock); err != nil {
+			log.Printf("the SSH agent: %v", err)
+		} else {
+			defer acleanup()
+			go d.ServeSSHAgent(ctx, aln)
+			log.Printf("SSH agent on %s (export SSH_AUTH_SOCK=%s)", agentSock, agentSock)
+		}
+	}
 	if d.SecretServiceEnabled() {
 		if err := d.StartSecretService(ctx); err != nil {
 			log.Printf("the Secret Service: %v", err)

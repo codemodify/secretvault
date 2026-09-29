@@ -23,6 +23,10 @@ type Config struct {
 	// SecretService makes the daemon the desktop's keyring
 	// (org.freedesktop.secrets). `secretvault keyring takeover` turns it on.
 	SecretService bool `json:"secret_service,omitempty"`
+
+	// NoSSHAgent turns off the SSH agent socket (on by default: it serves
+	// only programs pointed at it with SSH_AUTH_SOCK).
+	NoSSHAgent bool `json:"no_ssh_agent,omitempty"`
 }
 
 // VaultConfig registers one vault.

@@ -27,6 +27,12 @@
 //	grant list|allow|deny|revoke  decide what programs may do
 //	audit                      show who accessed what
 //	keyring status|import|takeover|restore   be the desktop's keyring (Linux)
+//	read sv://VAULT/ITEM[#FIELD]            print one value ("-" is the default vault)
+//	run [--env-file F] -- CMD               run CMD with sv:// references in its environment resolved
+//	inject [-i IN] [-o OUT]                 fill {{ sv://... }} references in a template
+//
+// Installed as git-credential-secretvault or docker-credential-secretvault
+// (symlinks to this program), it is git's or docker's credential helper.
 //	identity new|pub           make or show a recipient identity
 //	verify                     re-authenticate every file of the vault
 //	version                    print the version
@@ -103,7 +109,11 @@ func main() {
 		t.Close()
 		c.canAsk = true
 	}
-	code := c.run(os.Args[1:])
+	args := os.Args[1:]
+	if h := helperName(os.Args[0]); h != "" {
+		args = append([]string{h}, args...)
+	}
+	code := c.run(args)
 	if c.client != nil {
 		c.client.Close()
 	}
@@ -137,6 +147,11 @@ func init() {
 		{"grant", "decide what programs may do: list, allow, deny, revoke", (*cli).cmdGrant},
 		{"audit", "show who accessed what", (*cli).cmdAudit},
 		{"keyring", "be the desktop's keyring: status, import, takeover, restore", (*cli).cmdKeyring},
+		{"read", "print one value: sv://VAULT/ITEM[#FIELD]", (*cli).cmdRead},
+		{"run", "run a command with sv:// references in its environment resolved", (*cli).cmdRun},
+		{"inject", "fill {{ sv://... }} references in a template", (*cli).cmdInject},
+		{"git-credential", "git's credential helper (get, store, erase)", (*cli).cmdGitCredential},
+		{"docker-credential", "docker's credential helper (get, store, erase, list)", (*cli).cmdDockerCredential},
 		{"identity", "make (new) or show (pub) a recipient identity", (*cli).cmdIdentity},
 		{"verify", "re-authenticate every file of the vault", (*cli).cmdVerify},
 		{"version", "print the version", (*cli).cmdVersion},
@@ -166,9 +181,12 @@ func (c *cli) run(args []string) int {
 	for _, cmd := range commands {
 		if cmd.name == rest[0] {
 			err := cmd.run(c, rest[1:])
+			var ec exitCode
 			switch {
 			case err == nil:
 				return 0
+			case errors.As(err, &ec):
+				return int(ec)
 			case errors.Is(err, errUsage), errors.Is(err, flag.ErrHelp):
 				return 2
 			default:
