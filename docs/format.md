@@ -284,6 +284,17 @@ as it always was.
 epoch. A slot counts only if it opens and the recovered key's `check` matches
 the descriptor's.
 
+**Bad slot files.** Files that do not parse, or that name another vault, are
+skipped. A slot can only ever add a way in, so ignoring a bad one loses
+nothing.
+
+**Grants.** `grants` is always `["content"]` in version 1: the slot opens the
+VMK and so everything. The field exists so narrower grants can be added without
+a new format, for example a key that only allows searching a locked vault.
+
+**Reserved slot types:** `shamir`, `tpm2`, `dpapi`, `keychain`,
+`windows-hello`, `secure-enclave`.
+
 ### fido2 slots
 
 A fido2 slot is opened by a FIDO2 security key, through the `hmac-secret`
@@ -332,17 +343,6 @@ each key, with `authenticatorGetAssertion` and `up = false` (no touch), for
 each slot's credential in turn; a key that does not hold it answers
 `CTAP2_ERR_NO_CREDENTIALS`. It then asks the one key that holds one for its
 PIN (if `uv`) and a touch, and opens that slot alone.
-
-**Bad slot files.** Files that do not parse, or that name another vault, are
-skipped. A slot can only ever add a way in, so ignoring a bad one loses
-nothing.
-
-**Grants.** `grants` is always `["content"]` in version 1: the slot opens the
-VMK and so everything. The field exists so narrower grants can be added without
-a new format, for example a key that only allows searching a locked vault.
-
-**Reserved slot types:** `shamir`, `tpm2`, `dpapi`, `keychain`,
-`windows-hello`, `secure-enclave`.
 
 ## objects/…/<rev id>.svr — revisions
 
