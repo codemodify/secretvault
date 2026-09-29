@@ -277,4 +277,24 @@ func TestDisks(t *testing.T) {
 	if calls := strings.Join(fake.Calls(), " "); !strings.HasSuffix(calls, "Mount Lock Delete LoopSetup(c.img) Unlock Mount") {
 		t.Fatalf("calls: %s", calls)
 	}
+
+	// A desktop that automounts new disks gets there first: where it
+	// mounted is the answer, for a new container and a reopened one.
+	d.Unmount(ctx(t), path)
+	fake.Automount(true)
+	auto := filepath.Join(dir, "auto.img")
+	if _, err := CreateImage(auto, key, CreateOptions{Size: MinSize}); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := d.Format(ctx(t), auto, key, "exfat", "Auto", ""); err != nil || !st.Mounted() {
+		t.Fatalf("automounted after format: %+v %v", st, err)
+	}
+	d.Unmount(ctx(t), auto)
+	if st, err := d.Mount(ctx(t), auto, key, ""); err != nil || !st.Mounted() {
+		t.Fatalf("automounted after unlock: %+v %v", st, err)
+	}
+	d.Unmount(ctx(t), auto)
+	if len(fake.Attached()) != 0 {
+		t.Fatalf("left attached: %+v", fake.Attached())
+	}
 }

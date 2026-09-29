@@ -139,7 +139,7 @@ func (d *Disks) Format(ctx context.Context, path string, key []byte, fstype, lab
 		undo()
 		return s, err
 	}
-	if s.MountPoint, err = d.ud.Mount(ctx, s.cleartext, mountOptions); err != nil {
+	if s.MountPoint, err = d.mount(ctx, s, mountOptions); err != nil {
 		undo()
 		return s, err
 	}
@@ -173,7 +173,7 @@ func (d *Disks) Mount(ctx context.Context, path string, key []byte, mountOptions
 			d.ud.Lock(ctx, s.loop)
 		}
 	}
-	if s.MountPoint, err = d.ud.Mount(ctx, s.cleartext, mountOptions); err != nil {
+	if s.MountPoint, err = d.mount(ctx, s, mountOptions); err != nil {
 		undo()
 		return s, err
 	}
@@ -199,6 +199,20 @@ func (d *Disks) attach(ctx context.Context, path string, key []byte) (Status, fu
 	}
 	s.Unlocked = true
 	return s, func() { d.teardown(s) }, nil
+}
+
+// mount mounts the unlocked device. A desktop that automounts new disks
+// (gvfs, udiskie) may have got there first: then where it mounted it is
+// the answer.
+func (d *Disks) mount(ctx context.Context, s Status, options string) (string, error) {
+	mp, err := d.ud.Mount(ctx, s.cleartext, options)
+	var ue *svudisks.Error
+	if errors.As(err, &ue) && ue.Name == svudisks.ErrorAlreadyMounted {
+		if now, serr := d.Status(ctx, s.Image); serr == nil && now.Mounted() {
+			return now.MountPoint, nil
+		}
+	}
+	return mp, err
 }
 
 // refresh fills in what UDisks2 knows after a change (the device name).

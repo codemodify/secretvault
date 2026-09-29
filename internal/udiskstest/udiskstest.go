@@ -42,6 +42,7 @@ type Fake struct {
 	next  int
 	calls []string
 	fail  map[string]*svdbus.Error
+	auto  bool
 }
 
 type loop struct {
@@ -302,6 +303,9 @@ func (f *Fake) unlock(l *loop, call *svdbus.Call) ([]any, error) {
 		}
 	}
 	l.clear = c
+	if f.auto && c.fstype != "" {
+		f.mountAt(l, "")
+	}
 	return []any{clearPath(l.n)}, nil
 }
 
@@ -364,6 +368,9 @@ func (f *Fake) format(l *loop, call *svdbus.Call) ([]any, error) {
 		return nil, failed("%v", err)
 	}
 	l.clear.fstype, l.clear.label, l.clear.owned = fstype, label, owned
+	if f.auto {
+		f.mountAt(l, "")
+	}
 	return nil, nil
 }
 
@@ -379,20 +386,36 @@ func (f *Fake) mount(l *loop, call *svdbus.Call) ([]any, error) {
 	if err := f.begin("Mount", options); err != nil {
 		return nil, err
 	}
-	c := l.clear
-	if c.mountPoint != "" {
-		return nil, svdbus.NewError(svudisks.ErrorAlreadyMounted, "Device is already mounted at `"+c.mountPoint+"'.")
+	if mp := l.clear.mountPoint; mp != "" {
+		return nil, svdbus.NewError(svudisks.ErrorAlreadyMounted, "Device is already mounted at `"+mp+"'.")
 	}
+	if err := f.mountAt(l, options); err != nil {
+		return nil, err
+	}
+	return []any{l.clear.mountPoint}, nil
+}
+
+// mountAt "mounts" l's filesystem. f.mu must be held.
+func (f *Fake) mountAt(l *loop, options string) error {
+	c := l.clear
 	name := c.label
 	if name == "" {
 		name = fmt.Sprintf("dm-%d", l.n)
 	}
 	mp := filepath.Join(f.MountDir, name)
 	if err := os.MkdirAll(mp, 0o700); err != nil {
-		return nil, failed("%v", err)
+		return failed("%v", err)
 	}
 	c.mountPoint, c.mountOptions = mp, options
-	return []any{mp}, nil
+	return nil
+}
+
+// Automount makes the fake mount a filesystem as soon as it is made or
+// unlocked, as a desktop's automounter (gvfs, udiskie) would.
+func (f *Fake) Automount(on bool) {
+	f.mu.Lock()
+	f.auto = on
+	f.mu.Unlock()
 }
 
 func (f *Fake) unmount(l *loop, call *svdbus.Call) ([]any, error) {
