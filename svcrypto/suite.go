@@ -1,8 +1,14 @@
-// Package svcrypto holds every cryptographic primitive secretvault uses, and
+// Package svcrypto holds the cryptography of secretvault's own formats, and
 // nothing else: the two cipher suites, passphrase key derivation, HPKE
 // recipients, Shamir secret sharing, chunked stream encryption and locked
-// memory for keys. Nothing above this package touches crypto/* directly, so
-// the set of algorithms in use is exactly what this package exports.
+// memory for keys. The vault format (svformat, svcore) uses nothing but
+// what this package exports, so the algorithms a vault depends on are
+// exactly these.
+//
+// Packages that speak other formats use what those formats name, from the
+// standard library and x/crypto: OpenPGP (svpgp), age (svage), S/MIME, the
+// Secret Service's DH sessions (svsecret), TLS and request signing for sync
+// (svserver, svsync), FIDO2 (svfido) and the importers (svimport).
 //
 // Everything here works on 32-byte keys. The suite chooses the algorithms;
 // the caller chooses the key and the associated data. See docs/format.md for
