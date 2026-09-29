@@ -171,6 +171,26 @@ copy and edit a login without the CLI.
 **Done when:** a vault unlocks with a touch, and an SSH signature is made on
 the token.
 
+**Where it stands.**
+- **FIDO2 unlock is built on Linux** (`svfido`, and the `fido2` keyslot in
+  [format.md](format.md#fido2-slots)):
+  - CTAPHID over hidraw, with keys found by their HID report descriptor;
+    our own CBOR; CTAP 2.0 and 2.1 with PIN/UV auth protocols 1 and 2;
+  - `secretvault slot add fido2 [--uv|--no-uv]`, `unlock --fido2`, and
+    `fido2 list`;
+  - a vault with a fido2 slot asks for the key before the passphrase
+    whenever a key that holds one is plugged in, found without a touch;
+  - the PIN is asked for through the usual prompts, which say how many
+    tries are left; "touch your security key" is a notice.
+- **Tested against a software authenticator** (`internal/fidotest`) with
+  two keys, wrong keys, wrong and blocked PINs, cancelled touches and
+  malformed frames. **Not yet against real keys.**
+- **Still to do:**
+  - Windows (webauthn.dll) and macOS (IOKit, which needs cgo);
+  - a key's built-in verification (fingerprint) instead of its PIN;
+  - a key combined with the passphrase, rather than instead of it;
+  - HMAC-SHA1 challenge-response, quick unlock, and keys on the token.
+
 ## M5: trust store and identities
 
 - **Contacts and verification.**

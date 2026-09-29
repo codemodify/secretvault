@@ -17,6 +17,7 @@ The byte-level details are in [format.md](format.md).
 | Item metadata: names, kinds, attributes, tags, labels | vault revisions, encrypted |
 | The vault master key (VMK) | nowhere on disk in the clear; wrapped once per keyslot |
 | Your private keys (identities, OpenPGP, SSH) | vault items, from M5; optionally a hardware token (later) |
+| A security key's secret, for fido2 keyslots | inside the key; never leaves it |
 | Who accessed what (grants, audit log) | the vault, encrypted, from M1 |
 | Who you know: contacts, their keys, how you verified them, what mail they sent | vault records, encrypted, from M5 |
 
@@ -185,6 +186,59 @@ secretvault never phones home: no telemetry and no crash reports. The only
 network traffic is what you configure, such as sync and key lookups. An
 update check, if one is added, can be turned off.
 
+## Security keys
+
+A vault can have a keyslot that a FIDO2 security key opens (`secretvault
+slot add fido2`), through the key's `hmac-secret` extension: the key turns
+the slot's salt into 32 bytes with a secret that never leaves it. The
+format is in [format.md](format.md#fido2-slots).
+
+**What a key adds:**
+- **A copy of the vault folder is not enough.** Without the key there is
+  nothing to guess: the slot's key-encryption key comes from a 256-bit
+  secret inside the key, not from anything a person chose.
+- **With `uv` (the default when the key has a PIN), the key is not enough
+  either.** The key must be given its PIN, and it blocks its PIN after 8
+  wrong tries (3 in a row until it is plugged in again), so a stolen key
+  cannot be guessed into. secretvault says how many tries are left every
+  time it asks, and stops after three wrong PINs.
+- **Someone has to touch it.** Every unlock needs a touch, so a program
+  cannot use a key that is plugged in without the person noticing, unless
+  it catches a touch meant for something else.
+- **The key finds its slot without a touch.** Unlocking asks each key
+  plugged in, silently, whether it holds one of the vault's credentials;
+  a key that does not is never asked for a PIN or a touch.
+- **No website can reach these credentials.** They are made for the
+  relying party `secretvault:`, which no web origin can claim, so a browser
+  refuses to let a page ask for them.
+
+**What it does not change:**
+- **An unlocked vault is as before.** Its master key is in the daemon's
+  memory whichever key opened it; the key protects the vault at rest, not
+  a running session.
+- **The output is the key to the slot.** Anything that sees the
+  hmac-secret output once (the daemon's memory, while it unlocks) can open
+  that slot from a copy of the folder forever after, without the key.
+  The output travels from the key encrypted under an ECDH key agreement, so
+  watching the USB bus shows nothing.
+- **Programs running as you can use the key too.** On Linux the udev rule
+  that lets secretvault open the key lets every program of yours open it.
+  One that has a copy of the slot can ask the key for the output, which
+  still takes the touch (and the PIN, with `uv`).
+- **Without `uv`, possession is enough.** Whoever holds the key and a copy
+  of the folder opens the vault with a touch.
+- **The key is not checked to be genuine.** secretvault does not verify
+  attestation: it trusts that the key you enrol is the hardware you think
+  it is.
+- **A lost key is a lost way in.** Keep the passphrase or a recovery key.
+  Removing a fido2 slot is not revocation, as for any slot, and rotating
+  the vault key does not carry fido2 slots over (the key would have to be
+  touched to seal the new master key): `vault rotate` names them, to be
+  added again.
+- **The PIN goes where passphrases go.** It is typed into secretvault's
+  own prompts (the CLI's terminal, the terminal agent, or the desktop's
+  pinentry) and sent to the key encrypted, never stored.
+
 ## Keys in memory
 
 secretvault is written in Go, which moves and copies memory on its own.
@@ -227,6 +281,11 @@ Wiping keys in Go is therefore hygiene, not a guarantee. What it does:
   and hardware-token recipients need (Ed25519 to X25519, and P-256
   decompression), which only ever see public keys. The browser path uses
   NaCl `box` from `golang.org/x/crypto`, because KeePassXC-Browser does.
+  For security keys, `svfido` speaks CTAP's PIN/UV auth protocols, which
+  the specification fixes to P-256 ECDH, SHA-256 or HKDF-SHA-256,
+  AES-256-CBC and HMAC, all from the standard library; they only carry the
+  PIN and hmac-secret values to and from the key, and are checked against
+  Python's `cryptography`.
 - **Nonces.** Every AEAD message gets a fresh random nonce. It is 192-bit for
   XChaCha20. For AES-GCM, a per-message key is derived from a 256-bit salt.
   Streams use counters under a per-stream key.
@@ -318,6 +377,8 @@ What it rests on:
 | No transparency log is checked; the level is reserved | key transparency, when a log to check exists |
 | A company directory (LDAP/AD) cannot be asked yet | an LDAP `Directory` |
 | S/MIME (CMS) signatures are not verified by secretvault | `svcms` |
+| Security keys work on Linux only, and have been tested against a software authenticator, not yet against real keys | webauthn.dll on Windows, IOKit on macOS; hardware testing |
+| A security key's built-in verification (a fingerprint) is not used; its PIN is | getPinUvAuthTokenUsingUvWithPermissions |
 
 ## Reporting a vulnerability
 

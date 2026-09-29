@@ -26,8 +26,8 @@ blobs/<id[0:2]>/<blob id>.svb                  one file per attached file's cont
 
 - A random 256-bit **vault master key** (VMK) protects everything.
 - **Keyslots** each recover the VMK from one kind of key: a passphrase, a
-  printed recovery key, a keyfile, or an identity (a device, a person, a
-  server).
+  printed recovery key, a keyfile, an identity (a device, a person, a
+  server), or a FIDO2 security key.
 - An **item** is stored as a chain of **revisions**. Each revision is sealed
   under its own random content key, which is wrapped under a key derived from
   the VMK. Each revision names the revisions it replaces, by hash.
@@ -243,6 +243,7 @@ auth_data = "secretvault sv1 epoch" || TLV(
   "grants": ["content"],
   "kdf": { … },               // passphrase slots
   "recipient": "<bytes>",     // recipient slots: the public key
+  "fido2": { … },             // fido2 slots: the credential (below)
   "wrapped": "<bytes>"        // the sealed VMK
 }
 ```
@@ -257,11 +258,19 @@ slot_aad = "secretvault sv1 slot" || TLV {
     0x04 type
     0x05 label
     0x06 grants, joined with ","
+    0x07 fido2 rp_id                  fido2 slots only, from here on
+    0x08 fido2 credential
+    0x09 fido2 salt (32)
+    0x0A fido2 uv (1 byte: 0x00 or 0x01)
+    0x0B fido2 aaguid (16)
 }
 ```
 
 A slot file cannot be relabelled, moved to another vault, or given wider
-grants without failing to open.
+grants without failing to open; nor can a fido2 slot be pointed at another
+credential, salt, relying party or setting. Tags 0x07–0x0B appear exactly
+when the slot is of type `fido2`, so every other slot's associated data is
+as it always was.
 
 | Type | Key-encryption key | `wrapped` |
 | --- | --- | --- |
@@ -269,10 +278,60 @@ grants without failing to open.
 | `recovery` | `Derive(recovery key, vault id, "sv1 recovery kek", 32)` | `Seal(kek, VMK, slot_aad)` |
 | `keyfile` | `Derive(file contents, vault id, "sv1 keyfile kek", 32)`; the file must hold ≥ 32 bytes | `Seal(kek, VMK, slot_aad)` |
 | `recipient` | the identity's HPKE private key | `SealTo(recipient, VMK, info = slot_aad)` |
+| `fido2` | `Derive(hmac-secret output, vault id, "sv1 fido2 kek", 32)` | `Seal(kek, VMK, slot_aad)` |
 
 **Unlocking.** A reader tries every slot of the key's type for the current
 epoch. A slot counts only if it opens and the recovered key's `check` matches
 the descriptor's.
+
+### fido2 slots
+
+A fido2 slot is opened by a FIDO2 security key, through the `hmac-secret`
+extension of CTAP 2.1 (§12.5; CTAP 2.2 is the same here). The key holds a
+secret per credential that never leaves it, and turns a 32-byte salt into
+`HMAC-SHA-256(CredRandom, salt)`.
+
+```json
+"fido2": {
+  "rp_id": "secretvault:",
+  "credential": "<bytes>",
+  "salt": "<32 bytes>",
+  "uv": true,
+  "aaguid": "<16 bytes>"
+}
+```
+
+- **`rp_id`** is the relying party the credential was made for. Writers use
+  `secretvault:`: with the colon it is no domain, so no web origin can claim
+  it, and a browser will never let a website ask a key for these
+  credentials. (OpenSSH's `ssh:` works the same way.)
+- **`credential`** is the credential ID, 1 to 1023 bytes. The credential is
+  non-discoverable: the key keeps nothing, and the ID is the key's own
+  sealed record of the credential, which only that key can use. It is made
+  with `authenticatorMakeCredential`, the `hmac-secret` extension, ES256,
+  and a random 16-byte user handle.
+- **`salt`** is 32 random bytes. The key is asked to evaluate hmac-secret at
+  `SHA-256("WebAuthn PRF" || 0x00 || salt)`, the transformation of WebAuthn's
+  PRF extension, so that a platform WebAuthn API (which applies it itself)
+  can open the same slot as a direct CTAP client does.
+- **`uv`** says whether the key verifies the person (its PIN) when it is
+  used. A key keeps two secrets per credential, `CredRandomWithUV` and
+  `CredRandomWithoutUV`, and uses the first exactly when it verified the
+  person, so the same credential and salt give a different output with the
+  PIN than without. A reader must therefore use the PIN when `uv` is set,
+  and must not when it is clear; a key that verifies anyway (`alwaysUv`)
+  cannot open a slot made without it.
+- **`aaguid`** is the key's model, as its authenticator data named it. It
+  only helps people tell keys apart, but it is bound into the slot's
+  associated data like the rest.
+- **The key-encryption key** is `Derive(output, vault id, "sv1 fido2 kek",
+  32)`, where `output` is the 32-byte hmac-secret output.
+
+A reader with several fido2 slots and perhaps several keys plugged in asks
+each key, with `authenticatorGetAssertion` and `up = false` (no touch), for
+each slot's credential in turn; a key that does not hold it answers
+`CTAP2_ERR_NO_CREDENTIALS`. It then asks the one key that holds one for its
+PIN (if `uv`) and a touch, and opens that slot alone.
 
 **Bad slot files.** Files that do not parse, or that name another vault, are
 skipped. A slot can only ever add a way in, so ignoring a bad one loses
@@ -282,7 +341,7 @@ nothing.
 VMK and so everything. The field exists so narrower grants can be added without
 a new format, for example a key that only allows searching a locked vault.
 
-**Reserved slot types:** `shamir`, `tpm2`, `fido2`, `dpapi`, `keychain`,
+**Reserved slot types:** `shamir`, `tpm2`, `dpapi`, `keychain`,
 `windows-hello`, `secure-enclave`.
 
 ## objects/…/<rev id>.svr — revisions

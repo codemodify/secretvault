@@ -216,6 +216,14 @@ secretvault's own prompters understand an extension (`ADDCHOICE`, `CHOOSE`)
 for the four-way consent question. A plain pinentry gets three buttons:
 allow once, allow until locked, and deny.
 
+Security keys add two questions (`prompt.ask` kinds `pin` and `notice`).
+A key's PIN is asked for like a passphrase, by the same prompters, saying
+how many tries the key has left. "Touch your security key" is a notice:
+the CLI and the terminal agent print it, `secretvault-tui` puts it in its
+status line, and on the desktop it is a pinentry window with a Cancel
+button (as gpg-agent does it), closed once the key is touched; Cancel
+stops the key waiting and asks for the passphrase instead.
+
 The GUI prompt needs work in uitoolkit first: see
 [../uitoolkit-gaps.md](../uitoolkit-gaps.md). The main items:
 
@@ -567,9 +575,16 @@ rotates the vault master key).
 ### Tokens and 2FA
 
 - **YubiKey or FIDO2 key as an unlock factor.**
-  - Via FIDO2 `hmac-secret`, speaking CTAP2 over HID in our own code, or
-    challenge-response HMAC-SHA1 (as KeePassXC does).
-  - It can be required on its own or together with the passphrase.
+  - Via FIDO2 `hmac-secret`, speaking CTAP2 over HID in our own code
+    ([`svfido`](../svfido); built on Linux), or challenge-response
+    HMAC-SHA1 (as KeePassXC does).
+  - The daemon enrols the key and uses it; `svcore` reaches keys through an
+    interface and holds no device code. When a vault is to be unlocked,
+    every key plugged in is asked without a touch which of the vault's
+    credentials it holds, and only that key is asked for its PIN and a
+    touch; the passphrase is asked for if no such key is there or it is
+    not used.
+  - It can be required on its own or (later) together with the passphrase.
 - **Keys on the token.** Through the PIV and OpenPGP card applets, over PC/SC:
   - Linux: the pcscd socket;
   - Windows: `winscard.dll`;
@@ -604,7 +619,7 @@ projects, with `sv` as the prefix:
 | `svpgp` | OpenPGP, our own | M5 |
 | `svcms`, `svtrust` | S/MIME, the trust store | M5 (`svtrust` done) |
 | `svqr` | QR codes, for the terminal | M5 |
-| `svfido`, `svpcsc`, `svtpm` | hardware tokens and TPM | M4 |
+| `svfido`, `svpcsc`, `svtpm` | hardware tokens and TPM (`svfido`: FIDO2 on Linux) | M4 |
 | `svsync`, `svserver` | sync, and the server API | M6, M8 |
 | `svcontainer`, `svmount` | containers, and per-OS mounting | M7 |
 | `svage` | age files and the age plugin protocol | M8 |

@@ -17,10 +17,11 @@ already sync, or nothing.
 > consent prompts, the CLI and the terminal manager work, and so do the
 > desktop keyring (Secret Service), the SSH agent, sync, import, OpenPGP,
 > age, browser autofill and the trust store; Windows and macOS builds
-> compile but are not yet exercised. What remains is in
-> [docs/roadmap.md](docs/roadmap.md). The format may still change, and
-> nothing has been audited: do not keep anything here that exists nowhere
-> else yet.
+> compile but are not yet exercised. Unlocking with a FIDO2 security key
+> works on Linux, tested against a software key but not yet against real
+> ones. What remains is in [docs/roadmap.md](docs/roadmap.md). The format
+> may still change, and nothing has been audited: do not keep anything
+> here that exists nowhere else yet.
 
 ## How it fits together
 
@@ -64,6 +65,7 @@ decision. If there is none, it asks you.
 | [`svpgp`](svpgp) | OpenPGP, our own: keys, signatures, encryption (RFC 9580, reading RFC 4880) |
 | [`svtrust`](svtrust) | The trust store: contacts, how their keys were verified, and verdicts on signers; WKD and keyserver lookups |
 | [`svqr`](svqr) | QR codes, our own, drawn on a terminal |
+| [`svfido`](svfido) | FIDO2 security keys, our own: CTAPHID, CTAP2 and its PIN protocols, for hmac-secret |
 | [`svage`](svage) | age files and the age plugin protocol, both ends |
 | [`svbrowser`](svbrowser) | The KeePassXC-Browser protocol, for filling logins in browsers |
 | [`svimport`](svimport) | Import from other password managers, export to KeePass and CXF |
@@ -74,8 +76,9 @@ anything that copies files can sync it without two devices editing the same
 file. Nothing about an item is readable in the folder, including its name.
 
 - **Keyslots.** A vault opens with any of its keyslots: a passphrase, a
-  printed recovery key, a keyfile, or an identity (a device, a person, a
-  server).
+  printed recovery key, a keyfile, an identity (a device, a person, a
+  server), or a FIDO2 security key (its `hmac-secret`, with a touch and
+  its PIN).
 - **Recipient keyslots** use post-quantum hybrid encryption (ML-KEM-768 with
   X25519).
 
@@ -222,12 +225,41 @@ $ bin/secretvault age decrypt -i sv://-/age/sops file.age      # or no age at al
   anywhere with `init --path DIR`. `vault add NAME DIR` registers an
   existing one, and `--vault NAME` picks one.
 - **Proving it is you.** The first command in a terminal asks for the vault's
-  passphrase there, which allows that terminal until the vault locks. Or pass
-  `--passphrase-file`, `--keyfile`, `--identity` or `--recovery`.
+  passphrase there (or its security key, if one is plugged in), which allows
+  that terminal until the vault locks. Or pass `--passphrase-file`,
+  `--keyfile`, `--identity`, `--recovery` or `--fido2`.
 - **Other programs** asking for a secret get a desktop prompt (your system's
   pinentry, until secretvault's own window exists): allow once, until
   locked, always, or deny. [docs/clients.md](docs/clients.md) is for their
   authors.
+
+### A security key (Linux)
+
+A FIDO2 key with `hmac-secret` (a YubiKey 5, a Solo, a Nitrokey 3, a Titan
+and most others) can open a vault. Your user needs access to it first:
+systemd 244 and later tag FIDO keys for the logged-in user
+(`60-fido-id.rules`); elsewhere install your distribution's `libfido2` or
+`u2f-udev` package, then plug the key in again.
+
+```console
+$ bin/secretvault fido2                  # the keys secretvaultd sees, and what each can do
+$ bin/secretvault slot add fido2         # enrol it: its PIN if it has one, then two touches
+$ bin/secretvault slot add fido2 --no-uv # or: a touch alone opens the vault
+$ bin/secretvault lock
+$ bin/secretvault unlock --fido2         # the PIN (if the slot needs it) and a touch
+$ bin/secretvault get web/github.com     # with the key plugged in, it is asked for before the passphrase
+```
+
+- **The PIN** is asked for wherever a passphrase would be, saying how many
+  tries the key has left; after three wrong ones the key wants to be
+  plugged in again, and after eight it blocks.
+- **Several keys** can each have a keyslot, and several can be plugged in:
+  each is asked, without a touch, whether it holds one of the vault's, and
+  only that one blinks.
+- **Keep the passphrase or a recovery key**: a lost key is a lost way in.
+  `vault rotate` does not carry keys over; it names them, to be added
+  again.
+- Windows and macOS say "not yet".
 
 ## Security: read this
 
@@ -296,7 +328,11 @@ The tests include:
 - QR codes module for module against qrencode at every version and
   level, and read back by zbar;
 - WKD hashes against GnuPG's own client, and lookups against a fake
-  internet (httptest, with its own CA).
+  internet (httptest, with its own CA);
+- FIDO2 against a software authenticator of our own (CTAP 2.0 and 2.1, PIN
+  protocols 1 and 2, retries and blocking), its PIN protocols checked
+  against Python's `cryptography`, and the CBOR and HID parsers fuzzed. No
+  test opens a real device.
 
 ## Licence
 
