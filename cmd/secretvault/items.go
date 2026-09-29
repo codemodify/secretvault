@@ -193,6 +193,7 @@ type jsonItem struct {
 	Fields    []jsonField       `json:"fields,omitempty"`
 	Files     []svrpc.FileInfo  `json:"files,omitempty"`
 	Conflicts []string          `json:"conflicts,omitempty"`
+	Signature *svrpc.Signature  `json:"signature,omitempty"`
 }
 
 type jsonField struct {
@@ -205,6 +206,9 @@ type jsonField struct {
 func toJSON(e svrpc.Entry) jsonItem {
 	j := jsonItem{ID: e.ID, Rev: e.Rev, Time: e.Time, Kind: e.Item.Kind, Name: e.Item.Name,
 		Label: e.Item.Label, Attrs: e.Item.Attrs, Tags: e.Item.Tags, Files: e.Item.Files, Conflicts: e.Conflicts}
+	if e.Signature.Status != "" {
+		j.Signature = &e.Signature
+	}
 	for _, f := range e.Item.Fields {
 		jf := jsonField{Name: f.Name, Type: f.Type}
 		if utf8.Valid(f.Value) && f.Type != svcore.FieldBinary && f.Type != svcore.FieldKey {
@@ -221,6 +225,10 @@ func (c *cli) warnConflicts(e svrpc.Entry) {
 	if len(e.Conflicts) > 0 {
 		fmt.Fprintf(c.stderr, "warning: %s has %d conflicting revision(s); showing the newest (see 'secretvault history %s')\n",
 			e.Item.Name, len(e.Conflicts), e.Item.Name)
+	}
+	if e.Signature.Status == svrpc.SigBad {
+		fmt.Fprintf(c.stderr, "warning: the current revision of %s has a bad signature: someone who can open the vault changed it, posing as another device (see 'secretvault history %s')\n",
+			e.Item.Name, e.Item.Name)
 	}
 }
 
@@ -402,11 +410,10 @@ func (c *cli) cmdHistory(args []string) error {
 		if e.Deleted {
 			note = strings.TrimSpace(note + " deleted")
 		}
-		device := "-"
-		if len(e.Device) >= 8 {
-			device = e.Device[:8]
+		if e.Ignored {
+			note = strings.TrimSpace(note + " ignored: the vault requires signatures")
 		}
-		line := fmt.Sprintf("%s\t%s\t%s\t%s", e.Time.Local().Format("2006-01-02 15:04:05"), short(e.Rev), device, note)
+		line := fmt.Sprintf("%s\t%s\t%s\t%s", e.Time.Local().Format("2006-01-02 15:04:05"), short(e.Rev), author(e), note)
 		if *show {
 			if f, ok := secretField(&e.Item); ok {
 				line += "\t" + string(f.Value)
@@ -416,6 +423,35 @@ func (c *cli) cmdHistory(args []string) error {
 		wipe(&e.Item)
 	}
 	return tw.Flush()
+}
+
+// author says who wrote a revision, as far as its signature tells: the
+// device's label when the signature verifies, and otherwise what the
+// revision claims, marked as a claim.
+func author(e svrpc.Entry) string {
+	s := e.Signature
+	named := s.Label
+	if named == "" && len(s.Key) >= 8 {
+		named = "key " + s.Key[:8]
+	}
+	switch s.Status {
+	case svrpc.SigVerified:
+		switch {
+		case s.Mine:
+			named += " (this device)"
+		case s.Removed:
+			named += " (removed)"
+		}
+		return named
+	case svrpc.SigBad:
+		return "BAD SIGNATURE, as " + named
+	case svrpc.SigUnverified:
+		return "unverified, " + named
+	}
+	if len(e.Device) >= 8 {
+		return "unsigned, device " + e.Device[:8]
+	}
+	return "unsigned"
 }
 
 func (c *cli) cmdGen(args []string) error {

@@ -40,7 +40,7 @@ func mapErr(err error) error {
 		return err
 	case errors.Is(err, svcore.ErrLocked):
 		return svrpc.Errorf(svrpc.CodeLocked, "%v", err)
-	case errors.Is(err, svcore.ErrNotFound):
+	case errors.Is(err, svcore.ErrNotFound), errors.Is(err, svcore.ErrNoDevice):
 		return svrpc.Errorf(svrpc.CodeNotFound, "%s", strings.TrimPrefix(err.Error(), "svcore: "))
 	case errors.Is(err, svcore.ErrWrongKey):
 		return svrpc.ErrWrongKey
@@ -827,8 +827,9 @@ func slotInfo(mv *managedVault, s svcore.SlotInfo) svrpc.SlotInfo {
 }
 
 func toEntry(e svcore.Entry, withFields bool) svrpc.Entry {
-	out := svrpc.Entry{ID: e.ID.String(), Rev: e.Rev.String(), Time: e.Time, Deleted: e.Deleted,
-		Item: svrpc.Item{Kind: e.Item.Kind, Name: e.Item.Name, Label: e.Item.Label, Attrs: e.Item.Attrs, Tags: e.Item.Tags}}
+	out := svrpc.Entry{ID: e.ID.String(), Rev: e.Rev.String(), Time: e.Time, Deleted: e.Deleted, Ignored: e.Ignored,
+		Signature: toSignature(e.Signature),
+		Item:      svrpc.Item{Kind: e.Item.Kind, Name: e.Item.Name, Label: e.Item.Label, Attrs: e.Item.Attrs, Tags: e.Item.Tags}}
 	if !e.Device.IsZero() {
 		out.Device = e.Device.String()
 	}

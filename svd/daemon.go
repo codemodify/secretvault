@@ -216,6 +216,10 @@ func New(opts Options) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+	signer, err := svcore.LoadDeviceKey(opts.Home)
+	if err != nil {
+		return nil, err
+	}
 	autoLock := DefaultAutoLock
 	if host {
 		autoLock = svrpc.AutoLock{} // nothing locks on idle unless the config says so
@@ -229,7 +233,7 @@ func New(opts Options) (*Daemon, error) {
 		home:    opts.Home,
 		broker:  svbroker.New(device),
 		audit:   svbroker.NewAudit(filepath.Join(opts.Home, "audit")),
-		svOpts:  svcore.Options{Device: device, Now: opts.Now},
+		svOpts:  svcore.Options{Device: device, Signer: signer, Now: opts.Now},
 		cfg:     cfg,
 		vaults:  map[string]*managedVault{},
 		clients: map[*client]bool{},

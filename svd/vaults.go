@@ -106,6 +106,7 @@ func (d *Daemon) unlockWith(mv *managedVault, k svcore.Key) error {
 	if err := mv.v.Unlock(k); err != nil {
 		return err
 	}
+	d.registerDevice(mv)
 	if err := d.audit.Unlocked(mv.v); err != nil {
 		d.opts.Log(fmt.Sprintf("audit log for %s: %v", mv.cfg.Name, err))
 	}
@@ -221,6 +222,7 @@ func (d *Daemon) createVault(p svrpc.VaultCreateParams) (*managedVault, string, 
 		return nil, "", err
 	}
 	mv.v = v
+	d.registerDevice(mv)
 	recovery := ""
 	if p.Recovery {
 		info, err := v.AddSlot(svcore.NewSlot{Type: svformat.SlotRecovery, Label: "recovery key"})

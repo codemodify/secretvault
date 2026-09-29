@@ -235,6 +235,8 @@ func (c *cli) cmdVault(args []string) error {
 		return cl.SetDefault(ctx, pos[0])
 	case "rotate":
 		return c.rotate(args[1:], nil)
+	case "signatures":
+		return c.signatures(args[1:])
 	case "login":
 		fs := c.flags("vault login")
 		var u unlockFlags
@@ -261,7 +263,7 @@ func (c *cli) cmdVault(args []string) error {
 		}
 		return nil
 	}
-	fmt.Fprintf(c.stderr, "secretvault vault: unknown subcommand %q (list, add, forget, default, rotate, login)\n", args[0])
+	fmt.Fprintf(c.stderr, "secretvault vault: unknown subcommand %q (list, add, forget, default, rotate, login, signatures)\n", args[0])
 	return errUsage
 }
 

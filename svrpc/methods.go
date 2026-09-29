@@ -326,10 +326,15 @@ type Entry struct {
 	ID        string    `json:"id"`
 	Rev       string    `json:"rev"`
 	Time      time.Time `json:"time"`
-	Device    string    `json:"device,omitempty"`
+	Device    string    `json:"device,omitempty"` // as the revision names it, in the clear
+	Signature Signature `json:"signature,omitzero"`
 	Deleted   bool      `json:"deleted,omitempty"`
 	Conflicts []string  `json:"conflicts,omitempty"`
 	Item      Item      `json:"item"`
+
+	// Ignored marks a revision the vault does not count (item.history
+	// only): it requires signatures, and this one's is missing or bad.
+	Ignored bool `json:"ignored,omitempty"`
 }
 
 // ItemRef names an item.

@@ -15,12 +15,14 @@
 //	lock [VAULT] [--all]       lock a vault, or all of them
 //	status                     show the daemon and its vaults
 //	vault list|add|forget|default
+//	vault signatures [required|optional]   whether only signed revisions count
 //	set NAME                   store or update an item (secret from stdin or a prompt)
 //	get NAME                   print an item's secret, a field, or the whole item
 //	ls [PREFIX]                list items
 //	mv FROM TO                 rename an item
 //	rm NAME                    delete an item
-//	history NAME               list an item's revisions
+//	history NAME               list an item's revisions, and who signed each
+//	device ls|label|rm|vouch   the devices registered in a vault, whose keys sign what they write
 //	import FORMAT FILE         import another password manager's export
 //	export cxf|kdbx FILE       export items to a CXF or KeePass file
 //	gen                        print a random password
@@ -205,9 +207,10 @@ func init() {
 		{"ls", "list items", (*cli).cmdList},
 		{"mv", "rename an item", (*cli).cmdMove},
 		{"rm", "delete an item", (*cli).cmdRemove},
-		{"history", "list an item's revisions", (*cli).cmdHistory},
+		{"history", "list an item's revisions, and who signed each", (*cli).cmdHistory},
 		{"restore", "make an earlier revision, or a deleted item, current again", (*cli).cmdRestore},
 		{"resolve", "settle an item changed on two devices at once: show its versions, keep one", (*cli).cmdResolve},
+		{"device", "the devices registered in a vault, whose keys sign what they write: ls, label, rm, vouch", (*cli).cmdDevice},
 		{"attach", "attach a file to an item", (*cli).cmdAttach},
 		{"file", "an item's attached files: ls, get, rm", (*cli).cmdFile},
 		{"import", "import another password manager's export", (*cli).cmdImport},

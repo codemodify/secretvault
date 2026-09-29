@@ -413,12 +413,64 @@ func TestShortPassphrasesAreRefused(t *testing.T) {
 	}
 }
 
+func TestDevicesAndSignatures(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok("v1", h.with("set", "x")...)
+	ls := h.ok("", h.with("device")...)
+	lines := strings.Split(strings.TrimSpace(ls), "\n")
+	if len(lines) < 2 || !strings.HasPrefix(lines[0], "KEY") || !strings.Contains(lines[1], "this device") {
+		t.Fatalf("device ls:\n%s", ls)
+	}
+	key := strings.Fields(lines[1])[0]
+	if len(key) != 32 {
+		t.Fatalf("device ls shows the key %q", key)
+	}
+	if out := h.ok("", h.with("device", "label", "laptop")...); !strings.Contains(out, `now "laptop"`) {
+		t.Fatalf("device label: %q", out)
+	}
+	h.ok("v2", h.with("set", "x")...)
+	hist := h.ok("", h.with("history", "x")...)
+	if strings.Count(hist, "laptop (this device)") != 2 {
+		t.Fatalf("history:\n%s", hist)
+	}
+	if out := h.ok("", h.with("get", "x", "--json")...); !strings.Contains(out, `"status": "verified"`) || !strings.Contains(out, `"mine": true`) {
+		t.Fatalf("get --json:\n%s", out)
+	}
+	if _, errs, code := h.run("", h.with("device", "vouch", key[:8])...); code != 1 || !strings.Contains(errs, "itself") {
+		t.Fatalf("vouching for oneself: %d %q", code, errs)
+	}
+	if _, errs, code := h.run("", h.with("device", "rm", "0000")...); code != 1 || !strings.Contains(errs, "no device") {
+		t.Fatalf("removing a device that is not there: %d %q", code, errs)
+	}
+	if out := h.ok("", h.with("vault", "signatures")...); !strings.Contains(out, "counts every revision") {
+		t.Fatalf("vault signatures: %q", out)
+	}
+	if out := h.ok("", h.with("vault", "signatures", "required")...); !strings.Contains(out, "counts only revisions signed") {
+		t.Fatalf("vault signatures required: %q", out)
+	}
+	h.ok("v3", h.with("set", "x")...)
+	if out := h.ok("", h.with("vault", "signatures", "optional")...); !strings.Contains(out, "counts every revision") {
+		t.Fatalf("vault signatures optional: %q", out)
+	}
+	if _, _, code := h.run("", h.with("vault", "signatures", "sometimes")...); code != 1 {
+		t.Fatalf("vault signatures sometimes: exit %d", code)
+	}
+	if out := h.ok("", h.with("device", "rm", key[:8])...); !strings.Contains(out, "Removed device "+key) {
+		t.Fatalf("device rm: %q", out)
+	}
+	if ls := h.ok("", h.with("device", "ls")...); !strings.Contains(ls, "this device, removed") {
+		t.Fatalf("device ls after rm:\n%s", ls)
+	}
+}
+
 func TestVerifyCatchesTampering(t *testing.T) {
 	h := newHarness(t)
 	h.init()
 	h.ok("v1", h.with("set", "x")...)
 	h.ok("v2", h.with("set", "x")...)
-	if out := h.ok("", h.with("verify")...); !strings.Contains(out, "1 items (1 objects, 2 revisions)") {
+	// The item's two revisions, and this device's registration.
+	if out := h.ok("", h.with("verify")...); !strings.Contains(out, "1 items (2 objects, 3 revisions)") {
 		t.Fatalf("verify = %q", out)
 	}
 	var victim string
