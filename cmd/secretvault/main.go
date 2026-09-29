@@ -37,6 +37,7 @@
 //	read sv://VAULT/ITEM[#FIELD]            print one value ("-" is the default vault)
 //	run [--env-file F] -- CMD               run CMD with sv:// references in its environment resolved
 //	inject [-i IN] [-o OUT]                 fill {{ sv://... }} references in a template
+//	ci fetch|run --server URL --role ROLE   secrets from a delivery server, with the job's ID token
 //	age keygen|recipient|identity|encrypt|decrypt   age files with vault-held keys
 //	container create|open|close|ls|header-backup|passwd   encrypted containers (LUKS2 images)
 //	identity new|pub           make or show a recipient identity
@@ -218,6 +219,7 @@ func init() {
 		{"read", "print one value: sv://VAULT/ITEM[#FIELD]", (*cli).cmdRead},
 		{"run", "run a command with sv:// references in its environment resolved", (*cli).cmdRun},
 		{"inject", "fill {{ sv://... }} references in a template", (*cli).cmdInject},
+		{"ci", "secrets from a delivery server, for CI jobs, pods and services: fetch, run", (*cli).cmdCI},
 		{"git-credential", "git's credential helper (get, store, erase)", (*cli).cmdGitCredential},
 		{"docker-credential", "docker's credential helper (get, store, erase, list)", (*cli).cmdDockerCredential},
 		{"age", "age files with vault-held keys: keygen, recipient, identity, encrypt, decrypt", (*cli).cmdAge},
