@@ -252,8 +252,13 @@ the token.
   the daemon will implement; protected headers and Autocrypt read; and
   outgoing PGP/MIME and S/MIME, signed, encrypted or both, with protected
   headers. Checked against GnuPG 2.4 and OpenSSL 3 both ways.
-- **Still to do:** the daemon's `mail.inspect` and mail signing and
-  encryption methods over `svmail` and the trust store, the LDAP directory,
+- **`mail.inspect` is built:** a mail client hands over a message as
+  received and gets back svmail's report and the trust store's verdict on
+  every signer; with `decrypt`, what is encrypted to your OpenPGP keys is
+  decrypted in the daemon, asked about as decrypting (`secretvault mail
+  inspect`).
+- **Still to do:** outgoing mail through the daemon (signing and
+  encrypting with your keys), S/MIME keys of your own, the LDAP directory,
   transparency logs, `encrypt-to`, the gpg-agent face, the OS certificate
   stores, and the token split.
 

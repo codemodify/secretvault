@@ -222,6 +222,7 @@ func init() {
 		{"ci", "secrets from a delivery server, for CI jobs, pods and services: fetch, run", (*cli).cmdCI},
 		{"git-credential", "git's credential helper (get, store, erase)", (*cli).cmdGitCredential},
 		{"docker-credential", "docker's credential helper (get, store, erase, list)", (*cli).cmdDockerCredential},
+		{"mail", "what a mail message is: its signers, checked against your contacts, and (--decrypt) its contents", (*cli).cmdMail},
 		{"age", "age files with vault-held keys: keygen, recipient, identity, encrypt, decrypt", (*cli).cmdAge},
 		{"container", "encrypted containers: create, open, close, ls, header-backup, passwd", (*cli).cmdContainer},
 		{"age-plugin", "age's plugin protocol (run as age-plugin-secretvault)", (*cli).cmdAgePlugin},

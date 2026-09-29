@@ -108,7 +108,21 @@ r, err := c.VerifyPGP(ctx, svrpc.PGPVerifyParams{Data: body, Signature: sig, Fro
 d, err := c.DecryptPGP(ctx, svrpc.PGPDecryptParams{Data: armored, Verify: true, From: fromHeader})
 ```
 
-The methods and their shapes are in [`svrpc/trust.go`](../svrpc/trust.go).
+Or hand over the whole message, as received, and let secretvault take it
+apart: every signature is checked and judged against the contacts, and,
+with `Decrypt`, what is encrypted to the person's keys is decrypted (asked
+about as decrypting, never as reading the key):
+
+```go
+res, err := c.InspectMail(ctx, svrpc.MailInspectParams{Message: raw, Decrypt: true})
+// res.Report is svmail.Report as JSON: signed/encrypted ("none", "partial",
+// "full"), every layer and what it covers, protected headers, the parts'
+// text, the decrypted content, keys the message carries, and warnings.
+// res.Verdicts: for each signature (layer, index), the verdict on its signer.
+```
+
+The methods and their shapes are in [`svrpc/trust.go`](../svrpc/trust.go) and
+[`svrpc/mail.go`](../svrpc/mail.go).
 
 ## From any language
 

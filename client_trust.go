@@ -114,3 +114,11 @@ func (c *Client) VerifyPGP(ctx context.Context, p svrpc.PGPVerifyParams) (out sv
 	err = c.conn.Call(ctx, svrpc.MPGPVerify, p, &out)
 	return
 }
+
+// InspectMail takes a raw message apart: its signatures, checked and
+// judged against your contacts, and, with Decrypt, its encrypted parts,
+// decrypted with your keys.
+func (c *Client) InspectMail(ctx context.Context, p svrpc.MailInspectParams) (out svrpc.MailInspectResult, err error) {
+	err = c.conn.Call(ctx, svrpc.MMailInspect, p, &out)
+	return
+}

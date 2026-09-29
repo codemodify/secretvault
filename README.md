@@ -169,6 +169,7 @@ $ bin/secretvault trust check --fingerprint 1A2B3C4D... --from alice@example.org
 verified
   Signed by Alice Example's key, which you verified in person on 2026-09-01.
 $ bin/secretvault pgp sign --clear notes.txt  # the key signs inside the daemon
+$ bin/secretvault mail inspect message.eml --decrypt   # who signed it, judged against your contacts; its text
 ```
 
 - **Verification levels**, strongest first: in person (fingerprint or QR
