@@ -89,7 +89,9 @@ func decodeContact(b []byte) (*Contact, error) {
 }
 
 func (s *Store) save(c *Contact) error {
-	c.Version = 1
+	if c.Version == 0 {
+		c.Version = 1 // a newer version's number is kept, as its members are
+	}
 	var id svformat.ID
 	if c.ID != "" {
 		var err error

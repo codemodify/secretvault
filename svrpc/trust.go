@@ -384,10 +384,10 @@ type PGPDecryptResult struct {
 	Warnings    []string       `json:"warnings,omitempty"`
 }
 
-// PGPVerifyParams verify a signed message against your contacts: Data
-// is the message and Signature a detached signature, or Signature is
-// empty and Data an inline or cleartext signed message. From is the
-// claimed sender.
+// PGPVerifyParams verify a signed message against your contacts (Vault
+// is the contacts vault here): Data is the message and Signature a
+// detached signature, or Signature is empty and Data an inline or
+// cleartext signed message. From is the claimed sender.
 type PGPVerifyParams struct {
 	Vault     string `json:"vault,omitempty"`
 	Data      []byte `json:"data"`

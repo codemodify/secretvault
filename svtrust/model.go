@@ -119,7 +119,8 @@ type Contact struct {
 	// Updated is when the record was last written; not part of the JSON.
 	Updated time.Time `json:"-"`
 
-	// Version is the record's format version, 1.
+	// Version is the record's format version: 1, or a newer one's, kept
+	// when this version rewrites the record.
 	Version int `json:"v"`
 	// Name is what the person is called: given by you, or, for a contact
 	// made from mail, the address it came from.
