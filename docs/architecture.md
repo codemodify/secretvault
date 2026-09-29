@@ -272,21 +272,23 @@ window:
 - **The keyboard is held** while a passphrase field has it (an X11 grab,
   Wayland's shortcut inhibitor, macOS secure input; Windows has nothing to
   offer), and input methods are off in the field.
-- **The window is a dialog**: centred, above other windows, fixed in size,
-  activated, and kept out of screenshots and screen shares where the
-  platform can do that (Windows and macOS).
+- **The window is a dialog**: centred, above other windows, fixed in size
+  and as tall as what it says, activated, and kept out of screenshots and
+  screen shares where the platform can do that (Windows and macOS). It is
+  in the desktop's light or dark mode unless a look was chosen in
+  uitoolkit's Settings.
 - **Consent** shows every answer the daemon offers. Deny is the default,
-  and Escape, the close button and `SETTIMEOUT` all cancel, which the
-  daemon takes as no.
+  marked as the default button, and Escape, the close button and
+  `SETTIMEOUT` all cancel, which the daemon takes as no.
 - **Timeouts and errors.** A retry shows why the last try failed
   (`SETERROR`). A new passphrase is typed twice and must match
-  (`SETREPEAT`).
+  (`SETREPEAT`). While Caps Lock is on the dialog says so, from the
+  keyboard's lock state rather than from what was typed.
 
 It runs the protocol on stdin and stdout, or as an askpass helper when
 given a prompt (`SSH_ASKPASS`, `SUDO_ASKPASS`). It has no `--agent` mode, as
 the daemon starts it for each question. What uitoolkit provides for it,
-and what it still lacks (such as a caps-lock state), is in
-[../uitoolkit-gaps.md](../uitoolkit-gaps.md).
+and what it still lacks, is in [../uitoolkit-gaps.md](../uitoolkit-gaps.md).
 
 ### What a prompt can and cannot stop
 
@@ -629,8 +631,9 @@ answer only after asking the person, through the same program.
   screenshots and screen sharing (honoured on Windows and macOS). The
   daemon's questions are asked in [`gui/secretui`](../gui/secretui)'s
   dialog window, as `secretvault-gui-prompt` asks its own: out of captures
-  where the platform allows, and holding the keyboard while the passphrase
-  field has it.
+  where the platform allows, holding the keyboard while the passphrase
+  field has it, and saying when Caps Lock is on. A new vault's passphrase
+  dialog says so too.
 
 Where a secret still becomes a Go string:
 - a one-time password key, while svotp parses it, and the code svotp
@@ -1035,7 +1038,11 @@ projects, with `sv` as the prefix:
     `golang.org/x/sys`,
     `golang.org/x/term`;
   - `github.com/codemodify/uitoolkit` in the GUI binaries only, which are a
-    Go module of their own (`gui/`), so nothing else can come to import it;
+    Go module of their own (`gui/`), so nothing else can come to import it.
+    `gui/go.mod` requires a tagged release from the module proxy, not a
+    checkout beside this one; `gui/uitoolkit_test.go` checks what we asked
+    of it ([../uitoolkit-gaps.md](../uitoolkit-gaps.md)) against that
+    release;
   - `tview`/`tcell` in the TUI only.
 - **Everything else is our own code**, including D-Bus, OpenPGP, CTAP2, PC/SC,
   TPM2 and the Assuan protocol.
