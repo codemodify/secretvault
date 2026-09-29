@@ -348,6 +348,29 @@ func (v *Vault) Put(it Item) (Entry, error) {
 	return v.write(svformat.NewID(), nil, payload{Type: payloadItem, Item: &it})
 }
 
+// PutNew stores a new item, failing with ErrItemExists if its name is
+// taken: a Put that can never overwrite, for callers whose check that the
+// name is free and whose store must not be separated.
+func (v *Vault) PutNew(it Item) (Entry, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.masters == nil {
+		return Entry{}, ErrLocked
+	}
+	if err := it.check(); err != nil {
+		return Entry{}, err
+	}
+	if _, taken := v.idx.byName[it.Name]; taken {
+		return Entry{}, fmt.Errorf("%w: %q", ErrItemExists, it.Name)
+	}
+	it = it.clone()
+	for i := range it.Files {
+		clear(it.Files[i].Key)
+	}
+	it.Files = nil
+	return v.write(svformat.NewID(), nil, payload{Type: payloadItem, Item: &it})
+}
+
 // Rename moves an item to a new name, keeping its identity and history.
 func (v *Vault) Rename(from, to string) (Entry, error) {
 	v.mu.Lock()

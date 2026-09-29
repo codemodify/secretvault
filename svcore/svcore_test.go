@@ -244,6 +244,23 @@ func TestDeletingHidesAnItemAndItsNameCanBeReused(t *testing.T) {
 	}
 }
 
+func TestPutNewNeverOverwrites(t *testing.T) {
+	v := newVault(t, svstore.NewMem(), 0)
+	if _, err := v.PutNew(login("site", "first")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.PutNew(login("site", "second")); !errors.Is(err, ErrItemExists) {
+		t.Fatalf("PutNew over an item = %v", err)
+	}
+	if e, _ := v.Get("site"); string(e.Item.Fields[1].Value) != "first" {
+		t.Fatalf("the item became %q", e.Item.Fields[1].Value)
+	}
+	v.Delete("site")
+	if _, err := v.PutNew(login("site", "third")); err != nil {
+		t.Fatalf("PutNew over a deleted item = %v", err)
+	}
+}
+
 func TestAnItemIsFoundByItsIDOnlyWhereItsNameLeads(t *testing.T) {
 	store := svstore.NewMem()
 	v := newVault(t, store, 0)

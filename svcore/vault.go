@@ -34,6 +34,9 @@ var (
 	// ErrNotFound is an item that does not exist.
 	ErrNotFound = errors.New("svcore: no such item")
 
+	// ErrItemExists is a PutNew whose name an item already has.
+	ErrItemExists = errors.New("svcore: an item of that name already exists")
+
 	// ErrLastSlot is removing the only keyslot, which would lose the vault.
 	ErrLastSlot = errors.New("svcore: that is the vault's only keyslot")
 )
