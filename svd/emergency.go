@@ -2,7 +2,7 @@ package svd
 
 import (
 	"context"
-	"crypto/sha256"
+	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -32,11 +32,11 @@ import (
 // The owner's side. For a vault that syncs with a server, 'emergency
 // grant' makes
 //   - a grant on the server: a random release key sealed to the trustee's
-//     recipient key (the escrow), a one-time code sealed to it too (the
-//     challenge), and the wait;
+//     recipient key (the escrow), the seed of a signing key sealed to it
+//     too (the challenge) with the key's public half, and the wait;
 //   - a record of kind "emergency-grant" in the vault, holding who the
 //     trustee is and the release key, so any of the owner's devices can
-//     name the trustee, and a rotation can carry the grant over;
+//     name the trustee, and a rotation can make the grant's keyslot again;
 //   - an emergency keyslot, which opens with the trustee's identity and
 //     the release key together (svformat/emergency.go);
 // and hands back the invite for the trustee, which holds no secret. The
@@ -44,11 +44,13 @@ import (
 // server's change log): on a request the daemon writes it to the vault's
 // audit log, shows a notice on the desktop (or the terminal agent), tells
 // clients (emergency.changed), and lists it in daemon.status until it is
-// denied or released; a release is told the same way.
+// denied or released; a release is told the same way, and listed until
+// the grant is revoked.
 //
-// The trustee's side. 'emergency accept' opens the invite's challenge
-// with the trustee's identity, which makes this device the grant's
-// trustee device on the server, and keeps the access in the config.
+// The trustee's side (emergency_access.go). 'emergency accept' opens the
+// invite's challenge with the trustee's identity and signs with it for
+// this device, which becomes the grant's trustee device on the server,
+// and keeps the access in the config.
 // 'request' starts the wait. 'open', once the wait is over, takes the
 // escrowed release key (sealed to the identity, and kept so), fetches the
 // vault, checks it is the vault the invite named, registers it read-only
@@ -93,7 +95,7 @@ type grantRecord struct {
 	Recipient string    `json:"recipient"`         // the trustee's recipient text
 	Level     string    `json:"level,omitempty"`   // how well their key was verified, when it was made
 	Wait      int64     `json:"wait"`              // seconds
-	Release   []byte    `json:"release"`           // the release key the server escrows, sealed to the trustee
+	Release   []byte    `json:"release"`           // the release key itself (the server holds it sealed to the trustee)
 	Created   time.Time `json:"created"`
 }
 
@@ -258,13 +260,14 @@ func (d *Daemon) emergencyGrant(ctx context.Context, cl *client, decode func(any
 	if err := decode(&p); err != nil {
 		return nil, err
 	}
-	wait := time.Duration(p.Wait) * time.Second
+	// In seconds, before any Duration: a huge count would overflow one.
 	if p.Wait == 0 {
-		wait = defaultWait
+		p.Wait = int64(defaultWait / time.Second)
 	}
-	if wait < minWait || wait > svserver.MaxEmergencyWait {
+	if p.Wait < int64(minWait/time.Second) || p.Wait > int64(svserver.MaxEmergencyWait/time.Second) {
 		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "the wait is from an hour to a year")
 	}
+	wait := time.Duration(p.Wait) * time.Second
 	mv, s, err := d.ownerVault(ctx, cl, p.Vault)
 	if err != nil {
 		return nil, err
@@ -272,33 +275,46 @@ func (d *Daemon) emergencyGrant(ctx context.Context, cl *client, decode func(any
 	if s == nil {
 		return nil, svrpc.Errorf(svrpc.CodeFailed, "emergency access needs vault %q to sync with a server, which keeps the wait: set that up with 'secretvault sync setup URL'", mv.cfg.Name)
 	}
-	who, err := d.trustee(ctx, cl, mv, p.Contact, p.Fingerprint)
-	if err != nil {
-		return nil, err
-	}
 	desc, err := descriptor(mv.store)
 	if err != nil {
 		return nil, err
 	}
 	suite, vid := mv.v.Suite(), mv.v.ID()
 	grant := svformat.NewID()
-	release, code := svcrypto.RandomKey(), svcrypto.RandomKey()
+	name := p.Name
+	if name == "" {
+		name = mv.cfg.Name
+	}
+	inv := svsync.EmergencyInvite{Remote: s.client.Remote(), Grant: grant.String(), VaultID: vid.String(),
+		Check: hex.EncodeToString(desc.Epochs[0].Check), Name: name}
+	if _, err := svsync.ParseEmergencyInvite(inv.String()); err != nil {
+		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "%s", syncWords(err))
+	}
+	who, err := d.trustee(ctx, cl, mv, p.Contact, p.Fingerprint)
+	if err != nil {
+		return nil, err
+	}
+	// The release key, sealed to the trustee, is the escrow; the seed of
+	// the key that accepting takes, sealed to them too, is the challenge.
+	release, seed := svcrypto.RandomKey(), svcrypto.RandomKey()
 	defer clear(release)
-	defer clear(code)
+	defer clear(seed)
 	escrow, err := suite.SealTo(who.pub, release, svformat.EmergencyReleaseInfo(vid, grant))
 	if err != nil {
 		return nil, err
 	}
-	challenge, err := suite.SealTo(who.pub, code, svformat.EmergencyChallengeInfo(grant))
+	challenge, err := suite.SealTo(who.pub, seed, svformat.EmergencyChallengeInfo(vid, grant))
 	if err != nil {
 		return nil, err
 	}
-	sum := sha256.Sum256(code)
+	acceptKey := ed25519.NewKeyFromSeed(seed)
+	acceptPub := acceptKey.Public().(ed25519.PublicKey)
+	clear(acceptKey)
 
 	// The server first: until the keyslot exists the grant opens nothing,
 	// and should the keyslot not be written, it is revoked again.
-	sg, err := s.client.CreateGrant(ctx, svserver.EmergencyCreate{ID: grant.String(), Wait: int64(wait / time.Second),
-		Escrow: escrow, Challenge: challenge, CodeHash: sum[:]})
+	sg, err := s.client.CreateGrant(ctx, svserver.EmergencyCreate{ID: grant.String(), Wait: p.Wait,
+		Escrow: escrow, Challenge: challenge, AcceptKey: acceptPub})
 	switch {
 	case errors.Is(err, svsync.ErrNotFound):
 		return nil, svrpc.Errorf(svrpc.CodeFailed, "the server %s does not offer emergency access: it is older than this version", s.client.Remote().URL)
@@ -313,7 +329,7 @@ func (d *Daemon) emergencyGrant(ctx context.Context, cl *client, decode func(any
 		}
 	}
 	rec := grantRecord{Grant: grant.String(), Trustee: who.name, Contact: who.contact, Recipient: who.recipient, Level: string(who.level),
-		Wait: int64(wait / time.Second), Release: release, Created: d.opts.Now().UTC()}
+		Wait: p.Wait, Release: release, Created: d.opts.Now().UTC()}
 	r, err := mv.v.PutRecord(grantKind, svformat.ID{}, rec)
 	if err != nil {
 		undo()
@@ -327,12 +343,6 @@ func (d *Daemon) emergencyGrant(ctx context.Context, cl *client, decode func(any
 	s.em.named(grant.String(), who.name)
 	d.recorder(cl, mv, "", svbroker.OpManage)("allowed",
 		fmt.Sprintf("gave %s emergency access (grant %s), released after %s unless denied", who.name, grant, waitWords(wait)))
-	name := p.Name
-	if name == "" {
-		name = mv.cfg.Name
-	}
-	inv := svsync.EmergencyInvite{Remote: s.client.Remote(), Grant: grant.String(), VaultID: vid.String(),
-		Check: hex.EncodeToString(desc.Epochs[0].Check), Name: name}
 	out := svrpc.EmergencyGrantResult{Grant: grantInfo(mv, sg.ID, &rec, &sg), Invite: inv.String(), Warning: who.warning}
 	return out, nil
 }
@@ -590,11 +600,13 @@ func (d *Daemon) emergencyRevoke(ctx context.Context, cl *client, decode func(an
 }
 
 // emergencyCarry is what a rotation of mv needs to keep its emergency
-// grants: a keyslot for each of the current epoch's (but those in drop),
-// with its release key from the vault's record. Grants the vault has no
-// record of cannot be carried over, and are returned as lost. Wipe the
-// specs' release keys when done.
-func emergencyCarry(mv *managedVault, drop map[string]bool) (specs []svcore.NewSlot, lost []svcore.SlotInfo, err error) {
+// grants: one keyslot for the new epoch for each grant that a keyslot of
+// the current epoch names and the vault has a record of. The new slot is
+// made from the record (its recipient and release key), never from the
+// slot files, which anyone who can write to the folder could have
+// planted. Slots naming a grant with no record are returned as lost.
+// Wipe the specs' release keys when done.
+func emergencyCarry(mv *managedVault) (specs []svcore.NewSlot, lost []svcore.SlotInfo, err error) {
 	slots, err := mv.v.Slots()
 	if err != nil {
 		return nil, nil, err
@@ -605,19 +617,47 @@ func emergencyCarry(mv *managedVault, drop map[string]bool) (specs []svcore.NewS
 	}
 	defer wipeGrants(recs)
 	epoch := mv.v.Epoch()
+	carried := map[svformat.ID]bool{}
 	for _, s := range slots {
-		if s.Type != svformat.SlotEmergency || s.Epoch != epoch || drop[s.ID.String()] {
+		if s.Type != svformat.SlotEmergency || s.Epoch != epoch || carried[s.Grant] {
 			continue
 		}
 		e := recs[s.Grant.String()]
-		if e == nil || len(e.Release) != svformat.ReleaseKeySize {
+		var pub []byte
+		if e != nil {
+			var suite svcrypto.Suite
+			if suite, pub, err = svformat.ParseRecipient(e.Recipient); err != nil || suite != mv.v.Suite() {
+				pub = nil
+			}
+		}
+		if pub == nil || len(e.Release) != svformat.ReleaseKeySize {
 			lost = append(lost, s)
 			continue
 		}
-		specs = append(specs, svcore.NewSlot{Type: svformat.SlotEmergency, Label: s.Label, Recipient: s.Recipient, Grant: s.Grant,
+		carried[s.Grant] = true
+		specs = append(specs, svcore.NewSlot{Type: svformat.SlotEmergency, Label: "emergency", Recipient: pub, Grant: s.Grant,
 			ReleaseKey: slices.Clone(e.Release)})
 	}
 	return specs, lost, nil
+}
+
+// notEmergency refuses to remove or leave out keyslots of emergency
+// access on their own: that ends a grant only half (the server would
+// still hold it, and the vault's record could bring it back), which is
+// what 'emergency revoke' is for.
+func notEmergency(mv *managedVault, ids []string) error {
+	slots, err := mv.v.Slots()
+	if err != nil {
+		return err
+	}
+	for _, s := range slots {
+		if s.Type == svformat.SlotEmergency && slices.Contains(ids, s.ID.String()) {
+			return svrpc.Errorf(svrpc.CodeInvalidParams,
+				"keyslot %s is emergency access (grant %s): end it with 'secretvault emergency revoke %s', with --rotate to cut the trustee off",
+				s.ID, s.Grant, short(s.Grant.String()))
+		}
+	}
+	return nil
 }
 
 // Hearing of requests: every synced vault of the person's own keeps an
@@ -660,9 +700,12 @@ func (w *emergencyWatch) named(grant, name string) {
 }
 
 // emergencySynced looks at a synced vault's grants after a sync that saw
-// them change, the first after the daemon started, and now and then.
-func (d *Daemon) emergencySynced(mv *managedVault, s *vaultSync, rep svsync.Report, err error) {
-	if err != nil || mv.cfg.Emergency != "" || s.em == nil {
+// them change, the first after the daemon started, and now and then:
+// after failed syncs too (a vault that cannot sync, for a reason of its
+// own, must still hear of requests). The watcher calls it at least every
+// few minutes, failing or not.
+func (d *Daemon) emergencySynced(mv *managedVault, s *vaultSync, rep svsync.Report, _ error) {
+	if mv.cfg.Emergency != "" || s.em == nil {
 		return
 	}
 	w := s.em
@@ -799,11 +842,15 @@ func (d *Daemon) emergencySeen(mv *managedVault, w *emergencyWatch, grants []svs
 	for _, f := range stop {
 		f()
 	}
-	if save != nil {
-		if err := writeAtomic(w.path, save); err != nil {
-			d.opts.Log(fmt.Sprintf("emergency grants of %s: %v", mv.cfg.Name, err))
+	// Told first, then remembered as told: a crash between tells it
+	// twice, never not at all.
+	defer func() {
+		if save != nil {
+			if err := writeAtomic(w.path, save); err != nil {
+				d.opts.Log(fmt.Sprintf("emergency grants of %s: %v", mv.cfg.Name, err))
+			}
 		}
-	}
+	}()
 	for _, n := range news {
 		who := names[n.g.ID]
 		text := grantNotice(mv.cfg.Name, who, n.g)
@@ -824,10 +871,13 @@ func (d *Daemon) emergencySeen(mv *managedVault, w *emergencyWatch, grants []svs
 	}
 }
 
+// short is the start of a grant's ID, for people to type.
+func short(id string) string { return id[:min(len(id), 8)] }
+
 // grantNotice says what happened to a grant, and what the owner can do.
 func grantNotice(vault, who string, g svsync.Grant) string {
 	if who == "" {
-		who = "The person you gave emergency access (grant " + g.ID[:8] + ")"
+		who = "The person you gave emergency access (grant " + short(g.ID) + ")"
 	}
 	from := ""
 	if g.Trustee != nil && g.Trustee.Label != "" {
@@ -837,10 +887,10 @@ func grantNotice(vault, who string, g svsync.Grant) string {
 	case g.State == svserver.GrantReleased && g.Released != nil:
 		return fmt.Sprintf("%s was given the key to vault %q on %s%s, after the wait. "+
 			"If they were not meant to have it, revoke it and rotate the vault key: 'secretvault --vault %s emergency revoke %s --rotate'.",
-			who, vault, when(g.Released), from, vault, g.ID[:8])
+			who, vault, when(g.Released), from, vault, short(g.ID))
 	case g.State == svserver.GrantRequested && g.Requested != nil:
 		return fmt.Sprintf("%s asked for emergency access to vault %q on %s%s. Unless you deny it, they get the vault's key on %s: "+
-			"'secretvault --vault %s emergency deny %s'.", who, vault, when(g.Requested), from, when(g.ReleasesAt), vault, g.ID[:8])
+			"'secretvault --vault %s emergency deny %s'.", who, vault, when(g.Requested), from, when(g.ReleasesAt), vault, short(g.ID))
 	case g.Denied != nil:
 		return fmt.Sprintf("%s's request for emergency access to vault %q was denied on %s.", who, vault, when(g.Denied))
 	}

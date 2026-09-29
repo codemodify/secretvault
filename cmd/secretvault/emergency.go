@@ -70,8 +70,8 @@ func (c *cli) cmdEmergency(args []string) error {
 		fmt.Fprintln(c.stdout)
 		fmt.Fprintln(c.stdout, "    secretvault emergency accept '"+res.Invite+"' --identity FILE")
 		fmt.Fprintln(c.stdout)
-		fmt.Fprintf(c.stdout, "Grant %s. You are told when they ask ('secretvault status'); deny with 'secretvault emergency deny %s',\n", g.ID, g.ID[:8])
-		fmt.Fprintf(c.stdout, "end it with 'secretvault emergency revoke %s'.\n", g.ID[:8])
+		fmt.Fprintf(c.stdout, "Grant %s. You are told when they ask ('secretvault status'); deny with 'secretvault emergency deny %s',\n", g.ID, shortID(g.ID, 8))
+		fmt.Fprintf(c.stdout, "end it with 'secretvault emergency revoke %s'.\n", shortID(g.ID, 8))
 		return nil
 
 	case "ls", "list":
@@ -251,19 +251,14 @@ func identityFile(path string) ([]byte, error) {
 // parseWait reads a waiting period: a Go duration (48h, 90m), or a number
 // of days (7d) or weeks (2w).
 func parseWait(s string) (time.Duration, error) {
-	unit := time.Duration(0)
-	switch {
-	case strings.HasSuffix(s, "d"):
-		unit = 24 * time.Hour
-	case strings.HasSuffix(s, "w"):
-		unit = 7 * 24 * time.Hour
-	}
-	if unit != 0 {
-		n, err := strconv.Atoi(strings.TrimRight(s, "dw"))
-		if err != nil || n <= 0 {
-			return 0, fmt.Errorf("%q is not a wait (like 48h, 7d or 2w)", s)
+	for suffix, unit := range map[string]time.Duration{"d": 24 * time.Hour, "w": 7 * 24 * time.Hour} {
+		if digits, ok := strings.CutSuffix(s, suffix); ok {
+			n, err := strconv.Atoi(digits)
+			if err != nil || n <= 0 || n > 10000 { // beyond any wait allowed, and far from overflowing
+				return 0, fmt.Errorf("%q is not a wait (like 48h, 7d or 2w)", s)
+			}
+			return time.Duration(n) * unit, nil
 		}
-		return time.Duration(n) * unit, nil
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil || d <= 0 {
@@ -297,6 +292,9 @@ func when(t *time.Time) string {
 	return t.Local().Format("2006-01-02 15:04")
 }
 
+// shortID is the start of an ID, for people to type.
+func shortID(id string, n int) string { return id[:min(len(id), n)] }
+
 func trusteeName(g svrpc.EmergencyGrant) string {
 	if g.Trustee != "" {
 		return g.Trustee
@@ -314,12 +312,12 @@ func (c *cli) printEmergency(l svrpc.EmergencyList) error {
 	if len(l.Given) > 0 {
 		fmt.Fprintln(tw, "GRANT\tVAULT\tTRUSTEE\tWAIT\tSTATE")
 		for _, g := range l.Given {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", g.ID[:12], g.Vault, trusteeName(g), waitText(g.Wait), grantState(g))
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", shortID(g.ID, 12), g.Vault, trusteeName(g), waitText(g.Wait), grantState(g))
 		}
 		tw.Flush()
 		for _, g := range l.Given {
 			for _, p := range g.Problems {
-				fmt.Fprintf(c.stdout, "  %s: %s\n", g.ID[:12], p)
+				fmt.Fprintf(c.stdout, "  %s: %s\n", shortID(g.ID, 12), p)
 			}
 		}
 	}

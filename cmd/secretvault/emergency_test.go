@@ -46,6 +46,19 @@ func (h *harness) waitFor(want string, args ...string) string {
 	}
 }
 
+func TestWaitsAreReadAsPeopleWriteThem(t *testing.T) {
+	for in, want := range map[string]time.Duration{"7d": 7 * 24 * time.Hour, "2w": 14 * 24 * time.Hour, "48h": 48 * time.Hour, "90m": 90 * time.Minute} {
+		if got, err := parseWait(in); err != nil || got != want {
+			t.Errorf("%s: %v, %v", in, got, err)
+		}
+	}
+	for _, bad := range []string{"", "d", "7dw", "-1d", "0d", "99999999999999d", "soon", "-5h"} {
+		if d, err := parseWait(bad); err == nil {
+			t.Errorf("%q read as %v", bad, d)
+		}
+	}
+}
+
 // The whole of emergency access from the command line: the owner grants
 // it, the trustee accepts and asks, the owner is told and denies, the
 // trustee asks again and opens the vault after the wait, and the owner

@@ -388,21 +388,33 @@ kek = Derive(release key, vault id, "sv1 emergency kek", 32)
 - **The label** is `emergency`, and says nothing of who the trustee is:
   slot files are in the clear, on the server too.
 
-**The escrow.** The owner's device gives the sync server the release key
-sealed to the trustee, bound to its vault and grant:
+**The escrow and the challenge.** The owner's device gives the sync
+server the release key sealed to the trustee, bound to its vault and
+grant; and a challenge, the seed of an Ed25519 key sealed to the trustee
+too, with that key's public half:
 
 ```
-escrow    = SealTo(recipient, release key, info = "secretvault sv1 emergency release" || vault id || grant id)
-challenge = SealTo(recipient, code, info = "secretvault sv1 emergency challenge" || grant id)
+escrow     = SealTo(recipient, release key, info = "secretvault sv1 emergency release" || vault id || grant id)
+challenge  = SealTo(recipient, seed, info = "secretvault sv1 emergency challenge" || vault id || grant id)
+accept key = the Ed25519 public key of seed (32 random bytes)
 ```
 
-`code` is 32 random bytes, of which the server keeps the SHA-256. The
-trustee's device accepts the grant by opening the challenge with the
-identity and presenting the code, signed with its own device key, which
-then becomes the grant's trustee device on the server. The two infos, the
-slot's associated data and every other use of the identity differ, so
-none of them can be passed off as another to get the trustee to open it.
-The server's side of it is in [`svserver`](../svserver) (`emergency.go`).
+The trustee's device accepts the grant by opening the challenge with the
+identity and signing, with the seed's key,
+
+```
+"secretvault sv1 emergency accept\n" + vault's name on the server + "\n" + grant id (hex) + "\n" + device key
+```
+
+where the device key is its own sync key as the server names it; the
+request is signed by that device key too, which then becomes the grant's
+trustee device. The server keeps only the public key, and the seed never
+leaves the trustee's device, so a trustee tricked into accepting through
+someone else's server gives it a signature good for the trustee's own
+device alone. The two infos, the slot's associated data and every other
+use of the identity differ, so none of them can be passed off as another
+to get the trustee to open it. The server's side of it is in
+[`svserver`](../svserver) (`emergency.go`).
 
 **The owner's record.** The vault keeps a record of each grant it made, of
 kind `emergency-grant`, encrypted like every record:

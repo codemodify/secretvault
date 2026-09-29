@@ -2,8 +2,8 @@ package svserver
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -19,30 +19,37 @@ import (
 const week = 7 * 24 * time.Hour
 
 // grantee is the person a grant is for: their identity, and the release
-// key and code the owner's device sealed to it.
+// key and accepting key's seed the owner's device sealed to it.
 type grantee struct {
 	id      *svcrypto.Identity
+	vault   svformat.ID
 	grant   svformat.ID
 	release []byte
-	code    []byte
+	seed    []byte
 }
 
-// newGrant seals a release key and a code to a new trustee identity, as
-// the owner's device does, and returns the body that makes the grant.
+// newGrant seals a release key and an accepting key's seed to a new
+// trustee identity, as the owner's device does, and returns the body that
+// makes the grant.
 func newGrant(t *testing.T, vault svformat.ID, wait time.Duration) (grantee, []byte) {
 	t.Helper()
 	id, err := svcrypto.Modern.NewIdentity()
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := grantee{id: id, grant: svformat.NewID(), release: make([]byte, 32), code: make([]byte, 32)}
+	g := grantee{id: id, vault: vault, grant: svformat.NewID(), release: make([]byte, 32), seed: make([]byte, ed25519.SeedSize)}
 	rand.Read(g.release)
-	rand.Read(g.code)
+	rand.Read(g.seed)
 	escrow, _ := svcrypto.Modern.SealTo(id.Recipient(), g.release, svformat.EmergencyReleaseInfo(vault, g.grant))
-	challenge, _ := svcrypto.Modern.SealTo(id.Recipient(), g.code, svformat.EmergencyChallengeInfo(g.grant))
-	sum := sha256.Sum256(g.code)
-	body, _ := json.Marshal(EmergencyCreate{ID: g.grant.String(), Wait: int64(wait / time.Second), Escrow: escrow, Challenge: challenge, CodeHash: sum[:]})
+	challenge, _ := svcrypto.Modern.SealTo(id.Recipient(), g.seed, svformat.EmergencyChallengeInfo(vault, g.grant))
+	pub := ed25519.NewKeyFromSeed(g.seed).Public().(ed25519.PublicKey)
+	body, _ := json.Marshal(EmergencyCreate{ID: g.grant.String(), Wait: int64(wait / time.Second), Escrow: escrow, Challenge: challenge, AcceptKey: pub})
 	return g, body
+}
+
+// proof is what a device signs to accept the grant on vault name.
+func (g grantee) proof(name string, d device) []byte {
+	return ed25519.Sign(ed25519.NewKeyFromSeed(g.seed), EmergencyAcceptMessage(name, g.grant.String(), d.id()))
 }
 
 func (f *fixture) grant(d device, path string) EmergencyGrant {
@@ -53,16 +60,16 @@ func (f *fixture) grant(d device, path string) EmergencyGrant {
 }
 
 // accept has the trustee's device open the challenge with the identity
-// and present the code.
+// and sign that it accepts, on vault "v".
 func (f *fixture) accept(d device, path string, g grantee) response {
 	f.t.Helper()
 	var ch EmergencyChallenge
 	f.expect(f.send(d, "GET", path+"/challenge", nil), http.StatusOK).json(f.t, &ch)
-	code, err := g.id.Open(ch.Challenge, svformat.EmergencyChallengeInfo(g.grant))
-	if err != nil {
-		f.t.Fatal(err)
+	seed, err := g.id.Open(ch.Challenge, svformat.EmergencyChallengeInfo(g.vault, g.grant))
+	if err != nil || !bytes.Equal(seed, g.seed) {
+		f.t.Fatalf("the challenge: %v", err)
 	}
-	body, _ := json.Marshal(EmergencyAccept{Code: code, Label: "alice-laptop"})
+	body, _ := json.Marshal(EmergencyAccept{Proof: g.proof("v", d), Label: "alice-laptop"})
 	return f.send(d, "POST", path+"/trustee", body)
 }
 
@@ -90,14 +97,19 @@ func TestAnEmergencyGrantIsReleasedOnlyAfterItsWaitAndNotIfDenied(t *testing.T) 
 		t.Fatalf("no event for the grant: %+v", cs.Changes)
 	}
 
-	// Accepting takes the identity: a wrong code is refused, and once one
-	// device has accepted, nobody else can.
-	bad, _ := json.Marshal(EmergencyAccept{Code: make([]byte, 32)})
+	// Accepting takes the identity, and what it signs is good for its own
+	// device alone: a trustee tricked into accepting through a stranger's
+	// server hands the stranger a proof that is no use to them.
+	bad, _ := json.Marshal(EmergencyAccept{Proof: make([]byte, ed25519.SignatureSize)})
 	f.expect(f.send(trustee, "POST", path+"/trustee", bad), http.StatusForbidden)
+	relayed, _ := json.Marshal(EmergencyAccept{Proof: g.proof("v", trustee)})
+	f.expect(f.send(stranger, "POST", path+"/trustee", relayed), http.StatusForbidden)
+	otherVault, _ := json.Marshal(EmergencyAccept{Proof: g.proof("w", trustee)})
+	f.expect(f.send(trustee, "POST", path+"/trustee", otherVault), http.StatusForbidden)
 	f.expect(f.send(trustee, "POST", path+"/request", nil), http.StatusForbidden)
 	f.expect(f.accept(trustee, path, g), http.StatusCreated)
-	late, _ := json.Marshal(EmergencyAccept{Code: g.code})
-	f.expect(f.send(trustee, "POST", path+"/trustee", late), http.StatusOK) // a retry
+	f.expect(f.send(trustee, "POST", path+"/trustee", relayed), http.StatusOK) // a retry
+	late, _ := json.Marshal(EmergencyAccept{Proof: g.proof("v", stranger)})
 	f.expect(f.send(stranger, "POST", path+"/trustee", late), http.StatusConflict)
 	f.expect(f.send(stranger, "GET", path+"/challenge", nil), http.StatusConflict)
 	if st := f.grant(other, path); st.State != GrantAccepted || st.Trustee == nil || st.Trustee.Key != trustee.id() || st.Trustee.Label != "alice-laptop" {
@@ -110,7 +122,9 @@ func TestAnEmergencyGrantIsReleasedOnlyAfterItsWaitAndNotIfDenied(t *testing.T) 
 	f.expect(f.send(trustee, "GET", "/v1/vaults/v/emergency", nil), http.StatusForbidden)
 	f.expect(f.send(trustee, "POST", path+"/deny", nil), http.StatusForbidden)
 	f.expect(f.send(stranger, "GET", path, nil), http.StatusForbidden)
-	f.grant(trustee, path)
+	if st := f.grant(trustee, path); st.CreatedBy != "" || st.State != GrantAccepted {
+		t.Fatalf("the trustee's view names the owner's device: %+v", st)
+	}
 
 	// A request starts the wait; asking again does not start it over.
 	f.expect(f.send(trustee, "POST", path+"/release", nil), http.StatusConflict)
@@ -224,14 +238,15 @@ func TestAGrantIsCheckedBeforeItIsKept(t *testing.T) {
 		return b
 	}
 	for name, body := range map[string][]byte{
-		"an upper-case ID":   variant(func(c *EmergencyCreate) { c.ID = strings.ToUpper(c.ID) }),
-		"a short ID":         variant(func(c *EmergencyCreate) { c.ID = c.ID[:30] }),
-		"a negative wait":    variant(func(c *EmergencyCreate) { c.Wait = -1 }),
-		"a wait over a year": variant(func(c *EmergencyCreate) { c.Wait = int64(MaxEmergencyWait/time.Second) + 1 }),
-		"no escrow":          variant(func(c *EmergencyCreate) { c.Escrow = nil }),
-		"a huge challenge":   variant(func(c *EmergencyCreate) { c.Challenge = make([]byte, maxSealed+1) }),
-		"no code hash":       variant(func(c *EmergencyCreate) { c.CodeHash = nil }),
-		"not JSON":           []byte("grant"),
+		"an upper-case ID":      variant(func(c *EmergencyCreate) { c.ID = strings.ToUpper(c.ID) }),
+		"a short ID":            variant(func(c *EmergencyCreate) { c.ID = c.ID[:30] }),
+		"a negative wait":       variant(func(c *EmergencyCreate) { c.Wait = -1 }),
+		"a wait over a year":    variant(func(c *EmergencyCreate) { c.Wait = int64(MaxEmergencyWait/time.Second) + 1 }),
+		"a wait that overflows": variant(func(c *EmergencyCreate) { c.Wait = 18446744074 }),
+		"no escrow":             variant(func(c *EmergencyCreate) { c.Escrow = nil }),
+		"a huge challenge":      variant(func(c *EmergencyCreate) { c.Challenge = make([]byte, maxSealed+1) }),
+		"no accepting key":      variant(func(c *EmergencyCreate) { c.AcceptKey = nil }),
+		"not JSON":              []byte("grant"),
 	} {
 		if r := f.send(owner, "POST", "/v1/vaults/v/emergency", body); r.status != http.StatusBadRequest {
 			t.Errorf("%s: %d %s", name, r.status, r.body)

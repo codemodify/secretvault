@@ -21,7 +21,9 @@
 //
 // The change log is appended to and synced line by line; after a crash
 // the log is reconciled with the files on disk before anyone is served.
-// One server process owns a root at a time.
+// One server process owns a root at a time. A log that holds events (from
+// emergency grants) is not read by servers older than them: go back to
+// one only with a root whose vaults never had a grant.
 //
 // # API
 //
@@ -54,10 +56,11 @@
 //	GET    /v1/vaults/{vault}/emergency/{grant}           one grant (EmergencyGrant): a device, or its trustee.
 //	DELETE /v1/vaults/{vault}/emergency/{grant}           revoke it: its escrow and its trustee's access go. 204.
 //	POST   /v1/vaults/{vault}/emergency/{grant}/deny      refuse the pending request. 409 if none, or once released.
-//	GET    /v1/vaults/{vault}/emergency/{grant}/challenge the code sealed to the trustee (EmergencyChallenge),
-//	                                                      signed by any key, until the grant is accepted.
-//	POST   /v1/vaults/{vault}/emergency/{grant}/trustee   accept it with the code (EmergencyAccept), signed by
-//	                                                      the trustee's device key, which becomes the grant's.
+//	GET    /v1/vaults/{vault}/emergency/{grant}/challenge a signing key's seed sealed to the trustee
+//	                                                      (EmergencyChallenge), to any key, until the grant is accepted.
+//	POST   /v1/vaults/{vault}/emergency/{grant}/trustee   accept it (EmergencyAccept): EmergencyAcceptMessage, naming the
+//	                                                      vault, grant and signing device, signed with the seed's key. The
+//	                                                      signing device becomes the grant's trustee device.
 //	POST   /v1/vaults/{vault}/emergency/{grant}/request   the trustee asks: the wait starts (asking again changes
 //	                                                      nothing). Answers EmergencyGrant.
 //	POST   /v1/vaults/{vault}/emergency/{grant}/release   the trustee takes the escrow (EmergencyRelease) once the

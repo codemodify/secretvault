@@ -2,9 +2,12 @@ package svd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -442,5 +445,73 @@ func TestALyingServerReleasesEarlyAndTheTrusteeGetsEverything(t *testing.T) {
 	n := w.ownerSees(res.Grant.ID, svrpc.GrantReleased)
 	if n.Released == nil || n.Released.Sub(w.clock.now()) < 6*24*time.Hour {
 		t.Fatalf("the release, as told: %+v", n)
+	}
+}
+
+// Emergency keyslots are the grant's business: they are not removed or
+// left out of a rotation on their own, and a rotation makes the grant's
+// keyslot again from the vault's record, so one planted beside it (by
+// anyone who can write to the folder) is not carried over.
+func TestAGrantsKeyslotIsMadeFromTheVaultsRecordAlone(t *testing.T) {
+	w := newEmergencyWorld(t, false)
+	res := w.grant(week)
+	var slot svrpc.SlotInfo
+	slots, _ := w.co.Slots(ctx(t), "")
+	for _, s := range slots {
+		if s.Type == svformat.SlotEmergency {
+			slot = s
+		}
+	}
+	if err := w.co.RemoveSlot(ctx(t), "", slot.ID); err == nil || !strings.Contains(err.Error(), "emergency revoke") {
+		t.Fatalf("removing the grant's keyslot alone: %v", err)
+	}
+	if _, err := w.co.Rotate(ctx(t), svrpc.RotateParams{Passphrase: pass, Drop: []string{slot.ID}}); err == nil || !strings.Contains(err.Error(), "emergency revoke") {
+		t.Fatalf("dropping the grant's keyslot from a rotation: %v", err)
+	}
+
+	// A keyslot planted for the grant, to someone else.
+	vs, _ := w.co.Vaults(ctx(t))
+	vid, _ := svformat.ParseID(vs[0].ID)
+	stranger, _ := svcrypto.Modern.NewIdentity()
+	grant, _ := svformat.ParseID(res.Grant.ID)
+	planted := svformat.Slot{Format: svformat.SlotFormat, ID: svformat.NewID(), Vault: vid, Epoch: 1, Type: svformat.SlotEmergency,
+		Label: "emergency", Created: time.Now().UTC(), Grants: []string{svformat.GrantContent}, Recipient: stranger.Recipient(),
+		Emergency: &svformat.Emergency{Grant: grant}, Wrapped: []byte("planted")}
+	b, _ := json.Marshal(planted)
+	if err := os.WriteFile(filepath.Join(vs[0].Path, filepath.FromSlash(svformat.SlotName(planted.ID))), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.co.Rotate(ctx(t), svrpc.RotateParams{Passphrase: pass}); err != nil {
+		t.Fatal(err)
+	}
+	slots, _ = w.co.Slots(ctx(t), "")
+	var kept []svrpc.SlotInfo
+	for _, s := range slots {
+		if s.Type == svformat.SlotEmergency {
+			kept = append(kept, s)
+		}
+	}
+	if len(kept) != 1 || kept[0].Recipient != slot.Recipient {
+		t.Fatalf("after the rotation: %+v (the grant's recipient is %s)", kept, slot.Recipient)
+	}
+}
+
+// Who may get into your vaults is not for every program to learn.
+func TestEmergencyNoticesAreForSecretvaultsOwnProgramsOnly(t *testing.T) {
+	w := newEmergencyWorld(t, false)
+	res := w.grant(week)
+	w.accept(res.Invite, "ada")
+	w.ct.EmergencyRequest(ctx(t), "ada")
+	w.ownerSees(res.Grant.ID, svrpc.GrantRequested)
+	app := w.owner.connect("/usr/bin/some-app", nil)
+	st, err := app.Status(ctx(t))
+	if err != nil || len(st.Emergency) != 0 {
+		t.Fatalf("another program's status: %+v, %v", st.Emergency, err)
+	}
+	if _, err := app.EmergencyList(ctx(t), ""); !errors.Is(err, svrpc.ErrDenied) {
+		t.Fatalf("another program's list: %v", err)
+	}
+	if _, err := w.co.EmergencyGrant(ctx(t), svrpc.EmergencyGrantParams{Contact: "Alice", Name: "ada\x1b[2J"}); err == nil {
+		t.Fatal("an invite name that drives a terminal")
 	}
 }

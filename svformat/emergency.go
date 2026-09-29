@@ -15,6 +15,12 @@ package svformat
 // anything. The server gives that sealed release key to the trustee once
 // the wait is over and no one refused. The trustee's identity alone opens
 // only the outer layer; the release key alone opens nothing.
+//
+// The trustee's device accepts a grant by opening its challenge, the seed
+// of an Ed25519 key sealed to the trustee (EmergencyChallengeInfo), and
+// signing with that key who it is (svserver.EmergencyAcceptMessage): the
+// server keeps only the public key, and the seed never leaves the device
+// that opened it, so what it signs is good for that device alone.
 
 // Emergency is what an emergency keyslot records about its grant.
 type Emergency struct {
@@ -39,10 +45,12 @@ func EmergencyReleaseInfo(vault, grant ID) []byte {
 	return append(b, grant[:]...)
 }
 
-// EmergencyChallengeInfo binds the one-time code a trustee's device
-// proves its identity with, when it accepts a grant, to the grant:
+// EmergencyChallengeInfo binds the challenge a trustee's device accepts a
+// grant with (the seed of a signing key, sealed to the trustee) to its
+// vault and grant:
 //
-//	"secretvault sv1 emergency challenge" || grant id
-func EmergencyChallengeInfo(grant ID) []byte {
-	return append([]byte("secretvault sv1 emergency challenge"), grant[:]...)
+//	"secretvault sv1 emergency challenge" || vault id || grant id
+func EmergencyChallengeInfo(vault, grant ID) []byte {
+	b := append([]byte("secretvault sv1 emergency challenge"), vault[:]...)
+	return append(b, grant[:]...)
 }

@@ -1,9 +1,11 @@
 package svsync
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
+	"crypto/ed25519"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -27,12 +29,12 @@ func TestATrusteePullsTheVaultOnceReleasedAndSendsNothing(t *testing.T) {
 
 	id, _ := svcrypto.Modern.NewIdentity()
 	grant := svformat.NewID()
-	code := []byte("a code of thirty-two bytes, here")
+	seed := svcrypto.RandomKey()
 	release := svcrypto.RandomKey()
 	escrow, _ := svcrypto.Modern.SealTo(id.Recipient(), release, svformat.EmergencyReleaseInfo(fv.id, grant))
-	challenge, _ := svcrypto.Modern.SealTo(id.Recipient(), code, svformat.EmergencyChallengeInfo(grant))
-	sum := sha256.Sum256(code)
-	if _, err := a.client.CreateGrant(ctx, svserver.EmergencyCreate{ID: grant.String(), Wait: 0, Escrow: escrow, Challenge: challenge, CodeHash: sum[:]}); err != nil {
+	challenge, _ := svcrypto.Modern.SealTo(id.Recipient(), seed, svformat.EmergencyChallengeInfo(fv.id, grant))
+	pub := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
+	if _, err := a.client.CreateGrant(ctx, svserver.EmergencyCreate{ID: grant.String(), Wait: 0, Escrow: escrow, Challenge: challenge, AcceptKey: pub}); err != nil {
 		t.Fatal(err)
 	}
 	if rep := a.mustSync(); rep.Events != 1 {
@@ -47,9 +49,14 @@ func TestATrusteePullsTheVaultOnceReleasedAndSendsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opened, err := id.Open(ch, svformat.EmergencyChallengeInfo(grant))
+	opened, err := id.Open(ch, svformat.EmergencyChallengeInfo(fv.id, grant))
 	if err != nil {
 		t.Fatal(err)
+	}
+	// Signed for another device, it is no use to this one.
+	other := newDevice(t, s.remote("v"), nil)
+	if _, err := other.client.AcceptGrant(ctx, grant.String(), nil, "stranger"); !errors.Is(err, ErrNotEnrolled) {
+		t.Fatalf("accepted without the seed: %v", err)
 	}
 	if _, err := tr.client.AcceptGrant(ctx, grant.String(), opened, "trustee"); err != nil {
 		t.Fatal(err)
@@ -128,12 +135,14 @@ func TestEmergencyInvitesRoundTripAndAreChecked(t *testing.T) {
 		t.Fatalf("round trip: %+v, %v", got, err)
 	}
 	for name, change := range map[string]func(i *EmergencyInvite){
-		"no grant":         func(i *EmergencyInvite) { i.Grant = "" },
-		"an upper grant":   func(i *EmergencyInvite) { i.Grant = strings.ToUpper(i.Grant) },
-		"no vault ID":      func(i *EmergencyInvite) { i.VaultID = "" },
-		"a short check":    func(i *EmergencyInvite) { i.Check = "0f0f" },
-		"plain HTTP":       func(i *EmergencyInvite) { i.URL = "http://sync.example.com" },
-		"a bad vault name": func(i *EmergencyInvite) { i.Vault = "V!" },
+		"no grant":                      func(i *EmergencyInvite) { i.Grant = "" },
+		"an upper grant":                func(i *EmergencyInvite) { i.Grant = strings.ToUpper(i.Grant) },
+		"no vault ID":                   func(i *EmergencyInvite) { i.VaultID = "" },
+		"a short check":                 func(i *EmergencyInvite) { i.Check = "0f0f" },
+		"plain HTTP":                    func(i *EmergencyInvite) { i.URL = "http://sync.example.com" },
+		"a bad vault name":              func(i *EmergencyInvite) { i.Vault = "V!" },
+		"a name that drives a terminal": func(i *EmergencyInvite) { i.Name = "ada\x1b[2J" },
+		"a very long name":              func(i *EmergencyInvite) { i.Name = strings.Repeat("a", 129) },
 	} {
 		bad := inv
 		change(&bad)
@@ -143,5 +152,32 @@ func TestEmergencyInvitesRoundTripAndAreChecked(t *testing.T) {
 	}
 	if _, err := ParseEmergencyInvite("secretvault-sync:?url=x"); err == nil {
 		t.Error("a sync invite was taken for an emergency one")
+	}
+}
+
+// What a server says about grants is checked before it is acted on: a
+// grant whose ID is not one is left out of a list, and an answer about
+// another grant than the one asked about is refused.
+func TestAServersAnswersAboutGrantsAreChecked(t *testing.T) {
+	s := newServer(t)
+	ctx := context.Background()
+	a := s.founder("v", nil)
+	id, _ := svcrypto.Modern.NewIdentity()
+	grant := svformat.NewID().String()
+	sealed, _ := svcrypto.Modern.SealTo(id.Recipient(), []byte("x"), []byte("info"))
+	if _, err := a.client.CreateGrant(ctx, svserver.EmergencyCreate{ID: grant, Escrow: sealed, Challenge: sealed, AcceptKey: make([]byte, ed25519.PublicKeySize)}); err != nil {
+		t.Fatal(err)
+	}
+	a.faults.tamper = func(r *http.Request, body []byte) []byte {
+		return bytes.ReplaceAll(body, []byte(grant), []byte("0123"))
+	}
+	if list, err := a.client.Grants(ctx); err != nil || len(list) != 0 {
+		t.Fatalf("a list with a bad ID: %+v, %v", list, err)
+	}
+	if _, err := a.client.Grant(ctx, grant); !errors.Is(err, ErrBadGrant) {
+		t.Fatalf("an answer about another grant: %v", err)
+	}
+	if _, err := a.client.Grant(ctx, "0123"); err == nil {
+		t.Fatal("asked about a grant that is no grant")
 	}
 }

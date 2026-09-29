@@ -402,24 +402,30 @@ $ secretvault emergency revoke 3f2a --rotate            # the owner ends it, and
 ```
 
 - **The pieces.** Granting makes three things. The grant on the server
-  holds a random release key sealed to Alice (the escrow), a one-time
-  code sealed to her (the challenge), and the wait. A record in the vault
-  names Alice and holds the release key. An emergency keyslot opens only
-  with Alice's identity and the release key together.
+  holds a random release key sealed to Alice (the escrow), the seed of a
+  signing key sealed to her (the challenge) with its public key, and the
+  wait. A record in the vault names Alice and holds the release key. An
+  emergency keyslot opens only with Alice's identity and the release key
+  together.
 - **Accepting.** Alice's device opens the challenge with her identity and
-  presents the code, signed with its own sync key, which becomes the
-  grant's trustee device on the server. Only that device may ask.
+  signs with the seed's key that its own sync key accepts this grant of
+  this vault; that sync key becomes the grant's trustee device on the
+  server. Only that device may ask. The seed never leaves her device, so
+  an invite that points her at some other server gets that server
+  nothing it can accept with.
 - **Asking.** The server starts the clock and logs an event in the vault's
   change log. Every device of the owner's hears of it through its long
   poll at once, and the daemon:
   - writes it to the vault's audit log;
   - shows a notice through the desktop prompt (or the terminal agent);
   - tells clients (`emergency.changed`);
-  - lists it in `secretvault status`, until it is denied or released.
+  - lists it in `secretvault status` (to secretvault's own programs):
+    a request until it is denied or released, and a release until the
+    grant is revoked.
 
   What was told is remembered per server, so a restart does not tell it
-  again; the grants are also looked at every 15 minutes, in case an event
-  was lost.
+  again. The grants are also looked at every 15 minutes, whether syncs
+  succeed or not, in case an event was lost.
 - **Denying** ends the request; Alice may ask again, which starts the wait
   over.
 - **Releasing.** After the wait, with no denial, the server gives Alice's
@@ -429,10 +435,14 @@ $ secretvault emergency revoke 3f2a --rotate            # the owner ends it, and
   registers it read-only (`VaultConfig.Emergency`): a store that refuses
   writes, and a watcher that only pulls. The escrow is kept in the config,
   still sealed to her identity; `unlock --identity` opens the vault again.
-- **Rotations** carry grants over, with the release keys the vault's
-  records hold: the server's escrow stays as it was, and Alice's copy
-  locks and opens again with the same identity. Revoking with `--rotate`
-  leaves the grant out.
+- **Rotations** carry grants over, each made again from the vault's
+  record (its recipient and release key), never from the keyslot files,
+  which anyone who can write to the folder could plant: the server's
+  escrow stays as it was, and Alice's copy locks and opens again with the
+  same identity. Revoking deletes the record, and with `--rotate` leaves
+  the grant out. An emergency keyslot is not removed, or dropped from a
+  rotation, on its own (`slot rm`, `unshare`): that would end the grant
+  only half.
 - **The server's API** (`/v1/vaults/{vault}/emergency/...`) is in
   [`svserver`](../svserver); the daemon's methods are `emergency.grant`,
   `list`, `deny`, `revoke`, `accept`, `request` and `open`, for

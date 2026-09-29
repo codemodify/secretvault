@@ -70,6 +70,11 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 
 	case svrpc.MStatus:
 		st := d.Status()
+		if !cl.cli {
+			// Who may get into your vaults is secretvault's own programs'
+			// to tell (the trustees' names come from the vaults' records).
+			st.Emergency = nil
+		}
 		st.SecretService = d.secretServiceState(ctx)
 		if d.SSHAgentEnabled() {
 			st.SSHAgent = svrpc.SSHAgentSocket()
@@ -315,10 +320,13 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 				d.opts.Log(fmt.Sprintf("rotating %s: its login key could not be opened, so it will no longer open at login: %v", mv.cfg.Name, err))
 			}
 		}
-		// Emergency grants are kept, with the release keys the vault's
-		// records hold (emergency.go), unless dropped: that is how
-		// emergency access is cut off once it was released.
-		carry, lost, err := emergencyCarry(mv, drop)
+		// Emergency grants are kept, made again from the vault's records
+		// (emergency.go). One is ended with 'emergency revoke', which
+		// deletes its record, not by dropping its keyslot here.
+		if err := notEmergency(mv, p.Drop); err != nil {
+			return nil, err
+		}
+		carry, lost, err := emergencyCarry(mv)
 		if err != nil {
 			return nil, err
 		}
@@ -447,6 +455,9 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		}
 		mv, err := d.managed(ctx, cl, p.Vault, "", "", svbroker.OpManage)
 		if err != nil {
+			return nil, err
+		}
+		if err := notEmergency(mv, []string{id.String()}); err != nil {
 			return nil, err
 		}
 		return nil, mv.v.RemoveSlot(id)

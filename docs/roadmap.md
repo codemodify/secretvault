@@ -346,8 +346,9 @@ correctly across all four verification levels.
     key together, and the sync server escrows the release key sealed to
     the trustee, keeps the wait on its own clock (across restarts), and
     releases it only after the wait with no denial;
-  - the trustee's device accepts by opening a code sealed to their
-    identity, so the invite holds no secret;
+  - the trustee's device accepts by opening a signing key's seed sealed
+    to their identity, and signing for its own device key, so the invite
+    holds no secret and cannot be relayed;
   - the owner's devices hear of a request at once (events in the change
     log): the audit log, a desktop notice, `secretvault status`, and an
     event to clients;

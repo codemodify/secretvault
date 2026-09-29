@@ -86,22 +86,40 @@ func (d *Daemon) access(ref string) (EmergencyAccess, error) {
 	return EmergencyAccess{}, svrpc.Errorf(svrpc.CodeNotFound, "no emergency access called %q here ('secretvault emergency ls' lists it)", ref)
 }
 
-// saveAccess records a (new or changed) access in the config.
-func (d *Daemon) saveAccess(a EmergencyAccess) error {
+// addAccess records new access in the config.
+func (d *Daemon) addAccess(a EmergencyAccess) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	old := slices.Clone(d.cfg.Emergency)
-	i := slices.IndexFunc(d.cfg.Emergency, func(x EmergencyAccess) bool { return x.Name == a.Name })
-	if i >= 0 {
-		d.cfg.Emergency[i] = a
-	} else {
-		d.cfg.Emergency = append(d.cfg.Emergency, a)
+	if slices.ContainsFunc(d.cfg.Emergency, func(x EmergencyAccess) bool { return x.Name == a.Name }) {
+		return svrpc.Errorf(svrpc.CodeExists, "there is already emergency access called %q here", a.Name)
 	}
+	d.cfg.Emergency = append(d.cfg.Emergency, a)
 	if err := d.cfg.save(d.home); err != nil {
-		d.cfg.Emergency = old
+		d.cfg.Emergency = d.cfg.Emergency[:len(d.cfg.Emergency)-1]
 		return err
 	}
 	return nil
+}
+
+// updateAccess changes the access called name in the config, under the
+// daemon's lock, so that two commands at once do not undo each other's
+// change, and returns it as changed.
+func (d *Daemon) updateAccess(name string, change func(a *EmergencyAccess)) (EmergencyAccess, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	i := slices.IndexFunc(d.cfg.Emergency, func(x EmergencyAccess) bool { return x.Name == name })
+	if i < 0 {
+		return EmergencyAccess{}, svrpc.Errorf(svrpc.CodeNotFound, "no emergency access called %q here", name)
+	}
+	old := d.cfg.Emergency[i]
+	a := old
+	change(&a)
+	d.cfg.Emergency[i] = a
+	if err := d.cfg.save(d.home); err != nil {
+		d.cfg.Emergency[i] = old
+		return EmergencyAccess{}, err
+	}
+	return a, nil
 }
 
 // errRevoked answers a trustee whose device the server no longer knows
@@ -123,9 +141,11 @@ func (d *Daemon) heldAccess(ctx context.Context) []svrpc.EmergencyAccess {
 			g, err = c.Grant(cctx, a.Grant)
 			cancel()
 			if err == nil {
-				a.learn(g)
-				if err := d.saveAccess(a); err != nil {
-					d.opts.Log(fmt.Sprintf("emergency access %s: %v", a.Name, err))
+				if now, uerr := d.updateAccess(a.Name, func(x *EmergencyAccess) { x.learn(g) }); uerr == nil {
+					a = now
+				} else {
+					a.learn(g)
+					d.opts.Log(fmt.Sprintf("emergency access %s: %v", a.Name, uerr))
 				}
 			}
 		}
@@ -196,26 +216,32 @@ func (d *Daemon) emergencyAccept(ctx context.Context, cl *client, decode func(an
 		return nil, syncErr(err)
 	}
 	grant, _ := svformat.ParseID(inv.Grant)
+	vid, _ := svformat.ParseID(inv.VaultID)
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	var code []byte
+	var seed []byte
+	recipient := svformat.EncodeRecipient(id.Suite(), id.Recipient())
 	ch, err := c.GrantChallenge(ctx, inv.Grant)
 	switch {
 	case err == nil:
-		// Only the identity the grant was made for opens its challenge,
-		// and presenting the code makes this device the trustee's.
-		if code, err = id.Open(ch, svformat.EmergencyChallengeInfo(grant)); err != nil {
+		// Only the identity the grant was made for opens its challenge:
+		// the seed of the key that signs, for this device alone, that it
+		// accepts. The seed never leaves this device.
+		if seed, err = id.Open(ch, svformat.EmergencyChallengeInfo(vid, grant)); err != nil {
 			return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "that identity is not the one the grant was made for")
 		}
-		defer clear(code)
+		defer clear(seed)
 	case errors.Is(err, svsync.ErrConflict):
-		// Accepted already: by this device (a retry), or not.
+		// Accepted already: by this device (a retry, after its answer was
+		// lost), or by another. A retry proves nothing about the identity
+		// given now, so none is recorded: opening checks it.
+		recipient = ""
 	case errors.Is(err, svsync.ErrNotFound):
 		return nil, svrpc.Errorf(svrpc.CodeNotFound, "the server holds no such grant: it was revoked, or the invite is not for this server")
 	default:
 		return nil, syncErr(err)
 	}
-	g, err := c.AcceptGrant(ctx, inv.Grant, code, deviceLabel(p.Label))
+	g, err := c.AcceptGrant(ctx, inv.Grant, seed, deviceLabel(p.Label))
 	if err != nil {
 		if errors.Is(err, svsync.ErrConflict) {
 			return nil, svrpc.Errorf(svrpc.CodeExists, "that grant was accepted already, by another device")
@@ -223,9 +249,9 @@ func (d *Daemon) emergencyAccept(ctx context.Context, cl *client, decode func(an
 		return nil, serverRefused(err, svrpc.CodeFailed)
 	}
 	a := EmergencyAccess{Name: name, Owner: inv.Name, Remote: inv.Remote, Grant: inv.Grant, VaultID: inv.VaultID, Check: inv.Check,
-		Recipient: svformat.EncodeRecipient(id.Suite(), id.Recipient()), Accepted: d.opts.Now().UTC()}
+		Recipient: recipient, Accepted: d.opts.Now().UTC()}
 	a.learn(g)
-	if err := d.saveAccess(a); err != nil {
+	if err := d.addAccess(a); err != nil {
 		return nil, err
 	}
 	d.opts.Log(fmt.Sprintf("accepted emergency access to %s as %s", inv.URL, name))
@@ -255,8 +281,7 @@ func (d *Daemon) emergencyRequest(ctx context.Context, cl *client, decode func(a
 	case err != nil:
 		return nil, serverRefused(err, svrpc.CodeFailed)
 	}
-	a.learn(g)
-	if err := d.saveAccess(a); err != nil {
+	if a, err = d.updateAccess(a.Name, func(x *EmergencyAccess) { x.learn(g) }); err != nil {
 		return nil, err
 	}
 	d.opts.Log(fmt.Sprintf("asked for emergency access %s; released at %s unless denied", a.Name, when(g.ReleasesAt)))
@@ -280,7 +305,8 @@ func (d *Daemon) emergencyOpen(ctx context.Context, cl *client, decode func(any)
 	if err != nil {
 		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
 	}
-	if svformat.EncodeRecipient(id.Suite(), id.Recipient()) != a.Recipient {
+	recipient := svformat.EncodeRecipient(id.Suite(), id.Recipient())
+	if a.Recipient != "" && recipient != a.Recipient {
 		return nil, svrpc.Errorf(svrpc.CodeWrongKey, "that is not the identity %q was accepted with", a.Name)
 	}
 	c, err := d.syncClient(a.Remote)
@@ -303,13 +329,18 @@ func (d *Daemon) emergencyOpen(ctx context.Context, cl *client, decode func(any)
 	vid, _ := svformat.ParseID(a.VaultID)
 	release, err := id.Open(rel.Escrow, svformat.EmergencyReleaseInfo(vid, grant))
 	if err != nil {
+		if a.Recipient == "" {
+			return nil, svrpc.Errorf(svrpc.CodeWrongKey, "that is not the identity the grant was made for")
+		}
 		return nil, svrpc.Errorf(svrpc.CodeFailed, "the server's release key is not sealed to this identity for that vault")
 	}
 	defer clear(release)
-	a.Escrow = rel.Escrow
 	released := rel.Released
-	a.State, a.Released = svserver.GrantReleased, &released
-	if err := d.saveAccess(a); err != nil {
+	a, err = d.updateAccess(a.Name, func(x *EmergencyAccess) {
+		x.Escrow, x.Recipient = rel.Escrow, recipient
+		x.State, x.Released = svserver.GrantReleased, &released
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -391,8 +422,7 @@ func (d *Daemon) fetchEmergencyVault(ctx context.Context, c *svsync.Client, a *E
 	if err := d.register(mv); err != nil {
 		return fail(err)
 	}
-	a.Vault = a.Name
-	if err := d.saveAccess(*a); err != nil {
+	if *a, err = d.updateAccess(a.Name, func(x *EmergencyAccess) { x.Vault = x.Name }); err != nil {
 		return nil, err
 	}
 	if err := d.startSync(mv); err != nil {

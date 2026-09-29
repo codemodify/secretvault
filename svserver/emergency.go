@@ -2,8 +2,7 @@ package svserver
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"crypto/subtle"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,15 +20,20 @@ import (
 // can refuse. The owner's device makes an emergency keyslot that opens
 // only with the trustee's identity and a random release key together
 // (docs/format.md), and gives the server a grant: the release key sealed
-// to the trustee (the escrow), the wait, and a one-time code sealed to the
-// trustee (the challenge). The server keeps the escrow, and the clock:
+// to the trustee (the escrow), the wait, and the seed of a signing key
+// sealed to the trustee (the challenge) with the key's public half. The
+// server keeps the escrow, and the clock:
 //
 //  1. The trustee's device accepts the grant by opening the challenge
-//     with the trustee's identity and presenting the code, signed with
-//     its own device key, which becomes the grant's trustee device. Only
-//     the holder of the identity can accept, so the invite the owner
-//     sends the trustee (where the vault is, and the grant's ID) holds
-//     no secret.
+//     (the seed of an Ed25519 key, sealed to the trustee) with the
+//     trustee's identity, and signing EmergencyAcceptMessage with that
+//     key: the vault, the grant, and the device's own key, which becomes
+//     the grant's trustee device. The server keeps only the public key.
+//     Only the holder of the identity can accept, and what it signs is
+//     good for its own device alone, so the invite the owner sends the
+//     trustee (where the vault is, and the grant's ID) holds no secret,
+//     and a trustee tricked into accepting through someone else's
+//     server gives that server nothing it can accept with.
 //  2. The trustee's device asks for access: the wait starts, on the
 //     server's clock, and every device of the vault hears of it through
 //     the change log (an OpEvent).
@@ -84,11 +88,11 @@ type EmergencyCreate struct {
 	// Escrow is the release key, sealed to the trustee.
 	Escrow []byte `json:"escrow"`
 
-	// Challenge is a one-time code, sealed to the trustee, and CodeHash
-	// its SHA-256: the trustee's device accepts the grant by presenting
-	// the code.
+	// Challenge is the seed of an Ed25519 key, sealed to the trustee, and
+	// AcceptKey its public key: the trustee's device accepts the grant by
+	// signing EmergencyAcceptMessage with it.
 	Challenge []byte `json:"challenge"`
-	CodeHash  []byte `json:"code_hash"`
+	AcceptKey []byte `json:"accept_key"`
 }
 
 // EmergencyTrustee is the device that accepted a grant.
@@ -129,8 +133,19 @@ type EmergencyChallenge struct {
 
 // EmergencyAccept is the body of POST .../emergency/{grant}/trustee.
 type EmergencyAccept struct {
-	Code  []byte `json:"code"`
+	// Proof is EmergencyAcceptMessage for this vault, grant and signing
+	// device, signed with the key whose seed the challenge holds.
+	Proof []byte `json:"proof"`
 	Label string `json:"label,omitempty"` // the trustee's device, for the owner to see
+}
+
+// EmergencyAcceptMessage is what a trustee's device signs to accept a
+// grant: the vault's name on the server, the grant, and its own device
+// key, as the server names them.
+//
+//	"secretvault sv1 emergency accept\n" + vault + "\n" + grant + "\n" + device
+func EmergencyAcceptMessage(vault, grant, device string) []byte {
+	return []byte("secretvault sv1 emergency accept\n" + vault + "\n" + grant + "\n" + device)
 }
 
 // EmergencyRelease answers POST .../emergency/{grant}/release.
@@ -151,8 +166,8 @@ type grantRec struct {
 	CreatedBy string            `json:"created_by"`
 	Wait      int64             `json:"wait"`
 	Escrow    []byte            `json:"escrow"`
-	Challenge []byte            `json:"challenge,omitempty"` // until accepted
-	CodeHash  []byte            `json:"code_hash,omitempty"` // until accepted
+	Challenge []byte            `json:"challenge,omitempty"`  // until accepted
+	AcceptKey []byte            `json:"accept_key,omitempty"` // until accepted
 	Trustee   *EmergencyTrustee `json:"trustee,omitempty"`
 	Requested *time.Time        `json:"requested,omitempty"`
 	Denied    *time.Time        `json:"denied,omitempty"`
@@ -317,11 +332,11 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, req *reques
 	case !validGrantID(in.ID):
 		fail(w, http.StatusBadRequest, "a grant is named by 32 lowercase hex digits")
 		return
-	case in.Wait < 0 || time.Duration(in.Wait)*time.Second > MaxEmergencyWait:
+	case in.Wait < 0 || in.Wait > int64(MaxEmergencyWait/time.Second): // in seconds: a Duration would overflow
 		fail(w, http.StatusBadRequest, fmt.Sprintf("the wait is from 0 to %d seconds", int64(MaxEmergencyWait/time.Second)))
 		return
-	case len(in.Escrow) == 0 || len(in.Escrow) > maxSealed || len(in.Challenge) == 0 || len(in.Challenge) > maxSealed || len(in.CodeHash) != sha256.Size:
-		fail(w, http.StatusBadRequest, "a grant needs its escrow, its challenge and the code's SHA-256")
+	case len(in.Escrow) == 0 || len(in.Escrow) > maxSealed || len(in.Challenge) == 0 || len(in.Challenge) > maxSealed || len(in.AcceptKey) != ed25519.PublicKeySize:
+		fail(w, http.StatusBadRequest, "a grant needs its escrow, its challenge and the key accepting it takes")
 		return
 	}
 	v := req.vault
@@ -341,7 +356,7 @@ func (s *Server) createGrant(w http.ResponseWriter, r *http.Request, req *reques
 		return
 	}
 	g := &grantRec{ID: in.ID, Created: req.now.UTC(), CreatedBy: req.device, Wait: in.Wait,
-		Escrow: in.Escrow, Challenge: in.Challenge, CodeHash: in.CodeHash}
+		Escrow: in.Escrow, Challenge: in.Challenge, AcceptKey: in.AcceptKey}
 	if err := v.saveGrants(append(slices.Clone(v.grants), g)); err != nil {
 		s.internal(w, err)
 		return
@@ -371,7 +386,12 @@ func (s *Server) getGrant(w http.ResponseWriter, r *http.Request, req *request) 
 		fail(w, http.StatusNotFound, errNoGrant.Error())
 		return
 	}
-	reply(w, http.StatusOK, v.grants[i].view(req.now))
+	g := v.grants[i].view(req.now)
+	if v.findDevice(req.device) < 0 {
+		// The trustee: the owner's devices are not theirs to know.
+		g.CreatedBy, g.DeniedBy = "", ""
+	}
+	reply(w, http.StatusOK, g)
 }
 
 func (s *Server) revokeGrant(w http.ResponseWriter, r *http.Request, req *request) {
@@ -490,14 +510,16 @@ func (s *Server) acceptGrant(w http.ResponseWriter, r *http.Request, req *reques
 		fail(w, http.StatusConflict, "that grant was accepted already, by another device")
 		return
 	}
-	sum := sha256.Sum256(in.Code)
-	if subtle.ConstantTimeCompare(sum[:], v.grants[i].CodeHash) != 1 {
-		fail(w, http.StatusForbidden, "that is not the grant's code: accepting takes the identity it was granted to")
+	// Signed for this vault, grant and device, with the key only the
+	// trustee's identity opens: good for nobody else's device.
+	if key := v.grants[i].AcceptKey; len(key) != ed25519.PublicKeySize || len(in.Proof) != ed25519.SignatureSize ||
+		!ed25519.Verify(key, EmergencyAcceptMessage(req.name, req.grant, req.device), in.Proof) {
+		fail(w, http.StatusForbidden, "that does not prove the identity the grant was made for, on this device")
 		return
 	}
 	g, err := v.changeGrant(req.grant, func(g *grantRec) error {
 		g.Trustee = &EmergencyTrustee{Key: req.device, Label: in.Label, Accepted: req.now.UTC()}
-		g.Challenge, g.CodeHash = nil, nil
+		g.Challenge, g.AcceptKey = nil, nil
 		return nil
 	})
 	if err != nil {

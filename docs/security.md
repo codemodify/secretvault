@@ -437,13 +437,19 @@ format is in [format.md](format.md#emergency-slots), the server's side in
   and any device of yours can deny it. Once the wait has passed with no
   denial, the server gives the trustee the escrow, and lets the trustee's
   device read the vault's files, never write them.
-- The trustee's device accepts the grant first, by opening a code sealed
-  to the trustee's identity, and so becomes the one device that may ask.
-  The invite you send them holds no secret, and nobody else can accept it
-  in their place.
+- The trustee's device accepts the grant first, by opening the seed of a
+  signing key sealed to the trustee's identity, and signing with it that
+  this device, by its own key, accepts this grant of this vault; it
+  becomes the one device that may ask. The invite you send them holds no
+  secret, and nobody else can accept it in their place: the seed never
+  leaves the trustee's device, so an invite altered to send them through
+  another server gets that server a signature for the trustee's own
+  device, which is no use to it.
 - Your vault keeps an encrypted record of the grant (who, and the release
   key), so a rotation can carry the grant over without asking the server
-  or the trustee for anything.
+  or the trustee for anything. The new keyslot is made from the record,
+  never from the keyslot files, which anyone who can write to the folder
+  could plant.
 
 **Why a server keeps the wait.** A wait that you can refuse needs
 something that is online while you may not be, counts time, and can be
@@ -529,6 +535,13 @@ the trustee's public key and the grant's ID. The trustee's name is in
 the vault's encrypted record only; the keyslot's label is `emergency`.
 The trustee's device signs with the same key as for its own vaults, so a
 trustee who syncs with the same server is recognisable as the same device.
+Once released, the trustee reads the vault's change log as a device of
+yours does, so they see the IDs of the vault's other grants, and when
+those change (never whose they are).
+
+**On your devices** the daemon keeps the trustees' names it read from the
+records in memory, to name them in notices while the vault is locked; the
+status that shows them is for secretvault's own programs only.
 
 **Revoking** forgets the grant on the server (its escrow, and the trustee's
 access to the files), removes its keyslot, and deletes the vault's record.

@@ -62,11 +62,12 @@ func TestEmergencySlotsAreChecked(t *testing.T) {
 func TestEmergencyInfosBindTheirGrant(t *testing.T) {
 	a, b := ID{1}, ID{2}
 	if bytes.Equal(EmergencyReleaseInfo(a, b), EmergencyReleaseInfo(b, a)) ||
-		bytes.Equal(EmergencyChallengeInfo(a), EmergencyChallengeInfo(b)) ||
-		bytes.HasPrefix(EmergencyReleaseInfo(a, b), EmergencyChallengeInfo(a)[:30]) {
+		bytes.Equal(EmergencyChallengeInfo(a, b), EmergencyChallengeInfo(b, a)) ||
+		bytes.Equal(EmergencyReleaseInfo(a, b), EmergencyChallengeInfo(a, b)) {
 		t.Fatal("release and challenge infos are not distinct")
 	}
-	if got := string(EmergencyChallengeInfo(b)); got != "secretvault sv1 emergency challenge\x02"+strings.Repeat("\x00", 15) {
+	want := "secretvault sv1 emergency challenge\x01" + strings.Repeat("\x00", 15) + "\x02" + strings.Repeat("\x00", 15)
+	if got := string(EmergencyChallengeInfo(a, b)); got != want {
 		t.Fatalf("challenge info %q", got)
 	}
 }
