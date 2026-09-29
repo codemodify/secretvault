@@ -89,3 +89,44 @@ func describe(p *Process) error {
 	p.Exe = windows.UTF16ToString(buf[:n])
 	return nil
 }
+
+// parentPID finds a process's parent in a snapshot of the process list.
+// Windows never gives a process another parent, so the one recorded may
+// have exited and its ID gone to a newer process: a parent must have
+// started before its child.
+func parentPID(pid int) (int, error) {
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return 0, fmt.Errorf("svpeer: the process list: %w", err)
+	}
+	defer windows.CloseHandle(snap)
+	var e windows.ProcessEntry32
+	e.Size = uint32(unsafe.Sizeof(e))
+	for err = windows.Process32First(snap, &e); err == nil; err = windows.Process32Next(snap, &e) {
+		if int(e.ProcessID) != pid {
+			continue
+		}
+		ppid := int(e.ParentProcessID)
+		child, err1 := started(pid)
+		parent, err2 := started(ppid)
+		if err1 != nil || err2 != nil || parent > child {
+			return 0, fmt.Errorf("svpeer: the parent of process %d is gone", pid)
+		}
+		return ppid, nil
+	}
+	return 0, fmt.Errorf("svpeer: process %d is not running", pid)
+}
+
+// started is when a process started.
+func started(pid int) (int64, error) {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return 0, err
+	}
+	defer windows.CloseHandle(h)
+	var created, exited, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(h, &created, &exited, &kernel, &user); err != nil {
+		return 0, err
+	}
+	return created.Nanoseconds(), nil
+}

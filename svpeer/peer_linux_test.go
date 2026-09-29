@@ -3,6 +3,7 @@
 package svpeer
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,30 @@ func TestTerminalNames(t *testing.T) {
 		if got := ttyName(dev); got != want {
 			t.Errorf("ttyName(%#x) = %q, want %q", dev, got, want)
 		}
+	}
+}
+
+func TestAChildNamesTheProgramThatStartedIt(t *testing.T) {
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("no sleep")
+	}
+	cmd := exec.Command(sleep, "5")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer cmd.Process.Kill()
+	p, err := Parent(cmd.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe, _ := os.Executable()
+	exe, _ = filepath.EvalSymlinks(exe)
+	if p.PID != os.Getpid() || p.Exe != exe {
+		t.Fatalf("the parent of sleep is %+v, want this test (%d, %s)", p, os.Getpid(), exe)
+	}
+	if _, err := Parent(1); err == nil {
+		t.Fatal("init was given a parent")
 	}
 }
 

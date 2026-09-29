@@ -73,3 +73,12 @@ func describe(p *Process) error {
 	}
 	return nil
 }
+
+// parentPID reads a process's parent from its kinfo_proc.
+func parentPID(pid int) (int, error) {
+	kp, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil {
+		return 0, fmt.Errorf("svpeer: process %d: %w", pid, err)
+	}
+	return int(kp.Eproc.Ppid), nil
+}

@@ -80,8 +80,18 @@ func describe(p *Process) error {
 	return nil
 }
 
+// parentPID reads a process's parent from /proc/<pid>/stat.
+func parentPID(pid int) (int, error) {
+	st, err := readStat(pid)
+	if err != nil {
+		return 0, fmt.Errorf("svpeer: process %d: %w", pid, err)
+	}
+	return st.ppid, nil
+}
+
 type procStat struct {
 	comm    string
+	ppid    int
 	session int
 	tty     int
 	start   string
@@ -101,16 +111,18 @@ func readStat(pid int) (procStat, error) {
 		return procStat{}, errors.New("svpeer: malformed stat")
 	}
 	f := strings.Fields(string(b[i+1:]))
-	// f[0] is field 3 (state); session is field 6, tty_nr 7, starttime 22.
+	// f[0] is field 3 (state); ppid is field 4, session 6, tty_nr 7,
+	// starttime 22.
 	if len(f) < 20 {
 		return procStat{}, errors.New("svpeer: short stat")
 	}
+	ppid, err0 := strconv.Atoi(f[1])
 	sid, err1 := strconv.Atoi(f[3])
 	tty, err2 := strconv.Atoi(f[4])
-	if err1 != nil || err2 != nil {
+	if err0 != nil || err1 != nil || err2 != nil {
 		return procStat{}, errors.New("svpeer: malformed stat")
 	}
-	return procStat{comm: string(b[open+1 : i]), session: sid, tty: tty, start: f[19]}, nil
+	return procStat{comm: string(b[open+1 : i]), ppid: ppid, session: sid, tty: tty, start: f[19]}, nil
 }
 
 // ttyName names a terminal device number the way ps does.

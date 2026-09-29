@@ -103,6 +103,29 @@ func Describe(pid int) (*Process, error) {
 	return p, nil
 }
 
+// Parent identifies the program that started process pid: the browser
+// behind the native-messaging host it ran, say. pid's parent is read
+// again after it has been described, so a parent that exited meanwhile
+// (its child then passes to another, and its process ID may be reused)
+// is not mistaken for the program that took over its ID.
+func Parent(pid int) (*Process, error) {
+	ppid, err := parentPID(pid)
+	if err != nil {
+		return nil, err
+	}
+	if ppid <= 1 {
+		return nil, fmt.Errorf("svpeer: process %d has no parent of its own", pid)
+	}
+	p, err := Describe(ppid)
+	if err != nil {
+		return nil, err
+	}
+	if again, err := parentPID(pid); err != nil || again != ppid {
+		return nil, fmt.Errorf("svpeer: the parent of process %d went away while it was read", pid)
+	}
+	return p, nil
+}
+
 // ForPath describes the program at path, for deciding about it before it
 // runs ("always allow /usr/bin/backup"). "flatpak:<app>" and "snap:<name>"
 // name sandboxed apps.
