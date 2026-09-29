@@ -205,6 +205,7 @@ func (h *harness) startDaemon() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
+	d.StartSync(ctx)
 	go func() { d.Serve(ctx, ln); close(done) }()
 	// A daemon process that stops takes its connections with it; Serve
 	// alone leaves them open, so they are closed here.

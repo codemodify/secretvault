@@ -3,6 +3,7 @@ package svmanager
 import (
 	"bytes"
 	"errors"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,6 +20,7 @@ import (
 	"github.com/codemodify/secretvault/svcrypto"
 	"github.com/codemodify/secretvault/svotp"
 	"github.com/codemodify/secretvault/svrpc"
+	"github.com/codemodify/secretvault/svserver"
 )
 
 // allZero reports whether every byte of b is zero.
@@ -815,6 +817,38 @@ func TestGrantsAreListedAndRevoked(t *testing.T) {
 	h.win().Press(platform.KeyEscape)
 	if h.m.showingVaultPage() {
 		t.Fatal("Escape did not leave the vault's page")
+	}
+}
+
+// A vault that syncs says how its sync is doing: in the status bar, and on
+// the vault's page. The server is a real one, in this process.
+func TestSyncStatusIsShown(t *testing.T) {
+	h := newHarness(t)
+	s, err := svserver.New(svserver.Config{Root: t.TempDir(), AdminToken: "let-me-in", Rate: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewTLSServer(s)
+	t.Cleanup(func() { s.Close(); srv.Close() })
+	h.prove()
+	if _, err := h.admin.SyncSetup(h.ctx(), svrpc.SyncSetupParams{URL: srv.URL, AdminToken: "let-me-in",
+		Fingerprint: svserver.Fingerprint(srv.Certificate().Raw), Label: "laptop"}); err != nil {
+		t.Fatal(err)
+	}
+	h.start(Options{})
+	d := h.asking() // the CLI unlocked it: the GUI proves itself
+	d.win.Type(pass)
+	d.win.Press(platform.KeyReturn)
+	h.waitFor("the items", func() bool { return h.m.listed })
+	h.waitText("personal: unlocked, 4 items; synced")
+	h.win().Press(platform.KeyG, platform.ModCtrl|platform.ModShift)
+	h.waitFor("the vault's page", h.m.showingVaultPage)
+	h.m.vpage.tabs.Select(2)
+	h.pump()
+	for _, want := range []string{srv.URL, "Last good sync", "pushed"} {
+		if !strings.Contains(h.text(), want) {
+			t.Errorf("the sync tab lacks %q", want)
+		}
 	}
 }
 
