@@ -30,14 +30,40 @@ type harness struct {
 	procs chan *svpeer.Process
 	desk  *scripted
 	opts  Options
+	keys  *rack // the security keys plugged in (fido2_test.go); none at first
 }
 
 // scripted is a desktop (or terminal) prompter that answers from a script
-// and records what it was asked.
+// and records what it was asked, and what it was told (notices).
 type scripted struct {
 	mu      sync.Mutex
 	answers []string // "pass:<p>", "choose:<id>", "cancel"
 	asked   []svrpc.PromptAsk
+	notices []svrpc.PromptAsk
+	dismiss bool // the person calls every notice off
+}
+
+func (s *scripted) Notice(_ context.Context, q svrpc.PromptAsk, cancel func()) func() {
+	s.mu.Lock()
+	s.notices = append(s.notices, q)
+	dismiss := s.dismiss
+	s.mu.Unlock()
+	if dismiss && cancel != nil {
+		go func() { time.Sleep(20 * time.Millisecond); cancel() }()
+	}
+	return func() {}
+}
+
+func (s *scripted) told() []svrpc.PromptAsk {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]svrpc.PromptAsk(nil), s.notices...)
+}
+
+func (s *scripted) questions() []svrpc.PromptAsk {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]svrpc.PromptAsk(nil), s.asked...)
 }
 
 func (s *scripted) next(q svrpc.PromptAsk) (string, error) {
@@ -117,9 +143,11 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	h := &harness{t: t, home: filepath.Join(dir, "home"), sock: filepath.Join(dir, "s", "d.sock"),
-		procs: make(chan *svpeer.Process, 16), desk: &scripted{}}
+		procs: make(chan *svpeer.Process, 16), desk: &scripted{}, keys: &rack{}}
 	h.opts = Options{
 		Home: h.home, Socket: h.sock, Desktop: h.desk, IdleUnit: time.Hour,
+		// Software keys only: tests never open a real device.
+		SecurityKeys: h.keys.open,
 		// A connection is the program the test announced for it, if any,
 		// else the real process behind it (for real clients such as ssh-add).
 		Peer: func(c net.Conn) (*svpeer.Process, error) {
@@ -173,6 +201,10 @@ func (h *harness) connect(exe string, term *scripted) *secretvault.Client {
 	opts := secretvault.Options{Socket: h.sock, NoStart: true}
 	if term != nil {
 		opts.Prompter = func(ctx context.Context, q svrpc.PromptAsk) (svrpc.PromptAnswer, error) {
+			if q.Kind == svrpc.PromptNotice {
+				term.Notice(ctx, q, nil)
+				return svrpc.PromptAnswer{}, nil
+			}
 			if q.Kind == svrpc.PromptChoose {
 				c, err := term.Choose(ctx, q)
 				return svrpc.PromptAnswer{Choice: c}, err

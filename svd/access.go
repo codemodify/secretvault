@@ -13,9 +13,12 @@ import (
 // The consent flow. Every request that touches a vault's contents goes
 // through authorize:
 //
-//  1. The vault must be unlocked. If it is not, the person is asked for
-//     its passphrase: on the requesting CLI's own terminal, else by the
-//     registered terminal agent, else by the desktop prompt.
+//  1. The vault must be unlocked. If it is not, and a security key that
+//     opens it is plugged in, the person is asked for that key's PIN (if
+//     its keyslot needs one) and to touch it (fido2.go). Otherwise, or if
+//     that fails, the person is asked for the vault's passphrase. Either
+//     way the asking is done on the requesting CLI's own terminal, else by
+//     the registered terminal agent, else by the desktop prompt.
 //  2. A remembered decision (svbroker) settles it if there is one.
 //  3. Otherwise the person is asked. secretvault's CLI on a terminal
 //     proves it is the person by taking the passphrase there (a "y" typed
@@ -96,6 +99,24 @@ func (d *Daemon) ensureUnlocked(ctx context.Context, cl *client, mv *managedVaul
 		Title:       "Unlock vault " + mv.cfg.Name,
 		Description: why + "\n\nEnter the passphrase of vault \"" + mv.cfg.Name + "\" to unlock it.",
 		Prompt:      "Passphrase:",
+	}
+	// A security key that opens the vault, if one is plugged in, comes
+	// first; the passphrase if it is not used.
+	if tried, err := d.tryToken(ctx, p, mv, why, false); tried {
+		if err == nil {
+			if own {
+				d.proved(cl, mv)
+			}
+			return true, own, nil
+		}
+		if ctx.Err() != nil {
+			return true, own, err
+		}
+		d.opts.Log(fmt.Sprintf("the security key did not unlock %s: %v", mv.cfg.Name, err))
+		if !hasPassphrase(mv) {
+			return true, own, err
+		}
+		q.Error = afterToken(err)
 	}
 	for range 3 {
 		pass, err := p.Passphrase(ctx, q)
@@ -238,6 +259,21 @@ func (d *Daemon) ask(ctx context.Context, cl *client, mv *managedVault, item, it
 			Description: fmt.Sprintf("This terminal has not used vault %q since it was unlocked.\n"+
 				"Enter the vault's passphrase to allow this terminal until the vault locks.", mv.cfg.Name),
 			Prompt: "Passphrase:",
+		}
+		// Or with the vault's security key, if it is plugged in.
+		why := fmt.Sprintf("This terminal has not used vault %q since it was unlocked; the vault's security key allows it until the vault locks.", mv.cfg.Name)
+		if tried, err := d.tryToken(ctx, p, mv, why, true); tried {
+			if err == nil {
+				d.proved(cl, mv)
+				record("allowed", "proved with a security key")
+				d.touch(mv)
+				return nil
+			}
+			if ctx.Err() != nil {
+				record(outcomeOf(err), err.Error())
+				return err
+			}
+			q.Error = afterToken(err)
 		}
 		for range 3 {
 			pass, err := p.Passphrase(ctx, q)

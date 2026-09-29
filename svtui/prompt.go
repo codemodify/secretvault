@@ -16,7 +16,8 @@ import (
 // the CLI: when it needs to know the person is there (to unlock a vault,
 // or to allow this terminal to use one), it asks for the vault's
 // passphrase through prompt.ask, and the question is put here, in a
-// dialog over whatever is on the screen.
+// dialog over whatever is on the screen. A security key's PIN is asked
+// the same way; "touch your security key" goes to the status line.
 
 // minPassphrase is the shortest new passphrase accepted, as everywhere
 // else in secretvault.
@@ -34,7 +35,13 @@ type promptDialog struct {
 // the program quitting.
 func (u *UI) prompt(ctx context.Context, q svrpc.PromptAsk) (svrpc.PromptAnswer, error) {
 	switch q.Kind {
-	case svrpc.PromptPassphrase, svrpc.PromptNewPassphrase:
+	case svrpc.PromptPassphrase, svrpc.PromptNewPassphrase, svrpc.PromptPIN:
+	case svrpc.PromptNotice:
+		// "Touch your security key": said in the status line, while the
+		// daemon waits on the key rather than on this program.
+		text := strings.Join(strings.Fields(q.Description), " ")
+		u.post(func() { u.say("%s", text) })
+		return svrpc.PromptAnswer{}, nil
 	case svrpc.PromptChoose:
 		// Not asked of terminal programs today; answered all the same.
 		if len(q.Choices) == 0 {

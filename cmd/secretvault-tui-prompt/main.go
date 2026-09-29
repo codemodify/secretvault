@@ -80,6 +80,8 @@ func agent() int {
 			t.Printf("! %s\n", q.Error)
 		}
 		switch q.Kind {
+		case svrpc.PromptNotice:
+			return svrpc.PromptAnswer{}, nil // "touch your security key": said above
 		case svrpc.PromptChoose:
 			var choices []svprompt.Choice
 			for _, c := range q.Choices {

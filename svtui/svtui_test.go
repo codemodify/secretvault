@@ -322,8 +322,8 @@ func TestCancellingTheDialogSaysSo(t *testing.T) {
 	h.waitFor("Locked: Enter unlocks")
 }
 
-// The daemon asks terminal programs only for a vault's passphrase today;
-// the other questions are answered all the same.
+// The daemon asks terminal programs for a vault's passphrase, a security
+// key's PIN and its touch; the other questions are answered all the same.
 func TestTheDaemonsOtherQuestionsAreAnswered(t *testing.T) {
 	h := newHarness(t)
 	h.start(Options{}, "")
@@ -379,6 +379,23 @@ func TestTheDaemonsOtherQuestionsAreAnswered(t *testing.T) {
 	if a := answer(ch); a.Choice != svrpc.ChoiceLock {
 		t.Fatalf("answered %+v", a)
 	}
+
+	// A security key's PIN, like a passphrase: never drawn.
+	ch = ask(svrpc.PromptAsk{Kind: svrpc.PromptPIN, Title: "Unlock vault personal", Description: "Enter the PIN of your security key (YubiKey).", Prompt: "PIN:"})
+	h.waitFor("Enter the PIN of your security key")
+	h.typeText("975312")
+	h.key(tcell.KeyEnter)
+	if a := answer(ch); string(a.Secret) != "975312" || a.Canceled {
+		t.Fatalf("the PIN was answered %+v", a)
+	}
+	if strings.Contains(h.text(), "975312") {
+		t.Fatalf("the PIN was drawn:\n%s", h.text())
+	}
+	// "Touch your security key" is said, and needs no answer.
+	if a := answer(ask(svrpc.PromptAsk{Kind: svrpc.PromptNotice, Description: "Touch your security key.\n(YubiKey)"})); a.Canceled {
+		t.Fatalf("a notice was answered %+v", a)
+	}
+	h.waitFor("Touch your security key. (YubiKey)")
 
 	if a := answer(ask(svrpc.PromptAsk{Kind: "something new"})); !a.Canceled {
 		t.Fatalf("an unknown question was answered %+v", a)

@@ -15,8 +15,10 @@ import (
 	"time"
 
 	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/internal/fidotest"
 	"github.com/codemodify/secretvault/svcrypto"
 	"github.com/codemodify/secretvault/svd"
+	"github.com/codemodify/secretvault/svfido"
 	"github.com/codemodify/secretvault/svformat"
 	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svrpc"
@@ -30,6 +32,38 @@ type harness struct {
 	passFile string
 	answers  []string  // what the terminal "types", in order
 	desk     *fakeDesk // the desktop prompt, for programs other than the CLI
+
+	keysMu sync.Mutex
+	keys   []*fidotest.Authenticator // software security keys plugged in
+}
+
+// plug plugs in a software security key.
+func (h *harness) plug(o fidotest.Options) *fidotest.Authenticator {
+	a := fidotest.New(o)
+	h.t.Cleanup(a.Stop)
+	h.keysMu.Lock()
+	h.keys = append(h.keys, a)
+	h.keysMu.Unlock()
+	return a
+}
+
+// openKeys is the daemon's way to the security keys: software ones only.
+func (h *harness) openKeys(ctx context.Context) ([]*svfido.Device, error) {
+	h.keysMu.Lock()
+	keys := append([]*fidotest.Authenticator(nil), h.keys...)
+	h.keysMu.Unlock()
+	var out []*svfido.Device
+	for _, a := range keys {
+		d, err := svfido.NewDevice(ctx, a.Transport(), a.Name())
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	if len(out) == 0 {
+		return nil, svfido.ErrNoDevice
+	}
+	return out, nil
 }
 
 // fakeDesk stands in for the desktop prompt: it records what it is asked
@@ -86,7 +120,8 @@ func newHarness(t *testing.T, tweaks ...func(*svd.Options)) *harness {
 	h.write("pass", "correct horse battery staple\n")
 
 	// A real daemon, in-process, which takes this test binary for the CLI.
-	opts := svd.Options{Home: h.home, Socket: h.sock, Desktop: h.desk, IsCLI: func(*svpeer.Process) bool { return true }}
+	opts := svd.Options{Home: h.home, Socket: h.sock, Desktop: h.desk, IsCLI: func(*svpeer.Process) bool { return true },
+		SecurityKeys: h.openKeys}
 	for _, tweak := range tweaks {
 		tweak(&opts)
 	}

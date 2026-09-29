@@ -62,9 +62,11 @@ func (c *cli) slotAdd(args []string) error {
 	create := fs.Bool("create", false, "keyfile slots: create the keyfile (64 random bytes, mode 0600)")
 	shares := fs.Int("split", 0, "recovery slots: print the key as `N` shares instead, to give to N people or places")
 	threshold := fs.Int("threshold", 0, "recovery slots: how many of the shares it takes (default: a majority)")
+	withPIN := fs.Bool("uv", false, "fido2 slots: the key's PIN is asked for with every touch (the default when the key has a PIN)")
+	withoutPIN := fs.Bool("no-uv", false, "fido2 slots: a touch alone opens the vault, even if the key has a PIN")
 	var u unlockFlags
 	u.register(fs)
-	pos, err := parse(fs, args, 1, 2, "passphrase | recovery [--split N --threshold K] | keyfile PATH | recipient RECIPIENT|FILE  [flags]")
+	pos, err := parse(fs, args, 1, 2, "passphrase | recovery [--split N --threshold K] | keyfile PATH | recipient RECIPIENT|FILE | fido2 [--uv|--no-uv]  [flags]")
 	if err != nil {
 		return err
 	}
@@ -84,7 +86,7 @@ func (c *cli) slotAdd(args []string) error {
 	}
 	p := svrpc.SlotAddParams{Vault: c.vault, Type: pos[0], Label: *label}
 	switch pos[0] {
-	case svformat.SlotPassphrase, svformat.SlotRecovery:
+	case svformat.SlotPassphrase, svformat.SlotRecovery, svformat.SlotFIDO2:
 		if len(pos) != 1 {
 			return fmt.Errorf("slot add %s takes no argument", pos[0])
 		}
@@ -93,7 +95,19 @@ func (c *cli) slotAdd(args []string) error {
 			return fmt.Errorf("slot add %s needs an argument", pos[0])
 		}
 	default:
-		return fmt.Errorf("unknown slot type %q (passphrase, recovery, keyfile, recipient)", pos[0])
+		return fmt.Errorf("unknown slot type %q (passphrase, recovery, keyfile, recipient, fido2)", pos[0])
+	}
+	if (*withPIN || *withoutPIN) && pos[0] != svformat.SlotFIDO2 {
+		return errors.New("--uv and --no-uv are for fido2 slots")
+	}
+	switch {
+	case *withPIN && *withoutPIN:
+		return errors.New("--uv and --no-uv contradict each other")
+	case *withPIN:
+		p.UV = withPIN
+	case *withoutPIN:
+		no := false
+		p.UV = &no
 	}
 	switch pos[0] {
 	case svformat.SlotPassphrase:
@@ -128,6 +142,9 @@ func (c *cli) slotAdd(args []string) error {
 		return err
 	}
 	fmt.Fprintf(c.stdout, "Added %s slot %s\n", info.Type, info.ID)
+	if info.Type == svformat.SlotFIDO2 {
+		fmt.Fprintf(c.stdout, "%s opens the vault with: %s. Try it with 'secretvault lock' and 'secretvault unlock --fido2'.\n", info.Label, info.Detail)
+	}
 	switch {
 	case info.RecoveryKey != "" && *shares > 0:
 		return c.printRecoveryShares(info.RecoveryKey, *shares, *threshold)
@@ -160,6 +177,62 @@ func (c *cli) printRecoveryShares(text string, n, k int) error {
 	}
 	fmt.Fprintln(c.stdout)
 	fmt.Fprintf(c.stdout, "To open the vault with them: 'secretvault unlock --shares', then type any %d.\n", k)
+	return nil
+}
+
+// cmdFIDO2 lists the security keys the daemon can see, and what each can
+// do: the first thing to look at when a key does not work.
+func (c *cli) cmdFIDO2(args []string) error {
+	if len(args) > 0 && args[0] != "list" && args[0] != "ls" {
+		fmt.Fprintf(c.stderr, "secretvault fido2: unknown subcommand %q (list)\n", args[0])
+		return errUsage
+	}
+	if len(args) > 0 {
+		args = args[1:]
+	}
+	if _, err := parse(c.flags("fido2 list"), args, 0, 0, ""); err != nil {
+		return err
+	}
+	cl, err := c.daemon()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := c.ctx()
+	defer cancel()
+	keys, err := cl.SecurityKeys(ctx)
+	if err != nil {
+		return err
+	}
+	if len(keys) == 0 {
+		fmt.Fprintln(c.stdout, "No security key is plugged in.")
+		return nil
+	}
+	for i, k := range keys {
+		if i > 0 {
+			fmt.Fprintln(c.stdout)
+		}
+		fmt.Fprintf(c.stdout, "%s\n", k.Name)
+		if k.Path != "" {
+			fmt.Fprintf(c.stdout, "  device:      %s\n", k.Path)
+		}
+		if len(k.Versions) > 0 {
+			fmt.Fprintf(c.stdout, "  speaks:      %s\n", strings.Join(k.Versions, ", "))
+			fmt.Fprintf(c.stdout, "  model:       %s\n", k.AAGUID)
+			pin := "cannot have one"
+			switch k.PIN {
+			case "set":
+				pin = fmt.Sprintf("set, %d tries left", k.Retries)
+			case "not set":
+				pin = "not set"
+			}
+			fmt.Fprintf(c.stdout, "  PIN:         %s\n", pin)
+			yes := map[bool]string{true: "yes", false: "no"}[k.HMACSecret]
+			fmt.Fprintf(c.stdout, "  hmac-secret: %s\n", yes)
+		}
+		if k.Problem != "" {
+			fmt.Fprintf(c.stdout, "  problem:     %s\n", k.Problem)
+		}
+	}
 	return nil
 }
 

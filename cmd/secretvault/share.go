@@ -96,6 +96,12 @@ func (c *cli) rotate(args []string, drop func([]string) []string) error {
 		}
 		fmt.Fprintf(c.stdout, "  %s  %s\n", s.ID, label)
 	}
+	if len(res.Dropped) > 0 {
+		fmt.Fprintln(c.stdout, "No longer opening it (add them again with 'secretvault slot add'):")
+		for _, s := range res.Dropped {
+			fmt.Fprintf(c.stdout, "  %s  %s (%s)\n", s.ID, s.Label, s.Type)
+		}
+	}
 	if res.RecoveryKey != "" {
 		c.printRecoveryKey(res.RecoveryKey)
 	}

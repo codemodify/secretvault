@@ -61,10 +61,12 @@ func (c *cli) answer(_ context.Context, q svrpc.PromptAsk) (svrpc.PromptAnswer, 
 	var secret []byte
 	var err error
 	switch q.Kind {
-	case svrpc.PromptPassphrase:
+	case svrpc.PromptPassphrase, svrpc.PromptPIN:
 		secret, err = c.ask(prompt + " ")
 	case svrpc.PromptNewPassphrase:
 		secret, err = c.askNew(prompt+" ", minPassphrase)
+	case svrpc.PromptNotice:
+		return svrpc.PromptAnswer{}, nil // said above; nothing to answer
 	default:
 		return svrpc.PromptAnswer{Canceled: true}, nil
 	}
@@ -81,6 +83,7 @@ type unlockFlags struct {
 	identity string
 	recovery bool
 	shares   bool
+	fido2    bool
 }
 
 func (u *unlockFlags) register(fs *flag.FlagSet) {
@@ -89,15 +92,18 @@ func (u *unlockFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&u.identity, "identity", "", "unlock with the identity in `FILE`")
 	fs.BoolVar(&u.recovery, "recovery", false, "unlock with a recovery key (asked for on the terminal)")
 	fs.BoolVar(&u.shares, "shares", false, "unlock with shares of a recovery key (asked for on the terminal)")
+	fs.BoolVar(&u.fido2, "fido2", false, "unlock with the security key plugged in (its PIN, if it needs one, is asked for here)")
 }
 
 func (u *unlockFlags) given() bool {
-	return u.passFile != "" || u.keyfile != "" || u.identity != "" || u.recovery || u.shares
+	return u.passFile != "" || u.keyfile != "" || u.identity != "" || u.recovery || u.shares || u.fido2
 }
 
 // key reads the key the flags name. The caller zeroes Secret.
 func (c *cli) key(u *unlockFlags) (*svrpc.Key, error) {
 	switch {
+	case u.fido2:
+		return &svrpc.Key{Type: svformat.SlotFIDO2}, nil
 	case u.keyfile != "":
 		b, err := os.ReadFile(u.keyfile)
 		return &svrpc.Key{Type: svformat.SlotKeyfile, Secret: b}, err

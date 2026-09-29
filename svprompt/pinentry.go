@@ -281,6 +281,35 @@ func (p *Pinentry) Choose(ctx context.Context, r Request, choices []Choice) (str
 	return "", mapErr(err)
 }
 
+// Notice shows r with one button (r.OK, "Cancel" when empty) until ctx
+// ends, when the program is closed, or until the person presses the
+// button, which returns ErrCanceled. It is how gpg-agent says "touch your
+// key": a window the waiting side takes down itself.
+func (p *Pinentry) Notice(ctx context.Context, r Request) error {
+	if r.OK == "" {
+		r.OK = "Cancel"
+	}
+	s, err := p.start(ctx)
+	if err != nil {
+		return err
+	}
+	defer s.close()
+	if err := s.setup(r); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return err
+	}
+	_, _, err = s.command("MESSAGE")
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err == nil {
+		return ErrCanceled
+	}
+	return mapErr(err)
+}
+
 // Probe starts the program and asks its version, to check it is a working
 // pinentry without showing anything.
 func (p *Pinentry) Probe(ctx context.Context) (string, error) {

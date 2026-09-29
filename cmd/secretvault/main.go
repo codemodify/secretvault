@@ -25,6 +25,7 @@
 //	export cxf|kdbx FILE       export items to a CXF or KeePass file
 //	gen                        print a random password
 //	slot list|add|rm           manage the ways a vault can be unlocked
+//	fido2 list                 list the security keys plugged in
 //	passwd                     change the passphrase
 //	share RECIPIENT|FILE       give a person's identity a keyslot
 //	unshare SLOT-ID            cut them off: remove the keyslot and rotate the key
@@ -51,8 +52,13 @@
 // the native-messaging host KeePassXC-Browser talks to.
 //
 // Commands that use a vault also take --passphrase-file FILE, --keyfile
-// FILE, --identity FILE or --recovery, to unlock (and prove it is you)
-// without being asked.
+// FILE, --identity FILE, --recovery, --shares or --fido2, to unlock (and
+// prove it is you) without being asked for the passphrase.
+//
+// A FIDO2 security key becomes a keyslot with 'slot add fido2' (its PIN
+// is then asked for with each touch if it has one; --no-uv makes a touch
+// enough). While such a key is plugged in, unlocking asks for it first,
+// and for the passphrase only if it is not used.
 //
 // import reads KeePass (KDBX 3.1 and 4), Bitwarden JSON, 1Password (1PUX),
 // Proton Pass, browser and password-manager CSV, Aegis, Google
@@ -178,6 +184,7 @@ func init() {
 		{"export", "export items to a CXF or KeePass (KDBX) file", (*cli).cmdExport},
 		{"gen", "print a random password", (*cli).cmdGen},
 		{"slot", "manage keyslots: list, add, rm", (*cli).cmdSlot},
+		{"fido2", "list the security keys plugged in, and what each can do", (*cli).cmdFIDO2},
 		{"passwd", "change the passphrase", (*cli).cmdPasswd},
 		{"share", "give a person's identity a keyslot", (*cli).cmdShare},
 		{"unshare", "cut a person off: remove their keyslot and rotate the key", (*cli).cmdUnshare},

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/codemodify/secretvault/svprompt"
 	"github.com/codemodify/secretvault/svrpc"
@@ -13,7 +14,8 @@ import (
 // Prompter puts a question to a person.
 type Prompter interface {
 	// Passphrase asks for a passphrase (or, for PromptNewPassphrase, a new
-	// one twice). The caller zeroes the result.
+	// one twice; for PromptPIN, a security key's PIN). The caller zeroes
+	// the result.
 	Passphrase(ctx context.Context, q svrpc.PromptAsk) ([]byte, error)
 	// Choose asks the person to pick one of q.Choices.
 	Choose(ctx context.Context, q svrpc.PromptAsk) (string, error)
@@ -21,11 +23,32 @@ type Prompter interface {
 	Describe() string
 }
 
+// noticer is a Prompter that can also tell the person something while the
+// daemon waits on them ("touch your security key"). The notice shows until
+// stop is called; if the person calls it off first, cancel is called.
+type noticer interface {
+	Notice(ctx context.Context, q svrpc.PromptAsk, cancel func()) (stop func())
+}
+
 // rpcPrompter asks through a connected client: the CLI prompting on its
 // own terminal, or a registered secretvault-tui-prompt --agent.
 type rpcPrompter struct {
 	c    *client
 	desc string
+}
+
+// Notice has the client show q (a PromptNotice), which it answers at
+// once: a line on a terminal cannot be taken back, so there is nothing to
+// withdraw. The answer is ignored, since clients that predate notices
+// answer them as cancelled; a person at a terminal calls the wait off
+// with Ctrl+C, which closes the connection.
+func (p rpcPrompter) Notice(ctx context.Context, q svrpc.PromptAsk, _ func()) func() {
+	c, done := context.WithTimeout(ctx, 5*time.Second)
+	defer done()
+	var ans svrpc.PromptAnswer
+	p.c.conn.Call(c, svrpc.MPromptAsk, q, &ans)
+	clear(ans.Secret)
+	return func() {}
 }
 
 func (p rpcPrompter) ask(ctx context.Context, q svrpc.PromptAsk) (svrpc.PromptAnswer, error) {
@@ -92,6 +115,20 @@ func (p pinentryPrompter) Choose(ctx context.Context, q svrpc.PromptAsk) (string
 	}
 	id, err := p.p.Choose(ctx, request(q), choices)
 	return id, mapPromptErr(err)
+}
+
+// Notice shows q in a pinentry window of its own until stop closes it; its
+// one button, Cancel, calls the wait off.
+func (p pinentryPrompter) Notice(ctx context.Context, q svrpc.PromptAsk, cancel func()) func() {
+	nctx, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := p.p.Notice(nctx, request(q)); errors.Is(err, svprompt.ErrCanceled) {
+			cancel()
+		}
+	}()
+	return func() { stop(); <-done }
 }
 
 func (p pinentryPrompter) Describe() string { return "desktop (" + p.p.Program + ")" }

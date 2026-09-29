@@ -150,8 +150,17 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 			}
 			return d.info(mv), nil
 		}
-		key, wipe, err := keyFrom(mv, p.Key)
-		if err != nil {
+		var key svcore.Key
+		wipe := func() {}
+		if p.Key.Type == svformat.SlotFIDO2 {
+			// The key plugged in; its PIN and touch are asked for like a
+			// passphrase would be, one question about the vault at a time.
+			pr, _ := d.passphrasePrompter(cl)
+			key = svcore.SecurityKey(d.securityKeys(ctx, pr, "Unlock vault "+mv.cfg.Name,
+				fmt.Sprintf("%s asks to unlock vault %q with a security key.", cl.display(), mv.cfg.Name)))
+			mv.prompt.Lock()
+			defer mv.prompt.Unlock()
+		} else if key, wipe, err = keyFrom(mv, p.Key); err != nil {
 			return nil, err
 		}
 		defer wipe()
@@ -272,6 +281,11 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		for _, id := range p.Drop {
 			drop[id] = true
 		}
+		before, err := mv.v.Slots()
+		if err != nil {
+			return nil, err
+		}
+		epoch := mv.v.Epoch()
 		infos, err := mv.v.Rotate(specs, true, func(s svcore.SlotInfo) bool { return drop[s.ID.String()] })
 		if err != nil {
 			return nil, err
@@ -284,6 +298,11 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 			out.Slots = append(out.Slots, slotInfo(mv, info))
 			if info.RecoveryKey != "" {
 				out.RecoveryKey = info.RecoveryKey
+			}
+		}
+		for _, s := range before {
+			if s.Epoch == epoch && (s.Type == svformat.SlotKeyfile || s.Type == svformat.SlotFIDO2) {
+				out.Dropped = append(out.Dropped, slotInfo(mv, s))
 			}
 		}
 		return out, nil
@@ -319,6 +338,15 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		}
 		ns := svcore.NewSlot{Type: p.Type, Label: p.Label}
 		switch p.Type {
+		case svformat.SlotFIDO2:
+			// The key's PIN and touches are asked for where a passphrase
+			// would be, one question about the vault at a time.
+			pr, _ := d.passphrasePrompter(cl)
+			ns.SecurityKeys = d.securityKeys(ctx, pr, "Add a security key to vault "+mv.cfg.Name,
+				fmt.Sprintf("%s asks to add a security key to vault %q.", cl.display(), mv.cfg.Name))
+			ns.FIDO2UV = p.UV
+			mv.prompt.Lock()
+			defer mv.prompt.Unlock()
 		case svformat.SlotPassphrase:
 			if len(p.Secret) < MinPassphrase {
 				return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "the passphrase is too short: use at least %d characters", MinPassphrase)
@@ -698,6 +726,12 @@ func slotInfo(mv *managedVault, s svcore.SlotInfo) svrpc.SlotInfo {
 		out.Detail = fmt.Sprintf("%s i=%d", s.KDF.Alg, s.KDF.Iterations)
 	case s.Recipient != nil:
 		out.Recipient = svformat.EncodeRecipient(mv.v.Suite(), s.Recipient)
+	case s.FIDO2 != nil:
+		out.Detail = "touch"
+		if s.FIDO2.UV {
+			out.Detail = "PIN and touch"
+		}
+		out.Detail += ", model " + uuid(s.FIDO2.AAGUID)
 	}
 	return out
 }

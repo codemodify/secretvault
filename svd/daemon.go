@@ -24,6 +24,7 @@ import (
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svbroker"
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svfido"
 	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/secretvault/svseal"
@@ -73,6 +74,10 @@ type Options struct {
 	// browser, which consent and the audit log then name (svpeer.Parent
 	// of the relay when nil; tests stand in a browser).
 	Launcher func(relay *svpeer.Process) (*svpeer.Process, error)
+
+	// SecurityKeys opens the FIDO2 security keys plugged in
+	// (svfido.OpenAll when nil; tests plug in software keys).
+	SecurityKeys func(context.Context) ([]*svfido.Device, error)
 
 	// IdleUnit is what AutoLock.IdleMinutes counts (time.Minute when 0;
 	// tests shorten it).

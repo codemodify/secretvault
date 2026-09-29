@@ -47,7 +47,21 @@ const (
 	MBrowserMessage = "browser.message" // BrowserFrame -> BrowserFrame (empty: no answer)
 	MBrowserList    = "browser.list"    // VaultRef -> []BrowserAssociation
 	MBrowserRemove  = "browser.remove"  // BrowserRemoveParams -> nil
+
+	MFIDO2List = "fido2.list" // nil -> []FIDO2Device
 )
+
+// FIDO2Device is a security key the daemon can see, and what it can do.
+type FIDO2Device struct {
+	Path       string   `json:"path"`
+	Name       string   `json:"name"`
+	Versions   []string `json:"versions,omitempty"`    // FIDO_2_0, FIDO_2_1, ...
+	AAGUID     string   `json:"aaguid,omitempty"`      // the model
+	HMACSecret bool     `json:"hmac_secret,omitempty"` // it can hold a keyslot
+	PIN        string   `json:"pin,omitempty"`         // "set", "not set", or "" when it cannot have one
+	Retries    int      `json:"retries,omitempty"`     // wrong PINs it still takes, when it has a PIN
+	Problem    string   `json:"problem,omitempty"`     // why it cannot be used (no permission, say)
+}
 
 // BrowserOpenParams open a browser session on a vault ("" for the
 // default). Origin is the extension as the browser named it on the
@@ -189,9 +203,10 @@ type VaultAddParams struct {
 
 // Key is a key presented to unlock a vault. Secret holds the passphrase,
 // the recovery key text, the keyfile's contents, or the identity file's
-// text, by Type.
+// text, by Type. For "fido2" it is empty: the daemon uses the security
+// key plugged in, asking the person for its PIN and touch.
 type Key struct {
-	Type   string `json:"type"` // "passphrase", "recovery", "keyfile", "identity"
+	Type   string `json:"type"` // "passphrase", "recovery", "keyfile", "identity", "fido2"
 	Secret []byte `json:"secret"`
 }
 
@@ -233,11 +248,14 @@ type RotateParams struct {
 	Drop       []string `json:"drop,omitempty"` // recipient slot IDs to cut off
 }
 
-// RotateResult is the new epoch's keyslots.
+// RotateResult is the new epoch's keyslots, and the old key's slots that
+// the new key does not have: keyfiles and security keys, which are added
+// again.
 type RotateResult struct {
 	Epoch       uint32     `json:"epoch"`
 	Slots       []SlotInfo `json:"slots"`
 	RecoveryKey string     `json:"recovery_key,omitempty"`
+	Dropped     []SlotInfo `json:"dropped,omitempty"`
 }
 
 // SlotInfo describes a keyslot. RecoveryKey is set only in the answer to
@@ -254,12 +272,14 @@ type SlotInfo struct {
 
 // SlotAddParams add a keyslot. Secret is the passphrase (passphrase), the
 // keyfile's contents (keyfile) or the recipient text (recipient); recovery
-// slots take nothing.
+// slots take nothing. A fido2 slot enrols the security key plugged in:
+// UV says whether it is used with its PIN (nil: when it has one).
 type SlotAddParams struct {
 	Vault  string `json:"vault,omitempty"`
 	Type   string `json:"type"`
 	Label  string `json:"label,omitempty"`
 	Secret []byte `json:"secret,omitempty"`
+	UV     *bool  `json:"uv,omitempty"`
 }
 
 // SlotRemoveParams remove a keyslot.
@@ -387,6 +407,8 @@ const (
 	PromptPassphrase    = "passphrase"     // ask for an existing passphrase
 	PromptNewPassphrase = "new-passphrase" // ask twice for a new one
 	PromptChoose        = "choose"         // pick one of Choices
+	PromptPIN           = "pin"            // ask for a security key's PIN; answered like a passphrase
+	PromptNotice        = "notice"         // say something that needs no answer ("touch your security key"); answered at once
 )
 
 // Consent choices offered for a program's request.

@@ -353,6 +353,12 @@ func (c *Client) RemoveBrowserAssociation(ctx context.Context, vault, name strin
 	return c.conn.Call(ctx, svrpc.MBrowserRemove, svrpc.BrowserRemoveParams{Vault: vault, Name: name}, nil)
 }
 
+// SecurityKeys lists the FIDO2 security keys the daemon can see.
+func (c *Client) SecurityKeys(ctx context.Context) (out []svrpc.FIDO2Device, err error) {
+	err = c.conn.Call(ctx, svrpc.MFIDO2List, nil, &out)
+	return
+}
+
 // RegisterPrompter makes this connection the session's prompter
 // (secretvault-tui-prompt --agent).
 func (c *Client) RegisterPrompter(ctx context.Context, terminal string) error {

@@ -75,7 +75,15 @@ func (m scriptedUI) Choose(r Request, choices []Choice) (string, error) {
 	return "", ErrCanceled
 }
 
-func (m scriptedUI) Message(Request) error { return nil }
+func (m scriptedUI) Message(r Request) error {
+	if m == "hold" { // nobody presses the button
+		time.Sleep(time.Minute)
+	}
+	if r.OK != "Cancel" {
+		return errors.New("the notice's button is not Cancel")
+	}
+	return nil
+}
 
 func fake(t *testing.T, mode string) *Pinentry {
 	exe, err := os.Executable()
@@ -115,6 +123,23 @@ func TestDismissingAPromptIsCanceled(t *testing.T) {
 	}
 	if _, err := fake(t, "cancel").Choose(tctx(t), Request{}, []Choice{{"a", "A"}}); !errors.Is(err, ErrCanceled) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// A notice stays until it is withdrawn, which closes the pinentry; its
+// one button calls it off.
+func TestANoticeStaysUntilWithdrawnOrCalledOff(t *testing.T) {
+	c, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if err := fake(t, "hold").Notice(c, Request{Description: "Touch your security key."}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("withdrawn: %v", err)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatal("the notice outlived its withdrawal")
+	}
+	if err := fake(t, "ok").Notice(tctx(t), Request{Description: "Touch your security key."}); !errors.Is(err, ErrCanceled) {
+		t.Fatalf("called off: %v", err)
 	}
 }
 
