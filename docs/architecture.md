@@ -547,7 +547,9 @@ projects, with `sv` as the prefix:
 | `svpeer` | who is on the other end of a connection | M1 |
 | `svbroker` | grants and the audit log | M1 |
 | `svdbus` | our D-Bus implementation | M1 |
-| `svsecretservice` | the Secret Service face | M3 |
+| `svd` (`ss*.go`, `portal.go`), `svsecret` | the Secret Service face and the Flatpak portal; a Secret Service client, for importing | M3 |
+| `svseal` | sealing a key to the user by the OS, to open vaults at login | M1 |
+| `svotp` | HOTP, TOTP and Steam codes | M2 |
 | `svbrowser` | the KeePassXC-Browser protocol, for browser autofill | M3 |
 | `svwayland`, `svx11`, `svclip` | the clipboard in our own protocol code | M2 |
 | `svimport` | import from other password managers; export to KDBX and CXF | M2 |
@@ -557,7 +559,7 @@ projects, with `sv` as the prefix:
 | `svsync`, `svserver` | sync, and the server API | M6, M8 |
 | `svcontainer`, `svmount` | containers, and per-OS mounting | M7 |
 | `svage` | age files and the age plugin protocol | M8 |
-| `svgui`, `svtui` | the managers and prompts | M1–M2 |
+| `gui/` (a module of its own), `svtui` | the desktop and terminal managers and prompts | M1–M2 |
 
 **Dependencies:**
 - **Allowed:**

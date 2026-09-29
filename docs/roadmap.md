@@ -105,7 +105,7 @@ copy and edit a login without the CLI.
 
 - **Linux.**
   - Our own D-Bus implementation (`svdbus`) and the Secret Service provider
-    (`svsecretservice`), with collections mapped to vaults.
+    (in the daemon, `svd/ss*.go`), with collections mapped to vaults.
   - The Flatpak portal backend.
   - A take-over and restore tool for gnome-keyring, ksecretd, KWallet and
     oo7, which imports what they hold.

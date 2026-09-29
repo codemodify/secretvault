@@ -13,13 +13,13 @@ One secret store for Linux, Windows and macOS, written in Go.
 It never phones home. Sync goes through your own server, a folder you
 already sync, or nothing.
 
-> **Status: pre-release (milestone 1).** The vault engine, the daemon with
-> its consent prompts, the CLI and the terminal manager work on Linux;
-> Windows and macOS builds compile but are not yet exercised. The desktop
-> app, the system keyring and everything else are planned in
-> [docs/roadmap.md](docs/roadmap.md). The format may still change, and
-> nothing has been audited: do not keep anything here that exists nowhere
-> else yet.
+> **Status: pre-release.** On Linux, the vault engine, the daemon with its
+> consent prompts, the CLI and the terminal manager work, and so do the
+> desktop keyring (Secret Service), the SSH agent, sync, import, OpenPGP,
+> age and browser autofill; Windows and macOS builds compile but are not
+> yet exercised. What remains is in [docs/roadmap.md](docs/roadmap.md).
+> The format may still change, and nothing has been audited: do not keep
+> anything here that exists nowhere else yet.
 
 ## How it fits together
 
