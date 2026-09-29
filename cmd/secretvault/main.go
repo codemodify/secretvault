@@ -21,6 +21,8 @@
 //	mv FROM TO                 rename an item
 //	rm NAME                    delete an item
 //	history NAME               list an item's revisions
+//	import FORMAT FILE         import another password manager's export
+//	export cxf|kdbx FILE       export items to a CXF or KeePass file
 //	gen                        print a random password
 //	slot list|add|rm           manage the ways a vault can be unlocked
 //	passwd                     change the passphrase
@@ -45,6 +47,17 @@
 // Commands that use a vault also take --passphrase-file FILE, --keyfile
 // FILE, --identity FILE or --recovery, to unlock (and prove it is you)
 // without being asked.
+//
+// import reads KeePass (KDBX 3.1 and 4), Bitwarden JSON, 1Password (1PUX),
+// Proton Pass, browser and password-manager CSV, Aegis, Google
+// Authenticator and CXF exports; FORMAT auto guesses which. An encrypted
+// export's own passphrase is asked for on the terminal, or read with
+// --source-passphrase-file (a KeePass key file with --source-keyfile).
+// Items that already exist are skipped unless --overwrite is given, and
+// --dry-run only lists the names that would be created. pass and gopass
+// stores need OpenPGP, which arrives with milestone M5. export writes a
+// new file, mode 0600, never over an existing one: KDBX asks for the
+// file's passphrase; CXF is not encrypted, and says so.
 //
 // Environment: SECRETVAULT_VAULT names the vault to use, SECRETVAULT_SOCK
 // the daemon's socket.
@@ -150,6 +163,8 @@ func init() {
 		{"mv", "rename an item", (*cli).cmdMove},
 		{"rm", "delete an item", (*cli).cmdRemove},
 		{"history", "list an item's revisions", (*cli).cmdHistory},
+		{"import", "import another password manager's export", (*cli).cmdImport},
+		{"export", "export items to a CXF or KeePass (KDBX) file", (*cli).cmdExport},
 		{"gen", "print a random password", (*cli).cmdGen},
 		{"slot", "manage keyslots: list, add, rm", (*cli).cmdSlot},
 		{"passwd", "change the passphrase", (*cli).cmdPasswd},
