@@ -60,6 +60,9 @@ type draft struct {
 	fields []svrpc.Field
 	urls   int
 
+	// Attached files, brought across.
+	files []File
+
 	// What could not be brought across, for warnings.
 	attachments int
 	passkeys    int
@@ -171,6 +174,7 @@ type builder struct {
 	warns   []string
 	history []string // items whose older versions were left behind
 	trashed int
+	files   map[string][]File
 }
 
 func newBuilder(prefix string) (*builder, error) {
@@ -206,8 +210,14 @@ func (b *builder) add(d *draft) {
 		Fields: d.fields,
 	}
 	b.items = append(b.items, it)
+	if len(d.files) > 0 {
+		if b.files == nil {
+			b.files = map[string][]File{}
+		}
+		b.files[it.Name] = d.files
+	}
 	if d.attachments > 0 {
-		b.warn("%s: %s not imported (secretvault does not import files yet)", it.Name, plural(d.attachments, "attachment"))
+		b.warn("%s: %s not imported (the export does not hold their contents)", it.Name, plural(d.attachments, "attachment"))
 	}
 	if d.passkeys > 0 {
 		b.warn("%s: %s not imported (passkeys cannot be moved between managers yet)", it.Name, plural(d.passkeys, "passkey"))
@@ -235,7 +245,7 @@ func (b *builder) result() *Result {
 	if b.trashed > 0 {
 		warns = append(warns, fmt.Sprintf("%s in the trash or recycle bin skipped", plural(b.trashed, "item")))
 	}
-	return &Result{Items: b.items, Warnings: warns}
+	return &Result{Items: b.items, Files: b.files, Warnings: warns}
 }
 
 // name makes a valid, unused item name from a folder path and a title.

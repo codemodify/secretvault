@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,7 +103,7 @@ func (c *cli) cmdImport(args []string) error {
 		exists[e.Item.Name] = true
 	}
 	warnings := res.Warnings
-	imported, skipped := 0, 0
+	imported, skipped, files := 0, 0, 0
 	for _, it := range res.Items {
 		if exists[it.Name] && !*overwrite {
 			skipped++
@@ -117,9 +118,31 @@ func (c *cli) cmdImport(args []string) error {
 			return fmt.Errorf("storing %s: %s (%d items were stored before it)", it.Name, describe(err), imported)
 		}
 		imported++
+		for _, f := range res.Files[it.Name] {
+			if len(f.Data) > svrpc.MaxFileData {
+				warnings = append(warnings, fmt.Sprintf("%s: file %s not imported (larger than %d MiB)", it.Name, f.Name, svrpc.MaxFileData>>20))
+				continue
+			}
+			typ := f.Type
+			if typ == "" {
+				typ = mime.TypeByExtension(filepath.Ext(f.Name))
+			}
+			ctx, cancel := c.ctx()
+			_, err := cl.Attach(ctx, svrpc.FileAttachParams{Vault: c.vault, Item: it.Name, Name: f.Name, Type: typ, Data: f.Data})
+			cancel()
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("%s: file %s not imported: %s", it.Name, f.Name, describe(err)))
+				continue
+			}
+			files++
+		}
 	}
 	c.printWarnings(warnings)
-	fmt.Fprintf(c.stdout, "Imported %d items, skipped %d, with %d warnings.\n", imported, skipped, len(warnings))
+	withFiles := ""
+	if files > 0 {
+		withFiles = fmt.Sprintf(" (%d files)", files)
+	}
+	fmt.Fprintf(c.stdout, "Imported %d items%s, skipped %d, with %d warnings.\n", imported, withFiles, skipped, len(warnings))
 	return nil
 }
 

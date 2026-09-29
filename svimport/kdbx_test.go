@@ -46,7 +46,7 @@ func TestAKeePass31FileImportsWithItsFolders(t *testing.T) {
 	has(t, item(t, res, "keepass/Steam"), "otp", svcore.FieldOTP,
 		"otpauth://totp/Steam:gaben?encoder=steam&issuer=Steam&secret=STEAMSTEAMSTEAM2")
 	noItem(t, res, "keepass/Recycle Bin/Deleted thing")
-	warned(t, res, "keepass/Work/Servers/db1", "attachment")
+	hasFile(t, res, "keepass/Work/Servers/db1", "id_ed25519", "-----BEGIN KEY-----")
 	warned(t, res, "history", "keepass/Bank")
 	warned(t, res, "1 item in the trash")
 }
@@ -67,7 +67,7 @@ func TestAKeePass4FileWithAKeyFileImports(t *testing.T) {
 	for _, n := range []string{"KP2A_URL", "TimeOtp-Secret-Base32", "TimeOtp-Length"} {
 		hasNot(t, mail, n)
 	}
-	warned(t, res, "Mail & Chat/Mailbox", "attachment")
+	hasFile(t, res, "Mail & Chat/Mailbox", "backup-codes.txt", "code-1 code-2 code-3")
 	pk := item(t, res, "Passkey site")
 	if len(pk.Fields) != 1 {
 		t.Errorf("the passkey's strings were imported: %+v", pk.Fields)
@@ -327,4 +327,24 @@ func TestHostileKDFParametersAreRefused(t *testing.T) {
 	if _, err := Import(FormatKDBX, data, Options{Passphrase: testPassphrase}); !errors.Is(err, ErrUnsupported) {
 		t.Errorf("8 TiB of Argon2: %v", err)
 	}
+}
+
+// hasFile checks an item came with the named file, and that no warning
+// says it was left behind.
+func hasFile(t *testing.T, res *Result, item, name, contents string) {
+	t.Helper()
+	for _, f := range res.Files[item] {
+		if f.Name == name {
+			if string(f.Data) != contents {
+				t.Errorf("%s: %s holds %q", item, name, f.Data)
+			}
+			for _, w := range res.Warnings {
+				if strings.Contains(w, item) && strings.Contains(w, "attachment") {
+					t.Errorf("warned about an imported file: %s", w)
+				}
+			}
+			return
+		}
+	}
+	t.Errorf("%s has no file %q: %+v", item, name, res.Files[item])
 }

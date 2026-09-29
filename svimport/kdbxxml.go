@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/codemodify/secretvault/svcore"
@@ -164,12 +165,23 @@ func kdbxRead(b *builder, h *kdbxHeader, data []byte, stream innerStream) error 
 	if recycle == "AAAAAAAAAAAAAAAAAAAAAA==" {
 		recycle = ""
 	}
+	pool := h.binaries
+	if h.major < 4 {
+		if pool, err = kdbx3Binaries(meta); err != nil {
+			return err
+		}
+	}
+	defer func() {
+		for _, bin := range pool {
+			clear(bin)
+		}
+	}()
 	var walk func(g *xnode, path []string)
 	walk = func(g *xnode, path []string) {
 		for _, k := range g.kids {
 			switch k.name {
 			case "Entry":
-				b.add(kdbxDraft(k, path))
+				b.add(kdbxDraft(k, path, pool))
 			case "Group":
 				if recycle != "" && k.value("UUID") == recycle {
 					b.trashed += countEntries(k)
@@ -181,6 +193,43 @@ func kdbxRead(b *builder, h *kdbxHeader, data []byte, stream innerStream) error 
 	}
 	walk(top, nil)
 	return nil
+}
+
+// kdbx3Binaries reads KDBX 3.1's attachments, kept in Meta/Binaries: each
+// with an ID, base64, gzipped when Compressed="True", and encrypted with
+// the inner stream when Protected="True" (decoded already by then).
+func kdbx3Binaries(meta *xnode) ([][]byte, error) {
+	var pool [][]byte
+	for _, bn := range meta.child("Binaries").children() {
+		if bn.name != "Binary" {
+			continue
+		}
+		id, err := strconv.Atoi(bn.attr("ID"))
+		if err != nil || id < 0 || id > 1<<16 {
+			return nil, fmt.Errorf("%w: a KDBX attachment has no usable ID", ErrFormat)
+		}
+		data := bn.text
+		if !bn.protected {
+			if data, err = base64.StdEncoding.DecodeString(strings.TrimSpace(string(bn.text))); err != nil {
+				return nil, fmt.Errorf("%w: a KDBX attachment is not base64", ErrFormat)
+			}
+		} else {
+			data = append([]byte(nil), data...)
+		}
+		if strings.EqualFold(bn.attr("Compressed"), "True") {
+			z, err := gunzip(data)
+			clear(data)
+			if err != nil {
+				return nil, err
+			}
+			data = z
+		}
+		for len(pool) <= id {
+			pool = append(pool, nil)
+		}
+		pool[id] = data
+	}
+	return pool, nil
 }
 
 func countEntries(g *xnode) int {
@@ -230,7 +279,7 @@ var kdbxStandard = map[string]struct{ name, typ string }{
 	"Notes":    {fNotes, svcore.FieldText},
 }
 
-func kdbxDraft(e *xnode, path []string) *draft {
+func kdbxDraft(e *xnode, path []string, pool [][]byte) *draft {
 	var strs []kdbxString
 	find := func(key string) (kdbxString, bool) {
 		for _, s := range strs {
@@ -251,7 +300,13 @@ func kdbxDraft(e *xnode, path []string) *draft {
 			}
 			strs = append(strs, s)
 		case "Binary":
-			d.attachments++
+			ref, err := strconv.Atoi(k.child("Value").attr("Ref"))
+			name := k.value("Key")
+			if err != nil || ref < 0 || ref >= len(pool) || pool[ref] == nil || name == "" {
+				d.attachments++
+				continue
+			}
+			d.files = append(d.files, File{Name: name, Data: append([]byte(nil), pool[ref]...)})
 		case "History":
 			d.history = d.history || len(k.kids) > 0
 		case "Tags":

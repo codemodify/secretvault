@@ -99,6 +99,8 @@ type kdbxHeader struct {
 	streamID      uint32 // 3.1
 	kdf           vdict  // 4
 	raw           []byte // the header's bytes, for its hash and HMAC
+
+	binaries [][]byte // 4: the attachments, from the inner header
 }
 
 func parseKDBXHeader(data []byte) (*kdbxHeader, error) {
@@ -333,11 +335,12 @@ func (h *kdbxHeader) openV4(rest, transformed []byte) ([]byte, innerStream, erro
 		}
 		plain = z
 	}
-	id, sk, n, err := readInnerHeader(plain)
+	id, sk, binaries, n, err := readInnerHeader(plain)
 	if err != nil {
 		clear(plain)
 		return nil, nil, err
 	}
+	h.binaries = binaries
 	stream, err := newInnerStream(id, sk)
 	if err != nil {
 		clear(plain)
@@ -429,29 +432,34 @@ func readHashedBlocks(b []byte) ([]byte, error) {
 }
 
 // readInnerHeader reads KDBX 4's inner header: the inner stream's cipher
-// and key. Attachments (type 3) are skipped: entries that refer to them
-// say so. n is the header's length.
-func readInnerHeader(b []byte) (id uint32, key []byte, n int, err error) {
+// and key, and the attachments (type 3: a flags byte, then the contents),
+// which entries refer to by their position. n is the header's length.
+func readInnerHeader(b []byte) (id uint32, key []byte, binaries [][]byte, n int, err error) {
 	for {
 		if len(b)-n < 5 {
-			return 0, nil, 0, fmt.Errorf("%w: the KDBX inner header is cut short", ErrFormat)
+			return 0, nil, nil, 0, fmt.Errorf("%w: the KDBX inner header is cut short", ErrFormat)
 		}
 		typ, size := b[n], binary.LittleEndian.Uint32(b[n+1:])
 		n += 5
 		if uint64(size) > uint64(len(b)-n) {
-			return 0, nil, 0, fmt.Errorf("%w: the KDBX inner header is cut short", ErrFormat)
+			return 0, nil, nil, 0, fmt.Errorf("%w: the KDBX inner header is cut short", ErrFormat)
 		}
 		val := b[n : n+int(size)]
 		n += int(size)
 		switch typ {
 		case 0:
-			return id, key, n, nil
+			return id, key, binaries, n, nil
 		case 1:
 			if len(val) == 4 {
 				id = binary.LittleEndian.Uint32(val)
 			}
 		case 2:
 			key = append([]byte(nil), val...)
+		case 3:
+			if len(val) == 0 {
+				return 0, nil, nil, 0, fmt.Errorf("%w: an empty KDBX attachment", ErrFormat)
+			}
+			binaries = append(binaries, append([]byte(nil), val[1:]...))
 		}
 	}
 }

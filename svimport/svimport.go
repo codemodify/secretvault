@@ -50,17 +50,33 @@ type Options struct {
 type Result struct {
 	Items []svrpc.Item
 
+	// Files are the items' attached files, by item name, to attach once
+	// the items are stored (file.attach).
+	Files map[string][]File
+
 	// Warnings say what could not be brought across (attachments,
 	// passkeys, history, trashed items, keys of unknown kinds), naming the
 	// item but never holding a secret.
 	Warnings []string
 }
 
-// Wipe zeroes every field value of every item.
+// File is an attached file brought across with its item.
+type File struct {
+	Name string
+	Type string // a media type, when the export says
+	Data []byte
+}
+
+// Wipe zeroes every field value of every item, and every file.
 func (r *Result) Wipe() {
 	for i := range r.Items {
 		for j := range r.Items[i].Fields {
 			clear(r.Items[i].Fields[j].Value)
+		}
+	}
+	for _, files := range r.Files {
+		for _, f := range files {
+			clear(f.Data)
 		}
 	}
 }

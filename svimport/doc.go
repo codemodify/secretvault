@@ -70,9 +70,14 @@
 //     own names, concealed where the source marks them hidden or
 //     protected, text otherwise.
 //
+// Attached files come across from KeePass (both the KDBX 3.1 pool in the
+// XML and KDBX 4's inner header) in Result.Files, by item name, to attach
+// once the items are stored.
+//
 // Items in the trash or recycle bin are skipped. What cannot be brought
 // across is left behind with a warning in Result.Warnings that names the
-// item but never holds a secret: attachments and documents, passkeys,
+// item but never holds a secret: attachments from other formats, whose
+// exports do not hold them, and documents, passkeys,
 // history (older versions), OTP keys of kinds with no otpauth form (MOTP,
 // Yandex, MD5), and credential types a format added after this reader.
 //

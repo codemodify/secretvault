@@ -88,6 +88,14 @@ func TestAnEncryptedExportAsksForItsOwnPassphrase(t *testing.T) {
 	if !strings.Contains(out, "Mail & Chat/Mailbox") {
 		t.Fatalf("a KDBX file with a key file: %q", out)
 	}
+	// For real: the entry's attachment comes along.
+	out = h.ok("", h.with("import", "kdbx", kdbx, "--source-passphrase-file", h.passFile, "--source-keyfile", keyx, "--prefix", "kp")...)
+	if !strings.Contains(out, "(1 files)") {
+		t.Fatalf("importing with an attachment: %q", out)
+	}
+	if got := h.ok("", h.with("file", "get", "kp/Mail & Chat/Mailbox", "backup-codes.txt", "-o", "-")...); got != "code-1 code-2 code-3" {
+		t.Fatalf("the imported attachment: %q", got)
+	}
 }
 
 func TestExportWritesNewPrivateFilesThatImportBack(t *testing.T) {
