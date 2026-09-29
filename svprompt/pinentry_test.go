@@ -164,6 +164,10 @@ func TestPlainPinentriesGetThreeButtons(t *testing.T) {
 	}
 }
 
+// TestTheSystemPinentryAnswersAProbe checks our side of the protocol
+// against the real program. It shows nothing and touches nothing: the
+// pinentry gets no display and no session bus (only PATH), and is asked
+// for its version alone.
 func TestTheSystemPinentryAnswersAProbe(t *testing.T) {
 	for _, p := range []string{"/usr/bin/pinentry-tty", "/usr/bin/pinentry"} {
 		if _, err := os.Stat(p); err != nil {
