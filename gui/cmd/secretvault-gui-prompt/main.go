@@ -18,7 +18,8 @@
 // passphrase is typed into a uitoolkit SecretField and is never a Go
 // string on its way to the pipe; the keyboard is held while it is typed,
 // the window stays out of screen captures where the platform allows it,
-// and input methods are off in the field.
+// input methods are off in the field, and the dialog says when Caps Lock
+// is on.
 package main
 
 import (
@@ -29,7 +30,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/codemodify/secretvault/gui/secretui"
 	"github.com/codemodify/secretvault/svcrypto"
 	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svprompt"
@@ -153,8 +153,9 @@ type desk struct {
 
 func newDesk() *desk {
 	return &desk{
-		// The desktop's look, light or dark as it is, at its scale. A
-		// prompt lives for seconds, so it does not watch look.json.
+		// The look chosen in uitoolkit's Settings, or else the
+		// desktop's, light or dark as it is, at its scale. A prompt
+		// lives for seconds, so it does not watch look.json.
 		opts:  uitoolkit.Options{DisableLookWatch: true},
 		queue: make(chan *dialog),
 		asker: askedBy,
@@ -208,7 +209,7 @@ func (k *desk) show(d *dialog) {
 // needs it: a probe (GETINFO version) never connects to the display.
 func (k *desk) application() (*uitoolkit.Application, error) {
 	if k.app == nil {
-		k.app = newApplication(k.opts)
+		k.app = uitoolkit.New(k.opts)
 	}
 	// With no display, uitoolkit falls back to drawing offscreen, where a
 	// prompt would wait unseen until it timed out.
@@ -216,16 +217,6 @@ func (k *desk) application() (*uitoolkit.Application, error) {
 		return nil, errNoDisplay
 	}
 	return k.app, nil
-}
-
-// newApplication is the application the dialogs open in: in the look
-// opts gives, or else the desktop's (secretui.MatchDesktop).
-func newApplication(opts uitoolkit.Options) *uitoolkit.Application {
-	a := uitoolkit.New(opts)
-	if opts.Look == nil {
-		secretui.MatchDesktop(a)
-	}
-	return a
 }
 
 func (k *desk) who() string {

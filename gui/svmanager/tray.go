@@ -10,9 +10,8 @@ import (
 )
 
 // The tray icon: open the window, search, lock every vault, quit. With
-// one, closing the window hides it there; without one (a desktop with no
-// tray, or macOS, where uitoolkit shows no tray menu yet), closing the
-// window quits.
+// one, closing the window hides it there; without one (a desktop that
+// shows no tray icons), closing the window quits.
 
 func (m *Manager) startTray() {
 	item, err := m.app.NewStatusItem(platform.StatusItemOptions{

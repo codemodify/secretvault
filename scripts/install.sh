@@ -53,11 +53,13 @@ echo "Building in $root ..."
 	./cmd/secretvault-tui-prompt ./cmd/secretvault-server)
 
 # The desktop programs are a module of their own (gui/), built with cgo
-# against uitoolkit beside this checkout; without either, the rest works.
-if [ -d "$root/../uitoolkit" ] && (cd "$root/gui" && CGO_ENABLED=1 go build -trimpath -o "$build/" ./cmd/...) 2>"$build/gui.log"; then
+# against a uitoolkit release, which go fetches like any other module;
+# without cgo, the rest works.
+if (cd "$root/gui" && CGO_ENABLED=1 go build -trimpath -o "$build/" ./cmd/...) 2>"$build/gui.log"; then
 	programs="$programs $gui_programs"
 else
-	echo "Skipped the desktop programs ($gui_programs): they need cgo and uitoolkit in $root/../uitoolkit."
+	echo "Skipped the desktop programs ($gui_programs): they need cgo, which needs a C compiler. The build said:"
+	tail -n 5 "$build/gui.log" | sed 's/^/  /'
 fi
 
 mkdir -p "$prefix"

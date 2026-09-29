@@ -88,71 +88,98 @@ func TestWhatIsASecret(t *testing.T) {
 	}
 }
 
-func dark(a *uitoolkit.Application) bool {
-	return style.ParseTheme(string(a.Appearance().Theme)) == style.ThemeDark
-}
-
-// On a dark desktop, a person who never chose a look gets a dark one; a
-// choice, when there is one, stands.
-func TestTheDialogsFollowADarkDesktop(t *testing.T) {
-	t.Cleanup(func() { style.SetDesktopColorScheme(style.SchemeNoPreference) })
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-
-	t.Setenv("UITK_COLOR_SCHEME", "light")
-	a := headless(nil)
-	MatchDesktop(a)
-	if dark(a) {
-		t.Fatal("dark on a light desktop")
-	}
-
-	t.Setenv("UITK_COLOR_SCHEME", "dark")
-	a = headless(nil)
-	MatchDesktop(a)
-	if !dark(a) {
-		t.Fatalf("%s on a dark desktop", a.Appearance().Name)
-	}
-
-	// A saved choice of a light look is kept.
-	if err := uitoolkit.SaveAppearance(style.Appearance{Name: "light"}); err != nil {
-		t.Fatal(err)
-	}
-	a = headless(nil)
-	MatchDesktop(a)
-	if dark(a) {
-		t.Fatal("a saved light look was overridden")
-	}
-}
-
-// A program that stays up, with no look chosen, follows the desktop's
-// light or dark mode as it changes; a look chosen in uitoolkit's Settings,
-// or UITK_THEME, is kept.
-func TestAProgramThatStaysUpFollowsTheDesktop(t *testing.T) {
-	t.Cleanup(func() { style.SetDesktopColorScheme(style.SchemeNoPreference) })
-	for _, scheme := range []string{"dark", "light"} {
-		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-		t.Setenv("UITK_COLOR_SCHEME", scheme)
-		a := headless(nil)
-		FollowDesktop(a)
-		if !a.Appearance().FollowDesktop || dark(a) != (scheme == "dark") {
-			t.Errorf("in a %s desktop: following %v, dark %v", scheme, a.Appearance().FollowDesktop, dark(a))
+// A dialog is as tall as what it says, at any display scale: its last row
+// is inside the window and there is no empty band under it. The height is
+// settled as the window is opened, before its first frame, so it is
+// centred for the height it opens at.
+func TestADialogIsAsTallAsItsContent(t *testing.T) {
+	for _, scale := range []float32{1, 1.5, 2} {
+		for _, lines := range []int{1, 6} {
+			a := uitoolkit.New(uitoolkit.Options{Headless: true, Look: uitoolkit.LightLook(), Scale: scale, DisableLookWatch: true})
+			body := widgets.NewColumn().WithGap(10).WithPad(16)
+			for i := 0; i < lines; i++ {
+				l := widgets.NewLabel("A description long enough to wrap in a dialog of this width, at least once.")
+				l.Wrap = true
+				body.Add(l)
+			}
+			ok := widgets.NewButton("OK", nil)
+			body.Add(ok)
+			w, err := Open(a, "test", 460, NewFrame("Unlock vault Personal", body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, opened := w.Size()
+			a.PumpOnce()
+			if _, h := w.Size(); h != opened {
+				t.Errorf("%.1fx, %d lines: opened %d tall, laid out %d tall", scale, lines, opened, h)
+			}
+			_, h := w.PixelSize()
+			bottom := widget.DeviceOrigin(ok).Y + ok.Bounds().Dy()
+			if bottom > float32(h) || float32(h)-bottom > 16*scale+2 {
+				t.Errorf("%.1fx, %d lines: the last row ends at %v in a window %d tall", scale, lines, bottom, h)
+			}
+			w.Close()
 		}
 	}
+}
 
-	t.Setenv("UITK_THEME", "light")
-	a := headless(nil)
-	FollowDesktop(a)
-	if a.Appearance().FollowDesktop {
-		t.Error("UITK_THEME was overridden")
-	}
-	t.Setenv("UITK_THEME", "")
-
-	if err := uitoolkit.SaveAppearance(style.Appearance{Name: "light"}); err != nil {
+// The Caps Lock line shows while Caps Lock is on: before the first key
+// where the window can tell, and as it is toggled.
+func TestTheCapsLockLine(t *testing.T) {
+	a := headless(uitoolkit.LightLook())
+	field := widgets.NewSecretField("")
+	caps := NewCapsLock()
+	f := NewFrame("Unlock vault Personal", widgets.NewColumn(field, caps).WithPad(16))
+	w, err := Open(a, "test", 460, f)
+	if err != nil {
 		t.Fatal(err)
 	}
-	a = headless(nil)
-	FollowDesktop(a)
-	if a.Appearance().FollowDesktop {
-		t.Error("a look chosen in Settings was overridden")
+	a.PumpOnce()
+	o := w.Surface().(*platform.Offscreen)
+
+	// Caps Lock pressed and released, as a keyboard sends it: the press
+	// carries the state before, the release the state after.
+	toggle := func(on bool) {
+		before, after := platform.ModCapsLock, platform.Modifiers(0)
+		if on {
+			before, after = after, before
+		}
+		w.Inject(platform.Event{Kind: platform.EventKeyDown, Mods: before})
+		o.SetLockKeys(on, false)
+		w.Inject(platform.Event{Kind: platform.EventKeyUp, Mods: after})
+		a.PumpOnce()
+	}
+
+	o.SetLockKeys(true, false)
+	caps.Follow(w)
+	if !caps.On() {
+		t.Fatal("not shown with Caps Lock on before the first key")
+	}
+	w.FocusOn(field)
+	toggle(false)
+	if caps.On() {
+		t.Fatal("still shown with Caps Lock off")
+	}
+	toggle(true)
+	if !caps.On() || caps.Bounds().Empty() {
+		t.Fatal("not shown when Caps Lock was turned on")
+	}
+	w.Press(platform.KeyA, platform.ModCapsLock)
+	// Coming back into focus is not Caps Lock going off.
+	w.Inject(platform.Event{Kind: platform.EventFocusOut})
+	w.Inject(platform.Event{Kind: platform.EventFocusIn})
+	a.PumpOnce()
+	if !caps.On() {
+		t.Fatal("hidden when the window came back into focus, with Caps Lock still on")
+	}
+	caps.Stop()
+	if caps.On() {
+		t.Fatal("shown after Stop")
+	}
+	toggle(false)
+	toggle(true)
+	if caps.On() {
+		t.Fatal("still following after Stop")
 	}
 }
 

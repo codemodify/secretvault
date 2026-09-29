@@ -12,6 +12,7 @@ import (
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/gui/secretui"
 	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svrpc"
 )
@@ -379,13 +380,17 @@ func (m *Manager) newVault() {
 	recovery := widgets.NewCheckbox("Make a recovery key, shown once", true, nil)
 	problem := toned("", toneDanger)
 	problem.Wrap = true
+	// A passphrase made with Caps Lock on would open the vault only with
+	// Caps Lock on: said while it is.
+	caps := secretui.NewCapsLock()
+	caps.Follow(m.win)
 
 	form := widgets.NewForm()
 	form.AddRow("Name", name)
 	form.AddRow("Cipher suite", suite)
 	form.AddRow("Passphrase", pass)
 	form.AddRow("Repeat", again)
-	body := widgets.NewColumn(form,
+	body := widgets.NewColumn(form, caps,
 		widgets.NewTip("A key to write down, which opens the vault if the passphrase is lost", recovery),
 		problem).WithGap(gap)
 
@@ -440,6 +445,7 @@ func (m *Manager) newVault() {
 		AddButton(create, widgets.RoleAccept).
 		AddButton(widgets.NewButton("Cancel", func() { d.Close() }), widgets.RoleReject)
 	d = m.showDialog("New vault", body, buttons, name, func() {
+		caps.Stop()
 		pass.Wipe()
 		again.Wipe()
 	})

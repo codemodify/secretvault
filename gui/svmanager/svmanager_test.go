@@ -17,6 +17,7 @@ import (
 	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widgets"
 
+	"github.com/codemodify/secretvault/gui/secretui"
 	"github.com/codemodify/secretvault/svcrypto"
 	"github.com/codemodify/secretvault/svotp"
 	"github.com/codemodify/secretvault/svrpc"
@@ -993,6 +994,64 @@ func TestHistoryShowsTheConflictAndItsWinner(t *testing.T) {
 				t.Fatal("a revision was not wiped on leaving the history")
 			}
 		}
+	}
+}
+
+// capsLock presses Caps Lock in w, as a keyboard sends it: the press
+// carries the state before, the release the state after.
+func capsLock(w interface {
+	Inject(platform.Event)
+	Surface() platform.Surface
+	Press(platform.Key, ...platform.Modifiers)
+}, on bool, pump func()) {
+	before, after := platform.ModCapsLock, platform.Modifiers(0)
+	if on {
+		before, after = after, before
+	}
+	w.Inject(platform.Event{Kind: platform.EventKeyDown, Mods: before})
+	w.Surface().(*platform.Offscreen).SetLockKeys(on, false)
+	w.Inject(platform.Event{Kind: platform.EventKeyUp, Mods: after})
+	pump()
+}
+
+// Where a passphrase is typed, the window says when Caps Lock is on: the
+// daemon's question, and a new vault's passphrase, which made with Caps
+// Lock on would open the vault only with Caps Lock on.
+func TestPassphrasesSayCapsLockIsOn(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{})
+	h.waitText("Vault personal is locked")
+	h.win().Press(platform.KeyU, platform.ModCtrl)
+	d := h.asking()
+	if d.caps == nil || d.caps.On() {
+		t.Fatal("the question says Caps Lock is on, with it off")
+	}
+	capsLock(d.win, true, h.pump)
+	if !d.caps.On() || !strings.Contains(windowText(d.win), "Caps Lock is on") {
+		t.Fatalf("Caps Lock is on and the question does not say so:\n%s", windowText(d.win))
+	}
+	capsLock(d.win, false, h.pump)
+	if d.caps.On() {
+		t.Fatal("Caps Lock is off and the question says it is on")
+	}
+	d.win.Press(platform.KeyEscape)
+	h.waitText("Canceled.")
+
+	h.m.newVault()
+	anyCaps := func(*secretui.CapsLock) bool { return true }
+	if find(h.overlay(), anyCaps) != nil {
+		t.Fatal("the new vault's dialog says Caps Lock is on, with it off")
+	}
+	capsLock(h.win(), true, h.pump)
+	caps := find(h.overlay(), anyCaps)
+	if caps == nil || !strings.Contains(h.text(), "Caps Lock is on") {
+		t.Fatalf("Caps Lock is on and the new vault's dialog does not say so:\n%s", h.text())
+	}
+	h.win().Press(platform.KeyEscape)
+	capsLock(h.win(), false, h.pump)
+	capsLock(h.win(), true, h.pump)
+	if h.overlay() != nil || caps.On() {
+		t.Fatal("the dialog closed and its Caps Lock line is still following the window")
 	}
 }
 

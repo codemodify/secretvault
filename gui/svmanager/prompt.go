@@ -8,7 +8,6 @@ import (
 
 	"github.com/codemodify/uitoolkit/app"
 	"github.com/codemodify/uitoolkit/layout"
-	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 
@@ -35,6 +34,7 @@ type promptDialog struct {
 	frame    *secretui.Frame
 	fields   []*widgets.SecretField
 	problem  *tonedLabel
+	caps     *secretui.CapsLock      // beside the buttons while Caps Lock is on
 	answer   chan svrpc.PromptAnswer // buffered: one answer
 	answered bool
 }
@@ -119,10 +119,7 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan svrpc.PromptAnswer) 
 	}
 	cancel := func() { finish(svrpc.PromptAnswer{Canceled: true}) }
 
-	// Columns and forms space their children in device pixels, so the
-	// lengths here are scaled to the display as the widgets are.
-	s := style.Dip(m.app.Look(), 1)
-	col := widgets.NewColumn().WithGap(10*s).WithPadding(20*s, 16*s, 20*s, 16*s)
+	col := widgets.NewColumn().WithGap(10).WithPadding(20, 16, 20, 16)
 	if text := strings.TrimSpace(q.Description); text != "" {
 		desc := widgets.NewLabel(text)
 		desc.Wrap = true
@@ -132,6 +129,9 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan svrpc.PromptAnswer) 
 	d.problem.Wrap = true
 	buttons := widgets.NewButtonBox()
 	var focus widget.Component
+	// Left of the buttons: nothing, or for a passphrase, Caps Lock while
+	// it is on.
+	var left widget.Component = widgets.NewSpacer()
 
 	switch q.Kind {
 	case svrpc.PromptChoose:
@@ -152,7 +152,6 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan svrpc.PromptAnswer) 
 		first.SetAccessibleName(promptLabel(q.Prompt, "Passphrase"))
 		d.fields = append(d.fields, first)
 		form := widgets.NewForm()
-		form.ColGap, form.RowGap = form.ColGap*s, form.RowGap*s
 		form.AddRow(promptLabel(q.Prompt, "Passphrase"), first)
 		ok := widgets.NewButton("Unlock", nil)
 		submit := func() {
@@ -198,8 +197,12 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan svrpc.PromptAnswer) 
 		col.Add(form)
 		col.Add(d.problem)
 		focus = first
+		d.caps = secretui.NewCapsLock()
+		left = d.caps
 	}
-	col.Add(widgets.NewRow(widgets.NewSpacer(), buttons).WithJustify(layout.JustifyEnd))
+	row := widgets.NewRow(left, buttons).WithJustify(layout.JustifyEnd).WithAlign(layout.AlignCenter)
+	row.AddFlex(left, 1)
+	col.Add(row)
 
 	d.frame = secretui.NewFrame(title, col)
 	d.frame.OnEscape = cancel
@@ -211,6 +214,9 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan svrpc.PromptAnswer) 
 		return d.id
 	}
 	d.win = win
+	if d.caps != nil {
+		d.caps.Follow(win)
+	}
 	win.SetInitialFocus(focus)
 	win.SetOnCloseRequest(func() bool {
 		cancel()

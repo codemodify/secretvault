@@ -50,9 +50,13 @@ func TestScreenshots(t *testing.T) {
 			d.win.Press(platform.KeyEscape)
 			h.expect(errCanceledLine)
 
+			// Refused, and with Caps Lock on: the usual reason.
 			h.do("SETERROR That passphrase does not open this vault.")
 			h.send("GETPIN")
 			d = h.dialog()
+			d.win.Inject(platform.Event{Kind: platform.EventKeyDown})
+			surface(t, d).SetLockKeys(true, false)
+			d.win.Inject(platform.Event{Kind: platform.EventKeyUp, Mods: platform.ModCapsLock})
 			shot(h, "unlock-again-"+scheme, d)
 			d.win.Press(platform.KeyEscape)
 			h.expect(errCanceledLine)
@@ -88,6 +92,17 @@ func TestScreenshots(t *testing.T) {
 			shot(h, "askpass-"+scheme, d)
 			d.win.Press(platform.KeyEscape)
 			h.expect(errCanceledLine)
+
+			// On a 2x display: the same dialog, every length doubled.
+			h2 := newHarnessAt(t, nil, 2)
+			h2.do("SETTITLE Allow access to vault Personal?",
+				"SETDESC mail (/usr/bin/mail) wants to read \"imap/work\" in vault \"Personal\".%0A%0AProgram: /usr/bin/mail%0AProcess: 4242")
+			h2.do(consent...)
+			h2.send("CHOOSE")
+			d = h2.dialog()
+			shot(h2, "consent-2x-"+scheme, d)
+			d.win.Press(platform.KeyEscape)
+			h2.expect(errCanceledLine)
 		})
 	}
 }

@@ -143,7 +143,10 @@ func (m *Manager) build() {
 	middle.AddFlex(u.items, 1)
 
 	u.pane = newSlot()
-	right := widgets.NewPad(pad, u.pane)
+	// A column rather than a Pad, whose padding is device pixels: a
+	// column's follows the display scale (uitoolkit-gaps.md, 25).
+	right := widgets.NewColumn().WithPad(pad)
+	right.AddFlex(u.pane, 1)
 
 	u.browse = widgets.NewSplitter(widgets.SplitColumns, middle, right)
 	u.browse.Ratio = 0.42

@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/codemodify/paintengine2d v0.11.0
 	github.com/codemodify/secretvault v0.0.0-00010101000000-000000000000
-	github.com/codemodify/uitoolkit v0.21.0
+	github.com/codemodify/uitoolkit v0.22.1
 )
 
 require (
@@ -16,10 +16,6 @@ require (
 	golang.org/x/text v0.42.0 // indirect
 )
 
-// The GUIs build against the sibling checkouts: this repository, and
-// uitoolkit beside it, whose secret-handling APIs are newer than its last
-// tag. Point the second at a tag once one has them.
-replace (
-	github.com/codemodify/secretvault => ../
-	github.com/codemodify/uitoolkit => ../../uitoolkit
-)
+// The GUIs build against secretvault as it is checked out around them, and
+// against uitoolkit's release from the module proxy.
+replace github.com/codemodify/secretvault => ../

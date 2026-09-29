@@ -159,7 +159,7 @@ func tip(b *widgets.Button, s string) *widgets.Button {
 // section is a heading inside a page: a muted, spaced-out label over a
 // rule.
 func section(m *Manager, title string) widget.Component {
-	return widgets.NewColumn(widgets.NewSpacerSize(0, 4), m.muted(strings.ToUpper(title)), widgets.NewSeparator()).WithGap(4)
+	return widgets.NewColumn(m.muted(strings.ToUpper(title)), widgets.NewSeparator()).WithGap(4).WithPadding(0, 8, 0, 0)
 }
 
 // fieldGrid lays the item's fields out: name, value, and what can be done

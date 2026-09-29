@@ -1,8 +1,6 @@
 package secretui
 
 import (
-	"math"
-
 	"github.com/codemodify/paintengine2d"
 	"github.com/codemodify/uitoolkit"
 	"github.com/codemodify/uitoolkit/layout"
@@ -108,39 +106,32 @@ func IsSecret(c widget.Component) bool {
 //
 //   - a dialog to the desktop, centred, above the other windows and fixed
 //     in size, all asked for at creation rather than a frame later;
+//   - as tall as f, measured by uitoolkit at the window's own scale and
+//     with any frame it draws itself (FitContent);
 //   - kept out of screenshots, recordings and screen shares where the
 //     platform can do that (Windows and macOS; not X11 or Wayland);
 //   - activated, so the keyboard is there when it opens.
 func Open(a *uitoolkit.Application, title string, width int, f *Frame) (*uitoolkit.Window, error) {
-	h := f.heightFor(a, width)
 	w, err := a.NewWindow(uitoolkit.WindowOptions{
-		Title: title, Width: width, Height: h,
+		// The height is a first guess, which the content replaces.
+		Title: title, Width: width, Height: width / 2,
 		Role: uitoolkit.RoleDialog, Center: true, KeepAbove: true,
-		Sizing: platform.SizingFixed,
+		Sizing: platform.SizingFixed, FitContent: true,
 	})
 	if err != nil {
 		return nil, err
 	}
 	f.win = w
 	w.SetContent(f)
-	if c := w.Caption(); c != nil {
-		// A frame the toolkit draws itself (Wayland without server
-		// decorations) takes its caption out of the window's height.
-		sc := w.Scale()
-		sz := c.Measure(layout.Constraints{MaxW: float32(width) * sc, MaxH: -1})
-		w.SetSize(width, h+int(math.Ceil(float64(sz.Y/sc))))
+	// FitContent fits the window when it is first laid out, but it was
+	// centred when it was made, for the height it was made with. Fitted
+	// now, before it is shown, it is centred again for the height it
+	// opens at (uitoolkit-gaps.md, 15). Wayland compositors centre a
+	// dialog themselves.
+	if w.FitToContent() {
+		w.Center()
 	}
 	w.SetExcludeFromCapture(true)
 	w.Activate()
 	return w, nil
-}
-
-// heightFor is how tall f is at width, in logical pixels: its content
-// decides, and the window is fixed at that.
-func (f *Frame) heightFor(a *uitoolkit.Application, width int) int {
-	sc := a.Scale()
-	f.SetLook(a.Look())
-	sz := f.Measure(layout.Constraints{MaxW: float32(width) * sc, MaxH: -1})
-	f.SetLook(nil)
-	return int(math.Ceil(float64(sz.Y / sc)))
 }

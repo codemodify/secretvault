@@ -9,7 +9,6 @@ import (
 	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/uitoolkit"
 	"github.com/codemodify/uitoolkit/layout"
-	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 )
@@ -67,10 +66,10 @@ type dialog struct {
 	frame      *secretui.Frame
 	pin        *widgets.SecretField
 	repeat     *widgets.SecretField
-	problem    *widgets.Label   // SETERROR, and later a repeat that did not match
-	factNames  []*widgets.Label // "Program:", "Asked by:"
-	factValues []*widgets.Label
-	stop       func() // the timeout's timer
+	problem    *widgets.Label     // SETERROR, and later a repeat that did not match
+	caps       *secretui.CapsLock // "Caps Lock is on", beside a passphrase's buttons
+	factValues []*widgets.Label   // "/usr/bin/mail", beside "Program:"
+	stop       func()             // the timeout's timer
 	done       bool
 }
 
@@ -102,33 +101,10 @@ func (d *dialog) width(a *uitoolkit.Application, actions widget.Component) int {
 	return min(max(minWidth, int(math.Ceil(float64(need)))), maxWidth)
 }
 
-// fitFacts lets a fact's value wrap only when it does not fit on one line
-// beside its name at width. A wrapping label that a form measures at its
-// own width wraps anyway, and its row is laid out a line taller than its
-// text (uitoolkit-gaps.md, 17); a value that fits needs no wrapping.
-func (d *dialog) fitFacts(a *uitoolkit.Application, width int) {
-	lk := a.Look()
-	s := style.Dip(lk, 1)
-	measure := func(l *widgets.Label) float32 {
-		l.SetLook(lk)
-		defer l.SetLook(nil)
-		return l.Measure(layout.Unbounded()).X
-	}
-	var names float32
-	for _, l := range d.factNames {
-		names = max(names, measure(l))
-	}
-	room := float32(width)*s - 2*sidePad*s - names - 10*s
-	for _, l := range d.factValues {
-		l.Wrap = measure(l) > room
-	}
-}
-
 // open builds the dialog and shows it in a window of a. UI thread only.
 func (d *dialog) open(a *uitoolkit.Application) error {
 	body, actions, first := d.build(a)
 	width := d.width(a, actions)
-	d.fitFacts(a, width)
 	d.frame = secretui.NewFrame(d.title(), body)
 	d.frame.OnEscape = d.cancel
 	w, err := secretui.Open(a, secretui.Name+": "+d.title(), width, d.frame)
@@ -136,6 +112,9 @@ func (d *dialog) open(a *uitoolkit.Application) error {
 		return err
 	}
 	d.win = w
+	if d.caps != nil {
+		d.caps.Follow(w)
+	}
 	w.SetInitialFocus(first)
 	// The window manager's close button is a cancel.
 	w.SetOnCloseRequest(func() bool {
@@ -151,40 +130,39 @@ func (d *dialog) open(a *uitoolkit.Application) error {
 // build is the dialog's body, the row of buttons at its foot, and what
 // has the keyboard when it opens.
 func (d *dialog) build(a *uitoolkit.Application) (body, actions, first widget.Component) {
-	lk := a.Look()
-	pal := lk.Palette()
-	// Columns and forms space their children in device pixels, so the
-	// lengths here are scaled to the display as the widgets are.
-	s := style.Dip(lk, 1)
-	col := widgets.NewColumn().WithGap(10*s).WithPadding(sidePad*s, 16*s, sidePad*s, 16*s)
-	newForm := func() *widgets.Form {
-		f := widgets.NewForm()
-		f.ColGap, f.RowGap = f.ColGap*s, f.RowGap*s
-		return f
-	}
+	pal := a.Look().Palette()
+	// Gaps and padding are 1x lengths, which uitoolkit scales to the
+	// display as it scales the widgets.
+	col := widgets.NewColumn().WithGap(10).WithPadding(sidePad, 16, sidePad, 16)
 
 	paras, facts := splitDescription(d.req.Description)
 	for i, p := range paras {
+		// A paragraph's lines, with a little more room between two
+		// paragraphs than between two lines.
+		para := widgets.NewColumn().WithGap(10)
 		if i > 0 {
-			col.Add(widgets.NewSpacerSize(0, 2*s))
+			para.WithPadding(0, 12, 0, 0)
 		}
 		for _, line := range p {
 			l := widgets.NewLabel(line)
 			l.Wrap = true
-			col.Add(l)
+			para.Add(l)
 		}
+		col.Add(para)
 	}
 	if d.asker != "" {
 		facts = append(facts, fact{"Asked by", d.asker})
 	}
 	if len(facts) > 0 {
-		form := newForm()
-		form.RowGap = 4 * s
+		form := widgets.NewForm()
+		form.RowGap = 4
 		for _, f := range facts {
+			// A long value (a program's path) wraps rather than being
+			// cut short; a short one takes its one line.
 			v := widgets.NewLabel(f.value)
+			v.Wrap = true
 			name := form.AddRow(f.name+":", v)
 			name.Color = pal.TextMuted
-			d.factNames = append(d.factNames, name)
 			d.factValues = append(d.factValues, v)
 		}
 		col.Add(form)
@@ -202,7 +180,7 @@ func (d *dialog) build(a *uitoolkit.Application) (body, actions, first widget.Co
 	var row widget.Component
 	switch d.kind {
 	case askPIN:
-		form := newForm()
+		form := widgets.NewForm()
 		d.pin = widgets.NewSecretField("")
 		d.pin.OnSubmit = d.submit
 		d.pin.OnEscape = d.cancel
@@ -218,7 +196,12 @@ func (d *dialog) build(a *uitoolkit.Application) (body, actions, first widget.Co
 		bb := widgets.NewButtonBox()
 		bb.AddButton(d.button("ok", orDefault(d.req.OK, "OK"), func() { d.submit(nil) }), widgets.RoleAccept)
 		bb.AddButton(d.button("cancel", orDefault(d.req.Cancel, "Cancel"), d.cancel), widgets.RoleReject)
-		row = bb
+		// Caps Lock is said beside the buttons while it is on, where it
+		// takes no room of its own: the dialog stays as tall as it opened.
+		d.caps = secretui.NewCapsLock()
+		r := widgets.NewRow(d.caps, bb).WithGap(16).WithAlign(layout.AlignCenter)
+		r.AddFlex(bb, 1)
+		row = r
 	case askChoose:
 		// Every answer offered, in the order offered. The default is the
 		// refusal (secretvaultd's "deny", or else the last answer, which
@@ -243,7 +226,7 @@ func (d *dialog) build(a *uitoolkit.Application) (body, actions, first widget.Co
 			rest.Add(b)
 		}
 		refuse.Primary = true
-		r := widgets.NewRow(rest, refuse).WithGap(16 * s).WithAlign(layout.AlignStart)
+		r := widgets.NewRow(rest, refuse).WithGap(16).WithAlign(layout.AlignStart)
 		r.AddFlex(rest, 1)
 		first, row = refuse, r
 	case askConfirm:
@@ -263,8 +246,8 @@ func (d *dialog) build(a *uitoolkit.Application) (body, actions, first widget.Co
 		first = ok
 		row = bb
 	}
-	col.Add(widgets.NewSpacerSize(0, 4*s))
-	col.Add(row)
+	// The buttons sit a little apart from what they answer.
+	col.Add(widgets.NewColumn(row).WithPadding(0, 14, 0, 0))
 	return col, row, first
 }
 

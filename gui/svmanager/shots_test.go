@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/codemodify/secretvault/gui/secretui"
 	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/uitoolkit"
 	"github.com/codemodify/uitoolkit/app"
@@ -37,7 +36,6 @@ func TestScreenshots(t *testing.T) {
 		t.Setenv("UITK_COLOR_SCHEME", scheme)
 		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		a := uitoolkit.New(uitoolkit.Options{Headless: true, Scale: 1, DisableLookWatch: true})
-		secretui.FollowDesktop(a)
 		h := newHarness(t)
 		h.start(Options{App: a})
 		h.waitText("Vault personal is locked")
@@ -51,7 +49,9 @@ func TestScreenshots(t *testing.T) {
 		d.win.Press(platform.KeyReturn)
 		h.waitFor("the second question", func() bool { return h.m.asking != nil && h.m.asking.id != d.id })
 		d = h.asking()
+		capsLock(d.win, true, h.pump) // the usual reason for a refusal
 		shoot(d.win, "03-prompt-again"+suffix)
+		capsLock(d.win, false, h.pump)
 		d.win.Type(pass)
 		d.win.Press(platform.KeyReturn)
 		h.waitFor("the items", func() bool { return h.m.listed && len(h.m.entries) == 4 })

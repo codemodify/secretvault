@@ -44,7 +44,6 @@ import (
 	"github.com/codemodify/uitoolkit"
 
 	"github.com/codemodify/secretvault"
-	"github.com/codemodify/secretvault/gui/secretui"
 	"github.com/codemodify/secretvault/gui/svmanager"
 	"github.com/codemodify/secretvault/svcrypto"
 )
@@ -72,10 +71,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: secretvault-gui [--vault NAME] [--no-tray]")
 		os.Exit(2)
 	}
-	// The look is the desktop's: its light or dark mode, and whatever
-	// uitoolkit's settings say.
+	// The look is uitoolkit's: whatever its Settings say, and with nothing
+	// chosen there, the desktop's light or dark mode, followed as it
+	// changes.
 	a := uitoolkit.New(uitoolkit.Options{})
-	secretui.FollowDesktop(a)
 	m, err := svmanager.New(svmanager.Options{App: a, Vault: *vault, Tray: !*noTray})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "secretvault-gui:", err)

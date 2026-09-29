@@ -108,8 +108,9 @@ bin/secretvaultd install        # optional: start at every login (systemd user u
 
 The desktop programs (`secretvault-gui`, `secretvault-gui-prompt`) are a Go
 module of their own, [`gui/`](gui), so nothing else needs cgo or uitoolkit.
-They build with cgo against [uitoolkit](https://github.com/codemodify/uitoolkit)
-checked out beside this repository:
+They build with cgo against a release of
+[uitoolkit](https://github.com/codemodify/uitoolkit), which Go fetches like
+any other module:
 
 ```bash
 (cd gui && CGO_ENABLED=1 go build -o ../bin/ ./cmd/...)
@@ -124,8 +125,8 @@ printf 'SETTITLE Test\nSETDESC Type anything.\nGETPIN\n' | bin/secretvault-gui-p
 ```
 
 No build tags are needed: both use uitoolkit's default theme engine. With
-no look chosen in uitoolkit's Settings, `secretvault-gui` follows the
-desktop's light or dark mode. Keep it in the same directory as
+no look chosen in uitoolkit's Settings, both follow the desktop's light or
+dark mode. Keep it in the same directory as
 `secretvaultd`: that is how the daemon knows it for one of secretvault's
 own programs, which it asks for passphrases.
 

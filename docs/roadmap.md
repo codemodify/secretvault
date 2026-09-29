@@ -59,8 +59,8 @@ The order below is the planned order, and they can overlap.
 - **The desktop prompt** is `secretvault-gui-prompt` wherever it is
   installed beside the daemon, and the system's pinentry elsewhere. It is
   tested headless, through the protocol, on Linux; it has not yet been run
-  on Windows or macOS desktops. It shows no caps-lock warning until
-  uitoolkit reports the lock keys (see uitoolkit-gaps.md).
+  on Windows or macOS desktops. It says when Caps Lock is on, now that
+  uitoolkit reports the lock keys (v0.22.1; see uitoolkit-gaps.md, 12).
 - **Windows and macOS code compiles.** Caller identification there does not
   yet read publisher signatures.
 - **Added along the way:**

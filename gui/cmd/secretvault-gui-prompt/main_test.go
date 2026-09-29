@@ -15,6 +15,7 @@ import (
 	"github.com/codemodify/uitoolkit"
 	"github.com/codemodify/uitoolkit/platform"
 	"github.com/codemodify/uitoolkit/style"
+	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 )
 
@@ -83,10 +84,16 @@ func (u recordingUI) GetPin(r svprompt.Request) ([]byte, error) {
 
 func newHarness(t *testing.T, look style.LookAndFeel) *harness {
 	t.Helper()
+	return newHarnessAt(t, look, 0)
+}
+
+// newHarnessAt is newHarness at a display scale (0 is 1x).
+func newHarnessAt(t *testing.T, look style.LookAndFeel, scale float32) *harness {
+	t.Helper()
 	k := newDesk()
-	k.opts = uitoolkit.Options{Headless: true, Look: look, DisableLookWatch: true}
+	k.opts = uitoolkit.Options{Headless: true, Look: look, Scale: scale, DisableLookWatch: true}
 	k.asker = func() string { return "" }
-	k.app = newApplication(k.opts)
+	k.app = uitoolkit.New(k.opts)
 	h := &harness{t: t, k: k, app: k.app, cmds: make(chan string, 64), lines: make(chan string, 64), pins: make(chan []byte, 8)}
 
 	inR, inW := io.Pipe()
@@ -337,6 +344,78 @@ func TestTheKeyboardIsHeldOnlyInTheField(t *testing.T) {
 	h.expect(errCanceledLine)
 }
 
+// A passphrase dialog says when Caps Lock is on, beside its buttons, and
+// takes no room for it: the dialog keeps its height and its buttons their
+// place. Nothing that is not asking for a passphrase says it.
+func TestAPassphraseDialogSaysCapsLockIsOn(t *testing.T) {
+	h := newHarness(t, uitoolkit.LightLook())
+	h.do("SETDESC mail wants a secret.%0A%0AEnter the passphrase.")
+	h.send("GETPIN")
+	d := h.dialog()
+	o := surface(t, d)
+	if d.caps == nil || d.caps.On() {
+		t.Fatal("a Caps Lock line is showing with Caps Lock off")
+	}
+	_, height := d.win.Size()
+	ok := widget.DeviceOrigin(d.buttons["ok"])
+
+	// Caps Lock pressed: the press carries the state before, the
+	// release the state after.
+	d.win.Inject(platform.Event{Kind: platform.EventKeyDown})
+	o.SetLockKeys(true, false)
+	d.win.Inject(platform.Event{Kind: platform.EventKeyUp, Mods: platform.ModCapsLock})
+	h.app.PumpOnce()
+	if !d.caps.On() || d.caps.Bounds().Empty() || d.caps.Text != "Caps Lock is on" {
+		t.Fatal("Caps Lock is on and the dialog does not say so")
+	}
+	if _, now := d.win.Size(); now != height || widget.DeviceOrigin(d.buttons["ok"]) != ok {
+		t.Fatalf("the dialog moved to say it: %d tall, was %d; OK at %v, was %v", now, height, widget.DeviceOrigin(d.buttons["ok"]), ok)
+	}
+	d.win.Type("SECRET")
+	d.win.Press(platform.KeyA, platform.ModCapsLock)
+	d.win.Inject(platform.Event{Kind: platform.EventKeyDown, Mods: platform.ModCapsLock})
+	o.SetLockKeys(false, false)
+	d.win.Inject(platform.Event{Kind: platform.EventKeyUp})
+	h.app.PumpOnce()
+	if d.caps.On() {
+		t.Fatal("Caps Lock is off and the dialog still says it is on")
+	}
+	d.win.Press(platform.KeyEscape)
+	h.expect(errCanceledLine)
+
+	h.do("RESET", "SETDESC Do you really want to delete the key?")
+	h.send("CONFIRM")
+	d = h.dialog()
+	if d.caps != nil {
+		t.Fatal("a confirmation watches Caps Lock")
+	}
+	d.win.Press(platform.KeyEscape)
+	h.expect(errCanceledLine)
+}
+
+// A dialog is the same size at any display scale, in the desktop's
+// logical pixels: its spacing scales with the display as its text and
+// controls do, once (uitoolkit-gaps.md, 14).
+func TestADialogIsTheSameAtEveryScale(t *testing.T) {
+	size := func(scale float32) (int, int) {
+		h := newHarnessAt(t, uitoolkit.LightLook(), scale)
+		h.do("SETTITLE Allow access to vault Personal?",
+			"SETDESC mail (/usr/bin/mail) wants to read \"imap\" in vault \"Personal\".%0A%0AProgram: /usr/bin/mail%0AProcess: 4242")
+		h.do(consent...)
+		h.send("CHOOSE")
+		d := h.dialog()
+		w, ht := d.win.Size()
+		d.win.Press(platform.KeyEscape)
+		h.expect(errCanceledLine)
+		return w, ht
+	}
+	w1, h1 := size(1)
+	w2, h2 := size(2)
+	if w2 < w1-2 || w2 > w1+2 || h2 < h1-6 || h2 > h1+6 {
+		t.Fatalf("%dx%d at 1x, %dx%d at 2x", w1, h1, w2, h2)
+	}
+}
+
 var consent = []string{
 	"ADDCHOICE once Allow once",
 	"ADDCHOICE until-lock Allow until the vault locks",
@@ -362,10 +441,15 @@ func TestConsentOffersEveryChoiceAndDenyIsTheDefault(t *testing.T) {
 	if surface(t, d).SecureInput() {
 		t.Fatal("the keyboard is held with no passphrase field")
 	}
-	// The program is set out as facts, a line each: the form is not
-	// measured taller than its two lines.
+	// The program is set out as facts, a line each. Their values wrap
+	// when they are too long for the line, and a short one measured at
+	// its own width is still one line (uitoolkit-gaps.md, 17): the form
+	// is not measured taller than its two lines.
 	if len(d.factValues) != 2 || d.factValues[0].Text != "/usr/bin/mail" || d.factValues[1].Text != "4242" {
 		t.Fatalf("%d facts", len(d.factValues))
+	}
+	if !d.factValues[0].Wrap {
+		t.Fatal("a fact's value does not wrap")
 	}
 	line := d.win.Look().Font().Height()
 	if h := d.factValues[0].Parent().Bounds().Dy(); h > 2.6*line {
