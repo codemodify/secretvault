@@ -83,8 +83,16 @@ func (m *Manager) reloadVaults() {
 		}
 		m.vaults = vs
 		m.drawVaults()
-		if v := m.vaultInfo(m.vault); v != nil && v.Locked && m.listed && lists == m.lists {
+		v := m.vaultInfo(m.vault)
+		switch {
+		case v != nil && v.Locked && m.listed && lists == m.lists:
 			m.vaultLocked(m.vault)
+		case v != nil && !v.Locked && !m.listed && !m.listing:
+			// Unlocked elsewhere: say so, and offer to list it.
+			m.drawItems()
+			if m.cur == nil && m.editor == nil && !m.showingVaultPage() && !m.showingHistory() {
+				m.showSelected()
+			}
 		}
 		m.drawStatus()
 	})
@@ -174,9 +182,12 @@ func (m *Manager) vaultActivated(i int) {
 	if v.Name != m.vault {
 		m.showVault(v.Name, false)
 	}
-	if v.Locked {
+	switch {
+	case v.Locked:
 		m.unlockVault(v.Name)
 		return
+	case !m.listed && !m.listing:
+		m.showVault(v.Name, true)
 	}
 	m.win.RequestFocus(m.ui.items)
 }
@@ -195,6 +206,7 @@ func (m *Manager) showVault(name string, unlock bool) {
 	}
 	m.vault = name
 	m.listGen++
+	m.listing = false
 	m.entries, m.shown, m.listed = nil, nil, false
 	m.drawVaults()
 	m.drawFolders()
@@ -303,6 +315,7 @@ func (m *Manager) vaultLocked(vault string) {
 	}
 	m.closeVaultPage()
 	m.listGen++
+	m.listing = false
 	m.entries, m.shown, m.listed = nil, nil, false
 	m.drawVaults()
 	m.drawFolders()
@@ -349,9 +362,9 @@ func (m *Manager) newVault() {
 		"sv1-nist: AES-256-GCM, PBKDF2 (FIPS 140-3)",
 	}, 0, nil)
 	suite.SetAccessibleName("Cipher suite")
-	pass := widgets.NewSecretField("Passphrase")
+	pass := widgets.NewSecretField("At least 8 characters")
 	again := widgets.NewSecretField("The same again")
-	recovery := widgets.NewCheckbox("Make a recovery key, shown once, to open the vault if the passphrase is lost", true, nil)
+	recovery := widgets.NewCheckbox("Make a recovery key, shown once", true, nil)
 	problem := m.tint(widgets.NewLabel(""), toneDanger)
 	problem.Wrap = true
 
@@ -360,14 +373,16 @@ func (m *Manager) newVault() {
 	form.AddRow("Cipher suite", suite)
 	form.AddRow("Passphrase", pass)
 	form.AddRow("Repeat", again)
-	body := widgets.NewColumn(form, recovery, problem).WithGap(gap)
+	body := widgets.NewColumn(form,
+		widgets.NewTip("A key to write down, which opens the vault if the passphrase is lost", recovery),
+		problem).WithGap(gap)
 
 	var d *dialog
 	create := widgets.NewButton("Create", nil)
 	create.OnClick = func() {
 		n := strings.TrimSpace(name.Text)
 		switch {
-		case n == "" || strings.ContainsAny(n, "/\\") || strings.TrimSpace(n) != n:
+		case n == "" || strings.ContainsAny(n, "/\\"):
 			problem.SetText("Give the vault a name, without slashes.")
 			return
 		case m.vaultInfo(n) != nil:
@@ -463,7 +478,7 @@ func (m *Manager) showKeys() {
 		{"Ctrl+W, Ctrl+Q", "close the window (to the tray), quit"},
 	}
 	g := widgets.NewGrid()
-	g.ColGap, g.RowGap = 16, 4
+	g.ColGap, g.RowGap = 16, 0
 	for i, r := range rows {
 		k := widgets.NewLabel(r[0])
 		k.Mono = true

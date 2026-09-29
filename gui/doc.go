@@ -4,7 +4,9 @@
 //
 //	gui/cmd/secretvault-gui          the password manager
 //	gui/cmd/secretvault-gui-prompt   the desktop prompt (pinentry protocol)
+//	gui/svmanager                    the password manager, as a library
 //
 // Build with CGO_ENABLED=1 on Linux and macOS (uitoolkit's windowing needs
-// it), from this directory: go build ./cmd/...
+// it), from this directory: go build ./cmd/... No build tags are needed:
+// the programs use uitoolkit's default theme engine.
 package gui

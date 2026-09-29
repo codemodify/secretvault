@@ -49,6 +49,20 @@ func (m *Manager) showLocked() {
 		m.ui.pane.Set(m.message("Vault "+v.Name+" is missing", "Its folder, "+v.Path+", is not there. Is a drive missing?"))
 		return
 	}
+	if !v.Locked && m.listing {
+		m.ui.pane.Set(m.message("Vault "+v.Name, "Listing its items…"))
+		return
+	}
+	if !v.Locked {
+		// Unlocked by another program since this one last listed it, or
+		// listing it failed: listing it may mean proving this program
+		// knows the passphrase too, so it waits to be asked.
+		show := widgets.NewButton("Show its items", func() { m.showVault(v.Name, true) })
+		show.Primary = true
+		m.ui.pane.Set(m.message("Vault "+v.Name+" is unlocked",
+			"It was unlocked elsewhere. Its items show here once this program has shown it knows the passphrase too.", show))
+		return
+	}
 	unlock := widgets.NewButton("Unlock…", func() { m.unlockVault(v.Name) })
 	unlock.Primary = true
 	m.ui.pane.Set(m.message("Vault "+v.Name+" is locked",
@@ -78,7 +92,7 @@ func (m *Manager) showSelected() {
 	case m.vault == "" && len(m.vaults) == 0:
 		m.showNoVaults()
 		return
-	case v != nil && v.Locked && !m.listed:
+	case v != nil && !m.listed:
 		m.showLocked()
 		return
 	}
@@ -103,6 +117,7 @@ func (m *Manager) showItem(reveal bool) {
 	m.ui.pane.Set(m.ui.view.root)
 	m.drawCodes()
 	m.enableMenus()
+	m.syncCapture()
 }
 
 // Kinds of page that stay up while the list changes under them.

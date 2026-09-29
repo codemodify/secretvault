@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codemodify/uitoolkit/a11y"
+	"github.com/codemodify/uitoolkit/a11y/a11ytest"
 	"github.com/codemodify/uitoolkit/platform"
 	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widgets"
@@ -95,6 +97,45 @@ func TestUnlockingAsksForThePassphraseInItsOwnWindow(t *testing.T) {
 	if strings.Contains(h.text(), pass) || shaped(h, pass) {
 		t.Fatal("the passphrase was drawn as text")
 	}
+}
+
+// A vault the CLI unlocked is not the GUI's to use until it too shows it
+// knows the passphrase: the daemon asks it, in its own window, as the
+// program it is.
+func TestAVaultUnlockedElsewhereAsksTheGUIToProveItself(t *testing.T) {
+	h := newHarness(t)
+	h.prove() // the CLI unlocks it
+	h.start(Options{})
+	d := h.asking()
+	if d.win.Title() != "Allow svmanager.test" || !strings.Contains(windowText(d.win), "has not used vault") {
+		t.Fatalf("the GUI was asked %q:\n%s", d.win.Title(), windowText(d.win))
+	}
+	d.win.Type(pass)
+	d.win.Press(platform.KeyReturn)
+	h.waitFor("the items", func() bool { return h.m.listed && len(h.m.entries) == 4 })
+	// Proved once, on this connection: nothing more is asked.
+	h.open("web/github.com")
+	if h.m.asking != nil {
+		t.Fatal("asked again")
+	}
+}
+
+// A vault unlocked elsewhere while it shows locked here says so, and is
+// listed when asked, not before: listing it means a question.
+func TestAVaultUnlockedWhileShownLockedWaitsToBeAsked(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{})
+	h.waitText("Vault personal is locked")
+	h.prove()
+	h.waitText("Vault personal is unlocked")
+	if h.m.asking != nil {
+		t.Fatal("the GUI asked without being asked to")
+	}
+	h.click(h.win(), button(h.m.ui.pane, "Show its items"))
+	d := h.asking()
+	d.win.Type(pass)
+	d.win.Press(platform.KeyReturn)
+	h.waitFor("the items", func() bool { return h.m.listed && len(h.m.entries) == 4 })
 }
 
 func TestCancellingThePromptSaysSo(t *testing.T) {
@@ -211,7 +252,7 @@ func TestAnItemIsMaskedUntilRevealed(t *testing.T) {
 
 	// One field at a time.
 	h.click(h.win(), button(h.m.ui.pane, "Show"))
-	if !sr.text.Revealed() || sr.show.Text != "Hide" {
+	if !sr.text.Revealed() || sr.show.Text != "Hide" || !h.m.excluded {
 		t.Fatal("Show did not reveal the password")
 	}
 	h.pump()
@@ -228,7 +269,7 @@ func TestAnItemIsMaskedUntilRevealed(t *testing.T) {
 		t.Fatal("the revealed password reached the accessibility tree")
 	}
 	h.click(h.win(), button(h.m.ui.pane, "Hide"))
-	if sr.text.Revealed() {
+	if sr.text.Revealed() || h.m.excluded {
 		t.Fatal("Hide did not hide it")
 	}
 
@@ -897,7 +938,7 @@ func TestANewVaultShowsItsRecoveryKeyOnce(t *testing.T) {
 	d := h.overlay()
 	name := find(d, func(f *widgets.TextField) bool { return f.Placeholder == "personal, work…" })
 	fields := []*widgets.SecretField{}
-	for _, ph := range []string{"Passphrase", "The same again"} {
+	for _, ph := range []string{"At least 8 characters", "The same again"} {
 		fields = append(fields, find(d, func(f *widgets.SecretField) bool { return f.Placeholder == ph }))
 	}
 	h.win().FocusOn(name)
@@ -1004,6 +1045,45 @@ func TestTheTray(t *testing.T) {
 		return true
 	})
 	h.waitText("Vault personal is locked")
+}
+
+// Every control carries a name, a box and a way for the keyboard to reach
+// it; and no secret is in the tree, revealed or not.
+func TestTheWindowsAreAccessible(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{})
+	h.waitText("Vault personal is locked")
+	a11ytest.Audit(t, "locked", h.win().AccessibleTree())
+	h.win().Press(platform.KeyU, platform.ModCtrl)
+	d := h.asking()
+	d.win.Type(pass)
+	tree := a11ytest.Audit(t, "the passphrase dialog", d.win.AccessibleTree())
+	if a11ytest.Count(tree, a11y.RolePasswordField) != 1 {
+		t.Error("the dialog has no password field")
+	}
+	d.win.Press(platform.KeyReturn)
+	h.waitFor("the items", func() bool { return h.m.listed })
+	h.idle()
+	h.open("web/github.com")
+	h.win().Press(platform.KeyR, platform.ModCtrl)
+	tree = a11ytest.Audit(t, "an item", h.win().AccessibleTree())
+	if strings.Contains(windowText(h.win()), "hunter2") {
+		t.Error("a revealed password is in the accessibility tree")
+	}
+	var concealed *a11y.Node
+	tree.Walk(func(n *a11y.Node) bool {
+		if n.Name == "password" && strings.HasPrefix(n.Description, "concealed") {
+			concealed = n
+		}
+		return true
+	})
+	if concealed == nil || concealed.Value != mask {
+		t.Errorf("the concealed value is, to assistive technology, %+v", concealed)
+	}
+	h.win().Press(platform.KeyE, platform.ModCtrl)
+	a11ytest.Audit(t, "the editor", h.win().AccessibleTree())
+	h.win().Press(platform.KeyG, platform.ModCtrl)
+	a11ytest.Audit(t, "the generator", h.win().AccessibleTree())
 }
 
 func TestWithNoTrayClosingTheWindowQuits(t *testing.T) {

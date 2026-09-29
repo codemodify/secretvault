@@ -9,6 +9,7 @@ import (
 	"github.com/codemodify/uitoolkit/app"
 	"github.com/codemodify/uitoolkit/platform"
 	"github.com/codemodify/uitoolkit/style"
+	"github.com/codemodify/uitoolkit/widgets"
 )
 
 // TestScreenshots draws the manager's windows to PNG files, for people to
@@ -97,5 +98,53 @@ func TestScreenshots(t *testing.T) {
 
 		h.m.newVault()
 		shoot(h.win(), "14-new-vault"+suffix)
+		d2 := h.overlay()
+		name := find(d2, func(f *widgets.TextField) bool { return f.Placeholder == "personal, work…" })
+		h.win().FocusOn(name)
+		h.win().Type("work")
+		for _, ph := range []string{"At least 8 characters", "The same again"} {
+			h.win().FocusOn(find(d2, func(f *widgets.SecretField) bool { return f.Placeholder == ph }))
+			h.win().Type("work passphrase 1")
+		}
+		h.win().Press(platform.KeyReturn)
+		h.waitText("Recovery key for work")
+		shoot(h.win(), "15-recovery-key"+suffix)
+		h.click(h.win(), button(h.overlay(), "I have written it down"))
+		h.idle()
+
+		h.m.showVault("personal", false)
+		h.idle()
+		h.selectItem("web/gitlab.com")
+		h.win().FocusOn(h.m.ui.items)
+		h.win().Press(platform.KeyDelete)
+		shoot(h.win(), "16-delete"+suffix)
+		h.win().Press(platform.KeyEscape)
+
+		h.win().Press(platform.KeyF1)
+		shoot(h.win(), "17-keys"+suffix)
+		h.win().Press(platform.KeyEscape)
+
+		h.stopDaemon()
+		h.waitText("No connection to secretvaultd")
+		shoot(h.win(), "18-gone"+suffix)
 	}
+
+	// A conflict, and its history.
+	h := newHarness(t)
+	h.addConflicted()
+	h.start(Options{Vault: "shared"})
+	h.waitText("Vault shared is locked")
+	h.unlockAgain()
+	h.open("site")
+	shoot(h.win(), "19-conflict-dark")
+	h.win().Press(platform.KeyH, platform.ModCtrl)
+	h.waitFor("the history", h.m.showingHistory)
+	h.idle()
+	for i, e := range h.m.hist.entries {
+		if h.m.hist.heads[e.Rev] {
+			h.m.hist.table.Selected = i
+			h.m.openRevision(i)
+		}
+	}
+	shoot(h.win(), "20-conflict-history-dark")
 }

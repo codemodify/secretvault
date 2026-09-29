@@ -10,6 +10,7 @@ import (
 	"github.com/codemodify/uitoolkit/layout"
 	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widget"
+	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault/svrpc"
 )
@@ -130,12 +131,13 @@ func (s *secretText) Paint(ctx *paintengine2d.Context) {
 
 // Describe tells assistive technology what this is, and nothing of what it
 // holds: a screen reader says "password, concealed", revealed or not. The
-// accessibility tree is made of strings and outlives the frame.
+// accessibility tree is made of strings, and a string outlives the frame.
 func (s *secretText) Describe(n *a11y.Node) {
-	n.Role = a11y.RolePasswordField
+	n.Role = a11y.RoleLabel
 	n.Value = mask
+	n.Description = "concealed"
 	if s.reveal {
-		n.Description = "shown on screen"
+		n.Description = "concealed, shown on screen"
 	}
 }
 
@@ -145,6 +147,38 @@ func newCodeText() *secretText {
 	s := newSecretText(nil)
 	s.reveal = true
 	return s
+}
+
+// syncCapture keeps the window out of screenshots and screen sharing
+// while it shows a secret: a value revealed, a one-time code, a generated
+// password, a secret field showing what was typed. Windows and macOS
+// honour it; X11 and Wayland have no such thing (uitoolkit reports so),
+// and there it does nothing.
+func (m *Manager) syncCapture() {
+	if m.ui == nil || m.win.Closed() {
+		return
+	}
+	showing := false
+	look := func(c widget.Component) {
+		widget.Walk(c, func(c widget.Component) {
+			switch x := c.(type) {
+			case *secretText:
+				showing = showing || (x.reveal && len(x.value) > 0)
+			case *widgets.SecretField:
+				showing = showing || (x.Reveal && !x.Empty())
+			}
+		})
+	}
+	if root := m.win.Content(); root != nil {
+		look(root)
+	}
+	if o := m.win.Overlay(); o != nil {
+		look(o)
+	}
+	if showing != m.excluded {
+		m.excluded = showing
+		m.win.SetExcludeFromCapture(showing)
+	}
 }
 
 // wipeItem zeroes the values of an item's fields.

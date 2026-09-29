@@ -116,6 +116,7 @@ type Manager struct {
 	syncs      map[string]svrpc.SyncStatus // by vault, for the vaults that sync
 	vault      string                      // the vault whose items are shown
 	listed     bool                        // its items have been listed
+	listing    bool                        // and are being listed
 	lists      int                         // counts the listings
 	entries    []svrpc.Entry               // its items, without their fields, by name
 	shown      []int                       // the entries the search and folder let through
@@ -139,8 +140,9 @@ type Manager struct {
 	asking  *promptDialog // the daemon's question on the screen
 	promptN int
 
-	gen    generator // the generator's settings, kept between uses
-	hidden bool      // the window is hidden in the tray
+	gen      generator // the generator's settings, kept between uses
+	hidden   bool      // the window is hidden in the tray
+	excluded bool      // the window is kept out of screen captures (syncCapture)
 
 	minimiseHook func() // tests: what minimising the window does
 
@@ -383,6 +385,7 @@ func (m *Manager) daemonGone() {
 	m.entries, m.shown, m.listed = nil, nil, false
 	m.vaults = nil
 	m.drawVaults()
+	m.drawFolders()
 	m.drawItems()
 	m.showGone()
 	m.drawStatus()

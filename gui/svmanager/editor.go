@@ -399,6 +399,7 @@ func (ed *editor) toggleReveal() {
 		ed.reveal.Text = "Hide secrets"
 	}
 	ed.reveal.RequestLayout()
+	ed.m.syncCapture()
 	ed.reveal.Invalidate()
 }
 
@@ -571,6 +572,7 @@ func (ed *editor) close() {
 	}
 	ed.m.win.RequestFocus(ed.m.ui.items)
 	ed.m.enableMenus()
+	ed.m.syncCapture()
 }
 
 func (ed *editor) wipe() {

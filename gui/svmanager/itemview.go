@@ -308,6 +308,7 @@ func (v *itemView) toggle(i int) {
 	sr.show.Text = showLabel(on, sr.key)
 	sr.show.RequestLayout()
 	sr.show.Invalidate()
+	v.m.syncCapture()
 }
 
 // toggleAll shows every concealed value, or hides them all if any shows.

@@ -33,8 +33,10 @@ func (m *Manager) showDialog(title string, body widget.Component, buttons *widge
 		if onClose != nil {
 			onClose()
 		}
+		m.syncCapture()
 	}
 	widget.ShowOverlay(m.root(), d.overlay)
+	m.syncCapture()
 	return d
 }
 

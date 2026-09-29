@@ -25,6 +25,7 @@ import (
 func (m *Manager) loadItems() {
 	vault, gen := m.vault, m.listGen
 	var entries []svrpc.Entry
+	m.listing = true
 	m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 		entries, err = c.List(ctx, vault, "")
 		return err
@@ -32,7 +33,11 @@ func (m *Manager) loadItems() {
 		if gen != m.listGen {
 			return
 		}
+		m.listing = false
 		if err != nil {
+			if !m.listed && m.editor == nil && !m.showingVaultPage() {
+				m.showSelected()
+			}
 			m.fail(err)
 			m.drawItems()
 			m.reloadVaults()
@@ -220,8 +225,10 @@ func (m *Manager) drawItems() {
 		note = "This vault's folder is missing."
 	case v != nil && !m.listed && v.Locked:
 		note = "Locked. Enter or Ctrl+U unlocks it."
-	case !m.listed:
+	case !m.listed && m.listing:
 		note = "Listing…"
+	case !m.listed:
+		note = "Not listed yet. Enter on the vault lists its items."
 	case len(m.entries) == 0:
 		note = "No items yet: Ctrl+N makes one."
 	case len(m.shown) == 0:
@@ -281,19 +288,23 @@ func (m *Manager) itemSelected(i int) {
 		return
 	}
 	name := m.entries[m.shown[i]].Item.Name
-	if name == m.cursor && (m.cur != nil || m.editor != nil) {
+	if m.cur != nil && m.cur.Item.Name == name {
+		m.cursor = name
 		return
 	}
 	m.cursor = name
-	if m.cur != nil && m.cur.Item.Name == name {
-		return
-	}
+	defer m.enableMenus()
 	if m.editor != nil {
 		return // the editor stays until it is saved or closed
 	}
-	m.closeItem()
-	m.showSelected()
-	m.enableMenus()
+	if m.showingHistory() {
+		// Another item: its history goes, wiped.
+		m.wipeHistory()
+		m.closeItem()
+		m.showSelected()
+		return
+	}
+	m.closeItem() // which shows the selection
 }
 
 // itemActivated is Enter or a double click in the list: the item opens.
@@ -423,6 +434,7 @@ func (m *Manager) closeItem() {
 	if m.ui != nil && m.editor == nil && !m.showingVaultPage() && !m.showingHistory() {
 		m.showSelected()
 	}
+	m.syncCapture()
 }
 
 // withItem runs fn on the target item: the open one, or else the one

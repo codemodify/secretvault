@@ -117,7 +117,7 @@ func (m *Manager) build() {
 
 	u.vaultList = widgets.NewTableView([]widgets.TableColumn{
 		{Title: "Vault"},
-		{Title: "", Width: 78, Align: style.AlignEnd},
+		{Title: "State", Width: 80, Align: style.AlignEnd},
 	}, 0, m.vaultCell, func(i int) { m.vaultSelected(i) })
 	u.vaultList.CellIcon = m.vaultIcon
 	u.vaultList.OnActivate = func(i int) { m.vaultActivated(i) }

@@ -72,8 +72,8 @@ func (m *Manager) showHistory() {
 func (m *Manager) drawHistory() {
 	h := m.hist
 	h.table = widgets.NewTableView([]widgets.TableColumn{
-		{Title: "When", Width: 150},
-		{Title: "Revision", Width: 120},
+		{Title: "When", Width: 170},
+		{Title: "Revision", Width: 110},
 		{Title: "Device", Width: 90},
 		{Title: ""},
 	}, len(h.entries), func(row, col int) string {
@@ -194,4 +194,5 @@ func (m *Manager) wipeHistory() {
 	}
 	wipeEntries(h.entries)
 	m.hist = nil
+	m.syncCapture()
 }
