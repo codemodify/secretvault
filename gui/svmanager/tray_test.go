@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/codemodify/secretvault/svdbus"
+	"github.com/codemodify/uitoolkit/platform"
 )
 
 // privateBus starts a dbus-daemon of the test's own, allowing everything
@@ -81,6 +82,20 @@ func TestHidingInTheTrayNeedsAHostThatShowsIt(t *testing.T) {
 	addr := privateBus(t)
 	if sniHostRegistered() {
 		t.Fatal("a bus with no StatusNotifierWatcher counts as a tray")
+	}
+	// uitoolkit's own answer on the same bus, which is why the manager
+	// still asks for itself (uitoolkit-gaps.md, 23): with no watcher at
+	// all, as on a GNOME without the AppIndicator extension, its status
+	// item says the icon is shown.
+	t.Setenv("UITK_TRAY", "")
+	item, err := platform.NewStatusItem(platform.StatusItemOptions{ID: "svgui-test", Title: "svgui-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer item.Close()
+	t.Logf("uitoolkit's status item: %s, shown %v", item.Backend(), item.Shown())
+	if item.Backend() == "sni" && !item.Shown() {
+		t.Fatal("uitoolkit says no tray on a bus with no watcher now: see uitoolkit-gaps.md item 23, and sniHostRegistered")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

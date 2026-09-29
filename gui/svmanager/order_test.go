@@ -333,15 +333,80 @@ func TestWhatTheEditorOpenedGoesWithIt(t *testing.T) {
 	if pick == nil {
 		t.Fatal("no file was asked for")
 	}
-	kept := ed.fields[0].kept
+	area := ed.fields[0].secret
 	ed.close()
 	in := filepath.Join(h.dir, "new-key")
 	if err := os.WriteFile(in, []byte("NEW KEY"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	pick(in)
-	if !allZero(kept) || !allZero(ed.fields[0].kept) {
+	if area == nil || !area.Empty() {
 		t.Fatal("the closed editor holds a key")
+	}
+}
+
+// A key is edited in a secret area, several lines and all: pasted,
+// shown, read from a file, and saved as it is. What the editor held is
+// wiped when it closes.
+func TestAKeyIsEditedInASecretArea(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{})
+	h.unlock()
+	h.prove()
+	pem := "-----BEGIN KEY-----\nAAAA\nBBBB\n-----END KEY-----\n"
+	key := svrpc.Item{Kind: "ssh-key", Name: "ssh/laptop", Fields: []svrpc.Field{
+		{Name: "private-key", Type: svcore.FieldKey, Value: []byte(pem)},
+		{Name: "pin", Type: svcore.FieldConcealed, Value: []byte("1234")},
+		{Name: "blob", Type: svcore.FieldBinary, Value: []byte{0, 1, 2}}}}
+	if _, err := h.admin.Put(h.ctx(), "", key); err != nil {
+		t.Fatal(err)
+	}
+	h.waitFor("ssh/laptop", func() bool { return h.m.entry("ssh/laptop") != nil })
+	h.open("ssh/laptop")
+	h.win().Press(platform.KeyE, platform.ModCtrl)
+	h.waitFor("the editor", func() bool { return h.m.editor != nil })
+	ed := h.m.editor
+	kf, pin, blob := ed.fields[0], ed.fields[1], ed.fields[2]
+	area, ok := kf.box.(*widgets.SecretArea)
+	if !ok || kf.kept != nil {
+		t.Fatalf("the key is in a %T, kept %v", kf.box, kf.kept != nil)
+	}
+	if got := kf.secret.Bytes(); string(got) != pem {
+		t.Fatalf("the area holds %q", got)
+	}
+	if _, ok := pin.box.(*widgets.SecretField); !ok || blob.kept == nil {
+		t.Fatalf("a one-line secret is in a %T; binary kept %v", pin.box, blob.kept != nil)
+	}
+	h.win().Press(platform.KeyR, platform.ModCtrl)
+	if !area.Reveal || !h.m.excluded {
+		t.Fatal("the key is not shown, or shown with the window in captures")
+	}
+	h.win().Press(platform.KeyR, platform.ModCtrl)
+
+	// Read from a file into the area.
+	var pick func(string)
+	h.m.opts.PickFile = func(_ bool, _ string, done func(string)) { pick = done }
+	h.click(h.win(), button(h.m.ui.pane, "Replace from file…"))
+	next := "-----BEGIN KEY-----\nCCCC\n-----END KEY-----\n"
+	in := filepath.Join(h.dir, "next-key")
+	if err := os.WriteFile(in, []byte(next), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pick(in)
+	if got := kf.secret.Bytes(); string(got) != next {
+		t.Fatalf("after reading the file the area holds %q", got)
+	}
+	h.win().Press(platform.KeyS, platform.ModCtrl)
+	h.waitFor("the save", func() bool { return h.m.editor == nil })
+	e, err := h.get("ssh/laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if field(e, "private-key") != next || field(e, "pin") != "1234" || field(e, "blob") != "\x00\x01\x02" {
+		t.Fatalf("saved %q, %q, %q", field(e, "private-key"), field(e, "pin"), field(e, "blob"))
+	}
+	if !kf.secret.Empty() || !pin.secret.Empty() || !allZero(blob.kept) {
+		t.Fatal("the closed editor holds a secret")
 	}
 }
 
@@ -386,34 +451,44 @@ func TestWhatIsSentIsWipedWhenThereIsNoDaemon(t *testing.T) {
 	}
 }
 
-// A second recovery key waits for the first to be written down, and a
-// dialog up when one arrives is left to be finished with.
-func TestARecoveryKeyWaitsItsTurn(t *testing.T) {
+// A recovery key goes over whatever dialog is up, which is there as it
+// was once the key has been written down; and a key up when the program
+// quits is wiped, under another dialog or not.
+func TestARecoveryKeyGoesOverTheDialogUp(t *testing.T) {
 	h := newHarness(t)
 	h.start(Options{})
 	h.unlock()
 	h.m.confirm("Something else", "Busy", "OK", func() {})
 	h.pump()
+	busy := h.overlay()
 	first, second := []byte("RK-FIRST-1234"), []byte("RK-SECOND-5678")
 	h.m.showRecoveryKey("a", first)
 	h.m.showRecoveryKey("b", second)
 	h.pump()
-	if !strings.Contains(h.text(), "Busy") || allZero(first) || allZero(second) {
-		t.Fatalf("the dialog up was replaced, or a key wiped unread:\n%s", h.text())
-	}
-	h.click(h.win(), button(h.overlay(), "Cancel"))
-	h.waitText("Recovery key for a")
-	h.click(h.win(), button(h.overlay(), "I have written it down"))
-	if !allZero(first) || allZero(second) {
-		t.Fatal("the first key was not wiped, or the second was")
+	if n := len(h.win().Overlays()); n != 3 || allZero(first) || allZero(second) {
+		t.Fatalf("%d dialogs up, or a key wiped unread:\n%s", n, h.text())
 	}
 	h.waitText("Recovery key for b")
+	h.click(h.win(), button(h.overlay(), "I have written it down"))
+	if !allZero(second) || allZero(first) {
+		t.Fatal("the key written down was not wiped, or the other one was")
+	}
+	h.waitText("Recovery key for a")
+	h.click(h.win(), button(h.overlay(), "I have written it down"))
+	if !allZero(first) {
+		t.Fatal("the first key was not wiped")
+	}
+	if h.overlay() != busy || !strings.Contains(h.text(), "Busy") {
+		t.Fatalf("the dialog that was up is gone:\n%s", h.text())
+	}
 
-	// One still waiting when the program quits is wiped.
-	third := []byte("RK-THIRD-9012")
+	// Keys still up when the program quits are wiped, the one under the
+	// other too.
+	third, fourth := []byte("RK-THIRD-9012"), []byte("RK-FOURTH-3456")
 	h.m.showRecoveryKey("c", third)
+	h.m.showRecoveryKey("d", fourth)
 	h.m.Close()
-	if !allZero(second) || !allZero(third) {
+	if !allZero(third) || !allZero(fourth) || len(h.win().Overlays()) != 0 {
 		t.Fatal("recovery keys outlived the program")
 	}
 }
@@ -486,15 +561,88 @@ func TestAFileSavedOverAnotherIsTheOwnersOnly(t *testing.T) {
 	}
 }
 
-// Coloured labels take their colour from the look they are drawn in,
-// with nothing keeping them (uitoolkit-gaps.md, 24).
+// Coloured labels take their colour from the look they are drawn in, with
+// nothing keeping them (uitoolkit-gaps.md, 24), and readable on it: still
+// red, and at 4.5:1 (29).
 func TestTonesFollowTheLook(t *testing.T) {
 	l := toned("Locked", toneDanger)
-	for _, lk := range []style.LookAndFeel{style.DarkLook(), style.LightLook()} {
+	for _, lk := range []style.LookAndFeel{style.DarkLook(), style.LightLook(), style.Appearance{Name: "plastik-night"}.Look()} {
 		l.SetLook(lk)
 		l.Measure(layout.Loose(400, 100))
+		p := lk.Palette()
 		if l.Color != toneColor(lk, toneDanger) {
-			t.Fatalf("on %v the label is %v", lk.Palette().Background, l.Color)
+			t.Fatalf("on %v the label is %v", p.Background, l.Color)
 		}
+		if r := style.ContrastRatio(l.Color, p.Background); r < style.MinInkContrast {
+			t.Fatalf("on %v the danger is %.1f:1", p.Background, r)
+		}
+		if c := l.Color; c.R < c.G+0.2 || c.R < c.B+0.2 {
+			t.Fatalf("on %v the danger is %v, not red", p.Background, c)
+		}
+	}
+}
+
+// A dialog raised over another leaves it as it was: its fields still hold
+// what was typed, and closing the one on top closes that one only. A file
+// chooser taken down unanswered takes down only itself.
+func TestADialogOverAnotherLeavesItAsItWas(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{})
+	h.unlock()
+	h.m.newVault()
+	nv := h.overlay()
+	pass := find(nv, func(f *widgets.SecretField) bool { return f.Placeholder == "At least 8 characters" })
+	h.win().FocusOn(pass)
+	h.win().Type("half a passphrase")
+
+	h.m.showKeys()
+	h.pump()
+	if n := len(h.win().Overlays()); n != 2 || pass.Len() != 17 {
+		t.Fatalf("%d dialogs up, and the passphrase field holds %d", n, pass.Len())
+	}
+	h.win().Press(platform.KeyEscape)
+	if h.overlay() != nv || pass.Len() != 17 {
+		t.Fatal("closing the dialog on top closed, or wiped, the one under it")
+	}
+
+	h.m.opts.PickFile = nil // uitoolkit's own chooser
+	t.Setenv("HOME", t.TempDir())
+	cancel := h.m.pickFile(false, "", func(string) {})
+	h.pump()
+	if n := len(h.win().Overlays()); n != 2 {
+		t.Fatalf("%d dialogs up with the file chooser", n)
+	}
+	cancel()
+	h.pump()
+	if h.overlay() != nv || pass.Len() != 17 {
+		t.Fatal("taking the chooser down took the dialog under it too")
+	}
+	h.win().Press(platform.KeyEscape)
+	if h.overlay() != nil || !pass.Empty() {
+		t.Fatal("the new vault's dialog did not close, or kept what was typed")
+	}
+}
+
+// The window hides in the tray only while somebody shows the tray icon,
+// and comes back if the tray goes while it is hidden there.
+func TestTheWindowHidesOnlyInATrayThatIsShown(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{Tray: true})
+	tray := h.m.tray.(*platform.FakeStatusItem)
+	h.win().RequestClose()
+	h.pump()
+	if !h.m.hidden {
+		t.Fatal("not hidden in a tray that is shown")
+	}
+	tray.SetShown(false)
+	h.waitFor("the window back", func() bool { return !h.m.hidden })
+	if !h.win().Visible() {
+		t.Fatal("the tray went and the window stayed hidden")
+	}
+	h.win().RequestClose()
+	h.pump()
+	h.pump()
+	if !h.win().Closed() || !h.m.quitting() {
+		t.Fatal("with no tray shown, closing the window did not quit")
 	}
 }

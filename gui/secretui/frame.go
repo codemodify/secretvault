@@ -122,15 +122,9 @@ func Open(a *uitoolkit.Application, title string, width int, f *Frame) (*uitoolk
 		return nil, err
 	}
 	f.win = w
+	// FitContent fits the window to f when it is first laid out, before
+	// it is shown, and centres it again for the height it then has.
 	w.SetContent(f)
-	// FitContent fits the window when it is first laid out, but it was
-	// centred when it was made, for the height it was made with. Fitted
-	// now, before it is shown, it is centred again for the height it
-	// opens at (uitoolkit-gaps.md, 15). Wayland compositors centre a
-	// dialog themselves.
-	if w.FitToContent() {
-		w.Center()
-	}
 	w.SetExcludeFromCapture(true)
 	w.Activate()
 	return w, nil

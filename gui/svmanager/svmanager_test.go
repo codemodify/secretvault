@@ -383,6 +383,12 @@ func TestCopiesGoToTheClipboardAndAreTakenBack(t *testing.T) {
 		t.Fatalf("copied %q for %v", c.text, c.ttl)
 	}
 	h.waitText("on the clipboard for 30 seconds")
+	// Its time up, it says it has gone (uitoolkit's SecretClip.OnCleared).
+	c.Clear()
+	h.waitText("is no longer on the clipboard")
+	if h.m.copied != nil {
+		t.Fatal("a copy that has gone is still the one to take back")
+	}
 
 	h.open("web/github.com")
 	h.win().Press(platform.KeyB, platform.ModCtrl)
@@ -549,8 +555,24 @@ func TestRenameAndDelete(t *testing.T) {
 	h.selectItem("mail/fastmail")
 	h.win().FocusOn(h.m.ui.items)
 	h.win().Press(platform.KeyF2)
-	if h.overlay() == nil {
-		t.Fatal("F2 asked nothing")
+	if h.overlay() == nil || button(h.overlay(), "Rename") == nil {
+		t.Fatalf("F2 asked nothing, or its button does not say Rename:\n%s", h.text())
+	}
+	// A name that cannot be used is refused in the dialog, with what was
+	// typed still there to correct.
+	for _, bad := range []struct{ name, why string }{
+		{"mail//fastmail", "not a usable name"},
+		{"web/github.com", "There is an item called web/github.com already."},
+	} {
+		h.win().Press(platform.KeyA, platform.ModCtrl)
+		h.win().Type(bad.name)
+		h.win().Press(platform.KeyReturn)
+		if h.overlay() == nil || !strings.Contains(h.text(), bad.why) {
+			t.Fatalf("%q was not refused in the dialog:\n%s", bad.name, h.text())
+		}
+		if f := find(h.overlay(), func(*widgets.TextField) bool { return true }); f == nil || f.Text != bad.name {
+			t.Fatalf("the refused %q is not still there to correct", bad.name)
+		}
 	}
 	h.win().Press(platform.KeyA, platform.ModCtrl)
 	h.win().Type("mail/fastmail.com")
@@ -1038,20 +1060,23 @@ func TestPassphrasesSayCapsLockIsOn(t *testing.T) {
 	h.waitText("Canceled.")
 
 	h.m.newVault()
-	anyCaps := func(*secretui.CapsLock) bool { return true }
-	if find(h.overlay(), anyCaps) != nil {
-		t.Fatal("the new vault's dialog says Caps Lock is on, with it off")
+	caps := find(h.overlay(), func(*secretui.CapsLock) bool { return true })
+	if caps == nil || caps.On() || strings.Contains(h.text(), "Caps Lock is on") {
+		t.Fatal("no Caps Lock line in the new vault's dialog, or it says Caps Lock is on with it off")
 	}
+	pass := find(h.overlay(), func(f *widgets.SecretField) bool { return f.Placeholder == "At least 8 characters" })
+	h.win().FocusOn(pass)
 	capsLock(h.win(), true, h.pump)
-	caps := find(h.overlay(), anyCaps)
-	if caps == nil || !strings.Contains(h.text(), "Caps Lock is on") {
+	if !caps.On() || !strings.Contains(h.text(), "Caps Lock is on") {
 		t.Fatalf("Caps Lock is on and the new vault's dialog does not say so:\n%s", h.text())
 	}
+	// And the field marks it too, in the field.
+	if !pass.CapsLockOn() || !pass.CapsHint {
+		t.Fatal("the passphrase field does not mark Caps Lock")
+	}
 	h.win().Press(platform.KeyEscape)
-	capsLock(h.win(), false, h.pump)
-	capsLock(h.win(), true, h.pump)
-	if h.overlay() != nil || caps.On() {
-		t.Fatal("the dialog closed and its Caps Lock line is still following the window")
+	if h.overlay() != nil {
+		t.Fatal("Escape left the dialog up")
 	}
 }
 

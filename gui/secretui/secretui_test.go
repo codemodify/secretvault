@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/codemodify/paintengine2d"
 	"github.com/codemodify/uitoolkit"
 	"github.com/codemodify/uitoolkit/platform"
 	"github.com/codemodify/uitoolkit/style"
@@ -80,18 +81,18 @@ func TestADialogIsOpenedAsOne(t *testing.T) {
 	}
 }
 
-// A password TextField is a secret too; an ordinary one is not.
+// A SecretArea and a password TextField are secrets too; an ordinary
+// field is not.
 func TestWhatIsASecret(t *testing.T) {
 	pw := widgets.NewPasswordField("", nil)
-	if !IsSecret(widgets.NewSecretField("")) || !IsSecret(pw) || IsSecret(widgets.NewTextField("", "", nil)) || IsSecret(nil) {
+	if !IsSecret(widgets.NewSecretField("")) || !IsSecret(widgets.NewSecretArea("")) || !IsSecret(pw) || IsSecret(widgets.NewTextField("", "", nil)) || IsSecret(nil) {
 		t.Fatal("IsSecret is wrong")
 	}
 }
 
 // A dialog is as tall as what it says, at any display scale: its last row
 // is inside the window and there is no empty band under it. The height is
-// settled as the window is opened, before its first frame, so it is
-// centred for the height it opens at.
+// settled before its first frame, and the dialog is centred again for it.
 func TestADialogIsAsTallAsItsContent(t *testing.T) {
 	for _, scale := range []float32{1, 1.5, 2} {
 		for _, lines := range []int{1, 6} {
@@ -108,10 +109,9 @@ func TestADialogIsAsTallAsItsContent(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, opened := w.Size()
 			a.PumpOnce()
-			if _, h := w.Size(); h != opened {
-				t.Errorf("%.1fx, %d lines: opened %d tall, laid out %d tall", scale, lines, opened, h)
+			if n := w.Surface().(*platform.Offscreen).Centerings(); n < 2 {
+				t.Errorf("%.1fx, %d lines: centred %d times, and not again for the height it was fitted to", scale, lines, n)
 			}
 			_, h := w.PixelSize()
 			bottom := widget.DeviceOrigin(ok).Y + ok.Bounds().Dy()
@@ -123,19 +123,22 @@ func TestADialogIsAsTallAsItsContent(t *testing.T) {
 	}
 }
 
-// The Caps Lock line shows while Caps Lock is on: before the first key
-// where the window can tell, and as it is toggled.
+// The Caps Lock line says so while Caps Lock is on, and takes no room
+// while it is not: before the first key where the window can tell, as it
+// is toggled, and after the window comes back into focus. Two in one
+// window both follow it.
 func TestTheCapsLockLine(t *testing.T) {
 	a := headless(uitoolkit.LightLook())
 	field := widgets.NewSecretField("")
-	caps := NewCapsLock()
-	f := NewFrame("Unlock vault Personal", widgets.NewColumn(field, caps).WithPad(16))
+	caps, other := NewCapsLock(), NewCapsLock()
+	f := NewFrame("Unlock vault Personal", widgets.NewColumn(field, caps, other).WithPad(16))
 	w, err := Open(a, "test", 460, f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.PumpOnce()
 	o := w.Surface().(*platform.Offscreen)
+	o.SetLockKeys(true, false) // before the window is first laid out
+	a.PumpOnce()
 
 	// Caps Lock pressed and released, as a keyboard sends it: the press
 	// carries the state before, the release the state after.
@@ -150,19 +153,21 @@ func TestTheCapsLockLine(t *testing.T) {
 		a.PumpOnce()
 	}
 
-	o.SetLockKeys(true, false)
-	caps.Follow(w)
-	if !caps.On() {
+	if !caps.On() || caps.Text != "Caps Lock is on" || caps.Bounds().Empty() {
 		t.Fatal("not shown with Caps Lock on before the first key")
 	}
 	w.FocusOn(field)
 	toggle(false)
-	if caps.On() {
-		t.Fatal("still shown with Caps Lock off")
+	if caps.On() || other.On() || caps.Text != "" || caps.Bounds().Dy() != 0 {
+		t.Fatalf("still shown with Caps Lock off, or taking room: %v", caps.Bounds())
 	}
 	toggle(true)
-	if !caps.On() || caps.Bounds().Empty() {
-		t.Fatal("not shown when Caps Lock was turned on")
+	if !caps.On() || !other.On() || caps.Bounds().Empty() {
+		t.Fatal("not shown, both, when Caps Lock was turned on")
+	}
+	// The field marks it too, now that it has heard.
+	if !field.CapsLockOn() {
+		t.Fatal("the focused field did not hear Caps Lock")
 	}
 	w.Press(platform.KeyA, platform.ModCapsLock)
 	// Coming back into focus is not Caps Lock going off.
@@ -171,15 +176,6 @@ func TestTheCapsLockLine(t *testing.T) {
 	a.PumpOnce()
 	if !caps.On() {
 		t.Fatal("hidden when the window came back into focus, with Caps Lock still on")
-	}
-	caps.Stop()
-	if caps.On() {
-		t.Fatal("shown after Stop")
-	}
-	toggle(false)
-	toggle(true)
-	if caps.On() {
-		t.Fatal("still following after Stop")
 	}
 }
 
@@ -198,4 +194,40 @@ func TestTheIcon(t *testing.T) {
 	if opaque < 32*32/2 {
 		t.Fatalf("only %d of its pixels are painted", opaque)
 	}
+}
+
+// Ink makes a status colour readable as text and keeps it that colour: a
+// red on a dark pack is a lighter red, not white. One that reads already
+// is left alone.
+func TestInkIsReadableAndKeepsItsColour(t *testing.T) {
+	for _, name := range []string{"plastik", "plastik-night"} {
+		p, ok := uitoolkit.LoadTheme(name)
+		if !ok {
+			t.Fatalf("no %s", name)
+		}
+		pal := style.Appearance{Name: p.Name, Theme: p.Palette}.Look().Palette()
+		for what, c := range map[string]paintengine2d.Color{"danger": pal.Danger, "warning": pal.Warning, "success": pal.Success} {
+			ink := Ink(c, pal.Background)
+			if r := style.ContrastRatio(ink, pal.Background); r < style.MinInkContrast {
+				t.Errorf("%s %s ink is %.1f:1", name, what, r)
+			}
+			if style.ContrastRatio(c, pal.Background) >= style.MinInkContrast && ink != c {
+				t.Errorf("%s %s reads already and was changed", name, what)
+			}
+			// The strongest channel is still the strongest: red is red.
+			if strongest(ink) != strongest(c) {
+				t.Errorf("%s %s: %v became %v", name, what, c, ink)
+			}
+		}
+	}
+}
+
+func strongest(c paintengine2d.Color) int {
+	switch {
+	case c.R >= c.G && c.R >= c.B:
+		return 0
+	case c.G >= c.B:
+		return 1
+	}
+	return 2
 }

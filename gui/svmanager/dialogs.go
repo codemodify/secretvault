@@ -12,12 +12,18 @@ import (
 // buttons laid out as the look's platform lays them out. Escape, the
 // card's close box and Close all end it the same way, through onClose,
 // which is where whatever was typed into it gets wiped.
+//
+// Dialogs stack (uitoolkit's overlays do): one shown while another is up
+// goes over it, and the one underneath comes back as it was when the top
+// one is done with, its fields still holding what was typed.
 type dialog struct {
 	overlay *widgets.Overlay
 	closed  bool
 }
 
-func (m *Manager) showDialog(title string, body widget.Component, buttons *widgets.ButtonBox, focus widget.Component, onClose func()) *dialog {
+// showDialog shows a dialog of title over whatever is up. buttons is the
+// row at its foot: a ButtonBox, or a row that holds one.
+func (m *Manager) showDialog(title string, body, buttons, focus widget.Component, onClose func()) *dialog {
 	d := &dialog{}
 	col := widgets.NewColumn(newFixedWidth(body, dialogWidth), buttons).WithGap(16).WithPad(6)
 	card := widgets.NewPanel(title, col)
@@ -34,7 +40,6 @@ func (m *Manager) showDialog(title string, body widget.Component, buttons *widge
 			onClose()
 		}
 		m.syncCapture()
-		m.post(m.nextDialog) // once the overlay is gone
 	}
 	widget.ShowOverlay(m.root(), d.overlay)
 	m.syncCapture()
@@ -45,11 +50,8 @@ func (m *Manager) showDialog(title string, body widget.Component, buttons *widge
 const dialogWidth = 500
 
 // fixedWidth gives its child one width, whatever it is offered (up to
-// what there is): text that wraps then wraps at the same place when the
-// dialog is measured and when it is laid out, so the card is as tall as
-// what it holds. uitoolkit's columns measure a wrapping label once, at
-// the width offered, and a card that then comes out narrower cuts its
-// last lines, and its buttons, off.
+// what there is), so that a dialog is dialogWidth across whatever its
+// text: offered the window, a wrapping message would take most of it.
 type fixedWidth struct {
 	widget.Base
 	w float32
@@ -81,7 +83,7 @@ func (f *fixedWidth) Arrange(r paintengine2d.Rect) {
 	f.Children()[0].Arrange(paintengine2d.XYWH(0, 0, r.Dx(), r.Dy()))
 }
 
-// Close takes the dialog down.
+// Close takes the dialog down, and only it: a dialog under it stays up.
 func (d *dialog) Close() {
 	if d == nil || d.closed {
 		return
@@ -91,33 +93,6 @@ func (d *dialog) Close() {
 		// It was never shown (a window with no host): end it all the same.
 		d.overlay.Dismissed()
 	}
-}
-
-// waiting is a dialog that waits for the window to have none up.
-type waiting struct {
-	show func()
-	drop func() // it will not be shown: the manager is quitting
-}
-
-// whenNoDialog shows a dialog now if the window has none up, and else
-// once it has none: whatever is up (a dialog, the file chooser) is left
-// to be finished with. drop runs instead of show if the manager quits
-// first.
-func (m *Manager) whenNoDialog(show, drop func()) {
-	m.waiting = append(m.waiting, waiting{show, drop})
-	m.nextDialog()
-}
-
-// nextDialog shows the first dialog waiting, if the window has none up.
-// A dialog of showDialog's calls it as it goes, and tick every second,
-// for the overlays that are not showDialog's.
-func (m *Manager) nextDialog() {
-	if len(m.waiting) == 0 || m.win.Overlay() != nil {
-		return
-	}
-	w := m.waiting[0]
-	m.waiting = m.waiting[1:]
-	w.show()
 }
 
 // confirm asks before doing something that cannot be taken back.
@@ -133,25 +108,4 @@ func (m *Manager) confirm(title, text, action string, do func()) {
 	buttons := widgets.NewButtonBox().AddButton(yes, widgets.RoleDestructive).AddButton(no, widgets.RoleReject)
 	no.Primary = true
 	d = m.showDialog(title, body, buttons, no, nil)
-}
-
-// ask asks for one line of text.
-func (m *Manager) ask(title, label, value string, done func(string)) {
-	f := widgets.NewTextField(value, "", nil)
-	f.SetAccessibleName(label)
-	f.SelectAll()
-	var d *dialog
-	ok := widgets.NewButton("OK", nil)
-	ok.OnClick = func() {
-		text := f.Text
-		d.Close()
-		if text != "" {
-			done(text)
-		}
-	}
-	f.OnSubmit = func(string) { ok.OnClick() }
-	body := widgets.NewColumn(widgets.NewLabel(label).For(f), f).WithGap(gap)
-	buttons := widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept).
-		AddButton(widgets.NewButton("Cancel", func() { d.Close() }), widgets.RoleReject)
-	d = m.showDialog(title, body, buttons, f, nil)
 }

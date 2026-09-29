@@ -550,9 +550,19 @@ func (m *Manager) copyValue(v []byte, what, vault string) bool {
 		m.say("That is empty: nothing was copied.")
 		return false
 	}
-	m.copied = m.clip.SetSecret(append([]byte(nil), v...), m.ttl)
-	m.copiedFrom = vault
+	c := m.clip.SetSecret(append([]byte(nil), v...), m.ttl)
+	m.copied, m.copiedFrom = c, vault
 	m.say("%s is on the clipboard for %d seconds.", what, int(m.ttl.Seconds()))
+	// Said when the copy goes by itself, at its timeout. Taken back (its
+	// vault locked) or replaced by another copy, it has been said already.
+	c.OnCleared(func() {
+		m.post(func() {
+			if m.copied == c {
+				m.copied = nil
+				m.say("%s is no longer on the clipboard.", what)
+			}
+		})
+	})
 	return true
 }
 
@@ -637,13 +647,27 @@ func (m *Manager) renameItem() {
 		return
 	}
 	vault := m.vault
-	m.ask("Rename "+name, "New name:", name, func(to string) {
+	// uitoolkit's prompt: a name that cannot be used is refused where it
+	// was typed, with what was typed still there, rather than after the
+	// dialog has gone.
+	widgets.PromptFor(m.root(), "Rename "+name, "New name:", widgets.MessageBoxInput{
+		Text: name, Required: true, AcceptLabel: "Rename",
+		Validate: func(to string) error {
+			to = strings.TrimSpace(to)
+			if to == name {
+				return nil
+			}
+			if err := checkName(to); err != nil {
+				return errors.New(sentence(err.Error()))
+			}
+			if m.entry(to) != nil {
+				return fmt.Errorf("There is an item called %s already.", to)
+			}
+			return nil
+		},
+	}, func(to string, ok bool) {
 		to = strings.TrimSpace(to)
-		if to == name {
-			return
-		}
-		if err := checkName(to); err != nil {
-			m.fail(err)
+		if !ok || to == name {
 			return
 		}
 		m.call(func(ctx context.Context, c *secretvault.Client) error {

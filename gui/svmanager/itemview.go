@@ -181,7 +181,6 @@ func (v *itemView) fieldGrid() widget.Component {
 			if k := v.keys[i]; k != nil && v.mode == viewOpen {
 				cr := &codeRow{key: k, text: newCodeText(), bar: widgets.NewProgressBar(0), left: m.muted("")}
 				cr.text.SetAccessibleName(f.Name)
-				cr.bar.SetPreferred(64, 6)
 				v.codes[i] = cr
 				g.Place(widgets.NewRow(cr.text, cr.bar, cr.left).WithGap(gap).WithAlign(layout.AlignCenter), row, 1)
 				buttons.Add(tip(widgets.NewButton("Copy", m.copyCode), "Ctrl+T"))

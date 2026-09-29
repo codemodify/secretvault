@@ -39,7 +39,6 @@ import (
 
 	"github.com/codemodify/uitoolkit/app"
 	"github.com/codemodify/uitoolkit/platform"
-	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
@@ -141,7 +140,6 @@ type Manager struct {
 	editor  *editor       // the open item editor
 	asking  *promptDialog // the daemon's question on the screen
 	promptN int
-	waiting []waiting // dialogs waiting for the window to have none up
 
 	gen      generator // the generator's settings, kept between uses
 	hidden   bool      // the window is hidden in the tray
@@ -248,14 +246,11 @@ func (m *Manager) shutdown() {
 			m.copied.Clear()
 			m.copied = nil
 		}
-		for _, w := range m.waiting {
-			w.drop()
-		}
-		m.waiting = nil
-		if m.ui != nil && m.win.Overlay() != nil {
-			// A dialog up wipes what it holds as it goes (a recovery
-			// key, a generated password, a passphrase being typed).
-			widget.DismissOverlay(m.root())
+		if m.ui != nil {
+			// Every dialog up, and those under it, wipes what it holds as
+			// it goes (a recovery key, a generated password, a passphrase
+			// being typed).
+			m.win.SetOverlay(nil)
 		}
 		if m.tray != nil {
 			m.tray.Close()
@@ -430,7 +425,6 @@ func (m *Manager) tick() {
 			if m.hasOTP.Load() {
 				m.post(m.drawCodes)
 			}
-			m.post(m.nextDialog)
 		case <-m.done:
 			return
 		}

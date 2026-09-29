@@ -136,6 +136,49 @@ func TestScreenshots(t *testing.T) {
 		shoot(h.win(), "17-keys"+suffix)
 		h.win().Press(platform.KeyEscape)
 
+		// A new name refused where it was typed.
+		h.selectItem("web/github.com")
+		h.win().FocusOn(h.m.ui.items)
+		h.win().Press(platform.KeyF2)
+		h.win().Press(platform.KeyA, platform.ModCtrl)
+		h.win().Type("web//github")
+		h.win().Press(platform.KeyReturn)
+		shoot(h.win(), "21-rename-refused"+suffix)
+		h.win().Press(platform.KeyEscape)
+
+		// A dialog over another, which is there as it was underneath.
+		h.m.newVault()
+		d3 := h.overlay()
+		h.win().FocusOn(find(d3, func(f *widgets.TextField) bool { return f.Placeholder == "personal, work…" }))
+		h.win().Type("travel")
+		h.win().FocusOn(find(d3, func(f *widgets.SecretField) bool { return f.Placeholder == "At least 8 characters" }))
+		h.win().Type("half a pass")
+		capsLock(h.win(), true, h.pump)
+		shoot(h.win(), "22-new-vault-caps"+suffix)
+		capsLock(h.win(), false, h.pump)
+		h.m.showKeys()
+		shoot(h.win(), "23-stacked"+suffix)
+		h.win().Press(platform.KeyEscape)
+		h.win().Press(platform.KeyEscape)
+
+		// A private key, in a secret area.
+		h.prove()
+		key := svrpc.Item{Kind: "ssh-key", Name: "ssh/laptop", Fields: []svrpc.Field{
+			{Name: "private-key", Type: "key", Value: []byte("-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACDpX2e+eXAMPLEeXAMPLEeXAMPLEeXAMPLEeXAMPLEeXAMPLEAAAAJ\n-----END OPENSSH PRIVATE KEY-----\n")},
+			{Name: "public-key", Type: "text", Value: []byte("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOlfZ75 ada@laptop")}}}
+		if _, err := h.admin.Put(h.ctx(), "", key); err != nil {
+			t.Fatal(err)
+		}
+		h.waitFor("ssh/laptop", func() bool { return h.m.entry("ssh/laptop") != nil })
+		h.open("ssh/laptop")
+		h.win().Press(platform.KeyE, platform.ModCtrl)
+		h.waitFor("the editor", func() bool { return h.m.editor != nil })
+		h.idle()
+		shoot(h.win(), "24-key-editor"+suffix)
+		h.win().Press(platform.KeyR, platform.ModCtrl)
+		shoot(h.win(), "25-key-editor-shown"+suffix)
+		h.win().Press(platform.KeyEscape)
+
 		h.stopDaemon()
 		h.waitText("No connection to secretvaultd")
 		shoot(h.win(), "18-gone"+suffix)

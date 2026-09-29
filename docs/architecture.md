@@ -610,7 +610,9 @@ answer only after asking the person, through the same program.
   with a fixed-length mask until revealed, one field at a time, and told to
   assistive technology as "concealed" with no content. One-time codes and
   generated passwords are drawn the same way. Secrets are typed into
-  uitoolkit's `SecretField`.
+  uitoolkit's `SecretField`, and keys (several lines, usually pasted) into
+  its `SecretArea`; an item's values go into them with `SetBytes`, a copy
+  the field owns and wipes.
 - **Wiping.** The open item's values are zeroed when the item is left, when
   its vault locks (the `vault.locked` event, or Ctrl+L, clears the screen at
   once), when the window is hidden in the tray, and on quit. So are the
@@ -626,7 +628,12 @@ answer only after asking the person, through the same program.
   no daemon to send it to.
 - **Copies** go to uitoolkit's secret clipboard: CLIPBOARD only, marked for
   clipboard managers not to keep, cleared after 30 seconds and on quit, and
-  taken back when the vault they came from locks.
+  taken back when the vault they came from locks. The status bar says when
+  one has gone.
+- **Dialogs stack.** One raised over another (a recovery key arriving, the
+  keys list, a file chooser) goes over it, and the one underneath is there
+  as it was, its fields still holding what was typed. Quitting closes them
+  all, and each wipes what it holds.
 - **Out of sight.** While a secret shows, the window asks to be left out of
   screenshots and screen sharing (honoured on Windows and macOS). The
   daemon's questions are asked in [`gui/secretui`](../gui/secretui)'s
@@ -644,9 +651,9 @@ Where a secret still becomes a Go string:
   as for every client;
 - on X11, the copy uitoolkit serves the clipboard from while it owns it.
 
-A key of several lines (a PEM private key) does not fit a one-line
-`SecretField` and uitoolkit has no secret text area, so the editor keeps it
-as it is, or replaces it from a file read straight into bytes.
+A key can also be replaced from a file, read straight into bytes. A value
+no field can show (binary, or text with control characters in it) is kept
+as it is, and can be replaced the same way.
 
 ### Trust store and identities
 

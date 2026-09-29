@@ -112,9 +112,6 @@ func (d *dialog) open(a *uitoolkit.Application) error {
 		return err
 	}
 	d.win = w
-	if d.caps != nil {
-		d.caps.Follow(w)
-	}
 	w.SetInitialFocus(first)
 	// The window manager's close button is a cancel.
 	w.SetOnCloseRequest(func() bool {
@@ -162,7 +159,7 @@ func (d *dialog) build(a *uitoolkit.Application) (body, actions, first widget.Co
 			v := widgets.NewLabel(f.value)
 			v.Wrap = true
 			name := form.AddRow(f.name+":", v)
-			name.Color = pal.TextMuted
+			name.Tone = widgets.ToneMuted
 			d.factValues = append(d.factValues, v)
 		}
 		col.Add(form)
@@ -173,7 +170,7 @@ func (d *dialog) build(a *uitoolkit.Application) (body, actions, first widget.Co
 		d.problem = widgets.NewLabel(d.req.Error)
 		d.problem.Wrap = true
 		d.problem.MinLines = 1
-		d.problem.Color = pal.Danger
+		d.problem.Color = secretui.Ink(pal.Danger, pal.Background) // readable, in dark looks too
 		col.Add(d.problem)
 	}
 

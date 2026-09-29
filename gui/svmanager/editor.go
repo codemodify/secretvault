@@ -19,8 +19,8 @@ import (
 )
 
 // The item editor: a page in place of the item, for a new item or a
-// changed one. Secret values are typed into SecretFields, which keep them
-// out of Go strings.
+// changed one. Secret values are typed into SecretFields, and keys into
+// SecretAreas, which keep them out of Go strings.
 
 // editor is the open editor.
 type editor struct {
@@ -55,11 +55,14 @@ type editor struct {
 // fieldEditor is one field in the editor.
 type fieldEditor struct {
 	name, typ string
-	input     *widgets.TextField   // text, url, email
-	area      *widgets.TextArea    // json, notes, and text of several lines
-	secret    *widgets.SecretField // concealed, otp, and keys that fit one line
-	kept      []byte               // a value kept as it is: binary, and keys of several lines
-	remove    *widgets.Button
+	input     *widgets.TextField // text, url, email
+	area      *widgets.TextArea  // json, notes, and text of several lines
+	// secret holds a concealed value: a key, or a value of several lines,
+	// in a SecretArea (box), the rest in a SecretField (box is secret).
+	secret *widgets.SecretField
+	box    widget.Component
+	kept   []byte // a value kept as it is: binary, or text with control characters
+	remove *widgets.Button
 }
 
 func (fe *fieldEditor) value() []byte {
@@ -231,12 +234,24 @@ func (ed *editor) key(e widget.KeyEvent) bool {
 // addField adds a field, holding a copy of value.
 func (ed *editor) addField(name, typ string, value []byte) *fieldEditor {
 	fe := &fieldEditor{name: name, typ: typ}
+	secret := typ == svcore.FieldConcealed || typ == svcore.FieldOTP || typ == svcore.FieldKey
 	switch {
-	case (typ == svcore.FieldConcealed || typ == svcore.FieldOTP || typ == svcore.FieldKey) && oneLine(value):
-		s := widgets.NewSecretField("")
+	case secret && showable(value):
+		var s *widgets.SecretField
+		if typ == svcore.FieldKey || bytes.ContainsRune(value, '\n') {
+			// A key is usually several lines (PEM, OpenSSH), and pasted:
+			// a SecretArea keeps its lines, where a SecretField would
+			// drop them.
+			a := widgets.NewSecretArea("")
+			s, fe.box = &a.SecretField, a
+		} else {
+			s = widgets.NewSecretField("")
+			fe.box = s
+		}
 		s.Mono = true
 		s.Reveal = ed.shown
-		setSecret(s, value)
+		// The field takes its own copy, and wipes it with the rest.
+		s.SetBytes(bytes.Clone(value))
 		s.OnChange = func(f *widgets.SecretField) {
 			if ed.closed {
 				return // the editor's own wipe as it closes
@@ -247,19 +262,20 @@ func (ed *editor) addField(name, typ string, value []byte) *fieldEditor {
 				ed.m.syncCapture()
 			}
 			if f.Empty() {
-				// Emptied (and setSecret empties before it fills): that
-				// says nothing about where a generated password goes.
+				// Emptied: that says nothing about where a generated
+				// password goes.
 				return
 			}
 			ed.touched = true
-			ed.lastSecret = f
+			if fe.box == widget.Component(f) {
+				ed.lastSecret = f // a password field, not a key's area
+			}
 		}
 		s.SetAccessibleName(name)
 		fe.secret = s
-	case typ == svcore.FieldConcealed || typ == svcore.FieldOTP || typ == svcore.FieldKey || typ == svcore.FieldBinary:
-		// A key of several lines (PEM, OpenSSH) does not fit a one-line
-		// secret field, and uitoolkit has no secret text area: it is kept
-		// as it is, and can be replaced from a file.
+	case secret || typ == svcore.FieldBinary:
+		// Binary, or text with control characters in it, which no field
+		// shows: it is kept as it is, and can be replaced from a file.
 		fe.kept = bytes.Clone(value)
 	case typ == svcore.FieldJSON || bytes.ContainsRune(value, '\n') || name == "note" || name == "notes":
 		a := widgets.NewTextArea(string(value), "", func(string) { ed.touched = true })
@@ -278,30 +294,18 @@ func (ed *editor) addField(name, typ string, value []byte) *fieldEditor {
 	return fe
 }
 
-// oneLine reports whether a value fits a one-line secret field: no line
-// breaks, no control characters, and valid UTF-8.
-func oneLine(v []byte) bool {
+// showable reports whether a value can be shown in a secret field or
+// area: valid UTF-8, with no control characters but line breaks.
+func showable(v []byte) bool {
 	if !utf8.Valid(v) {
 		return false
 	}
 	for _, c := range v {
-		if c < 0x20 || c == 0x7f {
+		if (c < 0x20 && c != '\n') || c == 0x7f {
 			return false
 		}
 	}
 	return true
-}
-
-// setSecret puts value into a secret field. uitoolkit's SecretField takes
-// its contents only as typing, so it is given them one rune at a time,
-// through the path a key press takes; nothing becomes a string.
-func setSecret(f *widgets.SecretField, value []byte) {
-	f.Wipe()
-	for len(value) > 0 {
-		r, n := utf8.DecodeRune(value)
-		value = value[n:]
-		f.TextInput(r)
-	}
 }
 
 // layoutFields lays the fields out again, after one was added or removed.
@@ -312,6 +316,13 @@ func (ed *editor) layoutFields() {
 		g.Place(widgets.NewLabel(fe.name), i, 0)
 		var value widget.Component
 		switch {
+		case fe.box != nil && fe.box != widget.Component(fe.secret):
+			// A key: pasted, or read from a file. The area asks to be 280
+			// wide, which the fields' column cannot always give it
+			// (uitoolkit-gaps.md, 32): it asks for what a secret field
+			// does, and is laid out as wide as the column is.
+			replace := widgets.NewButton("Replace from file…", func() { ed.replaceFromFile(fe) })
+			value = newFixedWidth(widgets.NewColumn(fe.box, widgets.NewRow(replace)).WithGap(4), 180)
 		case fe.secret != nil:
 			value = fe.secret
 		case fe.area != nil:
@@ -330,8 +341,8 @@ func (ed *editor) layoutFields() {
 	g.Invalidate()
 }
 
-// replaceFromFile replaces a kept value with a file's contents, read
-// straight into bytes.
+// replaceFromFile replaces a key, or a value kept as it is, with a file's
+// contents, read straight into bytes.
 func (ed *editor) replaceFromFile(fe *fieldEditor) {
 	cancel := ed.m.pickFile(false, "", func(path string) {
 		if path == "" || ed.closed || !slices.Contains(ed.fields, fe) {
@@ -342,9 +353,13 @@ func (ed *editor) replaceFromFile(fe *fieldEditor) {
 			ed.problem.SetText(sentence(err.Error()))
 			return
 		}
+		ed.touched = true
+		if fe.secret != nil {
+			fe.secret.SetBytes(b) // the field takes b over, and wipes it
+			return
+		}
 		clear(fe.kept)
 		fe.kept = b
-		ed.touched = true
 		ed.layoutFields()
 	})
 	ed.cancels = append(ed.cancels, cancel)
@@ -383,8 +398,8 @@ func (ed *editor) removeField(fe *fieldEditor) {
 // fallback when it has none (a value kept as it is).
 func (fe *fieldEditor) focusable(fallback widget.Component) widget.Component {
 	switch {
-	case fe.secret != nil:
-		return fe.secret
+	case fe.box != nil:
+		return fe.box
 	case fe.area != nil:
 		return fe.area
 	case fe.input != nil:
@@ -470,7 +485,9 @@ func (ed *editor) useGenerated(pw []byte) {
 		target = ed.addField("password", svcore.FieldConcealed, nil).secret
 		ed.layoutFields()
 	}
-	setSecret(target, pw)
+	// The field takes a copy over, and wipes it with the rest; pw is the
+	// generator's, which wipes it as it closes.
+	target.SetBytes(bytes.Clone(pw))
 	ed.touched = true
 	ed.lastSecret = target
 }

@@ -214,9 +214,6 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan svrpc.PromptAnswer) 
 		return d.id
 	}
 	d.win = win
-	if d.caps != nil {
-		d.caps.Follow(win)
-	}
 	win.SetInitialFocus(focus)
 	win.SetOnCloseRequest(func() bool {
 		cancel()

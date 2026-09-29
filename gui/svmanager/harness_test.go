@@ -80,11 +80,12 @@ type fakeClipboard struct {
 }
 
 type fakeCopy struct {
-	mu      sync.Mutex
-	data    []byte
-	text    string // what was copied, kept for the test to compare
-	ttl     time.Duration
-	cleared bool
+	mu        sync.Mutex
+	data      []byte
+	text      string // what was copied, kept for the test to compare
+	ttl       time.Duration
+	cleared   bool
+	onCleared func()
 }
 
 func (f *fakeClipboard) SetSecret(data []byte, ttl time.Duration) Copied {
@@ -112,9 +113,28 @@ func (f *fakeClipboard) count() int {
 
 func (c *fakeCopy) Clear() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	clear(c.data)
+	already := c.cleared
 	c.cleared = true
+	fn := c.onCleared
+	c.onCleared = nil
+	c.mu.Unlock()
+	if fn != nil && !already {
+		fn()
+	}
+}
+
+// OnCleared is as uitoolkit's: at most once, and at once for a copy that
+// has gone already.
+func (c *fakeCopy) OnCleared(fn func()) {
+	c.mu.Lock()
+	if c.cleared {
+		c.mu.Unlock()
+		fn()
+		return
+	}
+	c.onCleared = fn
+	c.mu.Unlock()
 }
 
 func (c *fakeCopy) wiped() bool {
@@ -479,13 +499,7 @@ func (h *harness) click(w *app.Window, b *widgets.Button) {
 		h.t.Fatalf("no such button; the window says:\n%s", windowText(w))
 	}
 	// A button scrolled out of sight is scrolled to first, as a person
-	// would.
-	for p := b.Parent(); p != nil; p = p.Parent() {
-		if sv, ok := p.(*widgets.ScrollView); ok {
-			sv.Reveal(b)
-			h.pump()
-		}
-	}
+	// would: uitoolkit's ClickComponent does that.
 	if !w.ClickComponent(b) {
 		h.t.Fatalf("button %q has no box to click", b.Text)
 	}

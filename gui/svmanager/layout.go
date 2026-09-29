@@ -10,6 +10,8 @@ import (
 	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
+
+	"github.com/codemodify/secretvault/gui/secretui"
 )
 
 // The window: a menu bar; the vaults and their folders down the left; the
@@ -45,8 +47,10 @@ type ui struct {
 	view *itemView // the item page, when it is up
 }
 
-// A tone is a colour taken from the look when it is painted, so a label
-// keeps meaning the same thing when the desktop goes from light to dark.
+// A tone is what a label's text means: muted, an error, a success, a
+// warning. Its colour is taken from the look when it is painted, so a
+// label keeps meaning the same thing when the desktop goes from light to
+// dark.
 type tone int
 
 const (
@@ -59,6 +63,10 @@ const (
 // tonedLabel is a label in a tone of the look's palette, read again at
 // every paint. It keeps no list of such labels to recolour when the look
 // changes: a page that is thrown away takes its labels with it.
+//
+// uitoolkit's Label.Tone is the same idea, but in v0.22.2 its status
+// colours come out black or white (uitoolkit-gaps.md, 31); this takes the
+// palette's and makes them readable itself (secretui.Ink).
 type tonedLabel struct {
 	*widgets.Label
 	tone tone
@@ -83,15 +91,17 @@ func (l *tonedLabel) Measure(c layout.Constraints) paintengine2d.Point {
 	return l.Label.Measure(c)
 }
 
+// toneColor is tone t in look lk: a status colour readable as text on the
+// look's background, which the palette's own often is not (29).
 func toneColor(lk style.LookAndFeel, t tone) paintengine2d.Color {
 	p := lk.Palette()
 	switch t {
 	case toneDanger:
-		return p.Danger
+		return secretui.Ink(p.Danger, p.Background)
 	case toneSuccess:
-		return p.Success
+		return secretui.Ink(p.Success, p.Background)
 	case toneWarning:
-		return p.Warning
+		return secretui.Ink(p.Warning, p.Background)
 	}
 	return p.TextMuted
 }
@@ -143,10 +153,7 @@ func (m *Manager) build() {
 	middle.AddFlex(u.items, 1)
 
 	u.pane = newSlot()
-	// A column rather than a Pad, whose padding is device pixels: a
-	// column's follows the display scale (uitoolkit-gaps.md, 25).
-	right := widgets.NewColumn().WithPad(pad)
-	right.AddFlex(u.pane, 1)
+	right := widgets.NewPad(pad, u.pane)
 
 	u.browse = widgets.NewSplitter(widgets.SplitColumns, middle, right)
 	u.browse.Ratio = 0.42

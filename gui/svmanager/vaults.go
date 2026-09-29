@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/codemodify/paintengine2d"
+	"github.com/codemodify/uitoolkit/layout"
 	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widgets"
 
@@ -380,17 +381,13 @@ func (m *Manager) newVault() {
 	recovery := widgets.NewCheckbox("Make a recovery key, shown once", true, nil)
 	problem := toned("", toneDanger)
 	problem.Wrap = true
-	// A passphrase made with Caps Lock on would open the vault only with
-	// Caps Lock on: said while it is.
-	caps := secretui.NewCapsLock()
-	caps.Follow(m.win)
 
 	form := widgets.NewForm()
 	form.AddRow("Name", name)
 	form.AddRow("Cipher suite", suite)
 	form.AddRow("Passphrase", pass)
 	form.AddRow("Repeat", again)
-	body := widgets.NewColumn(form, caps,
+	body := widgets.NewColumn(form,
 		widgets.NewTip("A key to write down, which opens the vault if the passphrase is lost", recovery),
 		problem).WithGap(gap)
 
@@ -444,26 +441,24 @@ func (m *Manager) newVault() {
 	buttons := widgets.NewButtonBox().
 		AddButton(create, widgets.RoleAccept).
 		AddButton(widgets.NewButton("Cancel", func() { d.Close() }), widgets.RoleReject)
-	d = m.showDialog("New vault", body, buttons, name, func() {
-		caps.Stop()
+	// A passphrase made with Caps Lock on would open the vault only with
+	// Caps Lock on: said beside the buttons while it is.
+	row := widgets.NewRow(secretui.NewCapsLock(), buttons).WithGap(16).WithAlign(layout.AlignCenter)
+	row.AddFlex(buttons, 1)
+	d = m.showDialog("New vault", body, row, name, func() {
 		pass.Wipe()
 		again.Wipe()
 	})
 }
 
 // showRecoveryKey shows a new vault's recovery key, once. It is kept
-// nowhere, here or in the daemon; key is wiped when the dialog closes.
-// A window has one dialog at a time, and showing another takes the one up
-// down: so the key waits for whatever dialog is up to be done with,
-// rather than take it down (or be taken down, and wiped, unread).
+// nowhere, here or in the daemon; key is wiped when the dialog closes,
+// and so when the program quits. It goes over whatever dialog is up,
+// which is there as it was once the key has been written down.
 //
 // The daemon's answer carried it as a string (svrpc.VaultCreateResult),
 // which cannot be wiped: that copy lasts until the collector takes it.
 func (m *Manager) showRecoveryKey(vault string, key []byte) {
-	m.whenNoDialog(func() { m.recoveryKeyDialog(vault, key) }, func() { clear(key) })
-}
-
-func (m *Manager) recoveryKeyDialog(vault string, key []byte) {
 	text := newSecretText(key)
 	text.SetReveal(true)
 	text.SetAccessibleName("Recovery key")

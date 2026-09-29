@@ -166,13 +166,16 @@ func (m *Manager) syncCapture() {
 				showing = showing || (x.reveal && len(x.value) > 0)
 			case *widgets.SecretField:
 				showing = showing || (x.Reveal && !x.Empty())
+			case *widgets.SecretArea:
+				showing = showing || (x.Reveal && !x.Empty())
 			}
 		})
 	}
 	if root := m.win.Content(); root != nil {
 		look(root)
 	}
-	if o := m.win.Overlay(); o != nil {
+	// Every dialog: the ones under the top are painted too.
+	for _, o := range m.win.Overlays() {
 		look(o)
 	}
 	if showing != m.excluded {
@@ -209,6 +212,10 @@ type Copied interface {
 	// Clear takes the copy off the clipboard, if it is still there, and
 	// wipes it. Something copied since, by anyone, is left alone.
 	Clear()
+	// OnCleared runs fn once the copy has gone, whichever way it went:
+	// its timeout, Clear, or another copy replacing it. It may run on
+	// any goroutine.
+	OnCleared(fn func())
 }
 
 // desktopClipboard is the desktop's clipboard, through uitoolkit: the

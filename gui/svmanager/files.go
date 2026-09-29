@@ -40,8 +40,9 @@ func (m *Manager) pickFile(save bool, suggested string, done func(string)) (canc
 	widgets.ShowFileDialog(m.root(), opts)
 	shown := m.win.Overlay()
 	return func() {
-		if shown != nil && m.win.Overlay() == shown {
-			widget.DismissOverlay(m.root())
+		// That dialog, wherever it is in the stack, and nothing else.
+		if shown != nil {
+			widget.DismissOverlay(shown)
 		}
 	}
 }

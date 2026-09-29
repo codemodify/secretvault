@@ -26,6 +26,16 @@ func (m *Manager) startTray() {
 		return
 	}
 	m.tray = item
+	// A tray that goes away (an extension switched off, a panel that
+	// quit) while the window is hidden in it would take the window with
+	// it: the window comes back instead.
+	item.SetOnShownChange(func(shown bool) {
+		m.post(func() {
+			if !shown && m.hidden {
+				m.showWindow()
+			}
+		})
+	})
 }
 
 func (m *Manager) trayMenu() []platform.StatusMenuItem {
@@ -39,20 +49,20 @@ func (m *Manager) trayMenu() []platform.StatusMenuItem {
 }
 
 // hasTray reports whether there is a tray to hide the window in, and to
-// bring it back from.
+// bring it back from: somebody shows the icon (uitoolkit's Shown).
 func (m *Manager) hasTray() bool {
-	if m.tray == nil || !m.tray.Alive() {
+	if m.tray == nil || !m.tray.Alive() || !m.tray.Shown() {
 		return false
 	}
 	switch m.tray.Backend() {
 	case "stub":
 		return false
 	case "sni":
-		// On Linux uitoolkit's status item is alive wherever there is a
-		// session bus, which is as true of a GNOME that shows no tray
-		// icons as of a KDE that does; there, hiding the window in the
-		// tray would lose it. The tray's own registry says whether any
-		// host shows the icons.
+		// uitoolkit reads the StatusNotifierWatcher's host flag, but
+		// takes a bus with no watcher at all for one that shows the
+		// icon (uitoolkit-gaps.md, 23). A GNOME without the AppIndicator
+		// extension is exactly that bus, and hiding the window there
+		// would lose it; so no watcher is no tray.
 		return sniHostRegistered()
 	}
 	return true
@@ -60,7 +70,7 @@ func (m *Manager) hasTray() bool {
 
 // sniHostRegistered asks the session's StatusNotifierWatcher whether a
 // host that shows status items has registered with it, over secretvault's
-// own D-Bus code.
+// own D-Bus code. No watcher is no.
 func sniHostRegistered() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
