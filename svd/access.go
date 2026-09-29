@@ -59,8 +59,8 @@ func (d *Daemon) passphrasePrompter(cl *client) (p Prompter, own bool) {
 	if agent != nil {
 		return rpcPrompter{c: agent, desc: "terminal agent"}, false
 	}
-	if d.desktop != nil {
-		return d.desktop, false
+	if p := d.desktopNow(); p != nil {
+		return p, false
 	}
 	return nil, false
 }
@@ -74,7 +74,7 @@ func (d *Daemon) consentPrompter(cl *client) Prompter {
 	if agent != nil && agent != cl {
 		return rpcPrompter{c: agent, desc: "terminal agent"}
 	}
-	return d.desktop
+	return d.desktopNow()
 }
 
 // ensureUnlocked unlocks mv, asking for its passphrase if needed. prompted

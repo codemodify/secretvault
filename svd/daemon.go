@@ -137,6 +137,11 @@ type Daemon struct {
 
 	host *hostState // host mode's identity, policy and log; nil in user mode
 
+	// findDesktop is a daemon for a person that was given no prompter
+	// (Options.Desktop): it finds the desktop's for each question
+	// (desktopNow). Given one, it only ever uses that one, even nil.
+	findDesktop bool
+
 	ctr containers // encrypted containers (containers.go)
 }
 
@@ -227,10 +232,22 @@ func New(opts Options) (*Daemon, error) {
 		return d, nil
 	}
 	d.desktop = opts.Desktop
-	if d.desktop == nil {
-		d.desktop = desktopPrompter(cfg.Prompt)
-	}
+	d.findDesktop = opts.Desktop == nil
 	return d, nil
+}
+
+// desktopNow is the desktop prompt as things stand. It is chosen again for
+// each question, not once as the daemon starts: a daemon that starts with
+// the session can start before the desktop has said where its display is,
+// and learns it later from the user's service manager (sessionEnv).
+func (d *Daemon) desktopNow() Prompter {
+	if !d.findDesktop {
+		return d.desktop
+	}
+	d.mu.Lock()
+	cfg := d.cfg.Prompt
+	d.mu.Unlock()
+	return desktopPrompterIn(cfg, promptEnv())
 }
 
 // defaultAutoLock is how a newly registered vault locks itself: after 15
@@ -413,8 +430,8 @@ func (d *Daemon) Status() svrpc.Status {
 		return st
 	}
 	st.Prompts = "none (no desktop prompter found)"
-	if d.desktop != nil {
-		st.Prompts = d.desktop.Describe()
+	if p := d.desktopNow(); p != nil {
+		st.Prompts = p.Describe()
 	}
 	d.mu.Lock()
 	if d.agent != nil {

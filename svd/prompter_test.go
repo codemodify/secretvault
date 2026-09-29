@@ -109,3 +109,44 @@ func TestWindowsAndMacOSAlwaysHaveADisplay(t *testing.T) {
 		}
 	}
 }
+
+func TestADaemonStartedBeforeTheDesktopFindsItLater(t *testing.T) {
+	f := newFakeInstall(t, "linux")
+	ours := f.put(f.daemon, "secretvault-gui-prompt", 0o755)
+	saved := sessionEnv
+	t.Cleanup(func() { sessionEnv = saved })
+	var session []string
+	sessionEnv = func() []string { return session }
+
+	d := &Daemon{cfg: &Config{}, findDesktop: true}
+	// Started with the session, before the desktop said where it is.
+	if p := d.desktopNow(); p != nil {
+		t.Fatalf("a prompter with no display anywhere: %s", p.Describe())
+	}
+	// The desktop comes up and tells the service manager.
+	session = []string{"WAYLAND_DISPLAY=wayland-1", "XDG_CURRENT_DESKTOP=KDE", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"}
+	p := d.desktopNow()
+	if program(p) != ours {
+		t.Fatalf("after the desktop came up: %q", program(p))
+	}
+	if env := p.(pinentryPrompter).p.Env; lookupEnv(env, "WAYLAND_DISPLAY") != "wayland-1" || lookupEnv(env, "DBUS_SESSION_BUS_ADDRESS") == "" {
+		t.Fatalf("the prompt would not reach the display: %q", env)
+	}
+	// Its own display wins over the service manager's.
+	t.Setenv("DISPLAY", ":7")
+	if env := d.desktopNow().(pinentryPrompter).p.Env; lookupEnv(env, "WAYLAND_DISPLAY") != "" || lookupEnv(env, "DISPLAY") != ":7" {
+		t.Fatalf("mixed its own display with the session's: %q", env)
+	}
+	// A given prompter, even none, and host mode, are never replaced.
+	given := &Daemon{cfg: &Config{}, desktop: &scripted{}}
+	if _, ok := given.desktopNow().(*scripted); !ok {
+		t.Fatal("the given prompter was replaced")
+	}
+	given.desktop = nil
+	if p := given.desktopNow(); p != nil {
+		t.Fatal("a daemon given no one to ask found the desktop")
+	}
+	if p := (&Daemon{cfg: &Config{}}).desktopNow(); p != nil {
+		t.Fatal("a daemon not for a person has a desktop prompt")
+	}
+}

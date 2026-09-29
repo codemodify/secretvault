@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -154,23 +155,27 @@ var (
 //     show it on;
 //  3. the system's pinentry that fits the desktop, from the system's own
 //     program directories only, never from PATH.
-func desktopPrompter(cfg PromptConfig) Prompter {
+func desktopPrompter(cfg PromptConfig) Prompter { return desktopPrompterIn(cfg, os.Environ()) }
+
+// desktopPrompterIn is desktopPrompter for a session whose environment is
+// env: the pinentry runs with it, and it says where the display is.
+func desktopPrompterIn(cfg PromptConfig, env []string) Prompter {
 	if cfg.Program == "none" {
 		return nil
 	}
-	env := os.Environ()
+	getenv := func(k string) string { return lookupEnv(env, k) }
 	if cfg.Program != "" {
 		return pinentryPrompter{&svprompt.Pinentry{Program: cfg.Program, Env: env}}
 	}
-	if hasDisplay() {
+	if hasDisplayIn(getenv) {
 		if p, ok := ownProgram("secretvault-gui-prompt"); ok && isProgram(p) {
 			return pinentryPrompter{&svprompt.Pinentry{Program: p, Env: env}}
 		}
 	}
-	if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+	if getenv("DISPLAY") == "" && getenv("WAYLAND_DISPLAY") == "" {
 		return nil
 	}
-	desk := strings.ToUpper(os.Getenv("XDG_CURRENT_DESKTOP"))
+	desk := strings.ToUpper(getenv("XDG_CURRENT_DESKTOP"))
 	order := []string{"pinentry-qt", "pinentry-gnome3", "pinentry-gtk", "pinentry-gtk-2"}
 	if strings.Contains(desk, "GNOME") || strings.Contains(desk, "UNITY") || strings.Contains(desk, "CINNAMON") ||
 		strings.Contains(desk, "MATE") || strings.Contains(desk, "XFCE") || strings.Contains(desk, "BUDGIE") {
@@ -191,11 +196,57 @@ func desktopPrompter(cfg PromptConfig) Prompter {
 // Wayland or X11 display in the environment on Linux and the BSDs, and
 // always on Windows and macOS, where a process that can run at all can
 // make a window.
-func hasDisplay() bool {
+func hasDisplay() bool { return hasDisplayIn(os.Getenv) }
+
+func hasDisplayIn(getenv func(string) string) bool {
 	if goos == "windows" || goos == "darwin" {
 		return true
 	}
-	return os.Getenv("WAYLAND_DISPLAY") != "" || os.Getenv("DISPLAY") != ""
+	return getenv("WAYLAND_DISPLAY") != "" || getenv("DISPLAY") != ""
+}
+
+// lookupEnv is the value of k in env (the last one, as the kernel reads it).
+func lookupEnv(env []string, k string) string {
+	for i := len(env) - 1; i >= 0; i-- {
+		if v, ok := strings.CutPrefix(env[i], k+"="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// sessionVars are what a prompt needs to reach the person's desktop.
+var sessionVars = []string{"WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE", "DBUS_SESSION_BUS_ADDRESS"}
+
+// promptEnv is the environment a desktop prompt runs with: the daemon's
+// own, and, when that has no display (a daemon started with the session,
+// before the desktop was up), the session's as the desktop has told the
+// user's service manager (sessionEnv).
+func promptEnv() []string {
+	env := os.Environ()
+	if goos != "linux" || lookupEnv(env, "WAYLAND_DISPLAY") != "" || lookupEnv(env, "DISPLAY") != "" {
+		return env
+	}
+	session := sessionEnv()
+	for _, k := range sessionVars {
+		if v := lookupEnv(session, k); v != "" && lookupEnv(env, k) == "" {
+			env = append(env, k+"="+v)
+		}
+	}
+	return env
+}
+
+// sessionEnv is the user's systemd manager's environment, which desktops
+// fill in as they start (dbus-update-activation-environment, systemctl
+// --user import-environment). Tests stand in for it.
+var sessionEnv = func() []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "systemctl", "--user", "show-environment").Output()
+	if err != nil {
+		return nil
+	}
+	return strings.Split(strings.TrimSpace(string(out)), "\n")
 }
 
 // ownProgram is where the named secretvault program is when it is
