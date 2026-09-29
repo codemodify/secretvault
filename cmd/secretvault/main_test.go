@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svcrypto"
@@ -383,6 +384,33 @@ func TestNothingReadableReachesTheDisk(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestClipCopiesInsteadOfPrinting(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok("hunter2", h.with("set", "x")...)
+	var got []byte
+	var ttl time.Duration
+	var out, errb bytes.Buffer
+	c := &cli{stdin: strings.NewReader(""), stdout: &out, stderr: &errb, canAsk: true,
+		ask: h.terminal, askNew: func(p string, _ int) ([]byte, error) { return h.terminal(p) },
+		connect: func(o secretvault.Options) (*secretvault.Client, error) {
+			o.Socket, o.NoStart = h.sock, true
+			return secretvault.Connect(o)
+		},
+		clip: func(s []byte, d time.Duration) (string, error) {
+			got, ttl = append([]byte(nil), s...), d
+			return "test", nil
+		},
+	}
+	if code := c.run(h.with("get", "x", "--clip", "--clip-seconds", "12")); code != 0 {
+		t.Fatalf("exit %d: %s", code, errb.String())
+	}
+	c.client.Close()
+	if string(got) != "hunter2" || ttl != 12*time.Second || out.Len() != 0 || !strings.Contains(errb.String(), "clears in 12s") {
+		t.Fatalf("copied %q for %v; stdout %q; stderr %q", got, ttl, out.String(), errb.String())
 	}
 }
 

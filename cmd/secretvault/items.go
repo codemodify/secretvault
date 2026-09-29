@@ -227,6 +227,8 @@ func (c *cli) cmdGet(args []string) error {
 	fs := c.flags("get")
 	fieldName := fs.String("field", "", "print this field instead of the secret")
 	asJSON := fs.Bool("json", false, "print the whole item as JSON")
+	toClip := fs.Bool("clip", false, "copy to the clipboard instead of printing, cleared after --clip-seconds")
+	clipSecs := fs.Int("clip-seconds", 30, "how long a --clip copy stays")
 	var u unlockFlags
 	u.register(fs)
 	pos, err := parse(fs, args, 1, 1, "NAME [--field NAME | --json]")
@@ -258,6 +260,14 @@ func (c *cli) cmdGet(args []string) error {
 		}
 	} else if f, ok = secretField(&e.Item); !ok {
 		return fmt.Errorf("%s has no secret field; use --field or --json", pos[0])
+	}
+	if *toClip {
+		backend, err := c.copySecret(f.Value, time.Duration(*clipSecs)*time.Second)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(c.stderr, "Copied %s to the clipboard (%s); it clears in %ds.\n", pos[0], backend, *clipSecs)
+		return nil
 	}
 	c.stdout.Write(f.Value)
 	if !bytes.HasSuffix(f.Value, []byte("\n")) {
@@ -399,7 +409,8 @@ func (c *cli) cmdGen(args []string) error {
 	fs := c.flags("gen")
 	n := fs.Int("length", 24, "number of characters")
 	noSymbols := fs.Bool("no-symbols", false, "letters and digits only")
-	if _, err := parse(fs, args, 0, 0, "[--length N] [--no-symbols]"); err != nil {
+	toClip := fs.Bool("clip", false, "copy to the clipboard instead of printing (cleared after 30s)")
+	if _, err := parse(fs, args, 0, 0, "[--length N] [--no-symbols] [--clip]"); err != nil {
 		return err
 	}
 	classes := []string{svcrypto.Lower, svcrypto.Upper, svcrypto.Digits, svcrypto.Symbols}
@@ -410,8 +421,16 @@ func (c *cli) cmdGen(args []string) error {
 	if err != nil {
 		return err
 	}
+	defer clear(p)
+	if *toClip {
+		backend, err := c.copySecret(p, 30*time.Second)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(c.stderr, "Copied a new password to the clipboard (%s); it clears in 30s.\n", backend)
+		return nil
+	}
 	fmt.Fprintf(c.stdout, "%s\n", p)
-	clear(p)
 	return nil
 }
 

@@ -45,6 +45,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"golang.org/x/term"
 
@@ -76,6 +77,9 @@ type cli struct {
 	// connect reaches the daemon (tests point it at their own).
 	connect func(secretvault.Options) (*secretvault.Client, error)
 
+	// clip, when set, replaces copying to the real clipboard (tests).
+	clip func(secret []byte, ttl time.Duration) (string, error)
+
 	vault  string
 	client *secretvault.Client
 }
@@ -90,6 +94,9 @@ func main() {
 		ask:        svterm.Secret,
 		askNew:     svterm.NewSecret,
 		connect:    secretvault.Connect,
+	}
+	if len(os.Args) > 1 && os.Args[1] == clipCommand {
+		os.Exit(clipHelper(os.Args[2:]))
 	}
 	if t, err := svterm.OpenTerminal(""); err == nil {
 		t.Close()
