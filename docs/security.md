@@ -856,7 +856,6 @@ guess, like `svpgp`:
 | The browser extension names the page it asks for, and "always" for a browser covers any page | decisions that name the site as well as the item |
 | An OpenPGP certificate seen again is not merged packet by packet with the copy held | certificate merging in `svpgp` |
 | No transparency log is checked; the level is reserved | key transparency, when a log to check exists |
-| A company directory (LDAP/AD) cannot be asked yet | an LDAP `Directory` |
 | S/MIME signatures are verified by `svmail`, but `trust.check` takes a certificate the caller checked | the daemon's `mail.inspect` |
 | Security keys work on Linux only, and have been tested against a software authenticator, not yet against real keys | webauthn.dll on Windows, IOKit on macOS; hardware testing |
 | A security key's built-in verification (a fingerprint) is not used; its PIN is | getPinUvAuthTokenUsingUvWithPermissions |
