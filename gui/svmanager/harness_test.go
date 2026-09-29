@@ -1,0 +1,487 @@
+package svmanager
+
+import (
+	"context"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/codemodify/uitoolkit"
+	"github.com/codemodify/uitoolkit/a11y"
+	"github.com/codemodify/uitoolkit/app"
+	"github.com/codemodify/uitoolkit/platform"
+	"github.com/codemodify/uitoolkit/style"
+	"github.com/codemodify/uitoolkit/widget"
+	"github.com/codemodify/uitoolkit/widgets"
+
+	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svcrypto"
+	"github.com/codemodify/secretvault/svd"
+	"github.com/codemodify/secretvault/svformat"
+	"github.com/codemodify/secretvault/svpeer"
+	"github.com/codemodify/secretvault/svrpc"
+	"github.com/codemodify/secretvault/svstore"
+)
+
+// Nothing in these tests reaches the machine they run on: no display (the
+// windows are headless), no session bus, no keyring, no clipboard (a fake
+// takes the copies), no tray (uitoolkit's fake), and a daemon of their own
+// on a temporary socket, with a temporary home.
+func TestMain(m *testing.M) {
+	for _, k := range []string{"DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "AT_SPI_BUS_ADDRESS",
+		"SECRETVAULT_SOCK", "SECRETVAULT_HOME", "UITK_THEME", "UITK_NATIVE_DIALOGS"} {
+		os.Unsetenv(k)
+	}
+	cfg, err := os.MkdirTemp("", "svgui-config")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("XDG_CONFIG_HOME", cfg)
+	os.Setenv("UITK_TRAY", "fake")
+	code := m.Run()
+	os.RemoveAll(cfg)
+	os.Exit(code)
+}
+
+var pass = "correct horse battery staple"
+
+const totpURI = "otpauth://totp/Example:ada?secret=JBSWY3DPEHPK3PXP&issuer=Example"
+
+// nobody is the desktop in these tests: there is nobody there to ask, so
+// nothing ever pops up on the machine running them.
+type nobody struct{}
+
+func (nobody) Passphrase(context.Context, svrpc.PromptAsk) ([]byte, error) {
+	return nil, svrpc.ErrCanceled
+}
+func (nobody) Choose(context.Context, svrpc.PromptAsk) (string, error) { return "", svrpc.ErrCanceled }
+func (nobody) Describe() string                                        { return "nobody" }
+
+func login(name, user, password string) svrpc.Item {
+	return svrpc.Item{Kind: "login", Name: name, Fields: []svrpc.Field{
+		{Name: "username", Type: "text", Value: []byte(user)},
+		{Name: "password", Type: "concealed", Value: []byte(password)},
+	}}
+}
+
+// fakeClipboard records copies instead of making them.
+type fakeClipboard struct {
+	mu     sync.Mutex
+	copies []*fakeCopy
+}
+
+type fakeCopy struct {
+	mu      sync.Mutex
+	data    []byte
+	text    string // what was copied, kept for the test to compare
+	ttl     time.Duration
+	cleared bool
+}
+
+func (f *fakeClipboard) SetSecret(data []byte, ttl time.Duration) Copied {
+	c := &fakeCopy{data: data, text: string(data), ttl: ttl}
+	f.mu.Lock()
+	f.copies = append(f.copies, c)
+	f.mu.Unlock()
+	return c
+}
+
+func (f *fakeClipboard) last() *fakeCopy {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.copies) == 0 {
+		return nil
+	}
+	return f.copies[len(f.copies)-1]
+}
+
+func (f *fakeClipboard) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.copies)
+}
+
+func (c *fakeCopy) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	clear(c.data)
+	c.cleared = true
+}
+
+func (c *fakeCopy) wiped() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, b := range c.data {
+		if b != 0 {
+			return false
+		}
+	}
+	return c.cleared
+}
+
+// harness is a real daemon in this process, a vault with a few items, and
+// the manager in a headless window, driven through uitoolkit's test
+// helpers.
+type harness struct {
+	t     *testing.T
+	dir   string
+	sock  string
+	admin *secretvault.Client // sets things up and checks them, as the CLI would
+	app   *app.Application
+	m     *Manager
+	clip  *fakeClipboard
+	now   time.Time
+
+	picks      []string // the paths the next file dialogs answer with
+	daemonStop func()
+}
+
+func newHarness(t *testing.T) *harness {
+	t.Helper()
+	a := svcrypto.DefaultArgon2
+	svcrypto.DefaultArgon2 = svcrypto.KDFParams{Alg: svcrypto.Argon2id, Time: 1, MemoryKiB: 64, Threads: 1}
+	t.Cleanup(func() { svcrypto.DefaultArgon2 = a })
+
+	dir, err := os.MkdirTemp("", "svgui") // short: socket paths have a length limit
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	h := &harness{t: t, dir: dir, sock: filepath.Join(dir, "s", "d.sock"), clip: &fakeClipboard{},
+		now: time.Date(2026, 9, 29, 12, 0, 10, 0, time.UTC)}
+	h.startDaemon()
+	t.Cleanup(func() { h.stopDaemon() })
+	c := h.ctx()
+	if _, err := h.admin.CreateVault(c, svrpc.VaultCreateParams{Name: "personal", Passphrase: []byte(pass)}); err != nil {
+		t.Fatal(err)
+	}
+	gh := login("web/github.com", "ada", "hunter2-github")
+	gh.Label, gh.Tags, gh.Attrs = "GitHub", []string{"dev"}, map[string]string{"service": "github"}
+	gh.Fields = append(gh.Fields, svrpc.Field{Name: "url", Type: "url", Value: []byte("https://github.com")})
+	for _, it := range []svrpc.Item{
+		gh,
+		login("web/gitlab.com", "ada", "gitlab-pass-42"),
+		login("mail/fastmail", "ada@fastmail.com", "fastmail-secret"),
+		{Kind: "otp", Name: "2fa/example", Fields: []svrpc.Field{{Name: "otp", Type: "otp", Value: []byte(totpURI)}}},
+	} {
+		if _, err := h.admin.Put(c, "", it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.admin.Lock(c, "", true); err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+// startDaemon runs secretvaultd in this process, on the harness's socket
+// and home, and connects the admin client to it.
+func (h *harness) startDaemon() {
+	h.t.Helper()
+	// Every client is one of secretvault's own programs here, as the GUI
+	// is to a daemon installed beside it; the GUI is the windowed one.
+	var mu sync.Mutex
+	var conns []net.Conn
+	d, err := svd.New(svd.Options{Home: filepath.Join(h.dir, "home"), Socket: h.sock, Desktop: nobody{},
+		IsCLI:      func(*svpeer.Process) bool { return true },
+		IsWindowed: func(*svpeer.Process) bool { return true },
+		Peer: func(c net.Conn) (*svpeer.Process, error) {
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+			return svpeer.FromConn(c)
+		}})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	ln, cleanup, err := svd.Listen(h.sock)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { d.Serve(ctx, ln); close(done) }()
+	// A daemon process that stops takes its connections with it; Serve
+	// alone leaves them open, so they are closed here.
+	h.daemonStop = func() {
+		cancel()
+		<-done
+		mu.Lock()
+		for _, c := range conns {
+			c.Close()
+		}
+		mu.Unlock()
+		cleanup()
+	}
+	h.admin, err = secretvault.Connect(secretvault.Options{Socket: h.sock, NoStart: true, Name: "admin"})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// addConflicted makes a vault, "shared", in which two devices changed the
+// item "site" at the same time, as two devices syncing through a folder
+// would, and registers it with the daemon, locked.
+func (h *harness) addConflicted() {
+	h.t.Helper()
+	path := filepath.Join(h.dir, "shared")
+	store, err := svstore.OpenDir(path)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	base := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
+	a, _, err := svcore.Create(store, 0, svcore.NewSlot{Type: svformat.SlotPassphrase, Passphrase: []byte(pass)},
+		svcore.Options{Device: svformat.ID{0xA}, Now: func() time.Time { return base }})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	site := func(p string) svcore.Item {
+		return svcore.Item{Kind: "login", Name: "site", Fields: []svcore.Field{{Name: "password", Type: "concealed", Value: []byte(p)}}}
+	}
+	if _, err := a.Put(site("original")); err != nil {
+		h.t.Fatal(err)
+	}
+	b, err := svcore.Open(store, svcore.Options{Device: svformat.ID{0xB}, Now: func() time.Time { return base.Add(time.Hour) }})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if err := b.Unlock(svcore.Passphrase([]byte(pass))); err != nil {
+		h.t.Fatal(err)
+	}
+	a.Put(site("from laptop"))
+	b.Put(site("from desktop")) // the later clock: it wins
+	a.Lock()
+	b.Lock()
+	if _, err := h.admin.AddVault(h.ctx(), "shared", path); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// stopDaemon stops it, closing every connection.
+func (h *harness) stopDaemon() {
+	if h.daemonStop == nil {
+		return
+	}
+	h.admin.Close()
+	h.daemonStop()
+	h.daemonStop = nil
+}
+
+func (h *harness) ctx() context.Context {
+	c, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	h.t.Cleanup(cancel)
+	return c
+}
+
+// start runs the manager in a headless window, in the dark look unless
+// look says otherwise.
+func (h *harness) start(opts Options) {
+	h.t.Helper()
+	look := opts.App
+	if look == nil {
+		h.app = uitoolkit.New(uitoolkit.Options{Look: style.DarkLook(), Headless: true, Scale: 1, DisableLookWatch: true})
+	} else {
+		h.app = look
+	}
+	opts.App = h.app
+	opts.Headless = true
+	opts.Connect = func(o secretvault.Options) (*secretvault.Client, error) {
+		o.Socket, o.NoStart = h.sock, true
+		return secretvault.Connect(o)
+	}
+	if opts.Clipboard == nil {
+		opts.Clipboard = h.clip
+	}
+	opts.PickFile = func(save bool, suggested string, done func(string)) {
+		if len(h.picks) == 0 {
+			done("")
+			return
+		}
+		p := h.picks[0]
+		h.picks = h.picks[1:]
+		done(p)
+	}
+	if opts.Now == nil {
+		opts.Now = func() time.Time { return h.now }
+	}
+	m, err := New(opts)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	h.m = m
+	h.t.Cleanup(func() {
+		m.Close()
+		for _, w := range h.app.Windows() {
+			w.Close()
+		}
+	})
+	m.Start()
+	h.pump()
+}
+
+func (h *harness) win() *app.Window { return h.m.win }
+
+// pump runs a frame, and whatever the daemon's answers posted.
+func (h *harness) pump() { h.app.PumpOnce() }
+
+// waitFor pumps until cond holds.
+func (h *harness) waitFor(what string, cond func() bool) {
+	h.t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		h.pump()
+		if cond() {
+			return
+		}
+		time.Sleep(3 * time.Millisecond)
+	}
+	h.t.Fatalf("%s never happened; the window says:\n%s", what, h.text())
+}
+
+// idle pumps until nothing is waiting on the daemon.
+func (h *harness) idle() {
+	h.t.Helper()
+	h.waitFor("the daemon answering", func() bool { return h.m.busy == 0 })
+	h.pump()
+}
+
+// text is everything the window says, as assistive technology reads it:
+// names, values and descriptions, a line each.
+func (h *harness) text() string { return windowText(h.win()) }
+
+func windowText(w *app.Window) string {
+	var b strings.Builder
+	w.AccessibleTree().Walk(func(n *a11y.Node) bool {
+		for _, s := range []string{n.Name, n.Value, n.Description} {
+			if s != "" {
+				b.WriteString(s)
+				b.WriteByte('\n')
+			}
+		}
+		return true
+	})
+	return b.String()
+}
+
+func (h *harness) waitText(want string) {
+	h.t.Helper()
+	h.waitFor("showing "+want, func() bool { return strings.Contains(h.text(), want) })
+}
+
+// asking waits for the daemon's question to be up, and returns it.
+func (h *harness) asking() *promptDialog {
+	h.t.Helper()
+	h.waitFor("the passphrase dialog", func() bool { return h.m.asking != nil && h.m.asking.win != nil })
+	h.pump()
+	return h.m.asking
+}
+
+// unlock answers the passphrase dialog the first listing brings up.
+func (h *harness) unlock() {
+	h.t.Helper()
+	h.waitText("Vault personal is locked")
+	h.win().Press(platform.KeyU, platform.ModCtrl)
+	d := h.asking()
+	d.win.Type(pass)
+	d.win.Press(platform.KeyReturn)
+	h.waitFor("the items", func() bool { return h.m.listed && len(h.m.entries) == 4 })
+	h.idle()
+}
+
+// selectItem selects an item in the list, as a click on its row does.
+func (h *harness) selectItem(name string) {
+	h.t.Helper()
+	for n, i := range h.m.shown {
+		if h.m.entries[i].Item.Name == name {
+			h.m.ui.items.Selected = n
+			h.m.itemSelected(n)
+			h.pump()
+			return
+		}
+	}
+	h.t.Fatalf("%s is not in the list", name)
+}
+
+// open selects an item and opens it with Enter.
+func (h *harness) open(name string) {
+	h.t.Helper()
+	h.selectItem(name)
+	h.win().FocusOn(h.m.ui.items)
+	h.win().Press(platform.KeyReturn)
+	h.waitFor("opening "+name, func() bool { return h.m.cur != nil && h.m.cur.Item.Name == name && h.m.ui.view.open() })
+	h.idle()
+}
+
+// prove presents the key on the admin connection, as the CLI does with
+// --passphrase-file: the daemon then lets it use the vault.
+func (h *harness) prove() {
+	h.t.Helper()
+	if _, err := h.admin.Unlock(h.ctx(), "", &svrpc.Key{Type: "passphrase", Secret: []byte(pass)}); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// get reads an item as the CLI would, presenting the key.
+func (h *harness) get(name string) (svrpc.Entry, error) {
+	h.prove()
+	return h.admin.Get(h.ctx(), "", name)
+}
+
+func field(e svrpc.Entry, name string) string {
+	for _, f := range e.Item.Fields {
+		if f.Name == name {
+			return string(f.Value)
+		}
+	}
+	return ""
+}
+
+// find is the first component under root that match accepts.
+func find[T widget.Component](root widget.Component, match func(T) bool) T {
+	var zero, hit T
+	found := false
+	widget.Walk(root, func(c widget.Component) {
+		if found {
+			return
+		}
+		if t, ok := c.(T); ok && (match == nil || match(t)) {
+			hit, found = t, true
+		}
+	})
+	if !found {
+		return zero
+	}
+	return hit
+}
+
+// button is the button labelled text under root.
+func button(root widget.Component, text string) *widgets.Button {
+	return find(root, func(b *widgets.Button) bool { return b.Text == text })
+}
+
+// overlay is the dialog up over the window, or nil.
+func (h *harness) overlay() widget.Component { return h.win().Overlay() }
+
+// click presses a button the way a pointer does.
+func (h *harness) click(w *app.Window, b *widgets.Button) {
+	h.t.Helper()
+	if b == nil {
+		h.t.Fatalf("no such button; the window says:\n%s", windowText(w))
+	}
+	// A button scrolled out of sight is scrolled to first, as a person
+	// would.
+	for p := b.Parent(); p != nil; p = p.Parent() {
+		if sv, ok := p.(*widgets.ScrollView); ok {
+			sv.Reveal(b)
+			h.pump()
+		}
+	}
+	if !w.ClickComponent(b) {
+		h.t.Fatalf("button %q has no box to click", b.Text)
+	}
+}
