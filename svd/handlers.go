@@ -1,0 +1,629 @@
+package svd
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/svbroker"
+	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svcrypto"
+	"github.com/codemodify/secretvault/svformat"
+	"github.com/codemodify/secretvault/svpeer"
+	"github.com/codemodify/secretvault/svrpc"
+)
+
+// handle serves one request from a client.
+func (d *Daemon) handle(ctx context.Context, conn *svrpc.Conn, method string, params json.RawMessage) (any, error) {
+	cl := conn.Value.(*client)
+	decode := func(v any) error {
+		if len(params) == 0 {
+			return nil
+		}
+		if err := json.Unmarshal(params, v); err != nil {
+			return svrpc.Errorf(svrpc.CodeInvalidParams, "bad parameters for %s: %v", method, err)
+		}
+		return nil
+	}
+	res, err := d.dispatch(ctx, cl, method, decode)
+	return res, mapErr(err)
+}
+
+// mapErr gives engine errors their protocol codes.
+func mapErr(err error) error {
+	var e *svrpc.Error
+	switch {
+	case err == nil, errors.As(err, &e):
+		return err
+	case errors.Is(err, svcore.ErrLocked):
+		return svrpc.Errorf(svrpc.CodeLocked, "%v", err)
+	case errors.Is(err, svcore.ErrNotFound):
+		return svrpc.Errorf(svrpc.CodeNotFound, "%s", strings.TrimPrefix(err.Error(), "svcore: "))
+	case errors.Is(err, svcore.ErrWrongKey):
+		return svrpc.ErrWrongKey
+	case errors.Is(err, svbroker.ErrNoGrant):
+		return svrpc.Errorf(svrpc.CodeNotFound, "no such grant")
+	}
+	return svrpc.Errorf(svrpc.CodeFailed, "%s", strings.TrimPrefix(err.Error(), "svcore: "))
+}
+
+func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode func(any) error) (any, error) {
+	switch method {
+	case svrpc.MHello:
+		var p svrpc.HelloParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		cl.name, cl.canPrompt = p.Client, p.CanPrompt
+		return svrpc.HelloResult{Daemon: "secretvaultd", Version: secretvault.Version, Caller: cl.display()}, nil
+
+	case svrpc.MStatus:
+		return d.Status(), nil
+
+	case svrpc.MVaultList:
+		return d.vaultInfos(), nil
+
+	case svrpc.MVaultCreate:
+		var p svrpc.VaultCreateParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		mv, recovery, err := d.createVault(p)
+		clear(p.Passphrase)
+		if err != nil {
+			return nil, err
+		}
+		d.proved(cl, mv)
+		return svrpc.VaultCreateResult{Vault: d.info(mv), RecoveryKey: recovery}, nil
+
+	case svrpc.MVaultAdd:
+		var p svrpc.VaultAddParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		mv, err := d.addVault(p)
+		if err != nil {
+			return nil, err
+		}
+		return d.info(mv), nil
+
+	case svrpc.MVaultForget:
+		var p svrpc.VaultRef
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		return nil, d.forgetVault(p.Vault)
+
+	case svrpc.MVaultDefault:
+		var p svrpc.VaultRef
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		return nil, d.setDefault(p.Vault)
+
+	case svrpc.MVaultUnlock:
+		var p svrpc.UnlockParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		mv, err := d.vault(p.Vault)
+		if err != nil {
+			return nil, err
+		}
+		if p.Key == nil {
+			if _, _, err := d.ensureUnlocked(ctx, cl, mv, cl.display()+" asks to unlock the vault."); err != nil {
+				return nil, err
+			}
+			return d.info(mv), nil
+		}
+		key, wipe, err := keyFrom(mv, p.Key)
+		if err != nil {
+			return nil, err
+		}
+		defer wipe()
+		if mv.v.Locked() {
+			err = d.unlockWith(mv, key)
+		} else {
+			err = mv.v.CheckKey(key)
+		}
+		if err != nil {
+			d.audit.Record(mv.v, svbroker.Entry{Program: cl.display(), Identity: cl.identity(), PID: cl.proc.PID, Op: svbroker.OpManage, Outcome: "denied", Reason: "wrong key"})
+			return nil, err
+		}
+		d.proved(cl, mv)
+		d.audit.Record(mv.v, svbroker.Entry{Program: cl.display(), Identity: cl.identity(), PID: cl.proc.PID, Op: svbroker.OpManage, Outcome: "allowed", Reason: "unlocked with a " + p.Key.Type})
+		return d.info(mv), nil
+
+	case svrpc.MVaultLock:
+		var p svrpc.LockParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		if p.All {
+			d.LockAll("asked by " + cl.display())
+			return nil, nil
+		}
+		mv, err := d.vault(p.Vault)
+		if err != nil {
+			return nil, err
+		}
+		d.lock(mv, "asked by "+cl.display())
+		return nil, nil
+
+	case svrpc.MVaultVerify:
+		var p svrpc.VaultRef
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		mv, err := d.managed(ctx, cl, p.Vault, "", "", svbroker.OpManage)
+		if err != nil {
+			return nil, err
+		}
+		rep, err := mv.v.Verify()
+		if err != nil {
+			return nil, err
+		}
+		out := svrpc.VerifyResult{Objects: rep.Objects, Revisions: rep.Revisions, Live: rep.Live}
+		for _, pr := range rep.Problems {
+			out.Problems = append(out.Problems, pr.Name+": "+pr.Err.Error())
+		}
+		for _, e := range rep.Conflicts {
+			out.Conflicts = append(out.Conflicts, fmt.Sprintf("%s (%d competing revisions)", e.Item.Name, 1+len(e.Conflicts)))
+			e.Item.Wipe()
+		}
+		if len(rep.Duplicates) > 0 {
+			out.Duplicates = map[string][]string{}
+			for name, ids := range rep.Duplicates {
+				for _, id := range ids {
+					out.Duplicates[name] = append(out.Duplicates[name], id.String())
+				}
+			}
+		}
+		return out, nil
+
+	case svrpc.MVaultPasswd:
+		var p svrpc.PasswdParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		defer clear(p.Passphrase)
+		mv, err := d.managed(ctx, cl, p.Vault, "", "", svbroker.OpManage)
+		if err != nil {
+			return nil, err
+		}
+		if len(p.Passphrase) < MinPassphrase {
+			return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "the passphrase is too short: use at least %d characters", MinPassphrase)
+		}
+		old := mv.v.UnlockedBy()
+		info, err := mv.v.AddSlot(svcore.NewSlot{Type: svformat.SlotPassphrase, Label: "passphrase", Passphrase: p.Passphrase})
+		if err != nil {
+			return nil, err
+		}
+		slots, err := mv.v.Slots()
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range slots {
+			if s.ID == old && s.Type == svformat.SlotPassphrase {
+				if err := mv.v.RemoveSlot(old); err != nil {
+					return nil, err
+				}
+			}
+		}
+		return slotInfo(mv, info), nil
+
+	case svrpc.MSlotList:
+		var p svrpc.VaultRef
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		mv, err := d.vault(p.Vault)
+		if err != nil {
+			return nil, err
+		}
+		slots, err := mv.v.Slots()
+		if err != nil {
+			return nil, err
+		}
+		out := []svrpc.SlotInfo{}
+		for _, s := range slots {
+			out = append(out, slotInfo(mv, s))
+		}
+		return out, nil
+
+	case svrpc.MSlotAdd:
+		var p svrpc.SlotAddParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		defer clear(p.Secret)
+		mv, err := d.managed(ctx, cl, p.Vault, "", "", svbroker.OpManage)
+		if err != nil {
+			return nil, err
+		}
+		ns := svcore.NewSlot{Type: p.Type, Label: p.Label}
+		switch p.Type {
+		case svformat.SlotPassphrase:
+			if len(p.Secret) < MinPassphrase {
+				return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "the passphrase is too short: use at least %d characters", MinPassphrase)
+			}
+			ns.Passphrase = p.Secret
+		case svformat.SlotKeyfile:
+			ns.Keyfile = p.Secret
+		case svformat.SlotRecipient:
+			suite, pub, err := svformat.ParseRecipient(string(p.Secret))
+			if err != nil {
+				return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
+			}
+			if suite != mv.v.Suite() {
+				return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "that recipient is for %v; this vault uses %v", suite, mv.v.Suite())
+			}
+			ns.Recipient = pub
+		}
+		info, err := mv.v.AddSlot(ns)
+		if err != nil {
+			return nil, err
+		}
+		out := slotInfo(mv, info)
+		out.RecoveryKey = info.RecoveryKey
+		return out, nil
+
+	case svrpc.MSlotRemove:
+		var p svrpc.SlotRemoveParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		id, err := svformat.ParseID(p.ID)
+		if err != nil {
+			return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
+		}
+		mv, err := d.managed(ctx, cl, p.Vault, "", "", svbroker.OpManage)
+		if err != nil {
+			return nil, err
+		}
+		return nil, mv.v.RemoveSlot(id)
+
+	case svrpc.MItemGet, svrpc.MItemHistory:
+		var p svrpc.ItemRef
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		mv, e, err := d.item(ctx, cl, p.Vault, p.Name, svbroker.OpRead)
+		if err != nil {
+			return nil, err
+		}
+		if method == svrpc.MItemGet {
+			return toEntry(e, true), nil
+		}
+		e.Item.Wipe()
+		hist, err := mv.v.History(p.Name)
+		if err != nil {
+			return nil, err
+		}
+		out := []svrpc.Entry{}
+		for _, h := range hist {
+			out = append(out, toEntry(h, true))
+			h.Item.Wipe()
+		}
+		return out, nil
+
+	case svrpc.MItemList:
+		var p svrpc.ListParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		mv, err := d.managed(ctx, cl, p.Vault, "", "", svbroker.OpList)
+		if err != nil {
+			return nil, err
+		}
+		entries, err := mv.v.List(p.Prefix)
+		if err != nil {
+			return nil, err
+		}
+		out := []svrpc.Entry{}
+		for _, e := range entries {
+			out = append(out, toEntry(e, false))
+			e.Item.Wipe()
+		}
+		return out, nil
+
+	case svrpc.MItemPut:
+		var p svrpc.PutParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		it := fromItem(p.Item)
+		defer it.Wipe()
+		if err := svcore.CheckName(it.Name); err != nil {
+			return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
+		}
+		mv, err := d.vault(p.Vault)
+		if err != nil {
+			return nil, err
+		}
+		// Changing an item needs consent for that item; creating one, for
+		// the vault.
+		itemID := ""
+		if !mv.v.Locked() {
+			if e, err := mv.v.Get(it.Name); err == nil {
+				itemID = e.ID.String()
+				e.Item.Wipe()
+			}
+		}
+		if _, err := d.managed(ctx, cl, p.Vault, itemID, it.Name, svbroker.OpWrite); err != nil {
+			return nil, err
+		}
+		e, err := mv.v.Put(it)
+		if err != nil {
+			return nil, err
+		}
+		defer e.Item.Wipe()
+		d.notify(svrpc.EItemChanged, svrpc.VaultEvent{Vault: mv.cfg.Name, Item: it.Name})
+		return toEntry(e, false), nil
+
+	case svrpc.MItemDelete:
+		var p svrpc.ItemRef
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		mv, e, err := d.item(ctx, cl, p.Vault, p.Name, svbroker.OpDelete)
+		if err != nil {
+			return nil, err
+		}
+		e.Item.Wipe()
+		if err := mv.v.Delete(p.Name); err != nil {
+			return nil, err
+		}
+		d.notify(svrpc.EItemChanged, svrpc.VaultEvent{Vault: mv.cfg.Name, Item: p.Name})
+		return nil, nil
+
+	case svrpc.MItemRename:
+		var p svrpc.RenameParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		mv, e, err := d.item(ctx, cl, p.Vault, p.From, svbroker.OpWrite)
+		if err != nil {
+			return nil, err
+		}
+		e.Item.Wipe()
+		ne, err := mv.v.Rename(p.From, p.To)
+		if err != nil {
+			return nil, err
+		}
+		defer ne.Item.Wipe()
+		d.notify(svrpc.EItemChanged, svrpc.VaultEvent{Vault: mv.cfg.Name, Item: p.To})
+		return toEntry(ne, false), nil
+
+	case svrpc.MGrantList:
+		var p svrpc.VaultRef
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		mv, err := d.managed(ctx, cl, p.Vault, "", "", svbroker.OpManage)
+		if err != nil {
+			return nil, err
+		}
+		views, err := d.broker.List(mv.v)
+		if err != nil {
+			return nil, err
+		}
+		out := []svrpc.Grant{}
+		for _, v := range views {
+			var ops []string
+			for _, op := range v.Grant.Ops {
+				ops = append(ops, string(op))
+			}
+			out = append(out, svrpc.Grant{ID: v.ID, Vault: mv.cfg.Name, Program: v.Grant.Program, Identity: v.Grant.Identity,
+				Item: v.Grant.ItemName, Ops: ops, Decision: string(v.Grant.Decision), Created: v.Grant.Created, Scope: v.Scope})
+		}
+		return out, nil
+
+	case svrpc.MGrantRevoke:
+		var p svrpc.GrantRef
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		mv, err := d.managed(ctx, cl, p.Vault, "", "", svbroker.OpManage)
+		if err != nil {
+			return nil, err
+		}
+		return nil, d.broker.Revoke(mv.v, p.ID)
+
+	case svrpc.MGrantAdd:
+		var p svrpc.GrantAddParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		mv, err := d.managed(ctx, cl, p.Vault, "", "", svbroker.OpManage)
+		if err != nil {
+			return nil, err
+		}
+		prog, err := svpeer.ForPath(p.Program)
+		if err != nil {
+			return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
+		}
+		g := svbroker.Grant{Identity: prog.Identity(), Program: prog.Display(), ItemName: p.Item, Decision: svbroker.Decision(p.Decision)}
+		switch g.Decision {
+		case svbroker.AllowAlways, svbroker.AllowUntilLock, svbroker.DenyAlways:
+		default:
+			return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "decision %q is not allow-always, allow-until-lock or deny-always", p.Decision)
+		}
+		if p.Item != "" {
+			e, err := mv.v.Get(p.Item)
+			if err != nil {
+				return nil, err
+			}
+			g.Item = e.ID.String()
+			e.Item.Wipe()
+		}
+		if len(p.Ops) == 0 {
+			p.Ops = []string{string(svbroker.OpRead)}
+		}
+		for _, op := range p.Ops {
+			if _, known := verbs[svbroker.Op(op)]; !known {
+				return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "unknown operation %q (read, list, write, delete, manage)", op)
+			}
+			g.Ops = append(g.Ops, svbroker.Op(op))
+		}
+		if err := d.broker.Remember(mv.v, g); err != nil {
+			return nil, err
+		}
+		return svrpc.Grant{Vault: mv.cfg.Name, Program: g.Program, Identity: g.Identity, Item: p.Item, Ops: p.Ops, Decision: p.Decision}, nil
+
+	case svrpc.MAuditList:
+		var p svrpc.AuditParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		mv, err := d.managed(ctx, cl, p.Vault, "", "", svbroker.OpManage)
+		if err != nil {
+			return nil, err
+		}
+		entries, rerr := d.audit.Read(mv.v, p.Limit)
+		out := []svrpc.AuditEntry{}
+		for _, e := range entries {
+			out = append(out, svrpc.AuditEntry{Time: e.Time, Program: e.Program, PID: e.PID, Op: string(e.Op), Item: e.Item, Outcome: e.Outcome, Reason: e.Reason})
+		}
+		if errors.Is(rerr, svbroker.ErrLogDamaged) {
+			out = append(out, svrpc.AuditEntry{Outcome: "log-damaged", Reason: "lines of this log were removed or changed"})
+			rerr = nil
+		}
+		return out, rerr
+
+	case svrpc.MPromptRegister:
+		var p svrpc.PromptRegisterParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		// The prompter sees the passphrases typed into it: only
+		// secretvault's own programs may be it.
+		if !cl.cli && !d.opts.IsPromptAgent(cl.proc) {
+			return nil, svrpc.Errorf(svrpc.CodeDenied, "only secretvault-tui-prompt may register as the prompter")
+		}
+		d.mu.Lock()
+		d.agent = cl
+		d.mu.Unlock()
+		return nil, nil
+	}
+	return nil, svrpc.Errorf(svrpc.CodeMethodNotFound, "no method %q", method)
+}
+
+// managed resolves a vault and authorizes a vault-wide (or item) operation.
+func (d *Daemon) managed(ctx context.Context, cl *client, vault, item, itemName string, op svbroker.Op) (*managedVault, error) {
+	mv, err := d.vault(vault)
+	if err != nil {
+		return nil, err
+	}
+	if err := d.authorize(ctx, cl, mv, item, itemName, op); err != nil {
+		return nil, err
+	}
+	return mv, nil
+}
+
+// item resolves and authorizes an operation on a named item. The vault is
+// unlocked first (if need be) to find the item's identity, so the
+// decision is about this item, not its name.
+func (d *Daemon) item(ctx context.Context, cl *client, vault, name string, op svbroker.Op) (*managedVault, svcore.Entry, error) {
+	mv, err := d.vault(vault)
+	if err != nil {
+		return nil, svcore.Entry{}, err
+	}
+	why := describeRequest(cl, mv, name, op)
+	record := d.recorder(cl, mv, name, op)
+	prompted, own, err := d.ensureUnlocked(ctx, cl, mv, why)
+	if err != nil {
+		record(outcomeOf(err), err.Error())
+		return nil, svcore.Entry{}, err
+	}
+	e, err := mv.v.Get(name)
+	if err != nil {
+		return nil, svcore.Entry{}, err
+	}
+	if err := d.decide(ctx, cl, mv, e.ID.String(), name, op, why, prompted, own, record); err != nil {
+		e.Item.Wipe()
+		return nil, svcore.Entry{}, err
+	}
+	return mv, e, nil
+}
+
+// keyFrom turns a presented key into an engine key.
+func keyFrom(mv *managedVault, k *svrpc.Key) (svcore.Key, func(), error) {
+	wipe := func() { clear(k.Secret) }
+	switch k.Type {
+	case svformat.SlotPassphrase:
+		return svcore.Passphrase(k.Secret), wipe, nil
+	case svformat.SlotKeyfile:
+		return svcore.Keyfile(k.Secret), wipe, nil
+	case svformat.SlotRecovery:
+		rk, err := svformat.ParseRecoveryKey(string(k.Secret))
+		if err != nil {
+			return nil, wipe, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
+		}
+		return svcore.RecoveryKey(rk), func() { clear(rk); wipe() }, nil
+	case "identity":
+		for _, line := range strings.Split(string(k.Secret), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			suite, priv, err := svformat.ParseIdentity(line)
+			if err != nil {
+				return nil, wipe, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
+			}
+			id, err := suite.ParseIdentity(priv)
+			clear(priv)
+			if err != nil {
+				return nil, wipe, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
+			}
+			return svcore.IdentityKey(id), wipe, nil
+		}
+		return nil, wipe, svrpc.Errorf(svrpc.CodeInvalidParams, "no identity in what was given")
+	}
+	return nil, wipe, svrpc.Errorf(svrpc.CodeInvalidParams, "unknown key type %q", k.Type)
+}
+
+func slotInfo(mv *managedVault, s svcore.SlotInfo) svrpc.SlotInfo {
+	out := svrpc.SlotInfo{ID: s.ID.String(), Type: s.Type, Label: s.Label, Created: s.Created}
+	switch {
+	case s.KDF != nil && s.KDF.Alg == svcrypto.Argon2id:
+		mem := fmt.Sprintf("%dKiB", s.KDF.MemoryKiB)
+		if s.KDF.MemoryKiB%1024 == 0 {
+			mem = fmt.Sprintf("%dMiB", s.KDF.MemoryKiB/1024)
+		}
+		out.Detail = fmt.Sprintf("argon2id t=%d m=%s p=%d", s.KDF.Time, mem, s.KDF.Threads)
+	case s.KDF != nil:
+		out.Detail = fmt.Sprintf("%s i=%d", s.KDF.Alg, s.KDF.Iterations)
+	case s.Recipient != nil:
+		out.Recipient = svformat.EncodeRecipient(mv.v.Suite(), s.Recipient)
+	}
+	return out
+}
+
+func toEntry(e svcore.Entry, withFields bool) svrpc.Entry {
+	out := svrpc.Entry{ID: e.ID.String(), Rev: e.Rev.String(), Time: e.Time, Deleted: e.Deleted,
+		Item: svrpc.Item{Kind: e.Item.Kind, Name: e.Item.Name, Label: e.Item.Label, Attrs: e.Item.Attrs, Tags: e.Item.Tags}}
+	if !e.Device.IsZero() {
+		out.Device = e.Device.String()
+	}
+	for _, r := range e.Conflicts {
+		out.Conflicts = append(out.Conflicts, r.String())
+	}
+	if withFields {
+		for _, f := range e.Item.Fields {
+			out.Item.Fields = append(out.Item.Fields, svrpc.Field{Name: f.Name, Type: f.Type, Value: append([]byte(nil), f.Value...)})
+		}
+	}
+	return out
+}
+
+func fromItem(it svrpc.Item) svcore.Item {
+	out := svcore.Item{Kind: it.Kind, Name: it.Name, Label: it.Label, Attrs: it.Attrs, Tags: it.Tags}
+	for _, f := range it.Fields {
+		out.Fields = append(out.Fields, svcore.Field{Name: f.Name, Type: f.Type, Value: f.Value})
+	}
+	return out
+}

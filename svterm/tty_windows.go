@@ -1,6 +1,6 @@
 //go:build windows
 
-package svprompt
+package svterm
 
 import "os"
 

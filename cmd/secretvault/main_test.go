@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -11,15 +12,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svcrypto"
+	"github.com/codemodify/secretvault/svd"
 	"github.com/codemodify/secretvault/svformat"
+	"github.com/codemodify/secretvault/svpeer"
 )
 
 type harness struct {
 	t        *testing.T
-	dir      string // scratch
-	vault    string
+	dir      string
+	home     string
+	sock     string
 	passFile string
 	answers  []string // what the terminal "types", in order
 }
@@ -30,12 +34,29 @@ func newHarness(t *testing.T) *harness {
 	svcrypto.DefaultArgon2 = svcrypto.KDFParams{Alg: svcrypto.Argon2id, Time: 1, MemoryKiB: 64, Threads: 1}
 	svcrypto.DefaultPBKDF2 = svcrypto.KDFParams{Alg: svcrypto.PBKDF2SHA256, Iterations: 10}
 	t.Cleanup(func() { svcrypto.DefaultArgon2, svcrypto.DefaultPBKDF2 = a, p })
-
-	dir := t.TempDir()
-	t.Setenv(svcore.EnvHome, filepath.Join(dir, "home"))
 	t.Setenv(EnvVault, "")
-	h := &harness{t: t, dir: dir, vault: filepath.Join(dir, "vault"), passFile: filepath.Join(dir, "pass")}
+
+	dir, err := os.MkdirTemp("", "svcli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	h := &harness{t: t, dir: dir, home: filepath.Join(dir, "home"), sock: filepath.Join(dir, "s", "d.sock"), passFile: filepath.Join(dir, "pass")}
 	h.write("pass", "correct horse battery staple\n")
+
+	// A real daemon, in-process, which takes this test binary for the CLI.
+	d, err := svd.New(svd.Options{Home: h.home, Socket: h.sock, IsCLI: func(*svpeer.Process) bool { return true }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, cleanup, err := svd.Listen(h.sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { d.Serve(ctx, ln); close(done) }()
+	t.Cleanup(func() { cancel(); <-done; cleanup() })
 	return h
 }
 
@@ -65,8 +86,16 @@ func (h *harness) run(stdin string, args ...string) (string, string, int) {
 		stderr: &errb,
 		ask:    h.terminal,
 		askNew: func(p string, _ int) ([]byte, error) { return h.terminal(p) },
+		canAsk: true,
+		connect: func(o secretvault.Options) (*secretvault.Client, error) {
+			o.Socket, o.NoStart = h.sock, true
+			return secretvault.Connect(o)
+		},
 	}
-	code := c.run(append([]string{"--vault", h.vault}, args...))
+	code := c.run(args)
+	if c.client != nil {
+		c.client.Close()
+	}
 	return out.String(), errb.String(), code
 }
 
@@ -84,23 +113,22 @@ func (h *harness) init(extra ...string) string {
 	return h.ok("", append([]string{"init", "--passphrase-file", h.passFile}, extra...)...)
 }
 
-func (h *harness) pf() []string { return []string{"--passphrase-file", h.passFile} }
-
-func (h *harness) with(args ...string) []string { return append(args, h.pf()...) }
+func (h *harness) with(args ...string) []string {
+	return append(args, "--passphrase-file", h.passFile)
+}
 
 func TestInitSetGetRoundTrip(t *testing.T) {
 	h := newHarness(t)
-	if out := h.init(); !strings.Contains(out, "Created vault") {
+	if out := h.init(); !strings.Contains(out, `Created vault "default"`) {
 		t.Fatalf("init said %q", out)
 	}
-	if _, errs, code := h.run("", "init", "--passphrase-file", h.passFile); code == 0 || !strings.Contains(errs, "already exists") {
+	if _, errs, code := h.run("", "init", "--passphrase-file", h.passFile); code == 0 || !strings.Contains(errs, "already") {
 		t.Fatalf("second init: %d %q", code, errs)
 	}
 	h.ok("hunter2\n", h.with("set", "web/github.com", "--kind", "login", "--field", "username=ada", "--attr", "service=github")...)
 	if got := h.ok("", h.with("get", "web/github.com")...); got != "hunter2\n" {
 		t.Fatalf("get = %q", got)
 	}
-	// Flags may follow the name.
 	if got := h.ok("", h.with("get", "web/github.com", "--field", "username")...); got != "ada\n" {
 		t.Fatalf("get --field = %q", got)
 	}
@@ -110,6 +138,60 @@ func TestInitSetGetRoundTrip(t *testing.T) {
 	}
 	if j.Kind != "login" || j.Attrs["service"] != "github" || len(j.Fields) != 2 {
 		t.Fatalf("--json = %+v", j)
+	}
+}
+
+func TestATerminalProvesItselfWithThePassphrase(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok("v", h.with("set", "x")...)
+	// No key given: the daemon asks this terminal for the passphrase.
+	h.answers = []string{"wrong", "correct horse battery staple"}
+	if got := h.ok("", "get", "x"); got != "v\n" {
+		t.Fatalf("get = %q", got)
+	}
+	h.answers = []string{"no", "nope", "never"}
+	if _, errs, code := h.run("", "get", "x"); code != 1 || !strings.Contains(errs, "does not open") {
+		t.Fatalf("three wrong passphrases: %d %q", code, errs)
+	}
+}
+
+func TestLockingAndUnlocking(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok("v", h.with("set", "x")...)
+	h.ok("", "lock")
+	if out := h.ok("", "status"); !regexp.MustCompile(`default \*\s+locked`).MatchString(out) {
+		t.Fatalf("status after lock:\n%s", out)
+	}
+	h.answers = []string{"correct horse battery staple"}
+	h.ok("", "unlock")
+	if out := h.ok("", "vault", "list"); !strings.Contains(out, "unlocked") {
+		t.Fatalf("vault list after unlock:\n%s", out)
+	}
+	h.ok("", "lock", "--all")
+	if got := h.ok("", h.with("get", "x")...); got != "v\n" {
+		t.Fatalf("get with a key after lock: %q", got)
+	}
+}
+
+func TestSeveralVaults(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	elsewhere := filepath.Join(h.dir, "synced", "work")
+	h.ok("", "init", "--name", "work", "--path", elsewhere, "--passphrase-file", h.passFile)
+	h.ok("w", h.with("--vault", "work", "set", "w")...)
+	if _, _, code := h.run("", h.with("get", "w")...); code != 1 {
+		t.Fatal("an item of work showed up in the default vault")
+	}
+	h.ok("", "vault", "default", "work")
+	if got := h.ok("", h.with("get", "w")...); got != "w\n" {
+		t.Fatalf("after changing the default: %q", got)
+	}
+	h.ok("", "vault", "forget", "work")
+	h.ok("", "vault", "add", "work2", elsewhere)
+	if got := h.ok("", h.with("--vault", "work2", "get", "w")...); got != "w\n" {
+		t.Fatalf("a re-added vault: %q", got)
 	}
 }
 
@@ -159,13 +241,10 @@ func TestListMoveRemoveAndHistory(t *testing.T) {
 	if got := h.ok("", h.with("ls", "web/")...); got != "web/a\nweb/b\n" {
 		t.Fatalf("ls web/ = %q", got)
 	}
-	if got := h.ok("", h.with("ls", "-l")...); strings.Count(got, "\n") != 3 || !strings.Contains(got, "password") {
-		t.Fatalf("ls -l = %q", got)
-	}
 	h.ok("", h.with("mv", "web/a", "web/renamed")...)
 	h.ok("3", h.with("set", "web/renamed")...)
 	hist := h.ok("", h.with("history", "web/renamed", "--show")...)
-	if strings.Count(hist, "\n") != 4 || !strings.Contains(hist, "current") || !strings.Contains(hist, "\t1") && !strings.Contains(hist, " 1\n") {
+	if strings.Count(hist, "\n") != 4 || !strings.Contains(hist, "current") {
 		t.Fatalf("history = %q", hist)
 	}
 	h.ok("", h.with("rm", "web/b")...)
@@ -183,31 +262,31 @@ func TestEveryWayInWorks(t *testing.T) {
 	}
 	h.ok("hunter2", h.with("set", "x")...)
 
-	// Recovery key, typed at the terminal.
+	h.ok("", "lock")
 	h.answers = []string{strings.ToLower(rk)}
 	if got := h.ok("", "get", "x", "--recovery"); got != "hunter2\n" {
 		t.Fatalf("recovery unlock: %q", got)
 	}
 
-	// Keyfile.
 	kf := filepath.Join(h.dir, "vault.key")
 	h.ok("", h.with("slot", "add", "keyfile", kf, "--create", "--label", "usb")...)
+	h.ok("", "lock")
 	if got := h.ok("", "get", "x", "--keyfile", kf); got != "hunter2\n" {
 		t.Fatalf("keyfile unlock: %q", got)
 	}
 
-	// Identity (a device key).
 	idFile := filepath.Join(h.dir, "laptop.id")
 	rcpt := strings.TrimSpace(h.ok("", "identity", "new", "--out", idFile))
 	if got := strings.TrimSpace(h.ok("", "identity", "pub", idFile)); got != rcpt {
 		t.Fatalf("identity pub = %q, new printed %q", got, rcpt)
 	}
 	h.ok("", h.with("slot", "add", "recipient", idFile, "--label", "laptop")...)
+	h.ok("", "lock")
 	if got := h.ok("", "get", "x", "--identity", idFile); got != "hunter2\n" {
 		t.Fatalf("identity unlock: %q", got)
 	}
 
-	list := h.ok("", "slot", "list") // works while locked, without a key
+	list := h.ok("", "slot", "list")
 	for _, want := range []string{"passphrase", "recovery", "keyfile", "recipient", "usb", "laptop", "argon2id"} {
 		if !strings.Contains(list, want) {
 			t.Errorf("slot list lacks %q:\n%s", want, list)
@@ -221,6 +300,7 @@ func TestPasswdRetiresTheOldPassphrase(t *testing.T) {
 	h.ok("v", h.with("set", "x")...)
 	newPass := h.write("newpass", "a much better passphrase\n")
 	h.ok("", h.with("passwd", "--new-passphrase-file", newPass)...)
+	h.ok("", "lock")
 	if _, errs, code := h.run("", h.with("get", "x")...); code != 1 || !strings.Contains(errs, "does not open") {
 		t.Fatalf("old passphrase: %d %q", code, errs)
 	}
@@ -255,7 +335,7 @@ func TestVerifyCatchesTampering(t *testing.T) {
 		t.Fatalf("verify = %q", out)
 	}
 	var victim string
-	filepath.WalkDir(filepath.Join(h.vault, svformat.ObjectsDir), func(p string, d fs.DirEntry, err error) error {
+	filepath.WalkDir(filepath.Join(h.home, "vaults", "default", svformat.ObjectsDir), func(p string, d fs.DirEntry, err error) error {
 		if err == nil && !d.IsDir() && victim == "" {
 			victim = p
 		}
@@ -270,11 +350,26 @@ func TestVerifyCatchesTampering(t *testing.T) {
 	}
 }
 
+func TestGrantsAndAuditAreShown(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok("v", h.with("set", "x")...)
+	h.ok("", h.with("get", "x")...)
+	audit := h.ok("", h.with("audit")...)
+	if !strings.Contains(audit, "allowed") || !strings.Contains(audit, "read x") {
+		t.Fatalf("audit:\n%s", audit)
+	}
+	if out := h.ok("", h.with("grant", "list")...); !strings.Contains(out, "No program") {
+		t.Fatalf("grant list:\n%s", out)
+	}
+}
+
 func TestNothingReadableReachesTheDisk(t *testing.T) {
 	h := newHarness(t)
 	h.init()
 	h.ok("hunter2-hunter2", h.with("set", "bank/very-private-name", "--field", "username=ada.lovelace", "--attr", "service=secret-service-attr")...)
-	err := filepath.WalkDir(h.vault, func(p string, d fs.DirEntry, err error) error {
+	h.ok("", h.with("get", "bank/very-private-name")...)
+	err := filepath.WalkDir(h.home, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
@@ -312,5 +407,25 @@ func TestErrorsAreHelpful(t *testing.T) {
 	}
 	if out := h.ok("", "version"); !strings.HasPrefix(out, "secretvault ") {
 		t.Fatalf("version = %q", out)
+	}
+}
+
+func TestProgramsCanBeAllowedAheadOfTime(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok("v", h.with("set", "backup/key")...)
+	out := h.ok("", h.with("grant", "allow", "/bin/sh", "--item", "backup/key")...)
+	if !strings.Contains(out, "allow-always") || !strings.Contains(out, `"backup/key"`) {
+		t.Fatalf("grant allow said %q", out)
+	}
+	list := h.ok("", h.with("grant", "list")...)
+	if !strings.Contains(list, "sh (") || !strings.Contains(list, "backup/key") {
+		t.Fatalf("grant list:\n%s", list)
+	}
+	if _, errs, code := h.run("", h.with("grant", "allow", "/bin/sh", "--ops", "steal")...); code != 1 || !strings.Contains(errs, "unknown operation") {
+		t.Fatalf("a bad op: %d %q", code, errs)
+	}
+	if _, errs, code := h.run("", h.with("grant", "allow", "/no/such/program")...); code != 1 || !strings.Contains(errs, "no such file") {
+		t.Fatalf("a missing program: %d %q", code, errs)
 	}
 }

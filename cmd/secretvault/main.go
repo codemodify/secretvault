@@ -1,16 +1,20 @@
 // Command secretvault is the command-line face of secretvault.
 //
-// In this milestone (M0) it opens vault folders directly: every command
-// that needs secrets unlocks the vault itself, asking for the passphrase on
-// the terminal. That is transitional. From M1 the CLI is purely a client of
-// secretvaultd (starting it if needed), so every access goes through one
-// place that asks for consent and keeps the audit trail.
+// It is a client of secretvaultd, which it starts if it is not running.
+// The daemon holds the keys; the CLI asks it for things, and when the
+// daemon needs to know it is you, the CLI asks for the vault's passphrase
+// on this terminal (once per terminal, until the vault locks), as sudo
+// does.
 //
 // Usage:
 //
-//	secretvault [--vault DIR] <command> [flags] [args]
+//	secretvault [--vault NAME] <command> [flags] [args]
 //
 //	init                       create a vault
+//	unlock [VAULT]             unlock a vault
+//	lock [VAULT] [--all]       lock a vault, or all of them
+//	status                     show the daemon and its vaults
+//	vault list|add|forget|default
 //	set NAME                   store or update an item (secret from stdin or a prompt)
 //	get NAME                   print an item's secret, a field, or the whole item
 //	ls [PREFIX]                list items
@@ -20,17 +24,18 @@
 //	gen                        print a random password
 //	slot list|add|rm           manage the ways a vault can be unlocked
 //	passwd                     change the passphrase
+//	grant list|allow|deny|revoke  decide what programs may do
+//	audit                      show who accessed what
 //	identity new|pub           make or show a recipient identity
 //	verify                     re-authenticate every file of the vault
 //	version                    print the version
 //
-// Unlocking: by default the passphrase is asked for on the terminal. Any
-// command that opens a vault also takes --passphrase-file FILE,
-// --keyfile FILE, --identity FILE or --recovery.
+// Commands that use a vault also take --passphrase-file FILE, --keyfile
+// FILE, --identity FILE or --recovery, to unlock (and prove it is you)
+// without being asked.
 //
-// Environment: SECRETVAULT_VAULT names the vault directory,
-// SECRETVAULT_HOME the data directory (default vaults live in
-// SECRETVAULT_HOME/vaults/default).
+// Environment: SECRETVAULT_VAULT names the vault to use, SECRETVAULT_SOCK
+// the daemon's socket.
 package main
 
 import (
@@ -43,11 +48,13 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svcrypto"
-	"github.com/codemodify/secretvault/svprompt"
+	"github.com/codemodify/secretvault/svrpc"
+	"github.com/codemodify/secretvault/svterm"
 )
 
-// EnvVault names the vault directory to use.
+// EnvVault names the vault to use when --vault is not given.
 const EnvVault = "SECRETVAULT_VAULT"
 
 // minPassphrase is the shortest passphrase accepted for a new keyslot.
@@ -60,24 +67,39 @@ type cli struct {
 	stderr     io.Writer
 	stdinIsTTY bool
 
-	// ask and askNew prompt on the terminal; tests replace them.
+	// ask and askNew prompt on the terminal; tests replace them. canAsk
+	// says whether there is a terminal to ask on at all.
 	ask    func(prompt string) ([]byte, error)
 	askNew func(prompt string, min int) ([]byte, error)
+	canAsk bool
 
-	vaultDir string
+	// connect reaches the daemon (tests point it at their own).
+	connect func(secretvault.Options) (*secretvault.Client, error)
+
+	vault  string
+	client *secretvault.Client
 }
 
 func main() {
-	_ = svcrypto.HardenProcess()
+	_ = svcrypto.NoCoreDumps()
 	c := &cli{
 		stdin:      os.Stdin,
 		stdout:     os.Stdout,
 		stderr:     os.Stderr,
 		stdinIsTTY: term.IsTerminal(int(os.Stdin.Fd())),
-		ask:        svprompt.Secret,
-		askNew:     svprompt.NewSecret,
+		ask:        svterm.Secret,
+		askNew:     svterm.NewSecret,
+		connect:    secretvault.Connect,
 	}
-	os.Exit(c.run(os.Args[1:]))
+	if t, err := svterm.OpenTerminal(""); err == nil {
+		t.Close()
+		c.canAsk = true
+	}
+	code := c.run(os.Args[1:])
+	if c.client != nil {
+		c.client.Close()
+	}
+	os.Exit(code)
 }
 
 type command struct {
@@ -91,6 +113,10 @@ var commands []command
 func init() {
 	commands = []command{
 		{"init", "create a vault", (*cli).cmdInit},
+		{"unlock", "unlock a vault", (*cli).cmdUnlock},
+		{"lock", "lock a vault, or all of them (--all)", (*cli).cmdLock},
+		{"status", "show the daemon and its vaults", (*cli).cmdStatus},
+		{"vault", "list, add, forget or choose the default vault", (*cli).cmdVault},
 		{"set", "store or update an item", (*cli).cmdSet},
 		{"get", "print an item's secret, a field, or the whole item", (*cli).cmdGet},
 		{"ls", "list items", (*cli).cmdList},
@@ -100,6 +126,8 @@ func init() {
 		{"gen", "print a random password", (*cli).cmdGen},
 		{"slot", "manage keyslots: list, add, rm", (*cli).cmdSlot},
 		{"passwd", "change the passphrase", (*cli).cmdPasswd},
+		{"grant", "decide what programs may do: list, allow, deny, revoke", (*cli).cmdGrant},
+		{"audit", "show who accessed what", (*cli).cmdAudit},
 		{"identity", "make (new) or show (pub) a recipient identity", (*cli).cmdIdentity},
 		{"verify", "re-authenticate every file of the vault", (*cli).cmdVerify},
 		{"version", "print the version", (*cli).cmdVersion},
@@ -112,7 +140,7 @@ var errUsage = errors.New("usage")
 func (c *cli) run(args []string) int {
 	global := flag.NewFlagSet("secretvault", flag.ContinueOnError)
 	global.SetOutput(c.stderr)
-	global.StringVar(&c.vaultDir, "vault", "", "vault directory (default $"+EnvVault+", else the default vault)")
+	global.StringVar(&c.vault, "vault", os.Getenv(EnvVault), "the vault to use (default: the default vault)")
 	global.Usage = func() { c.usage() }
 	if err := global.Parse(args); err != nil {
 		return 2
@@ -135,7 +163,7 @@ func (c *cli) run(args []string) int {
 			case errors.Is(err, errUsage), errors.Is(err, flag.ErrHelp):
 				return 2
 			default:
-				fmt.Fprintln(c.stderr, "secretvault:", err)
+				fmt.Fprintln(c.stderr, "secretvault:", describe(err))
 				return 1
 			}
 		}
@@ -145,8 +173,26 @@ func (c *cli) run(args []string) int {
 	return 2
 }
 
+// describe turns an error into something to tell a person.
+func describe(err error) string {
+	var e *svrpc.Error
+	if errors.As(err, &e) {
+		switch e.Code {
+		case svrpc.CodeCanceled:
+			return "canceled"
+		case svrpc.CodeWrongKey:
+			return "that key does not open this vault"
+		}
+		return e.Message
+	}
+	if errors.Is(err, secretvault.ErrNoDaemon) {
+		return err.Error() + " (is secretvaultd installed beside secretvault?)"
+	}
+	return err.Error()
+}
+
 func (c *cli) usage() {
-	fmt.Fprintln(c.stderr, "usage: secretvault [--vault DIR] <command> [flags] [args]")
+	fmt.Fprintln(c.stderr, "usage: secretvault [--vault NAME] <command> [flags] [args]")
 	fmt.Fprintln(c.stderr)
 	for _, cmd := range commands {
 		fmt.Fprintf(c.stderr, "  %-10s %s\n", cmd.name, cmd.summary)

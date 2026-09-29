@@ -1,46 +1,107 @@
-// Command secretvaultd is the secretvault daemon. It is a stub in
-// milestone 0; docs/roadmap.md (M1) and docs/architecture.md describe what
-// it becomes:
-//
-//   - One binary, three modes. "user" (the default) runs per login session:
-//     it holds the user's vaults unlocked, locks them on idle, screen lock
-//     and suspend, and serves every local face (CLI, TUI, GUI, Secret
-//     Service on D-Bus, the SSH agent, git and docker credential helpers,
-//     age plugin requests). "host" runs as a system service for machine
-//     secrets (systemd credentials, volume unlock), unlocked by TPM or a
-//     host key. "server" serves secretvault's own HTTPS API, for sync
-//     between devices (it stores only ciphertext) and for delivering
-//     secrets to services and CI, with Shamir unseal, auth methods,
-//     policies and an audit log.
+// Command secretvaultd is the secretvault daemon: it holds vault keys and
+// brokers every access to them (see docs/architecture.md).
 //
 //   - Clients speak JSON-RPC 2.0, one object per line, over a Unix socket
-//     ($XDG_RUNTIME_DIR/secretvaultd.sock, 0600, same-uid peers only by
-//     SO_PEERCRED / LOCAL_PEERCRED) or, on Windows, the named pipe
-//     \\.\pipe\secretvaultd-<user SID> with an owner-only DACL.
+//     ($XDG_RUNTIME_DIR/secretvault/secretvaultd.sock, 0600 in a 0700
+//     directory; same-user peers only, checked by the kernel). On Windows
+//     the socket is an AF_UNIX socket under %LOCALAPPDATA%.
 //
 //   - It is a consent broker: when a program asks for a secret, the daemon
-//     works out which program it is (path and publisher signature) and,
-//     unless a remembered decision covers it, asks the person: allow once,
-//     until the vault locks, always, or deny. Prompts run as
-//     secretvault-gui-prompt or secretvault-tui-prompt over the pinentry
-//     (Assuan) protocol, or on the terminal of the CLI that asked.
+//     works out which program it is and, unless a remembered decision
+//     covers it, asks the person: allow once, until the vault locks,
+//     always, or deny. secretvault's own CLI proves it is the person by
+//     taking the vault's passphrase on its terminal.
 //
-// The daemon links no user-interface code (see daemon_test.go).
+//   - Prompts go to the CLI's terminal, a registered
+//     `secretvault-tui-prompt --agent`, or the desktop's pinentry
+//     (pinentry-gnome3/-qt/-gtk) until secretvault-gui-prompt exists.
+//
+//   - Vaults lock after 15 idle minutes by default, and every vault locks
+//     when the daemon stops.
+//
+// Usage:
+//
+//	secretvaultd              run (normally started by a client, or at login)
+//	secretvaultd install      start at every login (systemd user unit, LaunchAgent, Run key)
+//	secretvaultd uninstall    stop starting at login
+//	secretvaultd -version
+//
+// It links no user-interface code (see daemon_test.go). Exit status 3
+// means another secretvaultd already serves the socket.
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"log"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
 
 	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/svcrypto"
+	"github.com/codemodify/secretvault/svd"
+	"github.com/codemodify/secretvault/svrpc"
 )
 
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "-version" || os.Args[1] == "--version") {
-		fmt.Println("secretvaultd", secretvault.Version)
-		return
+	log.SetFlags(0)
+	log.SetPrefix("secretvaultd: ")
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "-version", "--version", "version":
+			fmt.Println("secretvaultd", secretvault.Version)
+			return
+		case "install":
+			exe, err := os.Executable()
+			if err == nil {
+				exe, err = filepath.EvalSymlinks(exe)
+			}
+			if err != nil {
+				log.Fatal(err)
+			}
+			msg, err := svd.Install(exe)
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println(msg)
+			return
+		case "uninstall":
+			msg, err := svd.Uninstall()
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println(msg)
+			return
+		default:
+			fmt.Fprintln(os.Stderr, "usage: secretvaultd [install | uninstall | -version]")
+			os.Exit(2)
+		}
 	}
-	fmt.Fprintln(os.Stderr, "secretvaultd: not implemented yet (milestone M1, see docs/roadmap.md);")
-	fmt.Fprintln(os.Stderr, "the secretvault CLI opens vaults directly in the meantime.")
-	os.Exit(1)
+	if err := svcrypto.HardenProcess(); err != nil {
+		log.Printf("could not disable core dumps: %v", err)
+	}
+	sock := svrpc.DefaultSocket()
+	d, err := svd.New(svd.Options{Socket: sock, Log: func(s string) { log.Print(s) }})
+	if err != nil {
+		log.Fatal(err)
+	}
+	ln, cleanup, err := svd.Listen(sock)
+	if err != nil {
+		if errors.Is(err, svd.ErrRunning) {
+			log.Print(err)
+			os.Exit(3)
+		}
+		log.Fatal(err)
+	}
+	defer cleanup()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	log.Printf("%s serving %s", secretvault.Version, sock)
+	if err := d.Serve(ctx, ln); err != nil {
+		log.Print(err)
+	}
+	log.Print("stopped; every vault is locked")
 }
