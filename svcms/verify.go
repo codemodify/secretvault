@@ -19,8 +19,10 @@ import (
 
 // VerifyOptions say what signatures are checked against.
 type VerifyOptions struct {
-	// Content is the signed content of a detached signature. It is
-	// ignored when the SignedData carries its own.
+	// Content is the signed content of a detached signature. Given for
+	// a SignedData that carries content of its own, it must be the same,
+	// or Verify fails: a signature that carries its own content says
+	// nothing about any other.
 	Content []byte
 	// Roots are the trusted roots; with none, every signer's certificate
 	// is reported as untrusted (the operating system's roots are never
@@ -73,14 +75,17 @@ type SignerResult struct {
 
 // Verify checks every signer's signature over the content, and each
 // signer's certificate. It returns a result per signer; the error is only
-// for signed data that cannot be verified at all (no signers, or detached
-// with no content given). A nil error does not mean any signature is
-// valid.
+// for signed data that cannot be verified at all (no signers, detached
+// with no content given, or carrying content other than the content
+// given). A nil error does not mean any signature is valid.
 func (sd *SignedData) Verify(opts VerifyOptions) ([]SignerResult, error) {
 	if len(sd.Signers) == 0 {
 		return nil, ErrNoSignature
 	}
 	content := sd.Content
+	if content != nil && opts.Content != nil && !bytes.Equal(content, opts.Content) {
+		return nil, fmt.Errorf("%w: the signed data carries content of its own, not the content given", ErrBadSignature)
+	}
 	if content == nil {
 		if opts.Content == nil {
 			return nil, fmt.Errorf("%w: the signature is detached and no content was given", ErrNoSignature)
@@ -282,27 +287,49 @@ func checkSignedAttributes(si *SignerInfo, contentType asn1.ObjectIdentifier, di
 		return fmt.Errorf("%w: %w", ErrSignatureMalformed, err)
 	}
 	if ap != nil {
+		// CMSAlgorithmProtection ::= SEQUENCE { digestAlgorithm,
+		// signatureAlgorithm [1] IMPLICIT, macAlgorithm [2] IMPLICIT }:
+		// a signature must name its signature algorithm.
+		bad := fmt.Errorf("%w: CMS algorithm protection attribute", ErrSignatureMalformed)
 		var seq cryptobyte.String
-		var d, s algorithm
+		var d algorithm
 		v = cryptobyte.String(ap.values[0])
 		if !v.ReadASN1(&seq, cbasn1.SEQUENCE) || !v.Empty() || !readAlgorithm(&seq, &d) {
-			return fmt.Errorf("%w: CMS algorithm protection attribute", ErrSignatureMalformed)
+			return bad
 		}
-		if !d.oid.Equal(si.digestAlg.oid) {
+		if !sameAlgorithm(d, si.digestAlg) {
 			return fmt.Errorf("%w: the algorithm protection attribute names another digest algorithm", ErrBadSignature)
 		}
-		// signatureAlgorithm [1] IMPLICIT AlgorithmIdentifier
-		if tag := cbasn1.Tag(1).Constructed().ContextSpecific(); seq.PeekASN1Tag(tag) {
-			var inner cryptobyte.String
-			if !seq.ReadASN1(&inner, tag) || !inner.ReadASN1ObjectIdentifier(&s.oid) {
-				return fmt.Errorf("%w: CMS algorithm protection attribute", ErrSignatureMalformed)
-			}
-			if !s.oid.Equal(si.sigAlg.oid) {
-				return fmt.Errorf("%w: the algorithm protection attribute names another signature algorithm", ErrBadSignature)
-			}
+		tag := cbasn1.Tag(1).Constructed().ContextSpecific()
+		var inner cryptobyte.String
+		if !seq.ReadASN1(&inner, tag) || !seq.Empty() {
+			return bad
+		}
+		// Put the SEQUENCE tag back to read it as an AlgorithmIdentifier.
+		wrapped := cryptobyte.String(element(func(b *cryptobyte.Builder) {
+			b.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) { b.AddBytes(inner) })
+		}))
+		var s algorithm
+		if !readAlgorithm(&wrapped, &s) {
+			return bad
+		}
+		if !sameAlgorithm(s, si.sigAlg) {
+			return fmt.Errorf("%w: the algorithm protection attribute names another signature algorithm", ErrBadSignature)
 		}
 	}
 	return nil
+}
+
+// sameAlgorithm compares two AlgorithmIdentifiers, taking absent and NULL
+// parameters as the same, as encoders differ there.
+func sameAlgorithm(a, b algorithm) bool {
+	if !a.oid.Equal(b.oid) {
+		return false
+	}
+	if a.paramsEmpty() && b.paramsEmpty() {
+		return true
+	}
+	return bytes.Equal(a.params, b.params)
 }
 
 // checkSigningCertificate checks the ESS signing-certificate attributes

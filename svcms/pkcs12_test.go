@@ -7,6 +7,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"testing"
+
+	"golang.org/x/crypto/cryptobyte"
+	cbasn1 "golang.org/x/crypto/cryptobyte/asn1"
 )
 
 func TestPKCS12RoundTrip(t *testing.T) {
@@ -132,5 +135,44 @@ func TestPKCS12KDF(t *testing.T) {
 		if got := pkcs12KDF(v.hash, v.id, v.password, salt, v.iter, v.n); !bytes.Equal(got, want) {
 			t.Fatalf("%v id %d: got %X", v.hash, v.id, got)
 		}
+	}
+}
+
+// Each password-protected part costs a key derivation the file chooses,
+// so a file may have only a few.
+func TestPKCS12TooManyParts(t *testing.T) {
+	var safes [][]byte
+	for range 40 {
+		alg, ct, err := pbes2Encrypt([]byte("pw"), []byte{0x30, 0x00}, 1, func(b []byte) {})
+		if err != nil {
+			t.Fatal(err)
+		}
+		encData := element(func(b *cryptobyte.Builder) {
+			b.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) {
+				b.AddASN1Int64(0)
+				b.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) {
+					b.AddASN1ObjectIdentifier(OIDData)
+					b.AddBytes(alg)
+					b.AddASN1(cbasn1.Tag(0).ContextSpecific(), func(b *cryptobyte.Builder) { b.AddBytes(ct) })
+				})
+			})
+		})
+		safes = append(safes, buildContentInfo(OIDEncryptedData, encData))
+	}
+	authSafe := element(func(b *cryptobyte.Builder) {
+		b.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) {
+			for _, s := range safes {
+				b.AddBytes(s)
+			}
+		})
+	})
+	pfx := element(func(b *cryptobyte.Builder) {
+		b.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) {
+			b.AddASN1Int64(3)
+			b.AddBytes(buildContentInfo(OIDData, element(func(b *cryptobyte.Builder) { b.AddASN1OctetString(authSafe) })))
+		})
+	})
+	if _, err := DecodePKCS12(pfx, []byte("pw"), nil); !errors.Is(err, ErrLimit) {
+		t.Fatalf("got %v", err)
 	}
 }

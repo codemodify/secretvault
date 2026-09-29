@@ -3,10 +3,14 @@ package svcms
 import (
 	"bytes"
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"errors"
+	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -397,5 +401,57 @@ func TestSigningCertificateSubstitution(t *testing.T) {
 	res, _ := sd.Verify(VerifyOptions{Content: []byte("x"), Roots: []*x509.Certificate{p.root}, Intermediates: []*x509.Certificate{p.inter}})
 	if res[0].Valid || !errors.Is(res[0].SignatureErr, ErrBadSignature) || !strings.Contains(res[0].SignatureErr.Error(), "signing-certificate") {
 		t.Fatalf("got %v", res[0].SignatureErr)
+	}
+}
+
+// A SignedData that carries its own content says nothing about other
+// content: given both, Verify refuses.
+func TestAttachedContentConflict(t *testing.T) {
+	p := getPKI(t)
+	u := p.user(t, userOpts{keyType: "p256"})
+	der, err := Sign([]byte("hello"), u.key, []*x509.Certificate{u.cert}, SignOptions{Attached: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sd, _ := ParseSignedData(der, nil)
+	if _, err := sd.Verify(VerifyOptions{Content: []byte("Wire the money."), Roots: []*x509.Certificate{p.root}}); !errors.Is(err, ErrBadSignature) {
+		t.Fatalf("got %v", err)
+	}
+	if res, err := sd.Verify(VerifyOptions{Content: []byte("hello"), Roots: []*x509.Certificate{p.root}, Intermediates: []*x509.Certificate{p.inter}}); err != nil || !res[0].Valid {
+		t.Fatalf("the same content: %v", err)
+	}
+}
+
+func TestSubjectEmailAddress(t *testing.T) {
+	p := getPKI(t)
+	// With an rfc822Name, the subject's emailAddress does not count.
+	u := p.user(t, userOpts{email: "alice@example.org"})
+	tmpl := *u.cert
+	tmpl.Subject.ExtraNames = []pkix.AttributeTypeAndValue{{Type: oidEmailAddress, Value: "ceo@example.com"}}
+	der, _ := x509.CreateCertificate(rand.Reader, &tmpl, p.inter, u.key.Public(), p.interKey)
+	both, _ := x509.ParseCertificate(der)
+	if MatchEmail(both, "ceo@example.com") || !MatchEmail(both, "alice@example.org") {
+		t.Fatalf("addresses %v", CertificateEmails(both))
+	}
+
+	// A CA constrained to example.org cannot certify another domain
+	// through the subject's emailAddress.
+	caKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	caT := &x509.Certificate{SerialNumber: big.NewInt(77), Subject: pkix.Name{CommonName: "constrained"}, NotBefore: time.Now().Add(-time.Hour),
+		NotAfter: time.Now().Add(time.Hour * 24), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+		PermittedEmailAddresses: []string{"example.org"}}
+	der, _ = x509.CreateCertificate(rand.Reader, caT, p.root, caKey.Public(), p.rootKey)
+	ca, _ := x509.ParseCertificate(der)
+	for addr, ok := range map[string]bool{"bob@example.org": true, "bob@evil.example": false} {
+		leafT := &x509.Certificate{SerialNumber: big.NewInt(78), Subject: pkix.Name{CommonName: "bob",
+			ExtraNames: []pkix.AttributeTypeAndValue{{Type: oidEmailAddress, Value: addr}}},
+			NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature,
+			ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageEmailProtection}}
+		der, _ = x509.CreateCertificate(rand.Reader, leafT, ca, u.key.Public(), caKey)
+		leaf, _ := x509.ParseCertificate(der)
+		_, err := VerifyCertificate(leaf, CertOptions{Roots: []*x509.Certificate{p.root}, Intermediates: []*x509.Certificate{ca}, Email: addr})
+		if ok != (err == nil) || (!ok && !errors.Is(err, ErrCertInvalid)) {
+			t.Fatalf("%s: %v", addr, err)
+		}
 	}
 }

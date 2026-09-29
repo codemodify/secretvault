@@ -13,7 +13,9 @@
 // the policy) and the certificate's (VerifyCertificate: does it chain to
 // the roots given, is it valid now, may it sign mail, does it name the
 // address). Sign makes a SignedData, detached by default, with a signer
-// that may keep its key elsewhere (any crypto.Signer).
+// that may keep its key elsewhere (any crypto.Signer). Content given to
+// Verify for a SignedData that carries its own must be that content: a
+// signature over one thing says nothing about another.
 //
 //	sd, err := svcms.ParseSignedData(der, nil)
 //	res, err := sd.Verify(svcms.VerifyOptions{Content: body, Roots: roots, Email: from})
@@ -34,7 +36,9 @@
 // the emailProtection extended key usage through the chain, a key usage
 // that allows the use (digitalSignature or nonRepudiation to sign,
 // keyEncipherment or keyAgreement to receive), and, when asked, the
-// address as an rfc822Name or legacy emailAddress. It reports every
+// address as an rfc822Name or, in a certificate without one, a legacy
+// subject emailAddress, to which it applies the chain's email name
+// constraints itself (crypto/x509 does not). It reports every
 // problem it finds, joined, each wrapping one of ErrUntrustedRoot,
 // ErrCertExpired, ErrWrongUsage, ErrAddressMismatch or ErrCertInvalid, and
 // builds chains at a time the certificate was valid, so an expired
@@ -111,7 +115,8 @@
 // default; structures are read whole into memory), ASN.1 nesting (64),
 // elements per structure, certificates (256), signers (64), recipients
 // (1024), attributes and bags (256), and the iteration count a PKCS #12
-// file may ask for (10,000,000). Malformed input is refused with
+// file may ask for (10,000,000) and how many password-protected parts it
+// may have (16). Malformed input is refused with
 // ErrMalformed and never makes the package panic; fuzz targets check that.
 //
 // # Keys in memory

@@ -63,6 +63,7 @@ type p12Reader struct {
 	lim      Limits
 	password *pbePassword
 	macOK    bool // the MAC was checked: the password is right
+	derived  int  // password-based decryptions so far
 	bags     []p12Bag
 	warnings []string
 	count    int
@@ -249,7 +250,7 @@ func (r *p12Reader) encryptedData(s cryptobyte.String) ([]byte, error) {
 		!readImplicitOctets(&eci, 0, &data) || !eci.Empty() {
 		return nil, malformed("EncryptedData")
 	}
-	plain, legacy, err := pbeDecrypt(alg, r.password, data, r.lim)
+	plain, legacy, err := r.pbeDecrypt(alg, data)
 	if err != nil {
 		return nil, err
 	}
@@ -257,6 +258,15 @@ func (r *p12Reader) encryptedData(s cryptobyte.String) ([]byte, error) {
 		r.warn(fmt.Sprintf("the certificates are protected with %s, which is obsolete", legacy))
 	}
 	return plain, nil
+}
+
+// pbeDecrypt decrypts one password-protected part of the file. Each costs
+// a key derivation of the file's choosing, so there may only be a few.
+func (r *p12Reader) pbeDecrypt(alg algorithm, data []byte) ([]byte, string, error) {
+	if r.derived++; r.derived > maxDerivations {
+		return nil, "", limit("more than %d password-protected parts", maxDerivations)
+	}
+	return pbeDecrypt(alg, r.password, data, r.lim)
 }
 
 // safeContents reads a SafeContents: a SEQUENCE OF SafeBag.
@@ -332,7 +342,7 @@ func (r *p12Reader) safeContents(der []byte, depth int) error {
 				!epki.ReadASN1(&enc, cbasn1.OCTET_STRING) || !epki.Empty() {
 				return malformed("PKCS8ShroudedKeyBag")
 			}
-			plain, legacy, err := pbeDecrypt(alg, r.password, enc, r.lim)
+			plain, legacy, err := r.pbeDecrypt(alg, enc)
 			if err != nil {
 				return err
 			}

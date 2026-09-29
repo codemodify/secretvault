@@ -75,6 +75,7 @@ func (l *Limits) withDefaults() Limits {
 
 // Fixed limits, not worth a knob.
 const (
-	maxElements   = 1 << 20 // ASN.1 elements in one structure
-	maxBagNesting = 4       // safeContentsBag inside safeContentsBag
+	maxElements    = 1 << 20 // ASN.1 elements in one structure
+	maxBagNesting  = 4       // safeContentsBag inside safeContentsBag
+	maxDerivations = 16      // password-based key derivations per PKCS #12 file
 )

@@ -39,7 +39,8 @@ type SignOptions struct {
 // elsewhere: it is only asked to sign a digest (or, for Ed25519, the
 // signed attributes). The signed attributes are content-type,
 // signing-time, message-digest, the S/MIME capabilities this package
-// decrypts, and signing-certificate-v2. It returns the DER ContentInfo.
+// decrypts, CMS algorithm protection, and signing-certificate-v2. It
+// returns the DER ContentInfo.
 func Sign(content []byte, signer crypto.Signer, chain []*x509.Certificate, opts SignOptions) ([]byte, error) {
 	if len(chain) == 0 {
 		return nil, errors.New("svcms: no signer certificate")
@@ -53,7 +54,7 @@ func Sign(content []byte, signer crypto.Signer, chain []*x509.Certificate, opts 
 		return nil, err
 	}
 	h := opts.Hash
-	var sigAlg func(*cryptobyte.Builder)
+	var sigAlg func(*cryptobyte.Builder) // writes the AlgorithmIdentifier
 	switch pub := cert.PublicKey.(type) {
 	case *rsa.PublicKey:
 		if h == 0 {
@@ -105,12 +106,25 @@ func Sign(content []byte, signer crypto.Signer, chain []*x509.Certificate, opts 
 	digest := hh.Sum(nil)
 	certHash := crypto.SHA256.New()
 	certHash.Write(cert.Raw)
+	sigAlgDER := element(func(b *cryptobyte.Builder) { sigAlg(b) })
 
 	attrs := [][]byte{
 		buildAttribute(oidAttrContentType, element(func(b *cryptobyte.Builder) { b.AddASN1ObjectIdentifier(contentType) })),
 		buildAttribute(oidAttrSigningTime, element(func(b *cryptobyte.Builder) { addTime(b, t) })),
 		buildAttribute(oidAttrMessageDigest, element(func(b *cryptobyte.Builder) { b.AddASN1OctetString(digest) })),
 		buildAttribute(oidAttrSMIMECapabilities, smimeCapabilities()),
+		// CMS algorithm protection (RFC 6211): the algorithms, signed.
+		buildAttribute(oidAttrAlgProtection, element(func(b *cryptobyte.Builder) {
+			b.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) {
+				addAlgorithm(b, hashOID(h), nil)
+				b.AddASN1(cbasn1.Tag(1).Constructed().ContextSpecific(), func(b *cryptobyte.Builder) {
+					s := cryptobyte.String(sigAlgDER)
+					var body cryptobyte.String
+					s.ReadASN1(&body, cbasn1.SEQUENCE)
+					b.AddBytes(body)
+				})
+			})
+		})),
 		buildAttribute(oidAttrSigningCertV2, element(func(b *cryptobyte.Builder) {
 			b.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) { // SigningCertificateV2
 				b.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) { // certs

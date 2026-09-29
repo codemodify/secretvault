@@ -90,6 +90,19 @@ func VerifyCertificate(cert *x509.Certificate, opts CertOptions) ([][]*x509.Cert
 			errs = append(errs, e)
 		}
 	}
+	var good [][]*x509.Certificate
+	var constraintErr error
+	for _, chain := range chains {
+		if err := emailConstraints(cert, chain); err != nil {
+			constraintErr = err
+			continue
+		}
+		good = append(good, chain)
+	}
+	if len(chains) > 0 && len(good) == 0 {
+		errs = append(errs, constraintErr)
+	}
+	chains = good
 	if opts.Email != "" && !MatchEmail(cert, opts.Email) {
 		errs = append(errs, fmt.Errorf("%w: %s is not among %s", ErrAddressMismatch, opts.Email, strings.Join(CertificateEmails(cert), ", ")))
 	}
@@ -161,10 +174,18 @@ func keyUsageAllows(cert *x509.Certificate, u Usage) error {
 }
 
 // CertificateEmails are the addresses a certificate names: its
-// rfc822Name subject alternative names, then any emailAddress in its
-// subject (the legacy form, RFC 8550, section 3).
+// rfc822Name subject alternative names or, only when it has none, any
+// emailAddress in its subject (the legacy form, RFC 8550, section 3;
+// RFC 5280, section 4.2.1.6).
 func CertificateEmails(cert *x509.Certificate) []string {
-	out := slices.Clone(cert.EmailAddresses)
+	if len(cert.EmailAddresses) > 0 {
+		return slices.Clone(cert.EmailAddresses)
+	}
+	return subjectEmails(cert)
+}
+
+func subjectEmails(cert *x509.Certificate) []string {
+	var out []string
 	for _, atv := range cert.Subject.Names {
 		if atv.Type.Equal(oidEmailAddress) {
 			if s, ok := atv.Value.(string); ok && !slices.ContainsFunc(out, func(e string) bool { return strings.EqualFold(e, s) }) {
@@ -173,6 +194,45 @@ func CertificateEmails(cert *x509.Certificate) []string {
 		}
 	}
 	return out
+}
+
+// emailConstraints applies the rfc822Name constraints of a chain's CAs to
+// a leaf's subject emailAddress when it has no rfc822Name to carry them,
+// as RFC 5280 (section 4.2.1.10) requires and crypto/x509 does not.
+func emailConstraints(cert *x509.Certificate, chain []*x509.Certificate) error {
+	if len(cert.EmailAddresses) > 0 {
+		return nil
+	}
+	for _, addr := range subjectEmails(cert) {
+		for _, ca := range chain[1:] {
+			if len(ca.PermittedEmailAddresses) > 0 && !slices.ContainsFunc(ca.PermittedEmailAddresses, func(c string) bool { return emailMatchesConstraint(addr, c) }) {
+				return fmt.Errorf("%w: %s is outside the addresses %s may certify", ErrCertInvalid, addr, ca.Subject)
+			}
+			if slices.ContainsFunc(ca.ExcludedEmailAddresses, func(c string) bool { return emailMatchesConstraint(addr, c) }) {
+				return fmt.Errorf("%w: %s is among the addresses %s may not certify", ErrCertInvalid, addr, ca.Subject)
+			}
+		}
+	}
+	return nil
+}
+
+// emailMatchesConstraint matches an address against an rfc822Name
+// constraint: a mailbox, a host, or (with a leading dot) any host in a
+// domain.
+func emailMatchesConstraint(addr, constraint string) bool {
+	at := strings.LastIndexByte(addr, '@')
+	if at < 0 {
+		return false
+	}
+	host := strings.ToLower(addr[at+1:])
+	c := strings.ToLower(constraint)
+	switch {
+	case strings.Contains(c, "@"):
+		return strings.EqualFold(addr, constraint)
+	case strings.HasPrefix(c, "."):
+		return strings.HasSuffix(host, c)
+	}
+	return host == c
 }
 
 // MatchEmail says whether the certificate names the address. The
