@@ -15,6 +15,15 @@ maintainers.
   place of their own workarounds. None of what is left blocks either
   program; each open item says what the program does in the meantime.
 
+Two voices below. **"After v0.22.x"** paragraphs are secretvault's own
+checks, each pinned by a test in `gui/uitoolkit_test.go`. **"Closed in
+0.22.2"** paragraphs are uitoolkit's maintainers' notes on the same items.
+The maintainers count all of 18–29 closed in 0.22.2; secretvault's checks
+agree except for three, whose entries say why: 23 (with no tray registry
+on the bus at all, `Shown` still says true), 28 (a field does not know the
+Caps Lock state it opens in) and 29 (the readable colour loses its hue:
+item 31).
+
 The GUIs build against uitoolkit v0.22.2 from the module proxy
 (`gui/go.mod`). `gui/uitoolkit_test.go` checks every item from 8 on
 against it, headless, a test per item (`TestItem12CapsLock` and so on): a
@@ -568,6 +577,8 @@ generated password), which the field then owns and wipes; `setSecret`,
 the rune-at-a-time feed, is gone, and so is the limit that a value with a
 control character could not go in. `TestItem18SecretFieldSetBytes`.
 
+**Closed in 0.22.2. `SecretField.SetBytes` takes the buffer over rather than copying it — a copy would leave the caller holding the original, and two buffers to wipe instead of one — and wipes what it replaces.**
+
 ### 19. A secret text area
 
 - **Today.** Some secrets are several lines: PEM and OpenSSH private keys.
@@ -594,6 +605,8 @@ can show (binary, or text with other control characters) is still kept as
 it is. `TestItem19SecretArea`, and the manager's
 `TestAKeyIsEditedInASecretArea`. The area asks to be 280 wide, which a
 narrow form cannot give it: 32.
+
+**Closed in 0.22.2. `widgets.NewSecretArea`, which is `SecretField` over several lines rather than a second implementation: the buffer, the wipes, the refusals and the source test all belong to the embedded field. A pasted key keeps its lines and CRLF is normalised in place.**
 
 ### 20. Dialogs that stack
 
@@ -627,6 +640,8 @@ stack, not only the top one. `TestItem20DialogsStack`,
 `TestARecoveryKeyGoesOverTheDialogUp`,
 `TestADialogOverAnotherLeavesItAsItWas`. The change broke two things in
 the manager until it followed it: 30.
+
+**Closed in 0.22.2. `ShowOverlay` pushes and `DismissOverlay` pops the overlay its component is in; the ones underneath stay painted, and only the top takes the keyboard and pointer. `SetOverlay` still means "there is one dialog". One extra rule was needed: an overlay no longer on the stack closes nothing, which is the case reached on the way out of every dismissal.**
 
 ### 21. A wrapping label's height in a column
 
@@ -670,6 +685,34 @@ dialog's body is 500 wide, where a wrapping message offered the window
 would take most of it. `TestItem21WrapInAColumn` checks the overlay and
 pins the column.
 
+**Closed in 0.22.2 for the paths the toolkit owns, and worth re-checking
+rather than taking on trust.**
+
+Three fixes, and the cause was deeper than the report. A flexible grid
+track was frozen at its children's *unbounded* width, so a wrapping
+label's column took the width of its whole text on one line — 1453
+pixels of the 400 there were. A track that can fold is now told from one
+that cannot by **height**, not width (narrowed, both report a narrow
+width). `Overlay` settles its card's width before asking for its height,
+which is the path a dialog actually takes. `Wrap` and `TokenField` flow
+at whole pixels, so measuring and laying out agree about which child
+fits on a line.
+
+**What is *not* fixed, because it cannot be:** a caller that measures a
+column at one width and arranges it at another still gets what it asked
+for. A column measured at 600 and given a 300-wide box 89 tall still
+puts its button at y=127 — the column cannot grow a box it was handed.
+Every container *in the toolkit* now measures children at the width it
+will give them (`ScrollView`, `Panel`, `Pad`, `Overlay`, `Form`, pinned
+by `TestContainersSizeChildrenAtTheWidthTheyGive`), so the practical
+paths are covered.
+
+So `fixedWidth` is probably unnecessary now — the dialog body goes into
+an `Overlay` card, which is the case that was fixed — but it also pins
+the width at 500, which the fix does not do. Try removing it and see
+whether the dialogs still look right; this note is not a promise that
+they will.
+
 ### 22. Clicking something scrolled out of view, in a test
 
 - **Today.** `Window.ClickComponent` clicks where the component's box is,
@@ -687,6 +730,8 @@ the manager's test harness still reveals it first.
 **After v0.22.2: provided.** `ClickComponent` and `FocusOn` scroll to the
 target first (5e7a6cc). The harness's own scrolling is gone.
 `TestItem22ClickBelowTheFold`.
+
+**Closed in 0.22.2. `ClickComponent` and `FocusOn` reveal first, as a person scrolls to what they are about to click.**
 
 ### 23. Knowing that the tray icon is shown
 
@@ -729,6 +774,8 @@ which pins uitoolkit's answer on a private bus with no watcher.
 - **Done when:** on a session bus with no `org.kde.StatusNotifierWatcher`,
   `Shown` is false.
 
+**Closed in 0.22.2. `StatusItem.Shown` and `SetOnShownChange`; Linux reads the watcher's `IsStatusNotifierHostRegistered` and follows its host signals. Windows and macOS have an area that is always there, so it follows `Alive`.**
+
 ### 24. A widget taken out of the tree still has its window
 
 - **Today** (`widget/base.go`, `Remove`, `ClearChildren`). Taking a child
@@ -761,6 +808,8 @@ white (31); it now draws them readable itself (29). `TestItem24RemoveKeepsHost`.
 
 ---
 
+**Closed in 0.22.2. `Remove` and `ClearChildren` clear the host down the subtree. Re-parenting is unaffected: `Add` sets it again straight after.**
+
 ## Found while moving to v0.22.1
 
 ### 25. Pad, Spacer and ProgressBar lengths that follow the display scale
@@ -789,6 +838,8 @@ and `Spacer`. The manager's pane is a `Pad` again. A `ProgressBar` still
 ignores `SetPreferred`; the manager's one-time-code bar had asked for
 64 by 6 and never had it, and the call is gone.
 
+**Closed in 0.22.2. All three are 1x design lengths now, completing the sweep 0.22.0 started; `RawSpacing` on `Pad` and `Spacer` is the way back to device pixels.**
+
 ### 26. `UITK_FONT` turns following the desktop off
 
 - **Today** (a bug; `style/prefs.go`, `LoadAppearance`). With no
@@ -810,6 +861,8 @@ ignores `SetPreferred`; the manager's one-time-code bar had asked for
 **After v0.22.2: provided** (58140ea): a typeface override is applied to
 the appearance instead of standing in for a file. `TestItem26FontEnvStopsFollowing`
 now checks it.
+
+**Closed in 0.22.2. The override is applied to the appearance rather than to the file read into it, so it says nothing about the rest of it.**
 
 ### 27. A fitted dialog centred for the height it opens at
 
@@ -835,6 +888,8 @@ now checks it.
 **After v0.22.2: provided** (58140ea): a window the toolkit centred is
 centred again when a fit changes its size (`recenterIfCentred`). The
 workaround in `secretui.Open` is gone. `TestItem27FittedAndCentred`.
+
+**Closed in 0.22.2. Both fit paths re-centre a window the toolkit centred.**
 
 ### 28. Caps Lock for more than one listener, and in the field itself
 
@@ -872,6 +927,8 @@ out, says so at once. `TestItem28LockKeysWatchers` pins that.
   when it is laid out.
 - **Done when:** a `SecretField` focused in a window opened with Caps Lock
   on shows its mark before the first key, on X11 and Windows.
+
+**Closed in 0.22.2. `widget.LockKeysWatcher` gives every component in the window the lock state, the same shape as `FocusWatcher`, and `SecretField.CapsHint` draws the mark with no application code. `Window.OnLockKeys` remains for the window's own code.**
 
 ### 29. Readable status colours in `plastik-night`
 
@@ -962,6 +1019,8 @@ toned labels likewise. `TestItem29DarkStatusColours`, and secretui's
 
 ---
 
+**Closed in 0.22.2, though not as asked. The declared status colours are era-faithful and mostly used as fills, so they are left alone; `Palette.DangerInk`, `WarningInk`, `SuccessInk` and `Ink` are the readable form for text. It was not one pack: 225 of the 405 status pairs across all 135 packs failed 4.5:1, and the worst were *light* packs at 1.6:1, not plastik-night's 2.2. `Label.Tone` is the widget-level way to it, which replaces `tonedLabel`.**
+
 ## Also worth knowing (not blocking)
 
 - **The file dialog** could not pick folders or suggest a save name
@@ -980,6 +1039,10 @@ toned labels likewise. `TestItem29DarkStatusColours`, and secretui's
   timeout without telling anyone, so the manager cannot say "the clipboard
   was cleared" when it was. `SecretClip.OnCleared(func())` would do.
   **Done** in v0.22.2 (58140ea), and the manager says so (item 7).
+
+  **Closed in 0.22.2**: `SecretClip.OnCleared` fires once, on the goroutine
+  that cleared the copy, and fires straight away if the copy has already
+  gone — so a caller cannot lose the event to a timeout that beat it.
 - **A dialog for one line of text.** v0.22.0 has `Prompt`
   (`MessageBoxOptions.Input`, f96c633), and v0.22.2 `PromptFor` with
   `Validate` and `AcceptLabel` (fc42680). The manager's rename is one now:
