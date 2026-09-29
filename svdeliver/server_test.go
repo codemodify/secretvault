@@ -465,6 +465,21 @@ func TestPipelinesLogInWithIDTokens(t *testing.T) {
 		strings.ReplaceAll(err1.Error(), "deploy", "X") != strings.ReplaceAll(err2.Error(), "nosuchrole", "X") {
 		t.Fatalf("claims that do not match: %v; no such role: %v", err1, err2)
 	}
+	// The audit log says who it was, and which claim did not match.
+	log, err := admin.Audit(ctx, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range log.Entries {
+		if e.Op == "login" && e.Outcome == OutcomeDenied && e.Identity == "oidc:github:repo:acme/app:ref:refs/heads/dev" &&
+			strings.Contains(e.Reason, `ref="refs/heads/dev" (wants "refs/heads/main")`) && e.Role == "deploy" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no audit entry for the refused login: %+v", log.Entries)
+	}
 	// Another repository's token for our audience.
 	evil := gh.token(t, key, aud, f.clock.now(), map[string]any{"repository": "evil/app", "ref": "refs/heads/main", "environment": "prod"})
 	if _, err := c.LoginOIDC(ctx, "deploy", evil); apiStatus(err) != http.StatusForbidden {

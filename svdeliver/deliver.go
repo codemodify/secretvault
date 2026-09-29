@@ -210,11 +210,13 @@ func (s *Server) handleLogin(c *call) {
 		return
 	}
 	who, r, err := s.oidcCaller(c.r.Context(), v, req.Role, req.JWT, c.now)
+	if who != nil {
+		c.a.Identity = who.identity
+	}
 	if err != nil {
 		s.fail(c, err)
 		return
 	}
-	c.a.Identity = who.identity
 	sess, err := s.newSession(who, r, c.now, v.sessTTL)
 	if err != nil {
 		s.fail(c, err)
@@ -238,11 +240,13 @@ func (s *Server) handleSecret(c *call) {
 		return
 	}
 	who, err := s.authenticate(c, v)
+	if who != nil {
+		c.a.Identity = who.identity
+	}
 	if err != nil {
 		s.fail(c, err)
 		return
 	}
-	c.a.Identity = who.identity
 	// The policy is decided on the names alone, before the vault is
 	// touched: what the caller may not read, they cannot learn exists.
 	role, ok := who.allowed(vault, item, CapRead)
@@ -346,11 +350,13 @@ func (s *Server) handleList(c *call) {
 		return
 	}
 	who, err := s.authenticate(c, v)
+	if who != nil {
+		c.a.Identity = who.identity
+	}
 	if err != nil {
 		s.fail(c, err)
 		return
 	}
-	c.a.Identity = who.identity
 	if !who.touches(vault, CapList) {
 		c.a.Role = who.roleNames()
 		s.fail(c, &apiError{status: http.StatusNotFound, msg: "no such vault, or not allowed", reason: "no rule allows listing it"})

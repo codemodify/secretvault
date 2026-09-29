@@ -112,7 +112,9 @@ func (s *Server) sessionCaller(c *call, v *view, cred string) (*caller, error) {
 }
 
 // oidcCaller verifies an ID token for a role. The answer for a role that
-// does not exist, or does not take this token's claims, is the same.
+// does not exist, or does not take this token's claims, is the same. A
+// token that verified but does not satisfy the role still returns who it
+// names, with no roles, for the audit log.
 func (s *Server) oidcCaller(ctx context.Context, v *view, roleName, jwt string, now time.Time) (*caller, *Role, error) {
 	notThisRole := &apiError{status: http.StatusForbidden, msg: fmt.Sprintf("the ID token does not satisfy role %q (or there is no such role)", roleName)}
 	r := v.pol.Roles[roleName]
@@ -137,8 +139,8 @@ func (s *Server) oidcCaller(ctx context.Context, v *view, roleName, jwt string, 
 	sub, _ := claims["sub"].(string)
 	identity := "oidc:" + iss.Name + ":" + sub
 	if !r.OIDC.matchesClaims(claims) {
-		notThisRole.reason = identity + " does not match the claims of role " + r.Name + ": " + mismatches(r.OIDC, claims)
-		return nil, nil, notThisRole
+		notThisRole.reason = "the claims do not match: " + mismatches(r.OIDC, claims)
+		return &caller{identity: identity}, nil, notThisRole
 	}
 	return &caller{identity: identity, roles: []*Role{r}}, r, nil
 }
