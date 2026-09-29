@@ -21,6 +21,11 @@
 //     SSH_AUTH_SOCK at it): keys live in vaults, and each program's first
 //     signature is asked about.
 //
+//   - It is gpg's agent (gpg-agent.sock beside its socket, which 'secretvault
+//     pgp gpg-setup' links a GnuPG home to; not on Windows): gpg signs and
+//     decrypts with the OpenPGP keys in vaults, asked about like any
+//     program's use of them, and the keys never leave the daemon.
+//
 //   - Vaults lock after 15 idle minutes, when the screen locks and before
 //     the machine sleeps (all adjustable per vault); every vault locks when
 //     the user's last session ends and when the daemon stops.
@@ -132,6 +137,16 @@ func runUser() {
 			defer acleanup()
 			go d.ServeSSHAgent(ctx, aln)
 			log.Printf("SSH agent on %s (export SSH_AUTH_SOCK=%s)", agentSock, agentSock)
+		}
+	}
+	if d.GPGAgentEnabled() {
+		gpgSock := svrpc.GPGAgentSocket()
+		if gln, gcleanup, err := svd.Listen(gpgSock); err != nil {
+			log.Printf("the gpg-agent face: %v", err)
+		} else {
+			defer gcleanup()
+			go d.ServeGPGAgent(ctx, gln)
+			log.Printf("gpg-agent on %s ('secretvault pgp gpg-setup' points GnuPG at it)", gpgSock)
 		}
 	}
 	if d.SecretServiceEnabled() {

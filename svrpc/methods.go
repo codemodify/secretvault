@@ -148,6 +148,10 @@ type Status struct {
 	SecretService string `json:"secret_service"`
 	// SSHAgent is the SSH agent socket, "" when off.
 	SSHAgent string `json:"ssh_agent,omitempty"`
+	// GPGAgent is the gpg-agent socket, "" when off; GnuPGHomes are the
+	// GnuPG homes pointed at it.
+	GPGAgent   string   `json:"gpg_agent,omitempty"`
+	GnuPGHomes []string `json:"gnupg_homes,omitempty"`
 	// Mode is "host" for the host daemon (secretvaultd --host), "" for a
 	// person's own.
 	Mode string `json:"mode,omitempty"`

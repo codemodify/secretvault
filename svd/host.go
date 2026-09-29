@@ -823,6 +823,7 @@ var personOnly = map[string]string{
 	svrpc.MKeyringServe:   "is no desktop's keyring",
 	svrpc.MBrowserOpen:    "serves no browser",
 	svrpc.MVaultLogin:     "opens its vaults with the host identity, not at a login",
+	svrpc.MGnuPGLink:      "is no gpg-agent",
 }
 
 // errNotHost answers a host method on a person's own daemon.

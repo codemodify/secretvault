@@ -153,6 +153,10 @@ type Daemon struct {
 	findDesktop bool
 
 	ctr containers // encrypted containers (containers.go)
+
+	// The sockets the SSH agent and gpg-agent faces serve, under mu; ""
+	// until they do. GnuPG homes are linked to them (gpgagent_link.go).
+	sshSock, gpgSock string
 }
 
 // New prepares a daemon: it reads the config and opens (locked) every

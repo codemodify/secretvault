@@ -33,6 +33,15 @@ type Config struct {
 	// keys (directory.go).
 	Directories []svrpc.DirectoryConfig `json:"directories,omitempty"`
 
+	// NoGPGAgent turns off the gpg-agent socket (on by default: it serves
+	// only a gpg whose GnuPG home is pointed at it, below).
+	NoGPGAgent bool `json:"no_gpg_agent,omitempty"`
+
+	// GnuPG are the GnuPG homes pointed at the gpg-agent face
+	// (`secretvault pgp gpg-setup`), linked again each time the daemon
+	// starts (gpgagent.go).
+	GnuPG []GnuPGHome `json:"gnupg,omitempty"`
+
 	// ContactsVault is the vault contacts are kept in ("" for the default
 	// vault). `secretvault contact vault NAME` sets it.
 	ContactsVault string `json:"contacts_vault,omitempty"`
@@ -64,6 +73,14 @@ type VaultConfig struct {
 	// (Config.Emergency): it is someone else's, read-only here, and its
 	// copy only ever pulls from the server.
 	Emergency string `json:"emergency,omitempty"`
+}
+
+// GnuPGHome is a GnuPG home pointed at the daemon: where gpg looks for its
+// agent there, and for its SSH agent.
+type GnuPGHome struct {
+	Home      string `json:"home"`
+	Socket    string `json:"socket"`
+	SSHSocket string `json:"ssh_socket,omitempty"`
 }
 
 // PromptConfig says how desktop prompts are shown.

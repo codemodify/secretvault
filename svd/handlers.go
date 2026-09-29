@@ -79,6 +79,12 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		if d.SSHAgentEnabled() {
 			st.SSHAgent = svrpc.SSHAgentSocket()
 		}
+		st.GPGAgent, _ = d.gnupgSockets()
+		d.mu.Lock()
+		for _, h := range d.cfg.GnuPG {
+			st.GnuPGHomes = append(st.GnuPGHomes, h.Home)
+		}
+		d.mu.Unlock()
 		return st, nil
 
 	case svrpc.MKeyringServe:

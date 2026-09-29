@@ -22,7 +22,8 @@ import (
 // decrypting as OpDecrypt, per program, like any access; neither lets a
 // program read the key. An item with the attribute confirm=always is
 // asked about on every use, as SSH keys are. Verifying other people's
-// signatures reads your contacts.
+// signatures reads your contacts. gpg uses the same keys, with the same
+// consent, through the gpg-agent face (gpgagent.go).
 
 func init() {
 	for m, h := range map[string]handler{

@@ -115,6 +115,13 @@ func (c *Client) VerifyPGP(ctx context.Context, p svrpc.PGPVerifyParams) (out sv
 	return
 }
 
+// LinkGnuPG points a GnuPG home at the daemon's gpg-agent face, or with
+// Remove takes it away (only secretvault's own programs may).
+func (c *Client) LinkGnuPG(ctx context.Context, p svrpc.GnuPGLinkParams) (out svrpc.GnuPGLinkResult, err error) {
+	err = c.conn.Call(ctx, svrpc.MGnuPGLink, p, &out)
+	return
+}
+
 // InspectMail takes a raw message apart: its signatures, checked and
 // judged against your contacts, and, with Decrypt, its encrypted parts,
 // decrypted with your keys.
