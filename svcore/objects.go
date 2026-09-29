@@ -385,6 +385,22 @@ func (v *Vault) Get(name string) (Entry, error) {
 	return v.idx.objects[id].entry(), nil
 }
 
+// GetID returns the item with the given object ID: the one its name
+// reaches, so what is done by name next (Put, Delete) is done to it. An
+// item whose name another holds as well (see Verify) is not found.
+func (v *Vault) GetID(id svformat.ID) (Entry, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.masters == nil {
+		return Entry{}, ErrLocked
+	}
+	o, ok := v.idx.objects[id]
+	if !ok || !o.live() || v.idx.byName[o.heads[0].item.Name] != id {
+		return Entry{}, fmt.Errorf("%w: item %s", ErrNotFound, id)
+	}
+	return o.entry(), nil
+}
+
 // List returns every item whose name starts with prefix, by name.
 func (v *Vault) List(prefix string) ([]Entry, error) {
 	v.mu.Lock()

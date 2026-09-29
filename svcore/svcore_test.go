@@ -244,6 +244,43 @@ func TestDeletingHidesAnItemAndItsNameCanBeReused(t *testing.T) {
 	}
 }
 
+func TestAnItemIsFoundByItsIDOnlyWhereItsNameLeads(t *testing.T) {
+	store := svstore.NewMem()
+	v := newVault(t, store, 0)
+	w, _ := Open(store, Options{})
+	w.Unlock(Passphrase(pass))
+	a, _ := v.Put(login("site", "a"))
+	if e, err := v.GetID(a.ID); err != nil || e.Item.Name != "site" || secretOf(t, e) != "a" {
+		t.Fatalf("GetID = %+v, %v", e, err)
+	}
+	if _, err := v.GetID(svformat.NewID()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetID of nothing = %v", err)
+	}
+	// Another device makes the same name at once: only the winner is found
+	// by ID, so a delete by its name never reaches the other.
+	b, _ := w.Put(login("site", "b"))
+	v.Refresh()
+	winner, _ := v.Get("site")
+	loser := a.ID
+	if winner.ID == a.ID {
+		loser = b.ID
+	}
+	if _, err := v.GetID(winner.ID); err != nil {
+		t.Fatalf("GetID of the name's item = %v", err)
+	}
+	if _, err := v.GetID(loser); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetID of the shadowed duplicate = %v", err)
+	}
+	v.Delete("site")
+	if _, err := v.GetID(winner.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetID after Delete = %v", err)
+	}
+	v.Lock()
+	if _, err := v.GetID(a.ID); !errors.Is(err, ErrLocked) {
+		t.Fatalf("GetID while locked = %v", err)
+	}
+}
+
 func TestRenameKeepsIdentityAndHistory(t *testing.T) {
 	v := newVault(t, svstore.NewMem(), 0)
 	a, _ := v.Put(login("old/name", "p"))
