@@ -110,11 +110,16 @@ people (M6).
 
 ### The network
 
-In version 1 nothing leaves the machine. From M6 and M8, server traffic is
-TLS and devices authenticate with their own keys. secretvault never phones
-home: no telemetry and no crash reports. The only network traffic is what
-you configure, such as sync and key lookups. An update check, if one is
-added, can be turned off.
+Nothing leaves the machine unless you set up sync. Sync server traffic is
+TLS (pinned by fingerprint for a self-signed server), and devices sign every
+request with their own keys, so a captured request cannot be replayed. What
+the sync server itself can see is listed in [`svserver`](../svserver)'s
+documentation: file names, sizes and times, keyslot metadata, device keys and
+labels, and IP addresses; never a key or anything inside an item.
+
+secretvault never phones home: no telemetry and no crash reports. The only
+network traffic is what you configure, such as sync and key lookups. An
+update check, if one is added, can be turned off.
 
 ## Keys in memory
 

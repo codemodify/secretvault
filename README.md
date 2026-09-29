@@ -43,6 +43,7 @@ decision. If there is none, it asks you.
 | **`secretvault-tui`** | The terminal manager. *(stub)* |
 | **`secretvault-tui-prompt`** | Asks you on a terminal, over the pinentry protocol: a pinentry for gpg-agent, an askpass helper, and (`--agent`) the daemon's prompter where there is no desktop. |
 | **`secretvault-gui-prompt`** | The same as a window. *(stub; until then the desktop's own pinentry asks)* |
+| **`secretvault-server`** | The sync server: keeps vaults' files for their devices and relays changes, seeing only ciphertext. Devices sign every request with their own keys. |
 
 | Package | Holds |
 | --- | --- |
@@ -50,6 +51,8 @@ decision. If there is none, it asks you.
 | [`svformat`](svformat) | The v1 on-disk format ([spec](docs/format.md)) |
 | [`svstore`](svstore) | Where vault files live |
 | [`svcore`](svcore) | The vault engine: keyslots, items, revisions, conflicts |
+| [`svserver`](svserver) | The sync server: stores and relays vaults' files, and sees only ciphertext |
+| [`svsync`](svsync) | Syncing a vault folder with the server: device keys, enrolment, Sync, Clone, Watch |
 | [`svrpc`](svrpc) | The daemon protocol (JSON-RPC over a local socket) |
 | [`svd`](svd) | The daemon, as a library |
 | [`svpeer`](svpeer) | Who is on the other end of a connection |

@@ -261,10 +261,17 @@ ever added. That gives three sync modes on one format:
 2. **Synced folder.** Put the vault folder in Syncthing, Dropbox, iCloud Drive
    or git. Conflicting edits become two revisions that every device resolves
    the same way.
-3. **Your own server.** A `secretvaultd --mode=server` stores and relays the
-   files, and only ever sees ciphertext. Devices authenticate with their own
-   keys, and a new device is enrolled by QR code from one that is already
-   trusted.
+3. **Your own server.** `secretvault-server` ([`svserver`](../svserver))
+   stores and relays the files, and only ever sees ciphertext. It keeps
+   each vault's files with a change log that numbers every file created
+   or removed, and answers long polls, so devices hear of a change at
+   once. Devices sign every request with their own Ed25519 key; a new
+   device is enrolled with a one-time code from one that is already
+   trusted (an invite that fits a QR code). The client side
+   ([`svsync`](../svsync)) syncs a vault folder both ways: files are only
+   ever added, keyslot removals are carried across, and a file the two
+   sides hold with different contents (a vault key rotated on two devices
+   at once) stops the sync rather than being overwritten.
 
    It later relays phone approvals. An official hosted service may come
    later; the design keeps it possible, and it would see no more than a
