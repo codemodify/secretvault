@@ -137,6 +137,7 @@ func FuzzReadMessage(f *testing.F) {
 		f.Fatal(err)
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
+		EncryptedTo(bytes.NewReader(data))
 		msg, err := ReadMessage(bytes.NewReader(data), ReadOptions{
 			Keyring:    []*Key{key},
 			Passphrase: func() ([]byte, error) { return []byte("password"), nil },
