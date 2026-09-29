@@ -146,23 +146,13 @@ func (v *Vault) Rotate(slots []NewSlot, keepRecipients bool, drop func(SlotInfo)
 		}
 	}
 
-	// 4. Everything current, again under the new key.
+	// 4. Everything current, again under the new key (signed by this
+	// device, if it signs; devices.go says what is left as it is).
 	for id, o := range v.idx.objects {
-		if len(o.heads) == 0 || o.heads[0].deleted || o.heads[0].hdr.Epoch == n {
+		if len(o.heads) == 0 || o.heads[0].hdr.Epoch == n {
 			continue
 		}
-		h := o.heads[0]
-		p := payload{Type: h.kind}
-		switch {
-		case h.kind == payloadItem && h.item != nil:
-			it := h.item.clone()
-			p.Item = &it
-		case h.record != nil:
-			p.Record = append([]byte(nil), h.record...)
-		default:
-			continue
-		}
-		if _, err := v.write(id, o.heads, p); err != nil {
+		if err := v.writeAgain(id, o, false); err != nil {
 			return infos, fmt.Errorf("svcore: the key was rotated, but not everything was re-encrypted yet: %w", err)
 		}
 	}

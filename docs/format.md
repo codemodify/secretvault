@@ -224,7 +224,11 @@ auth_data = "secretvault sv1 epoch" || TLV(
   1. write the new epoch's keyslots, which are inert until the epoch exists;
   2. write the record;
   3. remove the older epochs' keyslots;
-  4. write every live item and record again under the new key.
+  4. write every live item and record again under the new key, signed by
+     the rotating device if it signs. Device and policy records are left
+     as they are, and so is a winner whose signature is bad or unverified
+     ([Signatures](#signatures)): signing them would adopt what someone
+     else wrote. All stay readable down the chain.
 
   A crash at any step leaves a vault that opens.
 - **Seeing a rotation from elsewhere.** An open reader that finds a record
@@ -619,7 +623,9 @@ The payload is JSON:
   the revision that no other revision of it names as a parent. Only
   revisions that count take part: in a vault that requires signatures, one
   that is ignored is not a head, and does not supersede the parents it
-  names.
+  names. One that counts supersedes everything it descends from (its
+  parents, theirs, and so on), through ignored revisions too: its parents
+  are part of what its ID, and its signature, cover.
 - **Concurrent writes.** Two writers that did not see each other's change leave
   two heads, which is a conflict.
 - **Everyone agrees on the winner.** It is the head with the greatest time, and
@@ -659,17 +665,25 @@ The vault's registry of devices is records of type `device`:
   record for it, signed by that key, from the device the record names (the
   revision's 0x81). That revision proves possession of the key: nobody can
   register a key they do not hold, or bind someone else's key to a device
-  of theirs, and so claim that key's revisions. A key whose own records name
-  two devices is registered for neither.
+  of theirs, and so claim that key's revisions.
 - **A registration is never undone.** Every such revision counts, whatever
   came after it, so what a key signed stays checkable whatever its record
-  says now.
-- **Label and removal** are read from the newest of the object's records
-  for the key's device (its head among them), whoever wrote it: any device
-  can rename or remove another, and its signature says which did. A badly
-  signed record never counts. A removed device's signatures still verify;
-  readers name it as removed. Removal cuts nobody off: that takes a
-  rotation.
+  says now. A key is registered for the device its first registration
+  names (the earliest; on a tie, the least revision ID); a later one for
+  another device is reported, and changes nothing.
+- **Newest, here and for the policy, is by descent.** Of the revisions
+  considered, the newest are those none of the others descends from
+  (through any revision of the object), and of those, the one that would
+  win a conflict. The clock alone, which every writer sets, decides only
+  between revisions made apart.
+- **The label** is the newest record's for the key's device, whoever wrote
+  it: any device can rename another, and its signature says which did. A
+  badly signed record never counts.
+- **Removal** holds from any record that says so until one for the same
+  device that descends from it says otherwise, so a device that registers
+  again without having seen its removal stays removed. A removed device's
+  signatures still verify; readers name it as removed. Removal cuts nobody
+  off: that takes a rotation.
 - **Vouches** are read only from the newest record the key itself signed.
   Each reader decides from its own device: a device is *vouched for* when
   the reader's device vouches for it, or a device vouched for does, and so
@@ -677,6 +691,9 @@ The vault's registry of devices is records of type `device`:
   There is no vault-wide root: nothing in a vault tells the device that
   made it from any other that can open it, while no one but a device can
   sign its own vouches.
+- **Nobody adopts another's record.** Writing the current state again
+  (a rotation, requiring signatures) leaves device records as they are:
+  they stay readable down the epoch chain.
 
 ### The policy record
 
@@ -688,9 +705,10 @@ device writes the same object:
 {"type": "policy", "record": {"require_signatures": true}}
 ```
 
-- **Only a registered device sets it.** Only verified revisions of the
-  object count, the newest (its head among them) winning. Without one,
-  every revision counts.
+- **Only a registered device sets it.** Only verified policy revisions of
+  the object count, the newest (by descent, as above) winning. Without
+  one, every revision counts. Writing the current state again never
+  adopts the policy object.
 - **`require_signatures`** makes a vault count only verified revisions.
   The rest (unsigned, unverified, bad) are reported and ignored: they are
   never heads, and do not supersede the parents they name, so they can
@@ -700,7 +718,8 @@ device writes the same object:
   first writes again, signed, every object whose head is unsigned, and so
   adopts that state as the enabling device's; a head that is badly signed,
   or unverified, is not adopted, and the object falls back to its newest
-  revision that counts.
+  revision that counts. Device and policy records are never adopted (as
+  in a rotation).
 - **Readers from before signatures** do not know the policy: they count,
   and write, unsigned revisions, which readers that know it ignore.
 
@@ -765,7 +784,9 @@ signed with the Ed25519 key whose seed is 32 × `0x33` (public key
 `17cb79fb…e18080ce`, key id `bb01ccccfed954348b5f424b1a95677e`). Every
 version must still verify them; a reader that knows no tag above 0x81, as
 readers before signatures, must still open them. The sv1-nist one is
-checked against this document with Python's `cryptography`.
+checked against this document by an independent implementation,
+[`revision-signed-check.py`](../svformat/testdata/revision-signed-check.py)
+(Python's `cryptography`).
 
 The passphrase KDFs are pinned against independent implementations: the
 reference `argon2` CLI and Python's `hashlib.pbkdf2_hmac`.

@@ -246,7 +246,9 @@ changed this?" is the device signature ([format.md](format.md#signatures)).
   device of theirs. It is the key that is proven: a device ID, like a
   label, is only what a key registered under, and two keys can claim the
   same one (a device whose key was replaced, or an impostor). `history`
-  shows the start of each key ID beside the label.
+  shows the first 16 digits (64 bits) of each key ID beside the label:
+  too many to make a key that looks like another's; `device ls` shows
+  all 32.
 - **What it does not prove: who the device is.** The registry is records
   in the vault, which anyone who can open it can write. It proves only that
   someone who could open the vault registered a device that holds that key.
@@ -281,6 +283,13 @@ changed this?" is the device signature ([format.md](format.md#signatures)).
 - **Rotating the key, and turning the policy on, re-sign the current
   state** as the device doing it: the newest revision of every item then
   names that device, and who wrote the contents before is in the history.
+  They never sign device records or the policy (which would let whoever
+  wrote them into a device's record, or the policy, have them adopted),
+  nor a revision whose signature is bad or unverified.
+- **Newest is by descent.** A device record, and the policy, are read from
+  the revisions nothing later descends from, not from the latest clock:
+  a writer can date a revision far in the future, and would otherwise
+  outlast every later change.
 - **Removing a device is not revocation.** Its signatures still verify,
   marked as a removed device's, and it can still open the vault and write,
   signed, until the key is rotated without it.

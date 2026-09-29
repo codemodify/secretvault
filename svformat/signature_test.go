@@ -236,6 +236,11 @@ func TestASignatureCoversTheHeaderAndThePayload(t *testing.T) {
 			t.Errorf("%s: still verifies", name)
 		}
 	}
+	// The key ID is signed too: the signature does not verify for the key
+	// it now names, either.
+	if err := checkSignature(tampered["another key's id"], wrap, pub(testKey(0x44))); err == nil {
+		t.Error("a signature verified for a key ID it was not made with")
+	}
 	// And the file itself is authenticated as before: the signature
 	// cannot be changed or stripped by someone without the vault key.
 	for i := range file {
@@ -308,7 +313,9 @@ func TestReadersFromBeforeSignaturesOpenSignedRevisions(t *testing.T) {
 
 // The golden signed revisions pin the signature's layout: sealing with
 // crypto/rand made deterministic and the device key below must reproduce
-// them, and every later version must still verify them.
+// them, and every later version must still verify them. The sv1-nist one
+// is checked against docs/format.md by an independent implementation:
+// testdata/revision-signed-check.py, with Python's cryptography.
 func TestTheGoldenSignedRevisionStillVerifies(t *testing.T) {
 	cryptotest.SetGlobalRandom(t, 1)
 	wrap := bytes.Repeat([]byte{0x11}, 32)

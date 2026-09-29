@@ -159,38 +159,45 @@ func (x *index) object(id svformat.ID) *object {
 // revisions that count supersede their parents: one the policy refuses
 // cannot hide the revision it names. The caller holds v.mu.
 func (v *Vault) computeHeads(x *index, o *object) {
-	parent := map[svformat.RevID]bool{}
-	for _, r := range o.revs {
-		if x.counts(r) {
-			for _, p := range r.hdr.Parents {
-				parent[p] = true
+	for {
+		var counted []*revision
+		for _, r := range o.revs {
+			if x.counts(r) {
+				counted = append(counted, r)
 			}
 		}
-	}
-	o.heads = o.heads[:0]
-	for id, r := range o.revs {
-		if parent[id] || !x.counts(r) {
-			r.forget()
-			continue
+		older := ancestors(o, counted...)
+		o.heads = o.heads[:0]
+		for id, r := range o.revs {
+			if older[id] || !x.counts(r) {
+				r.forget()
+				continue
+			}
+			o.heads = append(o.heads, r)
 		}
-		o.heads = append(o.heads, r)
-	}
-	sortHeads(o.heads)
-	kept := o.heads[:0]
-	for _, r := range o.heads {
-		if r.forgotten {
+		sortHeads(o.heads)
+		lost := false
+		for _, r := range o.heads {
+			if !r.forgotten {
+				continue
+			}
 			name := svformat.RevisionName(o.id, r.id)
 			again, err := v.loadRevision(name, o.id, r.id)
 			if err != nil {
+				// Gone, or unreadable for now: out of the index, to be
+				// read again by the next scan if it is back.
 				x.problems = append(x.problems, Problem{name, err})
 				delete(o.revs, r.id)
+				delete(x.seen, name)
+				lost = true
 				continue
 			}
 			r.item, r.record, r.forgotten = again.item, again.record, false
 		}
-		kept = append(kept, r)
+		if !lost {
+			return
+		}
 	}
-	o.heads = kept
 }
 
 // evaluate settles what counts once revisions were added to x: the
@@ -697,16 +704,18 @@ func (v *Vault) Verify() (Report, error) {
 			switch {
 			case r.status == SigBad:
 				err = ErrBadSignature
-			case r.status == SigUnverified:
-				err = ErrUnknownSigner
+			case !x.counts(r) && r.status == SigUnverified:
+				err = fmt.Errorf("%w (or of an algorithm this version does not know)", ErrUnknownSigner)
 			case !x.counts(r):
-				err = fmt.Errorf("%w; this one is not signed, and is ignored", ErrSignatureRequired)
+				err = errors.New("svcore: not signed")
 			case r.kind == DeviceKind && x.reg[o.id] == nil:
 				err = errors.New("svcore: a device record its key never signed; ignored")
+			case r.kind == PolicyKind && (r.status != SigVerified || r.policy == nil):
+				err = errors.New("svcore: a policy change no registered device signed, or not where the policy lives; ignored")
 			}
 			if err != nil {
-				if r.status != SigVerified && r.status != SigUnsigned && !x.counts(r) {
-					err = fmt.Errorf("%w; the vault requires signatures, so it is ignored", err)
+				if !x.counts(r) {
+					err = fmt.Errorf("%w; the vault requires signatures (%w), so it is ignored", err, ErrSignatureRequired)
 				}
 				rep.Problems = append(rep.Problems, Problem{svformat.RevisionName(o.id, r.id), err})
 			}

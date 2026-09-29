@@ -426,14 +426,15 @@ func (c *cli) cmdHistory(args []string) error {
 }
 
 // author says who wrote a revision, as far as its signature tells: the
-// device's label and the start of its key ID (labels are anyone's to
-// choose; keys are not) when the signature verifies, and otherwise what
-// the revision claims, marked as a claim.
+// device's label and the first half of its key ID (labels are anyone's to
+// choose; keys are not, and 64 bits are too many to grind out a lookalike)
+// when the signature verifies, and otherwise what the revision claims,
+// marked as a claim.
 func author(e svrpc.Entry) string {
 	s := e.Signature
 	key := s.Key
-	if len(key) > 8 {
-		key = key[:8]
+	if len(key) > 16 {
+		key = key[:16]
 	}
 	named := strings.TrimSpace(s.Label + " " + key)
 	switch s.Status {

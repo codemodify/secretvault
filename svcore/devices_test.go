@@ -239,8 +239,10 @@ func TestWritesMadeBeforeRegisteringVerifyOnceTheDeviceIs(t *testing.T) {
 	if e.Signature.Status != SigUnverified || e.Signature.Key != b.opts.Signer.ID() || e.Signature.Label != "" {
 		t.Fatalf("before registering: %+v", e.Signature)
 	}
-	if rep, _ := a.Verify(); !hasProblem(rep, e.Rev, ErrUnknownSigner) {
-		t.Fatalf("an unregistered signer is not reported: %+v", rep.Problems)
+	// Waiting for a registration to arrive is no fault, unless the vault
+	// requires signatures (TestRequiringSignatures).
+	if rep, _ := a.Verify(); !rep.OK() {
+		t.Fatalf("an unregistered signer, without the policy: %+v", rep.Problems)
 	}
 	b.RegisterDevice("late")
 	wantSigned(t, "the writer, after registering", mustGet(t, b, "early").Signature, SigVerified, "late")
@@ -310,6 +312,13 @@ func TestTamperedSignaturesAreBad(t *testing.T) {
 		"another device named": forge(t, a, store, file, nil, func(fs []svformat.Field) []svformat.Field {
 			return withField(fs, 0x81, m.opts.Device[:])
 		}),
+		"a later time": forge(t, a, store, file, forged, func(fs []svformat.Field) []svformat.Field {
+			return withField(fs, 0x04, binary.BigEndian.AppendUint64(nil, uint64(e.Time.UnixNano()+1e9)))
+		}),
+	}
+	// The later forgery wins, by default, and shows as what it is.
+	if w := mustGet(t, a, "site"); w.Rev != cases["a later time"] || w.Signature.Status != SigBad || w.Signature.Label != "laptop" || w.Signature.Mine || w.Signature.Vouched {
+		t.Fatalf("the winning forgery: %v %+v", w.Rev.Short(), w.Signature)
 	}
 	hist := historyOf(t, mustGetVault(t, a), "site")
 	for name, rev := range cases {
@@ -366,8 +375,11 @@ func TestTheRegistryCannotBeTurnedAgainstADevice(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The laptop's key bound to Mallory's device: not the device the key
-	// registered itself for.
+	// registered itself for, so it says nothing about the laptop.
 	m.writeDevice(ka.ID(), deviceRecord{Alg: "ed25519", Key: ka.Public(), Device: m.opts.Device, Label: "mine now"})
+	if d, _ := mustGetVault(t, a).Device(ka.ID().String()); d.Label != "laptop" || d.Device != aDevice {
+		t.Fatalf("the laptop, after its key was bound to Mallory's device: %+v", d)
+	}
 	// A key Mallory does not hold, registered by Mallory: only a key's own
 	// signature registers it.
 	stranger := NewDeviceKey()
