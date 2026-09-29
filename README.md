@@ -418,7 +418,7 @@ where it stops. In short:
   what. A signature names a device key, not a person: anyone who can open
   the vault can register a device under any name, so compare key IDs
   (`device ls`) before vouching for one.
-- **Removing a keyslot is not revocation** until key rotation arrives (M6).
+- **Removing a keyslot is not revocation**: cut someone off with `secretvault unshare`, which also rotates the vault key.
 - **Keys in memory** are kept in locked, non-dumpable memory and wiped on
   lock. Go's runtime makes that best effort, not a guarantee.
 - **A delivery server reads every vault shared with it**, by design. Its
