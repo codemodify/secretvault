@@ -183,7 +183,7 @@ Encrypted containers are LUKS2 image files whose keys are vault items:
 $ bin/secretvault container create ~/work.img --size 2G --label Work   # prints the mount point
 /run/media/ada/Work
 $ bin/secretvault container close ~/work.img
-$ bin/secretvault container open ~/work.img     # asked about as any read of its item is
+$ bin/secretvault container open ~/work.img     # asked about as "mount", not as reading the key
 $ bin/secretvault container ls
 $ bin/secretvault container passwd ~/work.img   # a passphrase keyslot: cryptsetup opens it alone
 $ bin/secretvault container header-backup ~/work.img ~/work.header

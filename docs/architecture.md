@@ -161,9 +161,9 @@ every copy of the CLI. `secretvault-tui` is treated the same way.
 ### What is decided
 
 A grant covers (program, item or whole vault, operation). The operation is
-one of read, list, write, delete, manage, sign or decrypt. Signing and
-decrypting with a key held in a vault are their own operations, so a
-program allowed them still cannot read the key. The contacts are decided
+one of read, list, write, delete, manage, sign, decrypt or mount. Signing,
+decrypting and opening a container with a key held in a vault are their
+own operations, so a program allowed them still cannot read the key. The contacts are decided
 about as an "item" of their own: a decision about them covers no item,
 and one about an item covers no contacts.
 
@@ -566,8 +566,9 @@ rotates the vault master key).
   passphrase of keyslot 0, with the image's path and LUKS UUID as
   attributes. `--passphrase` (or `container passwd`) adds a keyslot that
   opens with a passphrase, for opening it with cryptsetup alone.
-- **Consent** is the vault's: creating a container writes an item, opening
-  one reads it, as `item.put` and `item.get` do. Closing needs none.
+- **Consent** is the vault's: creating a container writes an item;
+  opening one is `mount` on its item, asked naming the image, and is not
+  reading the key. Closing needs none.
 - **Inside** is the OS's own filesystem: ext4 by default, or exFAT, FAT or
   btrfs.
 - **Mounting with the OS's own tools, no kernel code of ours.**

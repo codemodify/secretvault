@@ -440,26 +440,43 @@ by UDisks2 and the kernel's dm-crypt.
   strong as that passphrase, and anyone with the image may guess at it
   offline. A header backup opens with every key the image opened with when
   it was taken, even after a keyslot is removed.
-- **Consent.** Opening a container reads its key's item and creating one
-  writes an item, each asked about as any other access. Closing needs no
-  consent: a program running as you can already unmount your disks through
-  UDisks2.
+- **Consent.** Opening a container is its own operation, `mount`, on its
+  key's item, and the prompt names the image: a program allowed to open a
+  container is not thereby allowed to read its key (`read`), which would
+  let it open the image anywhere, for ever. Creating one writes an item;
+  adding a passphrase keyslot is asked as reading the key and changing the
+  item, since the passphrase then opens the image as the key does. Closing
+  needs no consent: a program running as you can already unmount your
+  disks through UDisks2.
 - **Where the key goes.** From the daemon over the system bus to udisksd
   (root), which hands it to cryptsetup and the kernel; never to a client.
-  The kernel holds the volume key while the container is open, as for any
-  dm-crypt disk, and whoever can read your files can read the mounted
-  container's.
+  The copies svdbus makes while encoding that message are ordinary Go
+  memory and are not wiped. The kernel holds the volume key while the
+  container is open, as for any dm-crypt disk, and whoever can read your
+  files can read the mounted container's.
 - **Hostile images.** Before the kernel sees a header, the daemon parses it
   itself: sizes and checksums, the JSON, keyslot and data areas that stay in
-  bounds and apart, KDF costs within what cryptsetup writes, and a data
-  cipher that is AES-XTS (a planted `cipher_null` header would otherwise
-  have the kernel store files in the clear). The parser is fuzzed.
+  bounds and apart, KDF and digest costs within what cryptsetup writes (and
+  the container key is tried only on keyslots cheap enough to hold it), and
+  a data cipher that is AES-XTS (a planted `cipher_null` header, whose
+  keyslots our key still opens, would otherwise have the kernel store files
+  in the clear). The parser is fuzzed. The header is checked on the very
+  descriptor handed to UDisks2, so replacing the file at that path after
+  the check changes nothing. What remains is someone who can write to the
+  image file itself rewriting its header between the check and the kernel
+  reading it; they can already destroy the container.
+- **One filesystem, one mapping.** An image already unlocked (by another
+  user, or as a copy or hard link with the same LUKS UUID) is not unlocked
+  again: two mappings of one filesystem would corrupt it. An attachment of
+  ours that is locked, or unlocked but not mounted, is taken down and made
+  again from the checked file rather than reused.
 - **Locking leaves containers open.** A vault that locks (on idle, screen
   lock, sleep or `lock --all`) leaves its containers mounted, as VeraCrypt
   does: pulling a disk from under programs writing to it loses data. Set
   `"close_containers_on_lock": true` in the daemon's `config.json` to have
-  a vault close its containers when it locks; a container still in use
-  stays open, and the daemon's log says so.
+  a vault close its containers when it locks; they are closed just after
+  the lock, which does not wait for them, and one still in use stays open,
+  as the daemon's log says.
 
 ## Known gaps
 
