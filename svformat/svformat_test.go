@@ -237,6 +237,57 @@ func TestRecoveryKeysSurviveBeingTypedBack(t *testing.T) {
 	}
 }
 
+func TestUnsealKeysAndSharesAreTheirOwnForms(t *testing.T) {
+	key := svcrypto.RandomKey()
+	text := EncodeUnsealKey(key)
+	if !strings.HasPrefix(text, "SVUK1-") {
+		t.Fatalf("unseal key %q", text)
+	}
+	if got, err := ParseUnsealKey(strings.ToLower(text) + "\n"); err != nil || !bytes.Equal(got, key) {
+		t.Fatalf("round trip: %v", err)
+	}
+	// The same bytes as a recovery key, or with no prefix, are not an
+	// unseal key; nor is an unseal key a recovery key.
+	if _, err := ParseUnsealKey(EncodeRecoveryKey(key)); !errors.Is(err, ErrUnsealKey) {
+		t.Errorf("a recovery key parsed as an unseal key: %v", err)
+	}
+	if _, err := ParseUnsealKey(strings.TrimPrefix(text, "SVUK1-")); !errors.Is(err, ErrUnsealKey) {
+		t.Errorf("an unseal key without its prefix parsed: %v", err)
+	}
+	if _, err := ParseRecoveryKey(text); err == nil {
+		t.Error("an unseal key parsed as a recovery key")
+	}
+
+	shares, err := svcrypto.SplitSecret(key, 3, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := EncodeUnsealShare(shares[1], 2)
+	if !strings.HasPrefix(st, "SVUS1-") {
+		t.Fatalf("unseal share %q", st)
+	}
+	got, k, err := ParseUnsealShare(strings.ReplaceAll(st, "-", " "))
+	if err != nil || k != 2 || !bytes.Equal(got, shares[1]) {
+		t.Fatalf("share round trip: %v (k %d)", err, k)
+	}
+	if _, _, err := ParseUnsealShare(EncodeRecoveryShare(shares[1], 2)); !errors.Is(err, ErrUnsealShare) {
+		t.Errorf("a recovery share parsed as an unseal share: %v", err)
+	}
+	if _, _, err := ParseRecoveryShare(st); !errors.Is(err, ErrRecoveryShare) {
+		t.Errorf("an unseal share parsed as a recovery share: %v", err)
+	}
+	typo := []byte(st)
+	i := len(unsealSharePrefix) + 4
+	if typo[i] == 'A' {
+		typo[i] = 'C'
+	} else {
+		typo[i] = 'A'
+	}
+	if _, _, err := ParseUnsealShare(string(typo)); !errors.Is(err, ErrUnsealShare) {
+		t.Errorf("a typo was accepted: %v", err)
+	}
+}
+
 func TestIdentitiesAndRecipientsHaveTextForms(t *testing.T) {
 	for _, s := range []svcrypto.Suite{svcrypto.Modern, svcrypto.NIST} {
 		id, _ := s.NewIdentity()
