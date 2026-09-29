@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svcrypto"
@@ -682,6 +683,13 @@ func TestTheAuditLogHasEveryRequestAndNoSecret(t *testing.T) {
 			t.Errorf("an audit entry holds %.12q", secret)
 		}
 	}
+	// What callers choose is capped, and kept to UTF-8.
+	f.do(f.http.Client(), http.MethodPost, "/v1/deliver/login/oidc", "", `{"role":"`+strings.Repeat("r", 5000)+`\udfff","jwt":"x"}`)
+	log, _ = admin.Audit(ctx, 0, 1)
+	if e := log.Entries[0]; e.Op != "login" || len(e.Role) != maxAuditText+3 || !utf8.ValidString(e.Role) {
+		t.Fatalf("a 5000-byte role name went in as %d bytes: %+v", len(e.Role), e)
+	}
+	raw, _ = os.ReadFile(filepath.Join(f.dir, AuditFile))
 	// Removing a line breaks the chain.
 	lines := bytes.SplitAfter(raw, []byte("\n"))
 	cut := append(append([]byte{}, bytes.Join(lines[:3], nil)...), bytes.Join(lines[4:], nil)...)

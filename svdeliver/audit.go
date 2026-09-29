@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,6 +63,9 @@ type AuditEntry struct {
 	Reason   string    `json:"reason,omitempty"`
 	Prev     string    `json:"prev,omitempty"` // hex SHA-256 of the line before
 }
+
+// maxAuditText caps each text of an entry.
+const maxAuditText = 1024
 
 // ErrAuditDamaged is an audit log whose chain is broken.
 var ErrAuditDamaged = errors.New("svdeliver: the audit log has been altered: lines are missing, out of order or changed")
@@ -135,6 +139,14 @@ func (a *auditLog) record(e AuditEntry) error {
 		return errors.New("svdeliver: the audit log is closed")
 	}
 	e.Seq, e.Prev = a.seq+1, a.last
+	// Callers choose some of these (a role's name, a field's), so they are
+	// capped, and kept to valid UTF-8.
+	for _, s := range []*string{&e.Identity, &e.Role, &e.Op, &e.Vault, &e.Item, &e.Field, &e.Target, &e.Reason} {
+		if len(*s) > maxAuditText {
+			*s = (*s)[:maxAuditText] + "..."
+		}
+		*s = strings.ToValidUTF8(*s, "?")
+	}
 	plain, err := json.Marshal(e)
 	if err != nil {
 		return err

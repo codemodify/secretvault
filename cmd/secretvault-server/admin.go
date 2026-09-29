@@ -15,6 +15,8 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 
@@ -1007,11 +1009,23 @@ func (a *app) cmdAudit(args []string) error {
 			if e.Reason != "" && e.Outcome != svdeliver.OutcomeAllowed {
 				line += ": " + e.Reason
 			}
-			fmt.Fprintln(a.stdout, line)
+			fmt.Fprintln(a.stdout, printable(line))
 		}
 		if !log.Intact {
 			return errors.New(log.Problem)
 		}
 		return nil
 	})
+}
+
+// printable shows control characters as '?': some of what the log holds
+// was chosen by callers (a role's name, a field's), and must not drive
+// the terminal it is shown on.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == utf8.RuneError {
+			return '?'
+		}
+		return r
+	}, s)
 }

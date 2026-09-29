@@ -181,6 +181,12 @@ func TestTheDeliverySideFromTheCommandLine(t *testing.T) {
 	}
 }
 
+func TestAuditLinesCannotDriveTheTerminal(t *testing.T) {
+	if got := printable("login x (\x1b]0;owned\x07\x1b[2J): no\r\n"); got != "login x (?]0;owned??[2J): no??" {
+		t.Fatalf("%q", got)
+	}
+}
+
 func TestParseAllow(t *testing.T) {
 	cases := map[string]string{
 		"main:prod/*":           "main prod/* [read]",
