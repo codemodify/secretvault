@@ -251,7 +251,11 @@ signing make the program identity sturdier, not perfect.
   - a vault unlocked by passphrase also locks on screen lock, sleep and
     idle.
 - **Recovery.** A printed recovery key is offered at setup (a `recovery`
-  keyslot).
+  keyslot). It can instead be printed as Shamir shares, any k of n of which
+  rebuild it (`slot add recovery --split 5 --threshold 3`), to give to
+  people or places none of which can open the vault alone; `unlock
+  --shares` asks for them. The shares are made and combined by the CLI,
+  and the whole key is never shown.
 
 ## Storage and sync
 

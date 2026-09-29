@@ -604,3 +604,38 @@ func TestUnsharingCutsAPersonOffForGood(t *testing.T) {
 		t.Fatalf("the owner reads %q", got)
 	}
 }
+
+func TestARecoveryKeyInSharesOpensWithAnyThreshold(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok("hunter2", h.with("set", "x")...)
+	out := h.ok("", h.with("slot", "add", "recovery", "--split", "5", "--threshold", "3")...)
+	if strings.Contains(out, "SVRK1-") {
+		t.Fatalf("the whole recovery key was printed:\n%s", out)
+	}
+	shares := regexp.MustCompile(`SVRS1-[A-Z2-7-]+`).FindAllString(out, -1)
+	if len(shares) != 5 || !strings.Contains(out, "any 3 of them") {
+		t.Fatalf("shares printed:\n%s", out)
+	}
+	if list := h.ok("", "slot", "ls"); !strings.Contains(list, "recovery key, 3 of 5 shares") {
+		t.Fatalf("slot label:\n%s", list)
+	}
+
+	// Any three, in any order; a typo on the way is asked again.
+	h.ok("", "lock")
+	typo := shares[4][:len(shares[4])-2] + "ZZ"
+	h.answers = []string{shares[4], typo, strings.ToLower(shares[1]), shares[2]}
+	if got := h.ok("", "get", "x", "--shares"); got != "hunter2\n" {
+		t.Fatalf("unlock with shares: %q", got)
+	}
+	// Two are not enough: they make some other key, which opens nothing.
+	h.ok("", "lock")
+	h.answers = []string{shares[0], shares[3]}
+	if _, _, code := h.run("", "get", "x", "--shares"); code == 0 {
+		t.Fatal("two shares of three opened the vault")
+	}
+
+	if _, errs, code := h.run("", h.with("slot", "add", "recovery", "--split", "3", "--threshold", "4")...); code == 0 || !strings.Contains(errs, "threshold") {
+		t.Fatalf("a threshold above the shares: %d %s", code, errs)
+	}
+}

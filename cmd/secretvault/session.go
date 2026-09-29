@@ -80,6 +80,7 @@ type unlockFlags struct {
 	keyfile  string
 	identity string
 	recovery bool
+	shares   bool
 }
 
 func (u *unlockFlags) register(fs *flag.FlagSet) {
@@ -87,10 +88,11 @@ func (u *unlockFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&u.keyfile, "keyfile", "", "unlock with the keyfile at `PATH`")
 	fs.StringVar(&u.identity, "identity", "", "unlock with the identity in `FILE`")
 	fs.BoolVar(&u.recovery, "recovery", false, "unlock with a recovery key (asked for on the terminal)")
+	fs.BoolVar(&u.shares, "shares", false, "unlock with shares of a recovery key (asked for on the terminal)")
 }
 
 func (u *unlockFlags) given() bool {
-	return u.passFile != "" || u.keyfile != "" || u.identity != "" || u.recovery
+	return u.passFile != "" || u.keyfile != "" || u.identity != "" || u.recovery || u.shares
 }
 
 // key reads the key the flags name. The caller zeroes Secret.
@@ -108,11 +110,60 @@ func (c *cli) key(u *unlockFlags) (*svrpc.Key, error) {
 		}
 		b, err := c.ask("Recovery key: ")
 		return &svrpc.Key{Type: svformat.SlotRecovery, Secret: b}, err
+	case u.shares:
+		if !c.canAsk {
+			return nil, errors.New("no terminal to type the recovery shares on")
+		}
+		rk, err := c.askShares()
+		return &svrpc.Key{Type: svformat.SlotRecovery, Secret: rk}, err
 	case u.passFile != "":
 		b, err := readSecretFile(u.passFile)
 		return &svrpc.Key{Type: svformat.SlotPassphrase, Secret: b}, err
 	}
 	return nil, nil
+}
+
+// askShares asks for recovery shares until there are as many as the
+// first one says it takes, and returns the recovery key they rebuild, as
+// text. A share typed twice, or from another split, is caught there, or
+// by the key's own checksum.
+func (c *cli) askShares() ([]byte, error) {
+	var shares [][]byte
+	defer func() {
+		for _, s := range shares {
+			clear(s)
+		}
+	}()
+	need := 0
+	for need == 0 || len(shares) < need {
+		prompt := fmt.Sprintf("Recovery share %d: ", len(shares)+1)
+		if need > 0 {
+			prompt = fmt.Sprintf("Recovery share %d of %d: ", len(shares)+1, need)
+		}
+		b, err := c.ask(prompt)
+		if err != nil {
+			return nil, err
+		}
+		share, k, err := svformat.ParseRecoveryShare(string(b))
+		clear(b)
+		if err != nil {
+			fmt.Fprintln(c.stderr, strings.TrimPrefix(err.Error(), "svformat: "))
+			continue
+		}
+		if need != 0 && k != need {
+			clear(share)
+			fmt.Fprintf(c.stderr, "That share is from a split that needs %d, not %d: it belongs to another recovery key.\n", k, need)
+			continue
+		}
+		need = k
+		shares = append(shares, share)
+	}
+	rk, err := svcrypto.CombineShares(shares)
+	if err != nil {
+		return nil, fmt.Errorf("those shares do not fit together: %w", err)
+	}
+	defer clear(rk)
+	return []byte(svformat.EncodeRecoveryKey(rk)), nil
 }
 
 // open connects and, when the flags name a key, presents it: that unlocks

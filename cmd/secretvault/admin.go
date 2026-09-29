@@ -60,11 +60,27 @@ func (c *cli) slotAdd(args []string) error {
 	label := fs.String("label", "", "a name for the slot")
 	newPassFile := fs.String("new-passphrase-file", "", "passphrase slots: read the new passphrase from `FILE`")
 	create := fs.Bool("create", false, "keyfile slots: create the keyfile (64 random bytes, mode 0600)")
+	shares := fs.Int("split", 0, "recovery slots: print the key as `N` shares instead, to give to N people or places")
+	threshold := fs.Int("threshold", 0, "recovery slots: how many of the shares it takes (default: a majority)")
 	var u unlockFlags
 	u.register(fs)
-	pos, err := parse(fs, args, 1, 2, "passphrase | recovery | keyfile PATH | recipient RECIPIENT|FILE  [flags]")
+	pos, err := parse(fs, args, 1, 2, "passphrase | recovery [--split N --threshold K] | keyfile PATH | recipient RECIPIENT|FILE  [flags]")
 	if err != nil {
 		return err
+	}
+	if *shares != 0 || *threshold != 0 {
+		if pos[0] != svformat.SlotRecovery {
+			return errors.New("--split and --threshold are for recovery slots")
+		}
+		if *threshold == 0 {
+			*threshold = *shares/2 + 1
+		}
+		if *shares < 2 || *shares > 255 || *threshold < 2 || *threshold > *shares {
+			return fmt.Errorf("%d of %d shares: use 2 to 255 shares, and a threshold from 2 up to the number of shares", *threshold, *shares)
+		}
+		if *label == "" {
+			*label = fmt.Sprintf("recovery key, %d of %d shares", *threshold, *shares)
+		}
 	}
 	p := svrpc.SlotAddParams{Vault: c.vault, Type: pos[0], Label: *label}
 	switch pos[0] {
@@ -112,9 +128,38 @@ func (c *cli) slotAdd(args []string) error {
 		return err
 	}
 	fmt.Fprintf(c.stdout, "Added %s slot %s\n", info.Type, info.ID)
-	if info.RecoveryKey != "" {
+	switch {
+	case info.RecoveryKey != "" && *shares > 0:
+		return c.printRecoveryShares(info.RecoveryKey, *shares, *threshold)
+	case info.RecoveryKey != "":
 		c.printRecoveryKey(info.RecoveryKey)
 	}
+	return nil
+}
+
+// printRecoveryShares splits a new recovery key into shares and prints
+// them instead of it: the whole key is never shown.
+func (c *cli) printRecoveryShares(text string, n, k int) error {
+	rk, err := svformat.ParseRecoveryKey(text)
+	if err != nil {
+		return err
+	}
+	shares, err := svcrypto.SplitSecret(rk, n, k)
+	clear(rk)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(c.stdout)
+	fmt.Fprintf(c.stdout, "The recovery key, as %d shares; any %d of them open the vault, fewer reveal nothing.\n", n, k)
+	fmt.Fprintln(c.stdout, "Give each to a different person or place. They are shown only now.")
+	for i, s := range shares {
+		fmt.Fprintln(c.stdout)
+		fmt.Fprintf(c.stdout, "  Share %d of %d:\n", i+1, n)
+		fmt.Fprintln(c.stdout, "    "+svformat.EncodeRecoveryShare(s, k))
+		clear(s)
+	}
+	fmt.Fprintln(c.stdout)
+	fmt.Fprintf(c.stdout, "To open the vault with them: 'secretvault unlock --shares', then type any %d.\n", k)
 	return nil
 }
 

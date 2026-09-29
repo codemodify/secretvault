@@ -209,7 +209,8 @@ correctly across all four verification levels.
   a planted one is ignored instead of locking everyone out, and each lists
   the revisions that existed when it was made, so someone cut off cannot
   go on writing with the old key.
-- **Recovery.** Shamir recovery shares, and emergency access.
+- **Recovery.** Shamir recovery shares (done: `slot add recovery --split N
+  --threshold K`, `unlock --shares`), and emergency access (to come).
 
 **Done when:**
 - Two devices edit through each of the three sync modes and converge.

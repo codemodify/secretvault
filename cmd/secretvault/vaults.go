@@ -67,7 +67,7 @@ func (c *cli) cmdUnlock(args []string) error {
 	fs := c.flags("unlock")
 	var u unlockFlags
 	u.register(fs)
-	pos, err := parse(fs, args, 0, 1, "[VAULT] [--passphrase-file F | --keyfile F | --identity F | --recovery]")
+	pos, err := parse(fs, args, 0, 1, "[VAULT] [--passphrase-file F | --keyfile F | --identity F | --recovery | --shares]")
 	if err != nil {
 		return err
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -81,5 +82,30 @@ func TestParseEpochRefusesIncompleteRecords(t *testing.T) {
 		if _, err := ParseEpoch(b); !errors.Is(err, ErrEpoch) {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+func TestRecoverySharesRoundTripAndCatchTypos(t *testing.T) {
+	share := append([]byte{3}, bytes.Repeat([]byte{0xa5}, 32)...)
+	text := EncodeRecoveryShare(share, 2)
+	got, k, err := ParseRecoveryShare(strings.ToLower(strings.ReplaceAll(text, "-", " ")))
+	if err != nil || k != 2 || !bytes.Equal(got, share) {
+		t.Fatalf("round trip: %x, %d, %v", got, k, err)
+	}
+	// One character changed is caught by the checksum.
+	i := len(text) - 3
+	c := byte('A')
+	if text[i] == 'A' {
+		c = 'B'
+	}
+	if _, _, err := ParseRecoveryShare(text[:i] + string(c) + text[i+1:]); !errors.Is(err, ErrRecoveryShare) {
+		t.Fatalf("a typo: %v", err)
+	}
+	// A recovery key is not a share, nor a share a key.
+	if _, _, err := ParseRecoveryShare(EncodeRecoveryKey(bytes.Repeat([]byte{1}, 32))); err == nil {
+		t.Fatal("a recovery key read as a share")
+	}
+	if _, err := ParseRecoveryKey(text); err == nil {
+		t.Fatal("a share read as a recovery key")
 	}
 }
