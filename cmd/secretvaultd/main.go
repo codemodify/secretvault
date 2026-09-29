@@ -13,8 +13,9 @@
 //     taking the vault's passphrase on its terminal.
 //
 //   - Prompts go to the CLI's terminal, a registered
-//     `secretvault-tui-prompt --agent`, or the desktop's pinentry
-//     (pinentry-gnome3/-qt/-gtk) until secretvault-gui-prompt exists.
+//     `secretvault-tui-prompt --agent`, or a desktop prompt:
+//     secretvault-gui-prompt when it is installed beside the daemon, else
+//     the system's pinentry (pinentry-gnome3/-qt/-gtk).
 //
 //   - It is an SSH agent (ssh-agent.sock beside its socket; point
 //     SSH_AUTH_SOCK at it): keys live in vaults, and each program's first

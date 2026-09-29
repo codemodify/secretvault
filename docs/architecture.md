@@ -208,10 +208,15 @@ The daemon chooses a prompter in this order:
 1. The terminal of the CLI (or `secretvault-tui`) that made the request,
    for its own requests only. The TUI asks in a dialog drawn inside it.
 2. A registered `secretvault-tui-prompt --agent`.
-3. The desktop prompt. Until `secretvault-gui-prompt` exists, this is the
-   system's pinentry: pinentry-gnome3 on GNOME-like desktops, else
-   pinentry-qt or pinentry-gtk. It is taken only from `/usr/bin`,
-   `/usr/local/bin` and `/bin`, never looked up on `PATH`.
+3. The desktop prompt, when there is a desktop (a Wayland or X11 display on
+   Linux; always on Windows and macOS). The daemon starts a fresh one for
+   each question:
+   - `prompt.program` in the config, when it names one (`none` turns desktop
+     prompts off);
+   - else `secretvault-gui-prompt`, when it is installed beside the daemon;
+   - else the system's pinentry: pinentry-gnome3 on GNOME-like desktops,
+     else pinentry-qt or pinentry-gtk, taken only from `/usr/bin`,
+     `/usr/local/bin` and `/bin`, never looked up on `PATH`.
 4. Later, the phone companion.
 
 With nobody to ask, the answer is no, and the error says how to decide
@@ -231,14 +236,39 @@ status line, and on the desktop it is a pinentry window with a Cancel
 button (as gpg-agent does it), closed once the key is touched; Cancel
 stops the key waiting and asks for the passphrase instead.
 
-The GUI prompt needs work in uitoolkit first: see
-[../uitoolkit-gaps.md](../uitoolkit-gaps.md). The main items:
+**The desktop prompt** (`secretvault-gui-prompt`, on
+[uitoolkit](https://github.com/codemodify/uitoolkit)) is a small dialog
+window:
 
-- The password field must not copy plaintext.
-- Secrets must be held in a buffer that can be wiped.
-- The prompt needs a centred window that stays above others.
-- The keyboard must be grabbed while typing.
-- The prompt must be excluded from screenshots.
+- **It says whose it is.** Every dialog opens under the same secretvault
+  band, with the title naming the vault. The program asking is set out on
+  its own ("Program: /usr/bin/mail"). A prompt started by anything other than
+  the daemon beside it also names the program that started it, so one
+  started by a program imitating the daemon shows it.
+- **The passphrase is never a string.** It is typed into a uitoolkit
+  `SecretField`, which holds it in a `[]byte` and refuses copy, cut, drag
+  and the X11 primary selection. It leaves as a copy of those bytes, which
+  `svprompt` escapes into D lines on bytes and wipes, and the daemon reads
+  them the same way. The field is wiped as the dialog closes, however it
+  closes.
+- **The keyboard is held** while a passphrase field has it (an X11 grab,
+  Wayland's shortcut inhibitor, macOS secure input; Windows has nothing to
+  offer), and input methods are off in the field.
+- **The window is a dialog**: centred, above other windows, fixed in size,
+  activated, and kept out of screenshots and screen shares where the
+  platform can do that (Windows and macOS).
+- **Consent** shows every answer the daemon offers. Deny is the default,
+  and Escape, the close button and `SETTIMEOUT` all cancel, which the
+  daemon takes as no.
+- **Timeouts and errors.** A retry shows why the last try failed
+  (`SETERROR`). A new passphrase is typed twice and must match
+  (`SETREPEAT`).
+
+It runs the protocol on stdin and stdout, or as an askpass helper when
+given a prompt (`SSH_ASKPASS`, `SUDO_ASKPASS`). It has no `--agent` mode, as
+the daemon starts it for each question. What uitoolkit provides for it,
+and what it still lacks (such as a caps-lock state), is in
+[../uitoolkit-gaps.md](../uitoolkit-gaps.md).
 
 ### What a prompt can and cannot stop
 
@@ -699,7 +729,7 @@ projects, with `sv` as the prefix:
 | `svsync`, `svserver` | sync, and the server API | M6, M8 |
 | `svcontainer`, `svmount` | containers, and per-OS mounting | M7 |
 | `svage` | age files and the age plugin protocol | M8 |
-| `gui/` (a module of its own), `svtui` | the desktop and terminal managers and prompts | M1–M2 |
+| `gui/` (a module of its own), `svtui` | the desktop programs, with `gui/secretui` for what they share when asking about secrets; the terminal manager | M1–M2 |
 
 **Dependencies:**
 - **Allowed:**

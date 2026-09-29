@@ -46,7 +46,7 @@ decision. If there is none, it asks you.
 | **`secretvault-gui`** | The desktop manager, on [uitoolkit](https://github.com/codemodify/uitoolkit), with a tray icon. *(stub)* |
 | **`secretvault-tui`** | The terminal manager: vaults, items, one-time codes, the generator, history, grants and the audit log, full-screen. |
 | **`secretvault-tui-prompt`** | Asks you on a terminal, over the pinentry protocol: a pinentry for gpg-agent, an askpass helper, and (`--agent`) the daemon's prompter where there is no desktop. |
-| **`secretvault-gui-prompt`** | The same as a window. *(stub; until then the desktop's own pinentry asks)* |
+| **`secretvault-gui-prompt`** | The same in a small window: the desktop prompt secretvaultd starts for each question, a pinentry for gpg-agent, and an askpass helper. The passphrase field holds bytes, never a string, and the keyboard is held while you type. |
 | **`secretvault-server`** | The sync server: keeps vaults' files for their devices and relays changes, seeing only ciphertext. Devices sign every request with their own keys. |
 
 | Package | Holds |
@@ -102,6 +102,14 @@ checked out beside this repository:
 
 ```bash
 (cd gui && CGO_ENABLED=1 go build -o ../bin/ ./cmd/...)
+```
+
+With `secretvault-gui-prompt` in `bin/` beside the daemon, secretvaultd asks
+you in its window rather than the system's pinentry. To see it on its own,
+speak the pinentry protocol to it (it opens a window; Escape cancels):
+
+```bash
+printf 'SETTITLE Test\nSETDESC Type anything.\nGETPIN\n' | bin/secretvault-gui-prompt
 ```
 
 Or install it for your user, into `~/.local/bin` with the git, docker and
@@ -259,10 +267,10 @@ puts the password in `$CREDENTIALS_DIRECTORY/db-password` when it starts.
   passphrase there (or its security key, if one is plugged in), which allows
   that terminal until the vault locks. Or pass `--passphrase-file`,
   `--keyfile`, `--identity`, `--recovery` or `--fido2`.
-- **Other programs** asking for a secret get a desktop prompt (your system's
-  pinentry, until secretvault's own window exists): allow once, until
-  locked, always, or deny. [docs/clients.md](docs/clients.md) is for their
-  authors.
+- **Other programs** asking for a secret get a desktop prompt
+  (`secretvault-gui-prompt` when it is installed beside the daemon, else your
+  system's pinentry): allow once, until locked, always, or deny.
+  [docs/clients.md](docs/clients.md) is for their authors.
 
 ### A security key (Linux)
 
@@ -316,7 +324,7 @@ where it stops. In short:
 | [docs/security.md](docs/security.md) | The threat model and known gaps |
 | [docs/roadmap.md](docs/roadmap.md) | Milestones M0–M10, and the decisions log |
 | [docs/landscape.md](docs/landscape.md) | The tools secretvault replaces or meets, and what it takes from each |
-| [uitoolkit-gaps.md](uitoolkit-gaps.md) | What the GUI toolkit needs before the prompt and manager can be built |
+| [uitoolkit-gaps.md](uitoolkit-gaps.md) | What the GUI toolkit provides for the prompt and manager, and what it still lacks |
 
 ## Built on
 

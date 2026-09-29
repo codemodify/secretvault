@@ -35,13 +35,13 @@ The order below is the planned order, and they can overlap.
 - **Auto-lock** on logout, screen lock, sleep and idle, configurable per
   vault, with defaults that follow the unlock method.
 - **Prompts** over the pinentry protocol:
-  - `secretvault-gui-prompt` (uitoolkit);
+  - `secretvault-gui-prompt` (uitoolkit), including askpass mode;
   - `secretvault-tui-prompt`, including askpass mode and `--agent`.
 - **The CLI** becomes a pure client of the daemon.
 - **Integration.** comms-mail's `keyringKey` hook is wired to secretvault.
 - **Autostart.** A systemd user unit, a launchd agent, and a Windows per-user
   logon task. Installers come as scripts (`install.sh`, `install.ps1`).
-- **Before the GUI prompt:** the uitoolkit gaps it depends on
+- **Before the GUI prompt (done):** the uitoolkit gaps it depended on
   ([../uitoolkit-gaps.md](../uitoolkit-gaps.md)).
 
 **Done when:**
@@ -56,8 +56,11 @@ The order below is the planned order, and they can overlap.
   (`svdbus`), brought forward from M3.
 - **The comms-mail wiring** is described in [clients.md](clients.md), and
   lands on comms-mail's side.
-- **The desktop prompt** is the system's pinentry until
-  `secretvault-gui-prompt` can be built (see uitoolkit-gaps.md).
+- **The desktop prompt** is `secretvault-gui-prompt` wherever it is
+  installed beside the daemon, and the system's pinentry elsewhere. It is
+  tested headless, through the protocol, on Linux; it has not yet been run
+  on Windows or macOS desktops. It shows no caps-lock warning until
+  uitoolkit reports the lock keys (see uitoolkit-gaps.md).
 - **Windows and macOS code compiles.** Caller identification there does not
   yet read publisher signatures.
 - **Added along the way:**
