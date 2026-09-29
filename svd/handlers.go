@@ -614,7 +614,7 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		}
 		for _, op := range p.Ops {
 			if _, known := verbs[svbroker.Op(op)]; !known {
-				return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "unknown operation %q (read, list, write, delete, manage, sign, decrypt)", op)
+				return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "unknown operation %q (read, list, write, delete, manage, sign, decrypt, mount)", op)
 			}
 			g.Ops = append(g.Ops, svbroker.Op(op))
 		}

@@ -22,8 +22,11 @@ import (
 // the vault's, as for any item:
 //
 //   - container.create stores a new item: a write to the vault;
-//   - container.open reads the container's item, as item.get does;
-//   - container.passwd reads the item and changes it;
+//   - container.open uses the container's item as "mount", its own
+//     operation: opening a container is not reading its key (item.get),
+//     and a program allowed one is not allowed the other;
+//   - container.passwd reads the item (a passphrase keyslot is as good as
+//     the key) and changes it;
 //   - container.list lists the vault;
 //   - container.close needs none: whoever may reach UDisks2 can unmount
 //     their own disks without us.
@@ -34,7 +37,7 @@ import (
 // locking on idle should not pull a disk out from under the programs
 // writing to it. With close_containers_on_lock in the config, a vault that
 // locks closes the containers whose keys it holds (unmounting only what is
-// not busy).
+// not busy), after the lock and apart from it.
 
 const (
 	kindContainer = "container"
@@ -60,6 +63,10 @@ type containers struct {
 
 	connMu sync.Mutex
 	disks  *svcontainer.Disks
+
+	// closing counts containers being closed after their vault locked, so
+	// a daemon that stops can wait for them.
+	closing sync.WaitGroup
 }
 
 // disks is the connection to the OS's disk service, made on first use and
@@ -134,9 +141,12 @@ func (d *Daemon) containerCreate(ctx context.Context, cl *client, decode func(an
 	if err != nil {
 		return nil, err
 	}
+	itemExists := func() error {
+		return svrpc.Errorf(svrpc.CodeExists, "there is already an item named %q", p.Item)
+	}
 	if e, err := mv.v.Get(p.Item); err == nil {
 		e.Item.Wipe()
-		return nil, svrpc.Errorf(svrpc.CodeExists, "there is already an item named %q", p.Item)
+		return nil, itemExists()
 	}
 
 	d.ctr.mu.Lock()
@@ -149,7 +159,8 @@ func (d *Daemon) containerCreate(ctx context.Context, cl *client, decode func(an
 		return nil, containerErr(err)
 	}
 	// The key is stored before the image is formatted and mounted, so it
-	// cannot be lost to a crash in between.
+	// cannot be lost to a crash in between; and only as a new item, never
+	// over one another request stored meanwhile.
 	it := svcore.Item{Kind: kindContainer, Name: p.Item, Label: p.Label,
 		Attrs:  map[string]string{attrImage: path, attrUUID: img.UUID},
 		Fields: []svcore.Field{{Name: fieldKey, Type: svcore.FieldConcealed, Value: append([]byte(nil), key...)}}}
@@ -159,10 +170,13 @@ func (d *Daemon) containerCreate(ctx context.Context, cl *client, decode func(an
 	if img.PassphraseSlot >= 0 {
 		it.Attrs[attrPassSlot] = strconv.Itoa(img.PassphraseSlot)
 	}
-	e, err := mv.v.Put(it)
+	e, err := mv.v.PutNew(it)
 	it.Wipe()
 	if err != nil {
 		os.Remove(path)
+		if errors.Is(err, svcore.ErrItemExists) {
+			return nil, itemExists()
+		}
 		return nil, err
 	}
 	e.Item.Wipe()
@@ -170,10 +184,14 @@ func (d *Daemon) containerCreate(ctx context.Context, cl *client, decode func(an
 
 	st, err := disks.Format(ctx, path, key, p.FS, p.Label, p.MountOptions)
 	if err != nil {
-		// Nothing half-made is left: not the image, not its item.
+		// Nothing half-made is left: not the image, not its item (this
+		// one: made above, and found by its identity, not its name).
 		os.Remove(path)
-		if derr := mv.v.Delete(p.Item); derr == nil {
-			d.notify(svrpc.EItemChanged, svrpc.VaultEvent{Vault: mv.cfg.Name, Item: p.Item})
+		if cur, gerr := mv.v.GetID(e.ID); gerr == nil {
+			cur.Item.Wipe()
+			if mv.v.Delete(p.Item) == nil {
+				d.notify(svrpc.EItemChanged, svrpc.VaultEvent{Vault: mv.cfg.Name, Item: p.Item})
+			}
 		}
 		return nil, containerErr(err)
 	}
@@ -183,59 +201,75 @@ func (d *Daemon) containerCreate(ctx context.Context, cl *client, decode func(an
 
 // containerItem finds the item holding a container's key and authorizes
 // op on it: by name, or else (the vault unlocked first, asking if need be)
-// as the container item whose luks_uuid is the image's. The caller wipes
-// the entry.
+// as the container item whose luks_uuid is the image's. The person is
+// told which image is meant. The caller wipes the entry.
 func (d *Daemon) containerItem(ctx context.Context, cl *client, vault, name, path string, op svbroker.Op) (*managedVault, svcore.Entry, error) {
-	if name != "" {
-		mv, e, err := d.item(ctx, cl, vault, name, op)
-		if err == nil && e.Item.Kind != kindContainer {
-			e.Item.Wipe()
-			return nil, svcore.Entry{}, svrpc.Errorf(svrpc.CodeInvalidParams, "%q is a %s item, not a container's key", name, e.Item.Kind)
+	var uuid string
+	if name == "" {
+		if path == "" {
+			return nil, svcore.Entry{}, svrpc.Errorf(svrpc.CodeInvalidParams, "name the container's image or its item")
 		}
-		return mv, e, err
-	}
-	if path == "" {
-		return nil, svcore.Entry{}, svrpc.Errorf(svrpc.CodeInvalidParams, "name the container's image or its item")
-	}
-	h, err := svcontainer.Inspect(path)
-	if err != nil {
-		return nil, svcore.Entry{}, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
+		// Before any consent, say no more than whether this is a
+		// container: the program asking can read the file itself anyway.
+		h, err := svcontainer.Inspect(path)
+		if err != nil {
+			return nil, svcore.Entry{}, svrpc.Errorf(svrpc.CodeInvalidParams, "%s is not a container secretvault can open", path)
+		}
+		uuid = h.UUID()
 	}
 	mv, err := d.vault(vault)
 	if err != nil {
 		return nil, svcore.Entry{}, err
 	}
-	why := fmt.Sprintf("%s wants to use the container %s, whose key is in vault %q.", cl.display(), path, mv.cfg.Name)
+	what := "a container"
+	if path != "" {
+		what = "the container " + path
+	}
+	why := fmt.Sprintf("%s wants to use %s, whose key is in vault %q.", cl.display(), what, mv.cfg.Name)
 	prompted, own, err := d.ensureUnlocked(ctx, cl, mv, why)
 	if err != nil {
-		d.recorder(cl, mv, "", op)(outcomeOf(err), err.Error())
+		d.recorder(cl, mv, name, op)(outcomeOf(err), err.Error())
 		return nil, svcore.Entry{}, err
-	}
-	entries, err := mv.v.List("")
-	if err != nil {
-		return nil, svcore.Entry{}, err
-	}
-	want := svcontainer.Canonical(path)
-	for _, e := range entries {
-		e.Item.Wipe()
-		if e.Item.Kind != kindContainer || e.Item.Attrs[attrUUID] != h.UUID() {
-			continue
-		}
-		// Copies of an image share its UUID: the item naming this file
-		// wins, else the first.
-		if name == "" || e.Item.Attrs[attrImage] == want {
-			name = e.Item.Name
-		}
 	}
 	if name == "" {
-		return nil, svcore.Entry{}, svrpc.Errorf(svrpc.CodeNotFound,
-			"no item in vault %q holds the key of %s (LUKS UUID %s); name it with --item", mv.cfg.Name, path, h.UUID())
+		entries, err := mv.v.List("")
+		if err != nil {
+			return nil, svcore.Entry{}, err
+		}
+		want := svcontainer.Canonical(path)
+		for _, e := range entries {
+			e.Item.Wipe()
+			if e.Item.Kind != kindContainer || e.Item.Attrs[attrUUID] != uuid {
+				continue
+			}
+			// Copies of an image share its UUID: the item naming this file
+			// wins, else the first.
+			if name == "" || e.Item.Attrs[attrImage] == want {
+				name = e.Item.Name
+			}
+		}
+		if name == "" {
+			return nil, svcore.Entry{}, svrpc.Errorf(svrpc.CodeNotFound,
+				"no item in vault %q holds the key of %s; name it with --item", mv.cfg.Name, path)
+		}
 	}
 	e, err := mv.v.Get(name)
 	if err != nil {
 		return nil, svcore.Entry{}, err
 	}
-	why = describeRequest(cl, mv, name, op)
+	if e.Item.Kind != kindContainer {
+		e.Item.Wipe()
+		return nil, svcore.Entry{}, svrpc.Errorf(svrpc.CodeInvalidParams, "%q is a %s item, not a container's key", name, e.Item.Kind)
+	}
+	if path == "" {
+		path = e.Item.Attrs[attrImage]
+	}
+	switch op {
+	case svbroker.OpMount:
+		why = fmt.Sprintf("%s wants to open the container %s with the key in %q, in vault %q.", cl.display(), path, name, mv.cfg.Name)
+	default:
+		why = describeRequest(cl, mv, name, op) + "\n(It is the key of the container " + path + ".)"
+	}
 	if err := d.decide(ctx, cl, mv, e.ID.String(), name, op, why, prompted, own, d.recorder(cl, mv, name, op)); err != nil {
 		e.Item.Wipe()
 		return nil, svcore.Entry{}, err
@@ -264,7 +298,7 @@ func (d *Daemon) containerOpen(ctx context.Context, cl *client, decode func(any)
 	if err != nil {
 		return nil, err
 	}
-	mv, e, err := d.containerItem(ctx, cl, p.Vault, p.Item, p.Path, svbroker.OpRead)
+	mv, e, err := d.containerItem(ctx, cl, p.Vault, p.Item, p.Path, svbroker.OpMount)
 	if err != nil {
 		return nil, err
 	}
@@ -279,11 +313,8 @@ func (d *Daemon) containerOpen(ctx context.Context, cl *client, decode func(any)
 	}
 	d.ctr.mu.Lock()
 	defer d.ctr.mu.Unlock()
-	// Our own check of the header, before the kernel sees it: it is sound,
-	// its data cipher is AES-XTS, and the key opens it.
-	if _, err := svcontainer.Check(path, key); err != nil {
-		return nil, svrpc.Errorf(svrpc.CodeFailed, "%v", err)
-	}
+	// Mount checks the header itself (sound, AES-XTS, opened by the key)
+	// on the very descriptor it attaches, before the kernel sees it.
 	st, err := disks.Mount(ctx, path, key, p.MountOptions)
 	if err != nil {
 		return nil, containerErr(err)
@@ -336,7 +367,9 @@ func (d *Daemon) containerList(ctx context.Context, cl *client, decode func(any)
 		if all, err := disks.All(ctx); err == nil {
 			known = true
 			for _, s := range all {
-				status[s.Image] = s
+				if cur, seen := status[s.Image]; !seen || !cur.Mounted() {
+					status[s.Image] = s
+				}
 			}
 		}
 	}
@@ -365,7 +398,8 @@ func (d *Daemon) containerPasswd(ctx context.Context, cl *client, decode func(an
 	case !p.Remove && len(p.Passphrase) < MinPassphrase:
 		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "the passphrase is too short: use at least %d characters", MinPassphrase)
 	}
-	// Reading the key, and changing the item: both are asked for.
+	// A passphrase keyslot opens the container as well as its key does:
+	// reading the key and changing the item are both asked for.
 	mv, e, err := d.containerItem(ctx, cl, p.Vault, p.Item, p.Path, svbroker.OpRead)
 	if err != nil {
 		return nil, err
@@ -382,18 +416,26 @@ func (d *Daemon) containerPasswd(ctx context.Context, cl *client, decode func(an
 	if path == "" {
 		path = e.Item.Attrs[attrImage]
 	}
+	d.ctr.mu.Lock()
+	defer d.ctr.mu.Unlock()
+	// The keyslot the item names is a keyslot of the image it was made
+	// for: another image (a path given by the caller) is refused.
+	if h, err := svcontainer.Inspect(path); err != nil {
+		return nil, svrpc.Errorf(svrpc.CodeFailed, "%v", err)
+	} else if h.UUID() != e.Item.Attrs[attrUUID] {
+		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "%s is not the container %q was made for (its LUKS UUID is not %s)", path, e.Item.Name, e.Item.Attrs[attrUUID])
+	}
 	old := -1
 	if s, ok := e.Item.Attrs[attrPassSlot]; ok {
 		if n, err := strconv.Atoi(s); err == nil {
 			old = n
 		}
 	}
-	d.ctr.mu.Lock()
-	defer d.ctr.mu.Unlock()
 	it := e.Item
 	if it.Attrs == nil {
 		it.Attrs = map[string]string{}
 	}
+	added := -1
 	if p.Remove {
 		if old < 0 {
 			return nil, svrpc.Errorf(svrpc.CodeNotFound, "%s has no passphrase keyslot that secretvault made", path)
@@ -407,10 +449,17 @@ func (d *Daemon) containerPasswd(ctx context.Context, cl *client, decode func(an
 		if err != nil {
 			return nil, svrpc.Errorf(svrpc.CodeFailed, "%v", err)
 		}
+		if slot != old {
+			added = slot
+		}
 		it.Attrs[attrPassSlot] = strconv.Itoa(slot)
 	}
 	ne, err := mv.v.Put(it)
 	if err != nil {
+		// A keyslot the item does not name would be one nobody knows of.
+		if added >= 0 {
+			svcontainer.RemoveKeyslot(path, key, added)
+		}
 		return nil, err
 	}
 	ne.Item.Wipe()
@@ -460,21 +509,31 @@ func (d *Daemon) containerImages(mv *managedVault) []string {
 	return out
 }
 
-// closeContainers closes whichever of images are open, after their vault
-// locked.
-func (d *Daemon) closeContainers(images []string, vault, why string) {
+// closeContainersLater closes whichever of images are open, after their
+// vault locked, without holding up the lock (or the next vault's): a
+// container operation in progress, or a busy filesystem, can take long.
+func (d *Daemon) closeContainersLater(images []string, vault, why string) {
 	if len(images) == 0 {
 		return
 	}
+	d.ctr.closing.Add(1)
+	go func() {
+		defer d.ctr.closing.Done()
+		d.closeContainers(images, vault, why)
+	}()
+}
+
+func (d *Daemon) closeContainers(images []string, vault, why string) {
 	disks, err := d.disks()
 	if err != nil {
 		d.opts.Log("closing containers: " + err.Error())
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
 	d.ctr.mu.Lock()
 	defer d.ctr.mu.Unlock()
+	// The minute starts once it is our turn.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
 	for _, img := range images {
 		st, err := disks.Status(ctx, img)
 		if err != nil || !st.Attached {
@@ -485,5 +544,16 @@ func (d *Daemon) closeContainers(images []string, vault, why string) {
 			continue
 		}
 		d.opts.Log(fmt.Sprintf("closed container %s: vault %s locked (%s)", img, vault, why))
+	}
+}
+
+// waitContainers waits, up to limit, for containers still being closed.
+func (d *Daemon) waitContainers(limit time.Duration) {
+	done := make(chan struct{})
+	go func() { d.ctr.closing.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(limit):
+		d.opts.Log("stopping with containers still being closed")
 	}
 }

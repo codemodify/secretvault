@@ -36,6 +36,7 @@ var verbs = map[svbroker.Op]string{
 	svbroker.OpManage:  "manage",
 	svbroker.OpSign:    "sign with",
 	svbroker.OpDecrypt: "decrypt with",
+	svbroker.OpMount:   "open the container keyed by",
 }
 
 func describeRequest(cl *client, mv *managedVault, itemName string, op svbroker.Op) string {

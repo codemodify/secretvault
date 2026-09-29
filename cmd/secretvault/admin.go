@@ -329,7 +329,7 @@ func (c *cli) cmdGrant(args []string) error {
 	case "allow", "deny":
 		itemName := fs.String("item", "", "only this item (default: the whole vault)")
 		contacts := fs.Bool("contacts", false, "the vault's contacts, instead of an item (ops read, write)")
-		ops := fs.String("ops", "read", "operations, comma-separated: read, list, write, delete, manage, sign, decrypt")
+		ops := fs.String("ops", "read", "operations, comma-separated: read, list, write, delete, manage, sign, decrypt, mount")
 		untilLock := fs.Bool("until-lock", false, "only until the vault next locks (default: always)")
 		pos, err := parse(fs, args[1:], 1, 1, "PROGRAM [--item NAME | --contacts] [--ops read,list] [--until-lock]   (PROGRAM: a path, flatpak:APP or snap:NAME)")
 		if err != nil {

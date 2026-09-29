@@ -157,7 +157,7 @@ func (d *Daemon) lock(mv *managedVault, why string) {
 	images := d.containerImages(mv)
 	mv.v.Lock()
 	d.locked(mv, why)
-	d.closeContainers(images, mv.cfg.Name, why)
+	d.closeContainersLater(images, mv.cfg.Name, why)
 }
 
 // locked does what follows a vault locking, whether the daemon locked it

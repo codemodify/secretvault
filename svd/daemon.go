@@ -255,7 +255,10 @@ func sibling(name string) func(*svpeer.Process) bool {
 // Serve accepts clients on ln until ctx ends, then locks every vault. In
 // host mode ln is root's admin socket.
 func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
-	defer d.LockAll("daemon stopping")
+	defer func() {
+		d.LockAll("daemon stopping")
+		d.waitContainers(time.Minute) // those closing with their vaults (containers.go)
+	}()
 	defer d.stopAllSync()
 	r := roleUser
 	if d.host != nil {

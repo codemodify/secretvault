@@ -138,7 +138,7 @@ func (c *cli) containerOpen(args []string) error {
 	if err := mountsHere(); err != nil {
 		return err
 	}
-	path, err := filepath.Abs(pos[0])
+	path, err := existingImage(pos[0])
 	if err != nil {
 		return err
 	}
@@ -242,7 +242,7 @@ func (c *cli) containerPasswd(args []string) error {
 	if err != nil {
 		return err
 	}
-	path, err := filepath.Abs(pos[0])
+	path, err := existingImage(pos[0])
 	if err != nil {
 		return err
 	}
@@ -269,6 +269,21 @@ func (c *cli) containerPasswd(args []string) error {
 		fmt.Fprintf(c.stderr, "%s opens with the new passphrase (and cryptsetup alone).\n", info.Path)
 	}
 	return nil
+}
+
+// existingImage is an image's absolute path, once it is known to be a
+// container. It is checked here, with this program's own access, so a
+// mistake is told exactly (the daemon tells programs no more than "not a
+// container" before they have consent).
+func existingImage(arg string) (string, error) {
+	path, err := filepath.Abs(arg)
+	if err != nil {
+		return "", err
+	}
+	if _, err := svcontainer.Inspect(path); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // parseSize reads a size: bytes, or a number with K, M, G or T (powers of

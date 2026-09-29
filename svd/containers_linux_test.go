@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/internal/udiskstest"
@@ -92,18 +93,29 @@ func TestContainers(t *testing.T) {
 		t.Fatalf("mount options: %+v", st)
 	}
 
-	// Another program reads the key only with the person's consent.
+	// Another program opens a container only with the person's consent,
+	// asked as "mount", naming the image; and that is not reading the key.
 	files := h.connect("/usr/bin/nautilus", nil)
 	h.desk.script("choose:" + svrpc.ChoiceDeny)
 	if _, err := files.OpenContainer(ctx(t), svrpc.ContainerOpenParams{Path: path}); !errors.Is(err, svrpc.ErrDenied) {
 		t.Fatalf("denied: %v", err)
 	}
-	if q := h.desk.asked[0]; !strings.Contains(q.Description, `wants to read "containers/work"`) {
+	if q := h.desk.asked[0]; !strings.Contains(q.Description, "wants to open the container "+path+` with the key in "containers/work"`) {
 		t.Fatalf("the prompt said %q", q.Description)
 	}
-	h.desk.script("choose:" + svrpc.ChoiceOnce)
+	h.desk.script("choose:" + svrpc.ChoiceAlways)
 	if info, err := files.OpenContainer(ctx(t), svrpc.ContainerOpenParams{Item: "containers/work"}); err != nil || info.State != "mounted" {
-		t.Fatalf("allowed once, by item: %+v %v", info, err)
+		t.Fatalf("allowed, by item: %+v %v", info, err)
+	}
+	if _, err := files.OpenContainer(ctx(t), svrpc.ContainerOpenParams{Path: path}); err != nil {
+		t.Fatalf("always means always: %v", err)
+	}
+	h.desk.script("choose:" + svrpc.ChoiceDeny)
+	if _, err := files.Get(ctx(t), "", "containers/work"); !errors.Is(err, svrpc.ErrDenied) {
+		t.Fatalf("mounting let the program read the key: %v", err)
+	}
+	if q := h.desk.asked[len(h.desk.asked)-1]; !strings.Contains(q.Description, `wants to read "containers/work"`) {
+		t.Fatalf("reading the key was not asked about as such: %q", q.Description)
 	}
 	h.desk.done(t)
 	// Creating is a write to the vault: asked too.
@@ -238,6 +250,16 @@ func TestContainerPasswd(t *testing.T) {
 	if e, _ := containerKey(t, cli, "c"); e.Item.Attrs["passphrase_slot"] != "" {
 		t.Fatalf("the item still names a passphrase keyslot: %v", e.Item.Attrs)
 	}
+	// The item's keyslot numbers are its own image's: another image named
+	// with it is refused.
+	other := filepath.Join(dir, "other.img")
+	if _, err := cli.CreateContainer(ctx(t), svrpc.ContainerCreateParams{Item: "other", Path: other, Size: 40 << 20}); err != nil {
+		t.Fatal(err)
+	}
+	cli.CloseContainer(ctx(t), other)
+	if _, err := cli.ContainerPasswd(ctx(t), svrpc.ContainerPasswdParams{Item: "c", Path: other, Passphrase: first}); err == nil || !strings.Contains(err.Error(), "is not the container") {
+		t.Fatalf("another image: %v", err)
+	}
 }
 
 func TestContainersAndLocking(t *testing.T) {
@@ -258,7 +280,14 @@ func TestContainersAndLocking(t *testing.T) {
 	if _, err := cli.Unlock(ctx(t), "", &svrpc.Key{Type: "passphrase", Secret: append([]byte(nil), pass...)}); err != nil {
 		t.Fatal(err)
 	}
+	// The lock itself does not wait for the container: it is closed after.
+	h.d.ctr.mu.Lock()
 	h.d.LockAll("test")
+	if vs, _ := cli.Vaults(ctx(t)); !vs[0].Locked {
+		t.Fatal("the vault waited for its containers to lock")
+	}
+	h.d.ctr.mu.Unlock()
+	h.d.waitContainers(10 * time.Second)
 	if _, err := fake.Image(path); !errors.Is(err, udiskstest.ErrNoSuchImage) {
 		t.Fatalf("still open after the lock: %v", err)
 	}

@@ -3,8 +3,9 @@ package svrpc
 // Encrypted containers: LUKS2 image files whose keys are vault items of
 // kind "container" (the key in field "key"; the image's path and LUKS UUID
 // in attributes "image" and "luks_uuid"). Creating one writes an item and
-// opening one reads it, each with the person's consent like any other
-// access. Mounting is on Linux only for now.
+// opening one is the operation "mount" on it (not "read": the program never
+// sees the key), each with the person's consent like any other access.
+// Mounting is on Linux only for now.
 const (
 	MContainerCreate = "container.create" // ContainerCreateParams -> ContainerInfo
 	MContainerOpen   = "container.open"   // ContainerOpenParams -> ContainerInfo
