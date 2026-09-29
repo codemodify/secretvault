@@ -95,6 +95,49 @@ Linux with a TPM2. Without a TPM2, systemd's host key lies on the same disk
 as the sealed key, so only full-disk encryption protects it: use login
 unlock on such machines only with full-disk encryption.
 
+### The browser path
+
+Browsers get logins through KeePassXC's extension, KeePassXC-Browser,
+which talks to `secretvault-browser`, a relay the browser starts, which
+talks to the daemon ([architecture.md](architecture.md#password-manager)).
+
+- **The extension itself.** A malicious or compromised KeePassXC-Browser
+  (a bad update, or on Chromium a developer-mode extension claiming its
+  ID) can do what the real one can:
+  - it must first be connected, which the person is asked about;
+  - each login it asks for is still decided per item, prompted unless a
+    decision is remembered, and audited;
+  - but it names the page itself, so a prompt's "for github.com" is its
+    word, and an item the browser is always allowed can be fetched
+    silently, from any page. "Always" for a browser means "always, for
+    anything the browser asks".
+- **Another program pretending to be the relay.** The daemon opens a
+  browser session only for its own binary, so a program that speaks the
+  daemon's protocol itself gets nothing. A program can instead run
+  `secretvault-browser` and feed it messages; the daemon then names that
+  program, the relay's real parent, and asks about it, not about the
+  browser. It cannot borrow the browser's decisions or its association,
+  which is tied to the browser's identity. As everywhere on Linux, a
+  program running as you can still impersonate another of yours
+  ([Programs running as you](#programs-running-as-you)).
+- **The association key.** The extension proves a later session with a
+  public key it keeps in the browser profile. Whoever copies it from
+  there still needs to be that browser, as above. Associations are
+  encrypted vault records, per device; `secretvault browser rm` ends one
+  at once, even mid-session.
+- **The channel.** Messages are NaCl `crypto_box` (X25519,
+  XSalsa20-Poly1305) under a key pair made for each session. A nonce is
+  accepted once, for the last 32,768 messages of a session, so a message
+  cannot be replayed, and one of our own answers sent back (the box key is
+  the same both ways) is refused. A message whose answer would reuse a
+  nonce is refused. The relay only moves bytes.
+- **What the extension learns.** The database hash is an HMAC under a key
+  derived from the vault key, different on each device; group IDs are
+  likewise. A refused login and a missing one look the same.
+- **Installing** changes only the per-user native-messaging manifests (on
+  Windows, keys under HKEY_CURRENT_USER), records each change, and keeps
+  the manifest it replaced, so `uninstall` puts KeePassXC's back exactly.
+
 ### Someone who once held a key
 
 - **Removing a keyslot alone is not revocation.** It stops that key opening
@@ -181,7 +224,8 @@ Wiping keys in Go is therefore hygiene, not a guarantee. What it does:
   CFB and AES key wrap (RFC 3394), each checked against its published test
   vectors. For age, `svage` adds Bech32, and the two point conversions SSH
   and hardware-token recipients need (Ed25519 to X25519, and P-256
-  decompression), which only ever see public keys.
+  decompression), which only ever see public keys. The browser path uses
+  NaCl `box` from `golang.org/x/crypto`, because KeePassXC-Browser does.
 - **Nonces.** Every AEAD message gets a fresh random nonce. It is 192-bit for
   XChaCha20. For AES-GCM, a per-message key is derived from a 256-bit salt.
   Streams use counters under a per-stream key.
@@ -234,6 +278,8 @@ refuse rather than guess:
 | OpenPGP messages are read whole, into memory, up to a size limit | streaming decryption of v2 SEIPD, chunk by chunk |
 | OpenPGP designated revokers (a deprecated mechanism) are not honoured | escrowed revocation signatures instead |
 | OpenPGP version 6 interoperability is checked against the RFC's vectors only | Sequoia in the test suite |
+| A browser in Flatpak or Snap starts its host through the desktop portal, which the daemon then names instead of the browser | identifying the app behind the portal |
+| The browser extension names the page it asks for, and "always" for a browser covers any page | decisions that name the site as well as the item |
 
 ## Reporting a vulnerability
 

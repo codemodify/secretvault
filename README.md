@@ -62,6 +62,7 @@ decision. If there is none, it asks you.
 | [`svprompt`](svprompt), [`svterm`](svterm) | Asking people: the pinentry protocol, and terminals |
 | [`svpgp`](svpgp) | OpenPGP, our own: keys, signatures, encryption (RFC 9580, reading RFC 4880) |
 | [`svage`](svage) | age files and the age plugin protocol, both ends |
+| [`svbrowser`](svbrowser) | The KeePassXC-Browser protocol, for filling logins in browsers |
 | [`svimport`](svimport) | Import from other password managers, export to KeePass and CXF |
 | [`secretvault`](client.go) | The Go client library |
 
@@ -138,6 +139,30 @@ For git and docker, link the CLI under their helper names:
 `git config --global credential.helper secretvault`; likewise
 `docker-credential-secretvault` with `"credsStore": "secretvault"`.
 
+For browsers, secretvault stands in for KeePassXC behind KeePassXC's own
+extension, [KeePassXC-Browser](https://github.com/keepassxreboot/keepassxc-browser)
+(Firefox, Chrome, Chromium, Brave, Edge, Vivaldi):
+
+```console
+$ ln -s secretvault bin/secretvault-browser   # optional: the host's name in process lists
+$ bin/secretvault browser install --dry-run   # what would change: KeePassXC's manifest is kept
+$ bin/secretvault browser install             # then restart the browser, and press Connect in the extension
+$ bin/secretvault browser status              # which host each browser starts
+$ bin/secretvault browser ls                  # connected extensions; 'rm NAME' disconnects one
+$ bin/secretvault browser uninstall           # put KeePassXC's manifest back, exactly
+```
+
+- **Connecting** asks you once. After that, each login the browser asks
+  for is asked about like any program's request, naming the browser and
+  the site; "always" stops the asking for that login.
+- **Which logins.** Login items (`--kind login`) whose `url` field (or
+  `url2`..., `website`) has the page's host, or a parent domain of it,
+  with the same scheme: `--field url=https://github.com`.
+- **Saving** a login from the browser puts it under `web/`, or in the
+  folder you pick (the extension calls folders groups).
+- **KeePassXC** writes its own manifest back each time it starts with
+  browser integration on: turn that off in KeePassXC first.
+
 For age and SOPS, link it as their plugin, somewhere on `PATH`:
 
 ```console
@@ -206,7 +231,7 @@ where it stops. In short:
 | Dependency | For | Licence |
 | --- | --- | --- |
 | Go standard library | nearly everything, including HPKE, ML-KEM, HKDF, PBKDF2, AES-GCM | BSD-3-Clause |
-| [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | Argon2id, BLAKE2b, XChaCha20-Poly1305, scrypt, SSH key formats; for reading other managers' files and old OpenPGP data, Salsa20, CAST5, Blowfish and Twofish | BSD-3-Clause |
+| [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | Argon2id, BLAKE2b, XChaCha20-Poly1305, scrypt, SSH key formats, NaCl box (the KeePassXC-Browser protocol); for reading other managers' files and old OpenPGP data, Salsa20, CAST5, Blowfish and Twofish | BSD-3-Clause |
 | [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys) | locked memory, process hardening | BSD-3-Clause |
 | [golang.org/x/term](https://pkg.go.dev/golang.org/x/term) | passphrase entry without echo | BSD-3-Clause |
 | [tview](https://github.com/rivo/tview), [tcell](https://github.com/gdamore/tcell) | `secretvault-tui` only | MIT, Apache-2.0 |
@@ -235,7 +260,10 @@ The tests include:
 - OpenPGP against the RFC 9580 test vectors and GnuPG 2.4, both ways, with
   every byte of signatures and ciphertexts tampered with, and fuzzing.
 - all 147 C2SP CCTV age test vectors, and files the reference age
-  implementation wrote.
+  implementation wrote;
+- KeePassXC-Browser's side of its protocol, played through the relay
+  against the daemon: consent, saving, codes, locking, replays, bad
+  nonces and bad frames; and browser installs in a home of the test's own.
 
 ## Licence
 

@@ -76,9 +76,11 @@ Secret Service returns to a GNOME application.
 | `secretvault-gui-prompt` | A small, focused window that asks for a passphrase or a decision. It is also a pinentry and askpass. |
 | `secretvault-tui-prompt` | The same on a terminal, and a `pkttyagent`-style prompt agent for sessions without a display. |
 
-Later, small helpers are the same binary under other names (dispatched on
+Small helpers are the same binary under other names (dispatched on
 `argv[0]`): `git-credential-secretvault`, `docker-credential-secretvault`,
-`age-plugin-secretvault`, and the browser's native-messaging host.
+`age-plugin-secretvault`, and `secretvault-browser`, the browser's
+native-messaging host (which the CLI also recognises by the arguments a
+browser starts a host with).
 
 ### Daemon modes
 
@@ -369,9 +371,52 @@ rotates the vault master key).
   Proton Pass, browser CSVs, pass, and Aegis / Google Authenticator, plus the
   FIDO Credential Exchange Format (CXF).
 - **Export.** To CXF, KDBX, and encrypted JSON.
-- **Browser autofill.** The browser's native-messaging host speaks the
-  KeePassXC-Browser protocol, so KeePassXC's existing, reviewed browser
-  extension works with secretvault.
+- **Browser autofill.** secretvault stands in for KeePassXC behind
+  KeePassXC's existing, reviewed browser extension, KeePassXC-Browser
+  (Firefox, Chrome, Chromium, Brave, Edge, Vivaldi). We write no extension
+  of our own.
+  - **The host is a relay.** The browser starts `secretvault-browser` (the
+    CLI) by the manifest named `org.keepassxc.keepassxc_browser`, and talks
+    to it in native-messaging frames on stdin and stdout. The relay hands
+    each frame to the daemon (`browser.open`, then `browser.message`) and
+    the answers back. It holds no key and makes no decision.
+  - **The protocol lives in the daemon** ([`svbrowser`](../svbrowser),
+    `svd/browser.go`): `change-public-keys` swaps X25519 keys in the clear;
+    everything after is NaCl `crypto_box` with the extension's random
+    nonce, answered under that nonce plus one. A nonce is used once, so
+    replays, and our own answers sent back, are refused.
+  - **Who is asking is the browser.** The daemon accepts `browser.open`
+    only from its own binary, then looks up the relay's parent process
+    itself (`svpeer.Parent`) and names that in every prompt and audit
+    entry: "firefox (/usr/lib/firefox/firefox) wants the login
+    "web/github.com" for github.com".
+  - **Connecting** (`associate`) asks the person once. The association (a
+    name, the extension's identification key, the browser's identity) is
+    a vault record of this device; `secretvault browser ls` and `rm` list
+    and remove them, and a removed one stops working at once.
+  - **Logins.** `get-logins` offers the login items whose URL fields
+    (`url`, `url2`..., `website`, or of type `url`) or `url`/`*_url`
+    attributes match the page: the same host, or a parent domain of it,
+    never a bare top-level name; the scheme must match, and a stored port.
+    Each one handed over is a read of that item, decided like any other
+    program's (a remembered decision, else a prompt) and audited. A refusal
+    looks like "no logins", so it tells the extension nothing.
+  - **Saving** is a write (new logins go under `web/` unless a group is
+    chosen, and the browser may read back what it saved); the extension's
+    groups are the vault's folders (seeing them is listing the vault); the
+    one-time code is a read. The database hash is an HMAC of the device's
+    and vault's IDs under a key derived from the vault key.
+  - **Locking.** The session is on one vault (the default); when it locks
+    or unlocks, the extension is told. A locked vault is unlocked only when
+    the extension asks for it (`triggerUnlock`), on the desktop prompt.
+  - **Not served:** passkeys and auto-type, answered as KeePassXC before
+    2.7.7 answers them; the host reports that version, so the extension
+    leaves passkeys to the browser.
+  - **Setting it up.** `secretvault browser install` writes the manifest
+    in each browser's per-user place (Linux fully; macOS's Library paths
+    and Windows' registry keys written but untested). A manifest already
+    there (KeePassXC's) is kept, and `uninstall` puts it back exactly,
+    recorded as `keyring takeover` records its changes.
 
 ### Trust store and identities
 
@@ -503,6 +548,7 @@ projects, with `sv` as the prefix:
 | `svbroker` | grants and the audit log | M1 |
 | `svdbus` | our D-Bus implementation | M1 |
 | `svsecretservice` | the Secret Service face | M3 |
+| `svbrowser` | the KeePassXC-Browser protocol, for browser autofill | M3 |
 | `svwayland`, `svx11`, `svclip` | the clipboard in our own protocol code | M2 |
 | `svimport` | import from other password managers; export to KDBX and CXF | M2 |
 | `svpgp` | OpenPGP, our own | M5 |
@@ -517,9 +563,10 @@ projects, with `sv` as the prefix:
 - **Allowed:**
   - the Go standard library;
   - `golang.org/x/crypto` (Argon2, ChaCha20-Poly1305, scrypt for age
-    passphrases, `ssh` for SSH key formats; and for OpenPGP, CAST5,
+    passphrases, `ssh` for SSH key formats; for OpenPGP, CAST5,
     Blowfish and Twofish to read old data, and cryptobyte for ECDSA
-    signatures), `golang.org/x/sys`,
+    signatures; NaCl `box`, which KeePassXC-Browser speaks),
+    `golang.org/x/sys`,
     `golang.org/x/term`;
   - `github.com/codemodify/uitoolkit` in the GUI binaries only;
   - `tview`/`tcell` in the TUI only.

@@ -140,7 +140,22 @@ copy and edit a login without the CLI.
   `org.freedesktop.secrets`, where `gnome-keyring.portal` points, and the
   takeover writes the user's copy of the desktop's `portals.conf` choosing
   that backend (on KDE, instead of kwallet).
-- **Still to do:** CredMan and Keychain bridges, and browser autofill.
+- **Browser autofill is built** (`svbrowser`, `secretvault-browser`), as
+  the backend of KeePassXC-Browser:
+  - logins with per-item consent and audit, saving, TOTP codes, folders as
+    groups, the password generator, and lock and unlock notices;
+  - the browser, not the relay, is who asks: the daemon looks up the
+    relay's parent itself;
+  - connecting asks once, and associations are vault records
+    (`secretvault browser ls`, `rm`);
+  - `secretvault browser install` (with `--dry-run`) writes the manifests,
+    keeping KeePassXC's, and `uninstall` puts them back exactly;
+  - tested end to end by a Go test playing the extension through the
+    relay, not yet with a real browser. Passkeys and auto-type are not
+    served.
+- **Still to do:** CredMan and Keychain bridges; browser autofill tried in
+  real browsers, on Windows and macOS, and for browsers in Flatpak or Snap
+  (their hosts start through the portal).
 
 ## M4: hardware
 
@@ -303,6 +318,7 @@ change.
 | Auto-lock | Configurable; defaults follow the unlock method |
 | Prompting | Once per program, remembered, revocable |
 | Program identity | Path plus publisher signature |
+| Browser autofill | Behind KeePassXC's KeePassXC-Browser extension; no extension of our own |
 | Vaults | Several, one default |
 | CLI | Daemon only (M0's direct mode is transitional) |
 | Platforms | Windows 10 22H2 and 11, macOS 14+, Linux from the last ~3 years; amd64 and arm64 |
