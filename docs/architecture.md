@@ -483,7 +483,10 @@ rotates the vault master key).
     Third-party certifications are kept for the trust store to judge;
     `svpgp` does not.
   - **X.509 / S/MIME.** Built on the standard library's `crypto/x509`, plus
-    our own CMS.
+    our own CMS (`svcms`): signed data with its signed-attribute and ESS
+    checks, enveloped and auth-enveloped data decrypted through an
+    interface that keeps the private key in the vault, certificate chains
+    with S/MIME's usage and address rules, and PKCS #12 import and export.
   - **SSH.**
   - **secretvault identities.** Post-quantum hybrid (ML-KEM-768 + X25519).
 - **Contacts** ([`svtrust`](../svtrust)) are vault records of kind
@@ -542,7 +545,13 @@ rotates the vault master key).
   - **Whole messages:** `mail.inspect(raw message)` recognises PGP/MIME,
     inline PGP and S/MIME (signed, encrypted, both, nested). It returns the
     decrypted body, with consent, and a verdict per signature, so a mail
-    client needs one call and no crypto of its own.
+    client needs one call and no crypto of its own. The library under it
+    (`svmail`) reads MIME itself, keeping the exact bytes each signature
+    covers, and reports every layer, what it covers (a signature over one
+    part is a warning), protected header fields (RFC 9788) that differ
+    from the outer ones, and Autocrypt keys. It asks a `Keys` interface for
+    public keys and for decryption, and states cryptographic facts only;
+    the trust store maps keys to people.
   - **Agents:** a gpg-agent-compatible agent (so gpg, pass, git and
     Thunderbird's external-GnuPG mode work) and an SSH agent, which also
     covers git signing.
@@ -779,8 +788,9 @@ projects, with `sv` as the prefix:
 | `svwayland`, `svx11`, `svclip` | the clipboard in our own protocol code | M2 |
 | `svimport` | import from other password managers; export to KDBX and CXF | M2 |
 | `svpgp` | OpenPGP, our own | M5 |
-| `svcms`, `svtrust` | S/MIME, the trust store | M5 (`svtrust` done) |
+| `svcms`, `svtrust` | S/MIME, the trust store | M5 (both built) |
 | `svqr` | QR codes, for the terminal | M5 |
+| `svmail` | whole mail messages, OpenPGP and S/MIME | M5 |
 | `svfido`, `svpcsc`, `svtpm` | hardware tokens and TPM (`svfido`: FIDO2 on Linux) | M4 |
 | `svluks`, `svcontainer`, `svudisks` | LUKS2, containers, and mounting them through UDisks2 (Linux) | M7 |
 | `svsync`, `svserver` | sync, and the sync server | M6 |
@@ -795,7 +805,8 @@ projects, with `sv` as the prefix:
   - `golang.org/x/crypto` (Argon2, ChaCha20-Poly1305, scrypt for age
     passphrases, `ssh` for SSH key formats; for OpenPGP, CAST5,
     Blowfish and Twofish to read old data, and cryptobyte for ECDSA
-    signatures; NaCl `box`, which KeePassXC-Browser speaks),
+    signatures, and for CMS and PKCS #12; NaCl `box`, which KeePassXC-Browser
+    speaks),
     `golang.org/x/sys`,
     `golang.org/x/term`;
   - `github.com/codemodify/uitoolkit` in the GUI binaries only;

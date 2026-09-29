@@ -459,7 +459,10 @@ Wiping keys in Go is therefore hygiene, not a guarantee. What it does:
   the specification fixes to P-256 ECDH, SHA-256 or HKDF-SHA-256,
   AES-256-CBC and HMAC, all from the standard library; they only carry the
   PIN and hmac-secret values to and from the key, and are checked against
-  Python's `cryptography`.
+  Python's `cryptography`. For S/MIME, `svcms`
+  adds AES key wrap and the X9.63 KDF, and one cipher: RC2 decryption
+  (RFC 2268, against its vectors), only to read the certificates in old
+  PKCS #12 files, where 40-bit RC2 protects nothing secret.
 - **Nonces.** Every AEAD message gets a fresh random nonce. It is 192-bit for
   XChaCha20. For AES-GCM, a per-message key is derived from a 256-bit salt.
   Streams use counters under a per-stream key.
@@ -588,6 +591,43 @@ by UDisks2 and the kernel's dm-crypt.
   the lock, which does not wait for them, and one still in use stays open,
   as the daemon's log says.
 
+## S/MIME and whole messages
+
+`svcms` and `svmail` read other people's mail, so they refuse rather than
+guess, like `svpgp`:
+
+- **Signatures.** A CMS signature is valid only if it verifies over the
+  content, its content-type and message-digest attributes are present once
+  and match, CMS algorithm protection and the ESS signing-certificate
+  attributes (when present) agree with what was used, and its hash passes
+  the same policy as OpenPGP's (no MD5; SHA-1 only before 2023, and only
+  with a signing time). Its certificate is judged separately: a chain to
+  the roots given (never the operating system's), emailProtection, a key
+  usage that allows signing, and the sender's address. Every failure is
+  reported, not only the first.
+- **Decryption.** Once a content key is in use every failure is one error;
+  RSA PKCS #1 v1.5 key transport yields a random key on failure (RFC 3218)
+  rather than an error. EnvelopedData with CBC has no integrity at all
+  (EFAIL): it is decrypted, marked "integrity: none" and warned about; new
+  messages use AuthEnvelopedData (AES-GCM) unless asked for the old form.
+  Private keys stay behind an interface: the library hands over a
+  recipient and gets back a content key.
+- **What a signature covers.** A mail client is misled less by broken
+  cryptography than by structure: a valid signature over one part of a
+  message, next to unsigned text; text around an inline OpenPGP block;
+  a From or Subject outside the signature that differs from the one
+  inside. `svmail` verifies the exact bytes of each signed part (its own
+  MIME reader keeps them), says for each layer whether it covers the whole
+  message, and warns about each of these.
+- **Trust.** Nothing in either package decides whom to believe: reports
+  name keys and certificates, and the trust store maps them to people.
+  OpenPGP keys a message carries (Autocrypt) are offered, never used to
+  verify that same message; certificates an S/MIME signature carries
+  count only through a chain to the roots given.
+- **Where it stops.** Revocation of S/MIME certificates (CRLs, OCSP) is
+  not checked; the SHA-1 cutoff trusts a signed signing time; timing is
+  as constant as Go's crypto; parsed private keys cannot be wiped.
+
 ## Known gaps
 
 | Gap | Planned fix |
@@ -608,7 +648,7 @@ by UDisks2 and the kernel's dm-crypt.
 | An OpenPGP certificate seen again is not merged packet by packet with the copy held | certificate merging in `svpgp` |
 | No transparency log is checked; the level is reserved | key transparency, when a log to check exists |
 | A company directory (LDAP/AD) cannot be asked yet | an LDAP `Directory` |
-| S/MIME (CMS) signatures are not verified by secretvault | `svcms` |
+| S/MIME signatures are verified by `svmail`, but `trust.check` takes a certificate the caller checked | the daemon's `mail.inspect` |
 | Security keys work on Linux only, and have been tested against a software authenticator, not yet against real keys | webauthn.dll on Windows, IOKit on macOS; hardware testing |
 | A security key's built-in verification (a fingerprint) is not used; its PIN is | getPinUvAuthTokenUsingUvWithPermissions |
 | Host mode's TPM binding goes through `systemd-creds`, and binds to no PCRs unless asked | TPM code of our own (`svtpm`, M4), with a measured-boot policy |
@@ -622,6 +662,7 @@ by UDisks2 and the kernel's dm-crypt.
 | An ID token can be replayed to the delivery server until it expires | remembering token IDs (`jti`) until then |
 | The daemon's audit log shows lines removed from its middle, but whoever can write its files can cut it short and append entries that chain on | a signed checkpoint of the log's head, kept where they cannot write |
 | Token CIDR limits see the TCP peer: behind a proxy, the proxy | trusted proxies' `X-Forwarded-For` |
+| S/MIME certificate revocation (CRL, OCSP) is not checked | revocation in the trust store |
 
 ## Reporting a vulnerability
 

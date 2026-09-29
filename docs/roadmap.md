@@ -242,9 +242,20 @@ the token.
   the daemon (`pgp.sign`, `pgp.decrypt`, with `sign` and a new `decrypt`
   operation for consent); `pgp.verify` checks signatures against your
   contacts.
-- **Still to do:** the LDAP directory, transparency logs, S/MIME (`svcms`),
-  whole mail messages (the mail face), `encrypt-to`, the gpg-agent face,
-  the OS certificate stores, and the token split.
+- **S/MIME, our own (`svcms`).** CMS signed data (RSA PKCS #1 v1.5 and
+  PSS, ECDSA, Ed25519), enveloped and auth-enveloped data (RSA-OAEP, RSA
+  PKCS #1 v1.5 to decrypt, ECDH with AES key wrap; AES-CBC and GCM),
+  certificate checks, and PKCS #12 in and out, checked against OpenSSL 3
+  both ways.
+- **Mail messages, whole (`svmail`).** Every structure above, recognised
+  from the raw message, verified and decrypted through a `Keys` interface
+  the daemon will implement; protected headers and Autocrypt read; and
+  outgoing PGP/MIME and S/MIME, signed, encrypted or both, with protected
+  headers. Checked against GnuPG 2.4 and OpenSSL 3 both ways.
+- **Still to do:** the daemon's `mail.inspect` and mail signing and
+  encryption methods over `svmail` and the trust store, the LDAP directory,
+  transparency logs, `encrypt-to`, the gpg-agent face, the OS certificate
+  stores, and the token split.
 
 **Brought forward and done:**
 - **The SSH agent**, tested with OpenSSH's own `ssh-add` and `ssh-keygen -Y`:

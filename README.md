@@ -70,6 +70,8 @@ decision. If there is none, it asks you.
 | [`svtrust`](svtrust) | The trust store: contacts, how their keys were verified, and verdicts on signers; WKD and keyserver lookups |
 | [`svqr`](svqr) | QR codes, our own, drawn on a terminal |
 | [`svfido`](svfido) | FIDO2 security keys, our own: CTAPHID, CTAP2 and its PIN protocols, for hmac-secret |
+| [`svcms`](svcms) | CMS and S/MIME, our own: signed and enveloped data (RFC 5652, 8551), certificate checks, PKCS #12 |
+| [`svmail`](svmail) | Whole mail messages: PGP/MIME, inline OpenPGP and S/MIME taken apart, verified, decrypted and reported; and built |
 | [`svage`](svage) | age files and the age plugin protocol, both ends |
 | [`svbrowser`](svbrowser) | The KeePassXC-Browser protocol, for filling logins in browsers |
 | [`svimport`](svimport) | Import from other password managers, export to KeePass and CXF |
@@ -376,7 +378,7 @@ where it stops. In short:
 | Dependency | For | Licence |
 | --- | --- | --- |
 | Go standard library | nearly everything, including HPKE, ML-KEM, HKDF, PBKDF2, AES-GCM | BSD-3-Clause |
-| [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | Argon2id, BLAKE2b, XChaCha20-Poly1305, scrypt, SSH key formats, NaCl box (the KeePassXC-Browser protocol); for reading other managers' files and old OpenPGP data, Salsa20, CAST5, Blowfish and Twofish | BSD-3-Clause |
+| [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | Argon2id, BLAKE2b, XChaCha20-Poly1305, scrypt, SSH key formats, NaCl box (the KeePassXC-Browser protocol), cryptobyte (ASN.1 for CMS and PKCS #12); for reading other managers' files and old OpenPGP data, Salsa20, CAST5, Blowfish and Twofish | BSD-3-Clause |
 | [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys) | locked memory, process hardening | BSD-3-Clause |
 | [golang.org/x/term](https://pkg.go.dev/golang.org/x/term) | passphrase entry without echo | BSD-3-Clause |
 | [tview](https://github.com/rivo/tview), [tcell](https://github.com/gdamore/tcell) | `secretvault-tui` only | MIT, Apache-2.0 |
@@ -384,7 +386,8 @@ where it stops. In short:
 Planned: [uitoolkit](https://github.com/codemodify/uitoolkit) in the GUI
 binaries only.
 
-Everything else, including D-Bus, LUKS2, OpenPGP, CTAP2 and PC/SC, is written here.
+Everything else, including D-Bus, LUKS2, OpenPGP, CMS, MIME, CTAP2 and PC/SC, is
+written here.
 The policy is in [docs/architecture.md](docs/architecture.md#code-layout-and-dependencies).
 
 ## Testing
@@ -404,6 +407,12 @@ The tests include:
   Argon2 CLI and Python's hashlib);
 - OpenPGP against the RFC 9580 test vectors and GnuPG 2.4, both ways, with
   every byte of signatures and ciphertexts tampered with, and fuzzing;
+- CMS, S/MIME and PKCS #12 against OpenSSL 3, both ways: its signatures
+  (detached, opaque, streamed, RSA-PSS, ECDSA, Ed25519), enveloped messages
+  to RSA and EC keys, and PKCS #12 files (default, legacy, PBMAC1), and
+  OpenSSL reading ours;
+- whole messages against GnuPG and OpenSSL both ways, including nested,
+  partly signed, and protected-header messages changed in transit.
 - all 147 C2SP CCTV age test vectors, and files the reference age
   implementation wrote;
 - KeePassXC-Browser's side of its protocol, played through the relay
