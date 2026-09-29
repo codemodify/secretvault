@@ -98,7 +98,7 @@ server's own (a root key and identities), not a person's vaults.
 
 The modes are one daemon with a switch (`svd.Options.Mode`), not forks.
 The host daemon never prompts, and does not serve the Secret Service, the
-SSH agent, the browser or the prompt protocol, nor open vaults at a
+SSH agent, gpg's agent, the browser or the prompt protocol, nor open vaults at a
 login; its vaults do not lock on idle unless their `auto_lock` says so. It is described under
 [Secret delivery](#secret-delivery).
 
@@ -697,17 +697,62 @@ as it is, or replaces it from a file read straight into bytes.
     from the outer ones, and Autocrypt keys. It asks a `Keys` interface for
     public keys and for decryption, and states cryptographic facts only;
     the trust store maps keys to people.
-  - **Agents:** a gpg-agent-compatible agent (so gpg, pass, git and
-    Thunderbird's external-GnuPG mode work) and an SSH agent, which also
-    covers git signing.
+  - **Agents:** an SSH agent, which also covers git signing, and gpg's
+    agent (below), so that gpg, and pass, git and Thunderbird's
+    external-GnuPG mode through it, sign and decrypt with your keys.
+  - **The gpg-agent face** ([`svgpgagent`](../svgpgagent),
+    `svd/gpgagent.go`). gpg keeps only public keys and asks its agent, over
+    Assuan, for anything secret, naming each (sub)key by its keygrip
+    (libgcrypt's hash of the key material). secretvaultd answers that
+    protocol, as GnuPG 2.4's agent does, on `gpg-agent.sock` beside its
+    own socket:
+    - **The keys** are the OpenPGP keys in the unlocked vaults: each part
+      whose secret the item holds, by its keygrip (for RSA, ECDSA and ECDH
+      on the NIST curves, EdDSA on Ed25519 and ECDH on Curve25519, checked
+      against gpg's own). When gpg asks for one that is not there and the
+      default vault is locked, its passphrase is asked for, once per
+      connection.
+    - **Signing** (`SIGKEY`, `SETHASH`, `PKSIGN`) signs the digest gpg
+      made, and **decrypting** (`SETKEY`, `PKDECRYPT`, the ciphertext asked
+      for by `INQUIRE CIPHERTEXT`) gives back ECDH's shared point, from
+      which gpg makes the key-wrapping key itself, or RSA's session key.
+      For RSA gpg-agent gives back the raw result, padding and all; here
+      only a message that was properly padded comes back, so that nothing
+      can be signed by decrypting it. The algorithms' values travel as
+      libgcrypt's S-expressions.
+    - **Consent** is the pgp methods': `sign` and `decrypt` on the key's
+      item, asked about naming the program on the socket (gpg), and every
+      time for an item with `confirm=always` (which `KEYINFO` shows as
+      gpg-agent's `c` flag).
+    - **Refused:** key generation, import and export of secret keys,
+      deleting them, changing their passphrase, smartcards, and asking for
+      a passphrase on gpg's behalf (`GET_PASSPHRASE` works only with
+      `--pinentry-mode loopback`, where gpg supplies it itself).
+    - **Where gpg finds it.** gpg looks for `S.gpg-agent` in its socket
+      directory: `/run/user/UID/gnupg` for `~/.gnupg`, a `d.HASH` directory
+      below it for any other home, or the home itself where there is no
+      `/run/user`. `secretvault pgp gpg-setup` has the daemon make that a
+      link to its socket (and `S.gpg-agent.ssh` one to the SSH agent's), so
+      `gpgconf --list-dirs agent-socket` leads to it; since `/run/user` is
+      emptied at every boot, the daemon records the home and makes the
+      links again whenever it starts. It also imports the vault's public
+      keys into the home, trusted as gpg trusts keys it made, and names
+      secretvault as gpg's `agent-program`, so that a gpg that finds no
+      agent starts secretvault, which starts the daemon and links the
+      socket again. The home is secretvault's own
+      (`DATA/gnupg`) unless another is named; `~/.gnupg` only when named.
+    - **Not on Windows**, where gpg reaches its agent through Assuan's
+      socket emulation (a TCP port and a nonce in a file), which the face
+      does not serve yet.
   - **OS certificate stores:** contacts' certificates are published to the
     Windows and macOS stores for Outlook and Apple Mail.
 - **Your own private keys** live in the vault by default. An OpenPGP key
   is an item of kind `key` (the armored secret and public keys, the
   passphrase if it has one, the fingerprint and primary user ID as
   attributes), made in the daemon by `pgp.generate` (version 6, or 4 for
-  GnuPG). Signing and decrypting happen in the daemon; the key leaves it
-  only when you export it. With a YubiKey present, secretvault offers the
+  GnuPG). Signing and decrypting happen in the daemon, for secretvault's
+  own API and for gpg through the gpg-agent face; the key leaves it only
+  when you export it. With a YubiKey present, secretvault offers the
   usual split:
   - the signing key is made on the token;
   - the decryption key is made in the vault and copied to the token, with the
@@ -933,6 +978,7 @@ projects, with `sv` as the prefix:
 | `svwayland`, `svx11`, `svclip` | the clipboard in our own protocol code | M2 |
 | `svimport` | import from other password managers; export to KDBX and CXF | M2 |
 | `svpgp` | OpenPGP, our own | M5 |
+| `svgpgagent`, `svd` (`gpgagent*.go`) | GnuPG's agent protocol, and the gpg-agent face | M5 |
 | `svcms`, `svtrust` | S/MIME, the trust store | M5 (both built) |
 | `svqr` | QR codes, for the terminal | M5 |
 | `svmail` | whole mail messages, OpenPGP and S/MIME | M5 |

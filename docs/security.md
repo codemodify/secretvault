@@ -143,6 +143,55 @@ talks to the daemon ([architecture.md](architecture.md#password-manager)).
   Windows, keys under HKEY_CURRENT_USER), records each change, and keeps
   the manifest it replaced, so `uninstall` puts KeePassXC's back exactly.
 
+### The gpg-agent face
+
+gpg signs and decrypts with your OpenPGP keys through secretvaultd's
+`gpg-agent.sock` ([architecture.md](architecture.md#trust-store-and-identities)).
+The socket is yours alone, like the daemon's own, and every program running
+as you can talk to it, gpg or not.
+
+- **What any program on it can do without asking:** learn which keys the
+  unlocked vaults hold (their keygrips and public keys, as `ssh-add -l`
+  lists SSH keys), and have the default vault's passphrase asked for, on
+  the daemon's own prompt, once per connection, when it asks for a key
+  that is not there.
+- **What it can do with consent:** have any key sign, and any key decrypt,
+  each asked about as signing (`sign`) or decrypting (`decrypt`) with that
+  key's item, naming the program on the socket, and remembered as that
+  program's decisions are; an item with `confirm=always` is asked about
+  every time. No answer lets it read a key.
+- **A signature is whatever gpg says it is.** The agent sees only a
+  digest, so a program allowed to sign can make any signature the key
+  can make: over data, certifying someone else's key, or revoking your
+  own. Allow signing "always" only to programs you would let do all of
+  that.
+- **gpg is who is asked about**, not the program that ran it: "always"
+  for gpg covers git, pass, a mail client and anything else that runs gpg.
+- **Decrypting is not raw.** For RSA, gpg-agent returns the raw RSA result,
+  which, for a key that also signs, would let a program sign by
+  "decrypting"; here only a message properly padded for encryption comes
+  back, and every other failure is one error. A program allowed to decrypt
+  can still use the answers as a padding oracle, as against any PKCS #1
+  v1.5 decryption; it can decrypt your messages anyway. For ECDH it gets
+  the shared point for any valid point it sends; points that are not on
+  the curve, or not canonical, or give no shared secret, are refused.
+  A part is used only for what its self-signature allows: an encryption
+  subkey never signs, and a key not bound to encrypt never decrypts.
+- **Nothing comes in or goes out.** Secret keys cannot be exported,
+  imported, made, deleted or given a new passphrase through gpg; that is
+  `secretvault pgp`, with its own consent.
+- **No passphrase for gpg.** secretvault never asks you for a passphrase
+  whose answer goes to a program. gpg's `GET_PASSPHRASE` (for symmetric
+  encryption) works only in loopback mode, where gpg supplies the
+  passphrase itself and gets it back.
+- **The links.** gpg finds the socket through a link in its socket
+  directory, which the daemon makes where secretvault's own CLI tells it
+  to (a path ending in `S.gpg-agent` or `S.gpg-agent.ssh`), replacing only
+  a socket or a link there, never a file. A program running as you can
+  replace the link with its own agent, or change the home's gpg.conf; gpg
+  then talks to that instead, as it could already make gpg do by other
+  means.
+
 ### Someone who once held a key
 
 - **Removing a keyslot alone is not revocation.** It stops that key opening
@@ -658,9 +707,10 @@ What it rests on:
   can record that it verified a key in person: every event says who
   recorded it, and `secretvault contact show` lists them.
 - **Your keys stay in the daemon.** Signing asks as `sign` and decrypting
-  as `decrypt` on the key's item; neither lets the program read the key,
-  as a `read` grant would. `pgp export --secret` takes a key out, protected
-  with a new passphrase unless you say otherwise.
+  as `decrypt` on the key's item, whether through secretvault's API or gpg
+  ([The gpg-agent face](#the-gpg-agent-face)); neither lets the program
+  read the key, as a `read` grant would. `pgp export --secret` takes a key
+  out, protected with a new passphrase unless you say otherwise.
 - **Trust on first use** only notices change: the first key seen for an
   address is believed. A later, different key is kept apart and verdicts
   about it say "this may be an impostor"; it never replaces the first.
@@ -818,6 +868,9 @@ guess, like `svpgp`:
 | The wait of emergency access is kept by the sync server: one that lies releases early, and one that hides a request keeps the owner from refusing it | escrow with several servers, k of n, each keeping the wait |
 | Revoking emergency access that was never released relies on the server forgetting the escrow | rotating on every revoke (`emergency revoke --rotate`) does not |
 | Emergency access is to read: the trustee cannot take the vault over, nor change it | a takeover grant, if it is wanted |
+| The gpg-agent face asks about gpg, not the program that ran it | naming gpg's parent too, as the browser path names the browser |
+| A signature through the gpg-agent face may be a certification or a revocation, and the prompt cannot tell | none within gpg's agent protocol, which carries a digest |
+| gpg on Windows cannot reach the gpg-agent face | Assuan's socket emulation |
 
 ## Reporting a vulnerability
 

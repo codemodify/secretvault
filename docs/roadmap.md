@@ -295,9 +295,35 @@ the token.
   OpenPGP keys, first, and what it gives is recorded as the organisation
   vouching for it (`secretvault contact directory add`, `contact lookup
   --directory`).
+- **The gpg-agent face is built** (`svgpgagent`, `svd/gpgagent.go`):
+  secretvaultd answers gpg-agent's protocol on its own socket, so that
+  GnuPG's gpg signs and decrypts with the keys in your vaults, which never
+  leave the daemon:
+  - what gpg 2.4 sends to sign and decrypt with keys it knows only as
+    public keys: `HAVEKEY`, `KEYINFO`, `READKEY`, `SIGKEY`/`SETKEY`,
+    `SETHASH`, `PKSIGN`, and `PKDECRYPT` with `INQUIRE CIPHERTEXT`, with
+    libgcrypt's keygrips and S-expressions for RSA, ECDSA and ECDH on the
+    NIST curves, and EdDSA and ECDH on Curve25519;
+  - each signature asked about as `sign` and each decryption as `decrypt`
+    on the key's item, naming gpg; `confirm=always` keys every time;
+  - no secret key in or out, and no passphrase asked for on gpg's behalf;
+  - `secretvault pgp gpg-setup` (with `--dry-run` and `--remove`): a
+    GnuPG home with the vault's public keys whose agent socket the daemon
+    links to its own at every start, and whose gpg starts secretvault
+    when it finds no agent;
+  - tested with GnuPG 2.4's own gpg: `--sign`, `--detach-sign` and
+    `--clearsign` with Ed25519, P-256, P-384, P-521 and RSA keys, verified
+    by gpg and `svpgp`; `--decrypt` of gpg's and `svpgp`'s messages to
+    Curve25519, P-256, P-384, P-521 and RSA keys; consent allowed, denied,
+    dismissed, remembered and asked every time; keygrips against `gpg
+    --with-keygrip` for every kind of key it makes; the protocol fed junk
+    and fuzzed.
+  - **Not yet:** Windows (gpg there reaches its agent through a TCP socket
+    emulation), gpgsm, and the consent prompt going away when gpg is
+    interrupted while it shows.
 - **Still to do:**
-  transparency logs, `encrypt-to`, the gpg-agent face, the OS certificate
-  stores, and the token split.
+  transparency logs, `encrypt-to`, the OS certificate stores, and the
+  token split.
 
 **Brought forward and done:**
 - **The SSH agent**, tested with OpenSSH's own `ssh-add` and `ssh-keygen -Y`:

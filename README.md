@@ -15,12 +15,12 @@ already sync, or nothing.
 
 > **Status: pre-release.** On Linux, the vault engine, the daemon with its
 > consent prompts, the CLI, and the terminal and desktop managers work, and
-> so do the desktop keyring (Secret Service), the SSH agent, sync, emergency
-> access, import, OpenPGP, age, browser autofill, the trust store, encrypted
-> containers, and host mode for a server's systemd units; Windows and macOS
-> builds compile but are not yet exercised. Unlocking with a FIDO2 security key
-> works on Linux, tested against a software key but not yet against real
-> ones. What remains is in
+> so do the desktop keyring (Secret Service), the SSH agent, gpg's agent,
+> sync, emergency access, import, OpenPGP, age, browser autofill, the
+> trust store, encrypted containers, and host mode for a server's systemd
+> units; Windows and macOS builds compile but are not yet exercised.
+> Unlocking with a FIDO2 security key works on Linux, tested against a
+> software key but not yet against real ones. What remains is in
 > [docs/roadmap.md](docs/roadmap.md). The format may still change, and
 > nothing has been audited: do not keep anything here that exists nowhere
 > else yet.
@@ -68,6 +68,7 @@ decision. If there is none, it asks you.
 | [`svbroker`](svbroker) | Remembered decisions, and the audit log |
 | [`svprompt`](svprompt), [`svterm`](svterm) | Asking people: the pinentry protocol, and terminals |
 | [`svpgp`](svpgp) | OpenPGP, our own: keys, signatures, encryption (RFC 9580, reading RFC 4880) |
+| [`svgpgagent`](svgpgagent) | GnuPG's agent protocol, for gpg: keygrips, S-expressions, and what gpg asks of its agent |
 | [`svtrust`](svtrust) | The trust store: contacts, how their keys were verified, and verdicts on signers; WKD and keyserver lookups |
 | [`svqr`](svqr) | QR codes, our own, drawn on a terminal |
 | [`svldap`](svldap) | An LDAP client of our own, to ask an organisation's directory for people's keys |
@@ -209,6 +210,35 @@ $ bin/secretvault smime import me.p12       # your S/MIME key, kept in the vault
   replacement.
 - **Who you know is private**: a program is asked about reading your
   contacts as it is about reading an item.
+
+GnuPG's own gpg can use those keys too, with secretvaultd as its agent:
+
+```console
+$ bin/secretvault pgp new --name "Ada Lovelace" --email ada@example.org --v4   # GnuPG 2.4 reads version 4 keys
+$ bin/secretvault pgp gpg-setup --dry-run    # what it would change
+$ bin/secretvault pgp gpg-setup              # a GnuPG home of secretvault's own, pointed at the daemon
+$ export GNUPGHOME=~/.local/share/secretvault/gnupg
+$ gpg --clearsign notes.txt                  # asked about as any program is; the key stays in the daemon
+$ gpg --decrypt message.asc
+```
+
+- **What it sets up.** The GnuPG home (or the one `--gnupghome` names:
+  `~/.gnupg` only if you name it) gets the vault's public keys, trusted
+  as your own, and gpg's agent socket there (`gpgconf --list-dirs
+  agent-socket`) becomes a link to the daemon's, which the daemon makes
+  again whenever it starts. gpg.conf names secretvault as the
+  `agent-program`, so a gpg that finds no agent starts the daemon rather
+  than GnuPG's own gpg-agent. `--remove` undoes it.
+- **Consent.** Each signature is asked about as signing with the key's
+  item, and each decryption as decrypting, naming gpg; "always" covers
+  everything that runs gpg. A key whose item says `confirm=always`
+  (`secretvault set ITEM --attr confirm=always --no-secret`) is asked about
+  every time.
+- **Nothing secret goes through it.** gpg cannot export, import, make or
+  delete secret keys this way (use `secretvault pgp`), and secretvault
+  never asks you for a passphrase on gpg's behalf.
+- Not on Windows yet, where gpg reaches its agent through a TCP socket
+  emulation.
 
 Encrypted containers are LUKS2 image files whose keys are vault items:
 
@@ -437,6 +467,11 @@ The tests include:
   Argon2 CLI and Python's hashlib);
 - OpenPGP against the RFC 9580 test vectors and GnuPG 2.4, both ways, with
   every byte of signatures and ciphertexts tampered with, and fuzzing;
+- gpg itself signing (detached, inline, cleartext) and decrypting with
+  Ed25519/Curve25519, P-256 and RSA keys held in the vault, through the
+  gpg-agent face, with consent allowed, denied, remembered and asked every
+  time; keygrips against gpg's own for every kind of key it makes; and the
+  protocol fed junk and fuzzed;
 - CMS, S/MIME and PKCS #12 against OpenSSL 3, both ways: its signatures
   (detached, opaque, streamed, RSA-PSS, ECDSA, Ed25519), enveloped messages
   to RSA and EC keys, and PKCS #12 files (default, legacy, PBMAC1), and
