@@ -162,6 +162,13 @@ func (c *cli) cmdStatus(args []string) error {
 		fmt.Fprintf(c.stdout, "ssh:     %s (export SSH_AUTH_SOCK=%s)\n", st.SSHAgent, st.SSHAgent)
 	}
 	fmt.Fprintln(c.stdout)
+	if len(st.Emergency) > 0 {
+		fmt.Fprintln(c.stdout, "Emergency access:")
+		for _, n := range st.Emergency {
+			fmt.Fprintln(c.stdout, "  "+n.Text)
+		}
+		fmt.Fprintln(c.stdout)
+	}
 	if len(st.Vaults) == 0 {
 		fmt.Fprintln(c.stdout, "No vaults yet: create one with 'secretvault init'.")
 		return nil

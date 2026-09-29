@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svformat"
 	"github.com/codemodify/secretvault/svrpc"
 )
@@ -75,16 +77,22 @@ func (c *cli) rotate(args []string, drop func([]string) []string) error {
 			return err
 		}
 	}
-	p, err := c.newPassphrase(*newPassFile)
+	var dropped []string
+	if drop != nil {
+		dropped = drop(pos)
+	}
+	return c.rotateWith(ctx, cl, *newPassFile, *recovery, dropped)
+}
+
+// rotateWith rotates the vault key through a connection that may use the
+// vault, asking for the new key's passphrase, and says what opens it now.
+func (c *cli) rotateWith(ctx context.Context, cl *secretvault.Client, newPassFile string, recovery bool, drop []string) error {
+	p, err := c.newPassphrase(newPassFile)
 	if err != nil {
 		return err
 	}
 	defer clear(p)
-	params := svrpc.RotateParams{Vault: c.vault, Passphrase: p, Recovery: *recovery}
-	if drop != nil {
-		params.Drop = drop(pos)
-	}
-	res, err := cl.Rotate(ctx, params)
+	res, err := cl.Rotate(ctx, svrpc.RotateParams{Vault: c.vault, Passphrase: p, Recovery: recovery, Drop: drop})
 	if err != nil {
 		return err
 	}
@@ -97,7 +105,7 @@ func (c *cli) rotate(args []string, drop func([]string) []string) error {
 		fmt.Fprintf(c.stdout, "  %s  %s\n", s.ID, label)
 	}
 	if len(res.Dropped) > 0 {
-		fmt.Fprintln(c.stdout, "No longer opening it (add them again with 'secretvault slot add'):")
+		fmt.Fprintln(c.stdout, "No longer opening it (add them again with 'secretvault slot add', or 'secretvault emergency grant'):")
 		for _, s := range res.Dropped {
 			fmt.Fprintf(c.stdout, "  %s  %s (%s)\n", s.ID, s.Label, s.Type)
 		}
