@@ -56,9 +56,15 @@ type Vault struct {
 	suite svcrypto.Suite
 	opts  Options
 
+	// epochs are the check values of every generation of the master key
+	// (epochs[i] is epoch i+1); prev holds, for each epoch after the first,
+	// the previous master key sealed under it (epochs.go).
+	epochs []svformat.Epoch
+	prev   map[uint32][]byte
+
 	mu         sync.Mutex
-	master     *svcrypto.Secret // nil while locked
-	wrap       *svcrypto.Secret // wraps object keys; derived from master
+	masters    map[uint32]*svcrypto.Secret // every epoch's master key; nil while locked
+	wraps      map[uint32]*svcrypto.Secret // every epoch's key for wrapping object keys
 	unlockedBy svformat.ID
 	idx        *index
 	lastTime   int64
@@ -87,7 +93,10 @@ func Create(store svstore.Backend, suite svcrypto.Suite, first NewSlot, opts Opt
 		Created: v.opts.Now().UTC(),
 		Epochs:  []svformat.Epoch{{N: 1, Check: svformat.CheckValue(id, master)}},
 	}
-	v.setOpen(master)
+	v.epochs, v.prev = v.desc.Epochs, map[uint32][]byte{}
+	if err := v.setOpen(master); err != nil {
+		return nil, SlotInfo{}, err
+	}
 
 	// The slot goes first: a crash between the two leaves a stray slot file
 	// in an empty directory, never a vault that no key opens.
@@ -127,9 +136,13 @@ func Open(store svstore.Backend, opts Options) (*Vault, error) {
 		return nil, err
 	}
 	if len(desc.Epochs) != 1 {
-		return nil, fmt.Errorf("svcore: vault has %d key epochs; this version supports 1", len(desc.Epochs))
+		return nil, fmt.Errorf("svcore: the descriptor lists %d epochs; later epochs belong in %s/", len(desc.Epochs), svformat.EpochsDir)
 	}
-	return &Vault{store: store, desc: desc, suite: suite, opts: opts.withDefaults()}, nil
+	v := &Vault{store: store, desc: desc, suite: suite, opts: opts.withDefaults()}
+	if err := v.loadEpochs(); err != nil {
+		return nil, err
+	}
+	return v, nil
 }
 
 func (o Options) withDefaults() Options {
@@ -148,14 +161,28 @@ func (v *Vault) Suite() svcrypto.Suite { return v.suite }
 // Created is when the vault was made.
 func (v *Vault) Created() time.Time { return v.desc.Created }
 
-func (v *Vault) epoch() uint32 { return uint32(len(v.desc.Epochs)) }
+func (v *Vault) epoch() uint32 { return uint32(len(v.epochs)) }
+
+// Epoch is the current generation of the vault master key: 1 for a vault
+// never rotated.
+func (v *Vault) Epoch() uint32 {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.epoch()
+}
 
 // Locked reports whether the vault is locked.
 func (v *Vault) Locked() bool {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	return v.master == nil
+	return v.masters == nil
 }
+
+// master is the current epoch's master key (nil while locked).
+func (v *Vault) master() *svcrypto.Secret { return v.masters[v.epoch()] }
+
+// wrap is the current epoch's wrapping key.
+func (v *Vault) wrap() *svcrypto.Secret { return v.wraps[v.epoch()] }
 
 // UnlockedBy is the keyslot the vault was last unlocked with (for Create,
 // the first slot).
@@ -168,14 +195,23 @@ func (v *Vault) UnlockedBy() svformat.ID {
 // Unlock opens the vault with a key, trying every keyslot of the key's type.
 // An unlocked vault is re-unlocked (the key is still checked).
 func (v *Vault) Unlock(k Key) error {
+	v.mu.Lock()
+	err := v.loadEpochs()
+	v.mu.Unlock()
+	if err != nil {
+		return err
+	}
 	master, slot, err := v.findMaster(k)
 	if err != nil {
 		return err
 	}
 	v.mu.Lock()
-	v.setOpen(master)
+	err = v.setOpen(master)
 	v.unlockedBy = slot
 	v.mu.Unlock()
+	if err != nil {
+		return err
+	}
 	return v.Refresh()
 }
 
@@ -202,7 +238,7 @@ func (v *Vault) findMaster(k Key) ([]byte, svformat.ID, error) {
 		if err != nil {
 			continue
 		}
-		if subtle.ConstantTimeCompare(svformat.CheckValue(v.desc.ID, master), v.desc.Epochs[s.Epoch-1].Check) != 1 {
+		if subtle.ConstantTimeCompare(svformat.CheckValue(v.desc.ID, master), v.epochs[s.Epoch-1].Check) != 1 {
 			// The slot opened, but to some other key: planted or from
 			// another vault. Keep looking.
 			clear(master)
@@ -213,19 +249,51 @@ func (v *Vault) findMaster(k Key) ([]byte, svformat.ID, error) {
 	return nil, svformat.ID{}, ErrWrongKey
 }
 
-// setOpen installs the master key (and zeroes the caller's copy).
-func (v *Vault) setOpen(master []byte) {
+// setOpen installs the current epoch's master key (and zeroes the
+// caller's copy), recovering every earlier epoch's key from the chain.
+func (v *Vault) setOpen(master []byte) error {
 	v.dropKeys()
-	wrap := svcrypto.Derive(master, v.desc.ID[:], "sv1 wrap", svcrypto.KeySize)
-	v.master = svcrypto.SecretFrom(master)
-	v.wrap = svcrypto.SecretFrom(wrap)
+	masters := map[uint32]*svcrypto.Secret{}
+	wraps := map[uint32]*svcrypto.Secret{}
+	cur := master
+	for n := v.epoch(); n >= 1; n-- {
+		if n < v.epoch() && subtle.ConstantTimeCompare(svformat.CheckValue(v.desc.ID, cur), v.epochs[n-1].Check) != 1 {
+			clear(cur)
+			destroyAll(masters)
+			destroyAll(wraps)
+			return fmt.Errorf("svcore: the key of epoch %d does not match its record", n)
+		}
+		wraps[n] = svcrypto.SecretFrom(svcrypto.Derive(cur, v.desc.ID[:], "sv1 wrap", svcrypto.KeySize))
+		if n == 1 {
+			masters[n] = svcrypto.SecretFrom(cur)
+			break
+		}
+		prevKey := svcrypto.Derive(cur, v.desc.ID[:], svformat.EpochPrevKeyLabel, svcrypto.KeySize)
+		older, err := v.suite.Open(prevKey, v.prev[n], svformat.EpochPrevAAD(v.desc.ID, n))
+		clear(prevKey)
+		masters[n] = svcrypto.SecretFrom(cur)
+		if err != nil {
+			destroyAll(masters)
+			destroyAll(wraps)
+			return fmt.Errorf("svcore: epoch %d's record does not open: %w", n, err)
+		}
+		cur = older
+	}
+	v.masters, v.wraps = masters, wraps
 	v.idx = newIndex()
+	return nil
+}
+
+func destroyAll(m map[uint32]*svcrypto.Secret) {
+	for _, s := range m {
+		s.Destroy()
+	}
 }
 
 func (v *Vault) dropKeys() {
-	v.master.Destroy()
-	v.wrap.Destroy()
-	v.master, v.wrap = nil, nil
+	destroyAll(v.masters)
+	destroyAll(v.wraps)
+	v.masters, v.wraps = nil, nil
 	if v.idx != nil {
 		v.idx.wipe()
 		v.idx = nil
@@ -317,11 +385,14 @@ func (k identityKey) open(v *Vault, s *svformat.Slot) ([]byte, error) {
 // DeriveKey derives a key for a purpose outside the vault format itself
 // (the daemon's audit log, say) from the vault master key. Each label
 // gives an independent key; none equals a key the format uses.
+//
+// Keys are derived from the first epoch's master key, so they stay the same
+// across rotations (a device-local audit log stays readable).
 func (v *Vault) DeriveKey(label string, n int) ([]byte, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.master == nil {
+	if v.masters == nil {
 		return nil, ErrLocked
 	}
-	return svcrypto.Derive(v.master.Bytes(), v.desc.ID[:], "app "+label, n), nil
+	return svcrypto.Derive(v.masters[1].Bytes(), v.desc.ID[:], "app "+label, n), nil
 }

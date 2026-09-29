@@ -530,3 +530,32 @@ func TestHelperNamesPickTheirCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestUnsharingCutsAPersonOffForGood(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok("before", h.with("set", "x")...)
+	idFile := filepath.Join(h.dir, "friend.id")
+	h.ok("", "identity", "new", "--out", idFile)
+	out := h.ok("", h.with("share", idFile, "--label", "friend")...)
+	slot := regexp.MustCompile(`keyslot ([0-9a-f]{32})`).FindStringSubmatch(out)
+	if slot == nil {
+		t.Fatalf("share said %q", out)
+	}
+	h.ok("", "lock")
+	if got := h.ok("", "get", "x", "--identity", idFile); got != "before\n" {
+		t.Fatalf("the friend reads %q", got)
+	}
+	out = h.ok("", "unshare", slot[1], "--passphrase-file", h.passFile, "--new-passphrase-file", h.passFile)
+	if !strings.Contains(out, "epoch 2") {
+		t.Fatalf("unshare said %q", out)
+	}
+	h.ok("after", h.with("set", "x")...)
+	h.ok("", "lock")
+	if _, errs, code := h.run("", "get", "x", "--identity", idFile); code != 1 || !strings.Contains(errs, "does not open") {
+		t.Fatalf("the friend after unsharing: %d %q", code, errs)
+	}
+	if got := h.ok("", h.with("get", "x")...); got != "after\n" {
+		t.Fatalf("the owner reads %q", got)
+	}
+}

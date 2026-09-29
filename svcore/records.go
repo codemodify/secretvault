@@ -48,7 +48,7 @@ func (v *Vault) PutRecord(kind string, id svformat.ID, data any) (Record, error)
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.master == nil {
+	if v.masters == nil {
 		return Record{}, ErrLocked
 	}
 	var parents []*revision
@@ -72,7 +72,7 @@ func (v *Vault) PutRecord(kind string, id svformat.ID, data any) (Record, error)
 func (v *Vault) DeleteRecord(id svformat.ID) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.master == nil {
+	if v.masters == nil {
 		return ErrLocked
 	}
 	o, ok := v.idx.objects[id]
@@ -90,7 +90,7 @@ func (v *Vault) Records(kind string) ([]Record, error) {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.master == nil {
+	if v.masters == nil {
 		return nil, ErrLocked
 	}
 	var out []Record

@@ -24,6 +24,9 @@
 //	gen                        print a random password
 //	slot list|add|rm           manage the ways a vault can be unlocked
 //	passwd                     change the passphrase
+//	share RECIPIENT|FILE       give a person's identity a keyslot
+//	unshare SLOT-ID            cut them off: remove the keyslot and rotate the key
+//	vault rotate               rotate the vault key
 //	grant list|allow|deny|revoke  decide what programs may do
 //	audit                      show who accessed what
 //	keyring status|import|takeover|restore   be the desktop's keyring (Linux)
@@ -144,6 +147,8 @@ func init() {
 		{"gen", "print a random password", (*cli).cmdGen},
 		{"slot", "manage keyslots: list, add, rm", (*cli).cmdSlot},
 		{"passwd", "change the passphrase", (*cli).cmdPasswd},
+		{"share", "give a person's identity a keyslot", (*cli).cmdShare},
+		{"unshare", "cut a person off: remove their keyslot and rotate the key", (*cli).cmdUnshare},
 		{"grant", "decide what programs may do: list, allow, deny, revoke", (*cli).cmdGrant},
 		{"audit", "show who accessed what", (*cli).cmdAudit},
 		{"keyring", "be the desktop's keyring: status, import, takeover, restore", (*cli).cmdKeyring},

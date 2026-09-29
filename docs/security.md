@@ -81,13 +81,15 @@ This is the hard case, and it is worth being plain about it.
 
 ### Someone who once held a key
 
-- **Removing a keyslot is not revocation.** It stops that key opening this
-  copy of the vault. It does not make the holder forget the master key, if
-  they ever unlocked it, and they may have kept a copy of the slot file.
-- **Cutting someone off for good** needs a new master-key epoch, which
-  re-encrypts for the keys that remain. Planned for M6.
-- **Until then**, treat a leaked passphrase as a reason to move the secrets
-  that matter to a new vault.
+- **Removing a keyslot alone is not revocation.** It stops that key opening
+  this copy of the vault. It does not make the holder forget the master key,
+  if they ever unlocked it, and they may have kept a copy of the slot file.
+- **Cutting someone off for good.** `secretvault unshare` (or `vault
+  rotate`) makes a new master key that only the remaining keys open, and
+  writes every item's current state again under it. What was written
+  before stays readable to whoever could read it then; nothing written
+  after is.
+- **A leaked passphrase** calls for a rotation with a new passphrase.
 
 ### Other holders of the same vault
 
@@ -157,7 +159,6 @@ Wiping keys in Go is therefore hygiene, not a guarantee. What it does:
 | Gap | Planned fix |
 | --- | --- |
 | Rollback and withholding of revisions is not detected | signed checkpoints (M6) |
-| Removing a keyslot does not revoke a key already used | epoch rotation (M6) |
 | Revisions are not signed per device | device signatures (M6) |
 | On Windows and macOS, screen lock and sleep do not lock vaults yet (idle time and explicit locks do) | session notifications on those platforms |
 | Windows and macOS identify programs by path and hash, not by publisher signature | Authenticode and code-signing checks |

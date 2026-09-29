@@ -18,6 +18,7 @@ const (
 	MVaultLock    = "vault.lock"    // LockParams -> nil
 	MVaultVerify  = "vault.verify"  // VaultRef -> VerifyResult
 	MVaultPasswd  = "vault.passwd"  // PasswdParams -> SlotInfo
+	MVaultRotate  = "vault.rotate"  // RotateParams -> RotateResult
 
 	MSlotList   = "slot.list"   // VaultRef -> []SlotInfo
 	MSlotAdd    = "slot.add"    // SlotAddParams -> SlotInfo
@@ -169,6 +170,23 @@ type VerifyResult struct {
 type PasswdParams struct {
 	Vault      string `json:"vault,omitempty"`
 	Passphrase []byte `json:"passphrase"`
+}
+
+// RotateParams rotate a vault's master key. The new key opens with the
+// passphrase given (the current one, or a new one), a new recovery key if
+// asked, and every current recipient slot except those in Drop.
+type RotateParams struct {
+	Vault      string   `json:"vault,omitempty"`
+	Passphrase []byte   `json:"passphrase"`
+	Recovery   bool     `json:"recovery,omitempty"`
+	Drop       []string `json:"drop,omitempty"` // recipient slot IDs to cut off
+}
+
+// RotateResult is the new epoch's keyslots.
+type RotateResult struct {
+	Epoch       uint32     `json:"epoch"`
+	Slots       []SlotInfo `json:"slots"`
+	RecoveryKey string     `json:"recovery_key,omitempty"`
 }
 
 // SlotInfo describes a keyslot. RecoveryKey is set only in the answer to

@@ -255,6 +255,12 @@ func (c *Client) Passwd(ctx context.Context, vault string, passphrase []byte) (o
 	return
 }
 
+// Rotate rotates a vault's master key (see svrpc.RotateParams).
+func (c *Client) Rotate(ctx context.Context, p svrpc.RotateParams) (out svrpc.RotateResult, err error) {
+	err = c.conn.Call(ctx, svrpc.MVaultRotate, p, &out)
+	return
+}
+
 func (c *Client) Slots(ctx context.Context, vault string) (out []svrpc.SlotInfo, err error) {
 	err = c.conn.Call(ctx, svrpc.MSlotList, svrpc.VaultRef{Vault: vault}, &out)
 	return

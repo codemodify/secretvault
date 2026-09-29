@@ -140,7 +140,9 @@ revision content key (32 random bytes, fresh for every revision)
 
 An **epoch** is one generation of the VMK. Every vault starts at epoch 1.
 Rotating the VMK, needed to truly cut off someone who once held a key, adds an
-epoch. Version 1 readers support a single epoch; rotation is future work.
+epoch (see [Epoch records](#epochsnjson--key-rotation)). Keyslots open the
+current epoch's VMK. Earlier VMKs are recovered down the chain, so old
+revisions stay readable to holders of the current key.
 
 ## vault.json — the descriptor
 
@@ -161,6 +163,38 @@ epoch. Version 1 readers support a single epoch; rotation is future work.
   is added.
 - It is written last when a vault is created, so a crash never leaves a vault
   that no key opens.
+
+## epochs/<n>.json — key rotation
+
+Epoch 1 lives in the descriptor. Every later epoch is a record of its own,
+written once:
+
+```json
+{
+  "format": "secretvault/v1/epoch",
+  "vault": "<vault id>",
+  "n": 2,
+  "created": "…",
+  "check": "<16 bytes: CheckValue of epoch n's VMK>",
+  "prev": "<Seal(Derive(VMK_n, vault id, \"sv1 epoch prev\", 32), VMK_n-1, prev_aad)>"
+}
+prev_aad = "secretvault sv1 epoch prev" || vault id || n (4)
+```
+
+- **Naming.** Records are named `epochs/%08d.json` and must run 2, 3, … with
+  no gap.
+- **The commit point.** Writing the record is the rotation's commit point.
+  Two devices rotating at once collide on its name (the store's
+  create-if-absent), so the history never forks.
+- **Rotation order.** A rotation proceeds in four steps:
+  1. write the new epoch's keyslots, which are inert until the epoch exists;
+  2. write the record;
+  3. remove the older epochs' keyslots;
+  4. write every live item and record again under the new key.
+
+  A crash at any step leaves a vault that opens.
+- **Seeing a rotation from elsewhere.** A reader that finds more epochs than
+  it had locks itself: its key is no longer current.
 
 ## slots/<id>.json — keyslots
 
@@ -360,7 +394,6 @@ reference `argon2` CLI and Python's `hashlib.pbkdf2_hmac`.
 
 ## Reserved and future
 
-- **Rotation.** Epochs beyond 1 (VMK rotation).
 - **Revision signatures.** An optional signature by the writing device's key,
   for vaults shared between people. Tag range 0x82+.
 - **Rollback protection.** Signed checkpoints, so that removing the newest

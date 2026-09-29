@@ -471,7 +471,7 @@ func TestRecordsFromANewerVersionAreKeptButIgnored(t *testing.T) {
 	v.Put(login("site", "p"))
 	// A newer version writes a record type this one does not know.
 	hdr := svformat.RevisionHeader{Suite: v.Suite(), Vault: v.ID(), Object: svformat.NewID(), Epoch: 1, Time: time.Now().UnixNano()}
-	file, err := svformat.SealRevision(hdr, v.wrap.Bytes(), svcrypto.RandomKey(), []byte(`{"type":"grant","app":"/usr/bin/mail"}`))
+	file, err := svformat.SealRevision(hdr, v.wrap().Bytes(), svcrypto.RandomKey(), []byte(`{"type":"grant","app":"/usr/bin/mail"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

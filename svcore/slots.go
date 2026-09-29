@@ -42,9 +42,15 @@ type SlotInfo struct {
 func (v *Vault) AddSlot(ns NewSlot) (SlotInfo, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.master == nil {
+	if v.masters == nil {
 		return SlotInfo{}, ErrLocked
 	}
+	return v.addSlot(ns, v.epoch(), v.master().Bytes())
+}
+
+// addSlot writes a keyslot for master, of the given epoch (the current
+// one, or the next during a rotation). The caller holds v.mu.
+func (v *Vault) addSlot(ns NewSlot, epoch uint32, master []byte) (SlotInfo, error) {
 	if len(ns.Label) > 256 {
 		return SlotInfo{}, errors.New("svcore: slot label is longer than 256 bytes")
 	}
@@ -52,13 +58,12 @@ func (v *Vault) AddSlot(ns NewSlot) (SlotInfo, error) {
 		Format:  svformat.SlotFormat,
 		ID:      svformat.NewID(),
 		Vault:   v.desc.ID,
-		Epoch:   v.epoch(),
+		Epoch:   epoch,
 		Type:    ns.Type,
 		Label:   ns.Label,
 		Created: v.opts.Now().UTC(),
 		Grants:  []string{svformat.GrantContent},
 	}
-	master := v.master.Bytes()
 	info := SlotInfo{}
 	var kek []byte
 	defer func() { clear(kek) }()
@@ -172,7 +177,7 @@ func (v *Vault) slots() ([]*svformat.Slot, error) {
 // a new epoch (a new master key), which a later version adds.
 func (v *Vault) RemoveSlot(id svformat.ID) error {
 	v.mu.Lock()
-	locked := v.master == nil
+	locked := v.masters == nil
 	v.mu.Unlock()
 	if locked {
 		return ErrLocked

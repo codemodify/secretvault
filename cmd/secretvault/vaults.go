@@ -212,8 +212,10 @@ func (c *cli) cmdVault(args []string) error {
 			return err
 		}
 		return cl.SetDefault(ctx, pos[0])
+	case "rotate":
+		return c.rotate(args[1:], nil)
 	}
-	fmt.Fprintf(c.stderr, "secretvault vault: unknown subcommand %q (list, add, forget, default)\n", args[0])
+	fmt.Fprintf(c.stderr, "secretvault vault: unknown subcommand %q (list, add, forget, default, rotate)\n", args[0])
 	return errUsage
 }
 

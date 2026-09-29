@@ -195,3 +195,59 @@ func ParseSlot(b []byte) (*Slot, error) {
 	}
 	return &s, nil
 }
+
+// Epochs after the first live in files of their own, one per rotation of
+// the vault master key:
+//
+//	epochs/<n>.json   n = 2, 3, ... (eight digits)
+//
+// Each records its key's check value and the previous epoch's master key,
+// sealed under a key derived from the new one, so whoever holds the
+// current key can read the whole history, and whoever was cut off at a
+// rotation can read nothing written after it. Writing the record is the
+// rotation's commit point; it is created once and never changed, so two
+// devices rotating at once collide on the name instead of forking.
+
+// EpochsDir holds the epoch records.
+const EpochsDir = "epochs"
+
+// EpochFormat marks an epoch record.
+const EpochFormat = "secretvault/v1/epoch"
+
+// EpochName is where epoch n's record lives.
+func EpochName(n uint32) string { return fmt.Sprintf("%s/%08d.json", EpochsDir, n) }
+
+// EpochRecord is one rotation of the vault master key.
+type EpochRecord struct {
+	Format  string    `json:"format"`
+	Vault   ID        `json:"vault"`
+	N       uint32    `json:"n"`
+	Created time.Time `json:"created"`
+	Check   []byte    `json:"check"` // CheckValue of this epoch's master key
+	Prev    []byte    `json:"prev"`  // the previous master key, sealed (EpochPrevAAD)
+}
+
+// EpochPrevKeyLabel names the key, derived from epoch n's master key, that
+// seals epoch n-1's.
+const EpochPrevKeyLabel = "sv1 epoch prev"
+
+// EpochPrevAAD binds a sealed previous key to its vault and epoch.
+func EpochPrevAAD(vault ID, n uint32) []byte {
+	aad := append([]byte("secretvault sv1 epoch prev"), vault[:]...)
+	return append(aad, byte(n>>24), byte(n>>16), byte(n>>8), byte(n))
+}
+
+// ErrEpoch is an epoch record that is not usable.
+var ErrEpoch = errors.New("svformat: bad epoch record")
+
+// ParseEpoch reads and checks an epoch record.
+func ParseEpoch(b []byte) (*EpochRecord, error) {
+	var e EpochRecord
+	if err := json.Unmarshal(b, &e); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrEpoch, err)
+	}
+	if e.Format != EpochFormat || e.Vault.IsZero() || e.N < 2 || len(e.Check) != 16 || len(e.Prev) == 0 {
+		return nil, fmt.Errorf("%w: incomplete", ErrEpoch)
+	}
+	return &e, nil
+}

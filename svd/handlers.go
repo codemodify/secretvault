@@ -230,6 +230,43 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		}
 		return slotInfo(mv, info), nil
 
+	case svrpc.MVaultRotate:
+		var p svrpc.RotateParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		defer clear(p.Passphrase)
+		mv, err := d.managed(ctx, cl, p.Vault, "", "", svbroker.OpManage)
+		if err != nil {
+			return nil, err
+		}
+		if len(p.Passphrase) < MinPassphrase {
+			return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "the passphrase is too short: use at least %d characters", MinPassphrase)
+		}
+		specs := []svcore.NewSlot{{Type: svformat.SlotPassphrase, Label: "passphrase", Passphrase: p.Passphrase}}
+		if p.Recovery {
+			specs = append(specs, svcore.NewSlot{Type: svformat.SlotRecovery, Label: "recovery key"})
+		}
+		drop := map[string]bool{}
+		for _, id := range p.Drop {
+			drop[id] = true
+		}
+		infos, err := mv.v.Rotate(specs, true, func(s svcore.SlotInfo) bool { return drop[s.ID.String()] })
+		if err != nil {
+			return nil, err
+		}
+		d.broker.Locked(mv.v.ID()) // decisions tied to the old key's session go
+		d.proved(cl, mv)
+		d.recorder(cl, mv, "", svbroker.OpManage)("allowed", fmt.Sprintf("rotated the vault key to epoch %d", mv.v.Epoch()))
+		out := svrpc.RotateResult{Epoch: mv.v.Epoch()}
+		for _, info := range infos {
+			out.Slots = append(out.Slots, slotInfo(mv, info))
+			if info.RecoveryKey != "" {
+				out.RecoveryKey = info.RecoveryKey
+			}
+		}
+		return out, nil
+
 	case svrpc.MSlotList:
 		var p svrpc.VaultRef
 		if err := decode(&p); err != nil {

@@ -186,8 +186,9 @@ correctly across all four verification levels.
 - **Own-server sync.** `secretvaultd --mode=server` as a zero-knowledge hub
   (it stores ciphertext files only), with push.
 - **Synced-folder mode, hardened.** Signed checkpoints detect rollback.
-- **Sharing with people.** Recipient keyslots. A new epoch (master-key
-  rotation) when someone is removed.
+- **Sharing with people (done).** `share` and `unshare`, and `vault rotate`.
+  Master-key rotation is crash-safe, and history stays readable down the
+  epoch chain.
 - **Recovery.** Shamir recovery shares, and emergency access.
 
 **Done when:**

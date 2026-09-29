@@ -185,8 +185,17 @@ func (x *index) rebuildNames() {
 func (v *Vault) Refresh() error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.master == nil {
+	if v.masters == nil {
 		return ErrLocked
+	}
+	// A rotation made elsewhere: this handle's key is no longer current.
+	known := v.epoch()
+	if err := v.loadEpochs(); err != nil {
+		return err
+	}
+	if v.epoch() != known {
+		v.dropKeys()
+		return ErrRotated
 	}
 	return v.scan(v.idx)
 }
@@ -242,10 +251,11 @@ func (v *Vault) loadRevision(name string, obj svformat.ID, rid svformat.RevID) (
 	if hdr.Vault != v.desc.ID || hdr.Object != obj {
 		return nil, fmt.Errorf("svcore: revision belongs to vault %s object %s", hdr.Vault, hdr.Object)
 	}
-	if hdr.Suite != v.suite || hdr.Epoch != v.epoch() {
+	wrap := v.wraps[hdr.Epoch]
+	if hdr.Suite != v.suite || wrap == nil {
 		return nil, fmt.Errorf("svcore: revision uses suite %v epoch %d", hdr.Suite, hdr.Epoch)
 	}
-	hdr, plain, dek, err := svformat.OpenRevision(file, v.wrap.Bytes())
+	hdr, plain, dek, err := svformat.OpenRevision(file, wrap.Bytes())
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +291,7 @@ func (v *Vault) write(obj svformat.ID, parents []*revision, p payload) (Entry, e
 	}
 	// A fresh content key for every revision.
 	dek := svcrypto.RandomKey()
-	file, err := svformat.SealRevision(hdr, v.wrap.Bytes(), dek, plain)
+	file, err := svformat.SealRevision(hdr, v.wrap().Bytes(), dek, plain)
 	clear(dek)
 	clear(plain)
 	if err != nil {
@@ -317,7 +327,7 @@ func (v *Vault) write(obj svformat.ID, parents []*revision, p payload) (Entry, e
 func (v *Vault) Put(it Item) (Entry, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.master == nil {
+	if v.masters == nil {
 		return Entry{}, ErrLocked
 	}
 	if err := it.check(); err != nil {
@@ -335,7 +345,7 @@ func (v *Vault) Put(it Item) (Entry, error) {
 func (v *Vault) Rename(from, to string) (Entry, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.master == nil {
+	if v.masters == nil {
 		return Entry{}, ErrLocked
 	}
 	if err := CheckName(to); err != nil {
@@ -358,7 +368,7 @@ func (v *Vault) Rename(from, to string) (Entry, error) {
 func (v *Vault) Get(name string) (Entry, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.master == nil {
+	if v.masters == nil {
 		return Entry{}, ErrLocked
 	}
 	id, ok := v.idx.byName[name]
@@ -372,7 +382,7 @@ func (v *Vault) Get(name string) (Entry, error) {
 func (v *Vault) List(prefix string) ([]Entry, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.master == nil {
+	if v.masters == nil {
 		return nil, ErrLocked
 	}
 	var out []Entry
@@ -390,7 +400,7 @@ func (v *Vault) List(prefix string) ([]Entry, error) {
 func (v *Vault) Delete(name string) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.master == nil {
+	if v.masters == nil {
 		return ErrLocked
 	}
 	id, ok := v.idx.byName[name]
@@ -405,7 +415,7 @@ func (v *Vault) Delete(name string) error {
 func (v *Vault) History(name string) ([]Entry, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.master == nil {
+	if v.masters == nil {
 		return nil, ErrLocked
 	}
 	id, ok := v.idx.byName[name]
@@ -460,7 +470,7 @@ func (r Report) OK() bool {
 func (v *Vault) Verify() (Report, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.master == nil {
+	if v.masters == nil {
 		return Report{}, ErrLocked
 	}
 	x := newIndex()
