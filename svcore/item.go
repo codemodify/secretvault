@@ -66,6 +66,7 @@ var Kinds = []string{
 	"api-key",  // tokens, cloud credentials
 	"key",      // a cryptographic key used in place (transit, age identities)
 	"kv",       // Vault-style key/value data
+	"otp",      // an authenticator entry: an otpauth:// URI and little else
 	"generic",
 }
 
