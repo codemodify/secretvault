@@ -14,11 +14,12 @@ It never phones home. Sync goes through your own server, a folder you
 already sync, or nothing.
 
 > **Status: pre-release (milestone 1).** The vault engine, the daemon with
-> its consent prompts, and the CLI work on Linux; Windows and macOS builds
-> compile but are not yet exercised. The desktop app, the system keyring and
-> everything else are planned in [docs/roadmap.md](docs/roadmap.md). The
-> format may still change, and nothing has been audited: do not keep
-> anything here that exists nowhere else yet.
+> its consent prompts, the CLI and the terminal manager work on Linux;
+> Windows and macOS builds compile but are not yet exercised. The desktop
+> app, the system keyring and everything else are planned in
+> [docs/roadmap.md](docs/roadmap.md). The format may still change, and
+> nothing has been audited: do not keep anything here that exists nowhere
+> else yet.
 
 ## How it fits together
 
@@ -40,7 +41,7 @@ decision. If there is none, it asks you.
 | **`secretvaultd`** | The daemon: holds the keys, opens the vaults, brokers every access, keeps the audit log. It links no UI code. |
 | **`secretvault`** | The CLI, a client of the daemon (which it starts when needed). |
 | **`secretvault-gui`** | The desktop manager, on [uitoolkit](https://github.com/codemodify/uitoolkit), with a tray icon. *(stub)* |
-| **`secretvault-tui`** | The terminal manager. *(stub)* |
+| **`secretvault-tui`** | The terminal manager: vaults, items, one-time codes, the generator, history, grants and the audit log, full-screen. |
 | **`secretvault-tui-prompt`** | Asks you on a terminal, over the pinentry protocol: a pinentry for gpg-agent, an askpass helper, and (`--agent`) the daemon's prompter where there is no desktop. |
 | **`secretvault-gui-prompt`** | The same as a window. *(stub; until then the desktop's own pinentry asks)* |
 | **`secretvault-server`** | The sync server: keeps vaults' files for their devices and relays changes, seeing only ciphertext. Devices sign every request with their own keys. |
@@ -81,7 +82,7 @@ starts the daemon beside it when needed:
 ```bash
 git clone https://github.com/codemodify/secretvault
 cd secretvault
-go build -o bin/ ./cmd/secretvault ./cmd/secretvaultd ./cmd/secretvault-tui-prompt
+go build -o bin/ ./cmd/secretvault ./cmd/secretvaultd ./cmd/secretvault-tui ./cmd/secretvault-tui-prompt
 bin/secretvaultd install        # optional: start at every login (systemd user unit)
 ```
 
@@ -99,6 +100,7 @@ $ bin/secretvault grant list                 # what programs may do
 $ bin/secretvault audit                      # who accessed what
 $ bin/secretvault lock --all
 $ bin/secretvault status
+$ bin/secretvault-tui                        # the same, full-screen: ? lists the keys
 
 $ export SSH_AUTH_SOCK=$XDG_RUNTIME_DIR/secretvault/ssh-agent.sock
 $ ssh-add ~/.ssh/id_ed25519                  # the key moves into the vault
@@ -182,11 +184,10 @@ where it stops. In short:
 | [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | Argon2id, BLAKE2b, XChaCha20-Poly1305, scrypt, SSH key formats; for reading other managers' files and old OpenPGP data, Salsa20, CAST5, Blowfish and Twofish | BSD-3-Clause |
 | [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys) | locked memory, process hardening | BSD-3-Clause |
 | [golang.org/x/term](https://pkg.go.dev/golang.org/x/term) | passphrase entry without echo | BSD-3-Clause |
+| [tview](https://github.com/rivo/tview), [tcell](https://github.com/gdamore/tcell) | `secretvault-tui` only | MIT, Apache-2.0 |
 
-Planned:
-- [uitoolkit](https://github.com/codemodify/uitoolkit) in the GUI binaries
-  only;
-- tview and tcell in the TUI only.
+Planned: [uitoolkit](https://github.com/codemodify/uitoolkit) in the GUI
+binaries only.
 
 Everything else, including D-Bus, OpenPGP, CTAP2 and PC/SC, is written here.
 The policy is in [docs/architecture.md](docs/architecture.md#code-layout-and-dependencies).

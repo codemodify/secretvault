@@ -85,6 +85,17 @@ The order below is the planned order, and they can overlap.
 **Done when:** a new user can install, import from each source, and find,
 copy and edit a login without the CLI.
 
+**Where it stands.**
+- **`secretvault-tui` is built** (`svtui`): vaults with their lock state,
+  a filtered item list, items with masked values and live TOTP codes, an
+  editor with the generator, copy with auto-clear through the CLI's
+  clipboard helper, history, grants and the audit log. The daemon asks it
+  for passphrases in a dialog of its own. Concealed values are drawn and
+  typed from byte slices rather than Go strings, and wiped on leaving an
+  item, on lock and on quit.
+- **Not yet in it:** resolving conflicts (they are shown, not merged),
+  creating vaults, keyslots, and attachments.
+
 ## M3: OS keyring and browser (Linux keyring done)
 
 - **Linux.**

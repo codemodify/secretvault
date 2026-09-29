@@ -1,0 +1,648 @@
+// Package svtui is secretvault-tui, the full-screen terminal password
+// manager, as a library so that tests can drive it on a simulated screen.
+//
+// It is a client of secretvaultd, as the CLI is: it never opens a vault
+// itself. When the daemon needs to know the person is there, it asks this
+// program for the vault's passphrase (prompt.ask), which is put to the
+// person in a dialog drawn inside the interface (prompt.go).
+//
+// The screen is three panes over a status line: the vaults, the items of
+// the vault being shown, and the open item. Everything that talks to the
+// daemon runs off the interface's goroutine, because the daemon may answer
+// only after asking the person, through this same interface.
+//
+// Secrets are masked until revealed. Concealed values, keys and the
+// passphrases typed for the daemon are kept in byte slices, not Go
+// strings: they are drawn from those bytes straight into the screen's
+// cells and typed into buffers of their own (secret.go), and wiped when
+// the item is left, when its vault locks, and on quit. The exceptions are
+// a one-time password key, which svotp reads from a string while it is
+// parsed, and pasted text, which tview hands over as one.
+package svtui
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
+
+	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/svotp"
+	"github.com/codemodify/secretvault/svrpc"
+)
+
+// Options configure the manager.
+type Options struct {
+	// Vault is the vault shown first ("" for the default vault).
+	Vault string
+
+	// Socket is the daemon's socket (the usual one when "").
+	Socket string
+
+	// Connect reaches the daemon: secretvault.Connect when nil. Tests
+	// point it at a daemon of their own.
+	Connect func(secretvault.Options) (*secretvault.Client, error)
+
+	// Clip puts a secret on the clipboard for ttl and returns the name of
+	// the clipboard it used. When nil, the secretvault CLI installed
+	// beside this program does it (secretvault __clip SECONDS).
+	Clip func(secret []byte, ttl time.Duration) (string, error)
+
+	// Screen, when set, is drawn on instead of the terminal (tests use
+	// tcell's simulation screen).
+	Screen tcell.Screen
+
+	// Now is the clock for one-time codes (time.Now when nil).
+	Now func() time.Time
+}
+
+// clipTTL is how long a copy stays on the clipboard.
+const clipTTL = 30 * time.Second
+
+// callTimeout bounds one request to the daemon, prompts included.
+const callTimeout = 5 * time.Minute
+
+// Pages, bottom to top. The daemon's prompts always go on top.
+const (
+	pageMain   = "main"
+	pagePanel  = "panel"    // help, history, grants, audit
+	pageRev    = "revision" // one revision, over the history
+	pageForm   = "form"     // the item editor
+	pageDialog = "dialog"   // questions, confirmations, the generator
+	pagePrompt = "prompt"   // the daemon's questions
+)
+
+// UI is the terminal manager. Create it with New and run it with Run.
+type UI struct {
+	opts   Options
+	app    *tview.Application
+	client *secretvault.Client
+	now    func() time.Time
+	clip   func([]byte, time.Duration) (string, error)
+
+	pages     *tview.Pages
+	body      *tview.Flex
+	vaultList *tview.List
+	itemList  *tview.List
+	filter    *tview.InputField
+	middle    *tview.Flex
+	detail    *detailView
+	status    *tview.TextView
+	hints     *tview.TextView
+
+	// The state below is only touched on the interface's goroutine.
+
+	vaults   []svrpc.VaultInfo
+	vault    string        // the vault whose items are shown
+	listed   bool          // its items have been listed
+	lists    int           // counts the listings
+	entries  []svrpc.Entry // its items, without their fields
+	shown    []int         // the entries the filter lets through, by index
+	cursor   string        // the item under the item list's cursor
+	redraw   bool          // the item list is being refilled
+	cur      *svrpc.Entry  // the open item, with its fields
+	otp      map[int]*svotp.Key
+	revealed bool
+	itemGen  int // changes whenever the open item does
+	listGen  int // changes whenever the vault shown does
+	message  string
+	busy     int
+	gone     bool // the daemon went away
+
+	history  []svrpc.Entry // the history panel's revisions, with fields
+	revision *revisionView // the revision open over the history
+	editor   *editor       // the open item editor
+	resume   map[string]tview.Primitive
+
+	asking   *promptDialog // the daemon's question on the screen
+	promptID int
+	promptMu sync.Mutex // one prompt at a time
+	hasOTP   atomic.Bool
+
+	queue    chan func()
+	done     chan struct{} // closed on quit
+	quitOnce sync.Once
+	ctx      context.Context
+	cancel   context.CancelFunc
+}
+
+// New connects to secretvaultd (starting it if need be) and builds the
+// interface. Run shows it.
+func New(opts Options) (*UI, error) {
+	u := &UI{
+		opts:   opts,
+		app:    tview.NewApplication(),
+		now:    opts.Now,
+		clip:   opts.Clip,
+		otp:    map[int]*svotp.Key{},
+		resume: map[string]tview.Primitive{},
+		queue:  make(chan func(), 256),
+		done:   make(chan struct{}),
+	}
+	if u.now == nil {
+		u.now = time.Now
+	}
+	if u.clip == nil {
+		u.clip = helperClip
+	}
+	u.ctx, u.cancel = context.WithCancel(context.Background())
+	connect := opts.Connect
+	if connect == nil {
+		connect = secretvault.Connect
+	}
+	c, err := connect(secretvault.Options{Socket: opts.Socket, Name: "secretvault-tui", Prompter: u.prompt, OnEvent: u.event})
+	if err != nil {
+		u.cancel()
+		return nil, err
+	}
+	u.client = c
+	u.build()
+	if opts.Screen != nil {
+		u.app.SetScreen(opts.Screen) // which initialises it
+	}
+	return u, nil
+}
+
+func (u *UI) build() {
+	u.vaultList = tview.NewList().ShowSecondaryText(false).SetHighlightFullLine(true).SetWrapAround(false)
+	u.vaultList.SetBorder(true).SetTitle(" Vaults ")
+	u.vaultList.SetSelectedFunc(func(i int, _, _ string, _ rune) {
+		if i < len(u.vaults) {
+			u.showVault(u.vaults[i].Name, true)
+			u.app.SetFocus(u.itemList)
+		}
+	})
+
+	u.itemList = tview.NewList().ShowSecondaryText(false).SetHighlightFullLine(true).SetWrapAround(false)
+	u.itemList.SetBorder(true).SetTitle(" Items ")
+	u.itemList.SetChangedFunc(func(i int, _, _ string, _ rune) { u.itemMoved(i) })
+
+	u.filter = tview.NewInputField().SetLabel("/ ").SetFieldWidth(0)
+	u.filter.SetChangedFunc(func(string) { u.applyFilter() })
+	u.filter.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEscape {
+			u.filter.SetText("")
+			u.middle.ResizeItem(u.filter, 0, 0)
+		}
+		if strings.TrimSpace(u.filter.GetText()) == "" {
+			u.middle.ResizeItem(u.filter, 0, 0)
+		}
+		u.app.SetFocus(u.itemList)
+	})
+	u.middle = tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(u.filter, 0, 0, false).
+		AddItem(u.itemList, 0, 1, true)
+
+	u.detail = newDetailView()
+	u.detail.SetBorder(true).SetTitle(" Item ")
+	u.detail.reset("Nothing open.\n\nEnter opens the item under the cursor;\n? lists every key.")
+
+	for _, p := range []interface {
+		SetFocusFunc(func()) *tview.Box
+		SetBlurFunc(func()) *tview.Box
+		SetBorderColor(tcell.Color) *tview.Box
+	}{u.vaultList, u.itemList, u.detail} {
+		p.SetFocusFunc(func() { p.SetBorderColor(tview.Styles.SecondaryTextColor) })
+		p.SetBlurFunc(func() { p.SetBorderColor(tview.Styles.BorderColor) })
+	}
+
+	u.status = tview.NewTextView().SetDynamicColors(true).SetWrap(false)
+	u.hints = tview.NewTextView().SetDynamicColors(true).SetWrap(false).SetTextAlign(tview.AlignRight)
+	hints := "? keys  / filter  q quit "
+	u.hints.SetText("[gray]" + hints)
+
+	u.body = tview.NewFlex().
+		AddItem(u.vaultList, 20, 0, false).
+		AddItem(u.middle, 0, 2, true).
+		AddItem(u.detail, 0, 3, false)
+	u.pages = tview.NewPages().AddPage(pageMain, u.body, true, true)
+	bar := tview.NewFlex().
+		AddItem(u.status, 0, 1, false).
+		AddItem(u.hints, len(hints), 0, false)
+	root := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(u.pages, 0, 1, true).
+		AddItem(bar, 1, 0, false)
+
+	u.app.SetRoot(root, true).EnableMouse(true).EnablePaste(true)
+	u.app.SetInputCapture(u.keys)
+	u.app.SetFocus(u.itemList)
+	u.drawStatus()
+}
+
+// Run shows the manager and returns when the person quits. It closes the
+// connection to the daemon on the way out.
+func (u *UI) Run() error {
+	go u.pump()
+	go u.watch()
+	go u.tick()
+	u.post(u.start)
+	err := u.app.Run()
+	u.shutdown()
+	u.client.Close()
+	return err
+}
+
+// post runs fn on the interface's goroutine, in the order posted.
+// Everything from the daemon arrives on other goroutines, and tview may
+// only be touched from its own.
+func (u *UI) post(fn func()) {
+	select {
+	case u.queue <- fn:
+	case <-u.done:
+	}
+}
+
+func (u *UI) pump() {
+	for {
+		select {
+		case fn := <-u.queue:
+			u.app.QueueUpdateDraw(func() {
+				select {
+				case <-u.done:
+				default:
+					fn()
+				}
+			})
+		case <-u.done:
+			return
+		}
+	}
+}
+
+// call runs fn, which talks to the daemon, off the interface's goroutine,
+// and then hands its error to then on the interface's goroutine. The
+// daemon may answer only after asking the person, through this interface,
+// so waiting for it here would hang both.
+func (u *UI) call(fn func(ctx context.Context, c *secretvault.Client) error, then func(error)) {
+	u.busy++
+	u.drawStatus()
+	go func() {
+		ctx, cancel := context.WithTimeout(u.ctx, callTimeout)
+		err := fn(ctx, u.client)
+		cancel()
+		u.post(func() {
+			u.busy--
+			then(err)
+			u.drawStatus()
+		})
+	}()
+}
+
+// watch notices the daemon going away.
+func (u *UI) watch() {
+	select {
+	case <-u.client.Done():
+		u.post(u.daemonGone)
+	case <-u.done:
+	}
+}
+
+// tick redraws one-time codes every second, while one is shown.
+func (u *UI) tick() {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			if u.hasOTP.Load() {
+				u.post(u.drawItem)
+			}
+		case <-u.done:
+			return
+		}
+	}
+}
+
+// quit wipes what is held and stops the interface.
+func (u *UI) quit() {
+	u.shutdown()
+	u.app.Stop()
+}
+
+func (u *UI) shutdown() {
+	u.quitOnce.Do(func() {
+		close(u.done)
+		u.cancel()
+		u.closeItem()
+		u.wipeHistory()
+		if u.editor != nil {
+			u.editor.wipe()
+		}
+	})
+}
+
+func (u *UI) daemonGone() {
+	u.gone = true
+	u.closeItem()
+	u.wipeHistory()
+	for _, p := range []string{pageRev, pagePanel, pageForm, pageDialog} {
+		u.closePage(p)
+	}
+	if u.editor != nil {
+		u.editor.wipe()
+		u.editor = nil
+	}
+	u.entries, u.shown, u.listed = nil, nil, false
+	u.vaults = nil
+	u.drawVaults()
+	u.drawItems()
+	u.detail.reset("secretvaultd went away.")
+	u.drawStatus()
+}
+
+// keys handles the keys of the main screen. Dialogs and panels have
+// their own.
+func (u *UI) keys(ev *tcell.EventKey) *tcell.EventKey {
+	if ev.Key() == tcell.KeyCtrlC {
+		u.quit()
+		return nil
+	}
+	if front, _ := u.pages.GetFrontPage(); front != pageMain {
+		return ev
+	}
+	focus := u.app.GetFocus()
+	if focus == u.filter {
+		return ev
+	}
+	switch ev.Key() {
+	case tcell.KeyTab:
+		u.cycle(1, true)
+		return nil
+	case tcell.KeyBacktab:
+		u.cycle(-1, true)
+		return nil
+	case tcell.KeyRight:
+		u.cycle(1, false)
+		return nil
+	case tcell.KeyLeft:
+		u.cycle(-1, false)
+		return nil
+	case tcell.KeyEscape:
+		if u.filter.GetText() != "" {
+			u.filter.SetText("")
+			u.middle.ResizeItem(u.filter, 0, 0)
+			return nil
+		}
+		return ev
+	case tcell.KeyRune:
+	default:
+		return ev
+	}
+	if ev.Modifiers()&(tcell.ModAlt|tcell.ModCtrl) != 0 {
+		return ev
+	}
+	switch ev.Rune() {
+	case '?':
+		u.showHelp()
+	case '/':
+		u.middle.ResizeItem(u.filter, 1, 0)
+		u.app.SetFocus(u.filter)
+	case 'c':
+		u.copySecret()
+	case 'u':
+		u.copyUsername()
+	case 'o':
+		u.copyCode()
+	case 'r':
+		u.toggleReveal()
+	case 'e':
+		u.editItem()
+	case 'n':
+		u.newItem(nil)
+	case 'd':
+		u.deleteItem()
+	case 'm':
+		u.renameItem()
+	case 'h':
+		u.showHistory()
+	case 'g':
+		u.showGenerator(nil)
+	case 'l':
+		u.lockVault(false)
+	case 'L':
+		u.lockVault(true)
+	case 'U':
+		u.unlockVault()
+	case 'G':
+		u.showGrants()
+	case 'A':
+		u.showAudit()
+	case 'q':
+		u.quit()
+	default:
+		return ev
+	}
+	return nil
+}
+
+// cycle moves the focus between the three panes; wrap says whether it
+// goes round (Tab) or stops at the ends (arrow keys).
+func (u *UI) cycle(dir int, wrap bool) {
+	panes := []tview.Primitive{u.vaultList, u.itemList, u.detail}
+	at := 1
+	for i, p := range panes {
+		if p == u.app.GetFocus() {
+			at = i
+		}
+	}
+	at += dir
+	switch {
+	case wrap:
+		at = (at + len(panes)) % len(panes)
+	case at < 0, at >= len(panes):
+		return
+	}
+	u.app.SetFocus(panes[at])
+}
+
+// openPage shows p over what is there, focusing focus. Closing it gives
+// the focus back to whatever had it.
+func (u *UI) openPage(name string, p, focus tview.Primitive) {
+	if front, _ := u.pages.GetFrontPage(); front != name {
+		u.resume[front] = u.app.GetFocus()
+	}
+	u.pages.AddPage(name, p, true, true)
+	if u.pages.HasPage(pagePrompt) && name != pagePrompt {
+		// The daemon's question stays on top, and keeps the keyboard.
+		u.pages.SendToFront(pagePrompt)
+		if front, _ := u.pages.GetFrontPage(); front == pagePrompt {
+			u.resume[name] = focus
+			return
+		}
+	}
+	u.app.SetFocus(focus)
+}
+
+// closePage removes a page, and gives the focus back to what had it
+// before the page opened (if the page was the one in front).
+func (u *UI) closePage(name string) {
+	if !u.pages.HasPage(name) {
+		return
+	}
+	front, _ := u.pages.GetFrontPage()
+	cur := u.app.GetFocus()
+	u.pages.RemovePage(name)
+	delete(u.resume, name)
+	if front != name {
+		u.app.SetFocus(cur)
+		return
+	}
+	front, _ = u.pages.GetFrontPage()
+	next := u.resume[front]
+	switch {
+	case next == nil:
+		next = u.pages
+	case next == u.filter && u.filter.GetText() == "":
+		u.middle.ResizeItem(u.filter, 0, 0)
+		next = u.itemList
+	}
+	u.app.SetFocus(next)
+}
+
+// say puts a message in the status line.
+func (u *UI) say(format string, args ...any) {
+	u.message = tview.Escape(fmt.Sprintf(format, args...))
+	u.drawStatus()
+}
+
+// fail puts an error in the status line, in plain words.
+func (u *UI) fail(err error) {
+	u.message = "[red]" + tview.Escape(u.describe(err)) + "[-]"
+	u.drawStatus()
+}
+
+// describe turns an error from the daemon into something to tell a person.
+func (u *UI) describe(err error) string {
+	var e *svrpc.Error
+	switch {
+	case u.gone, errors.Is(err, secretvault.ErrNoDaemon):
+		return "secretvaultd is not answering."
+	case errors.Is(err, svrpc.ErrCanceled):
+		return "Canceled."
+	case errors.Is(err, svrpc.ErrWrongKey):
+		return "That passphrase does not open this vault."
+	case errors.Is(err, svrpc.ErrDenied):
+		return sentence(err.Error())
+	case errors.Is(err, svrpc.ErrLocked):
+		return "The vault is locked; U unlocks it."
+	case errors.Is(err, svrpc.ErrNoPrompter):
+		return "Nobody could be asked for permission: " + err.Error()
+	case errors.Is(err, context.DeadlineExceeded):
+		return "secretvaultd took too long to answer."
+	case errors.Is(err, context.Canceled):
+		return "Canceled."
+	case errors.As(err, &e):
+		return sentence(e.Message)
+	}
+	return sentence(err.Error())
+}
+
+// sentence capitalises s and ends it with a full stop.
+func sentence(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	r, size := utf8.DecodeRuneInString(s)
+	s = string(unicode.ToUpper(r)) + s[size:]
+	if !strings.HasSuffix(s, ".") && !strings.HasSuffix(s, "?") && !strings.HasSuffix(s, "!") {
+		s += "."
+	}
+	return s
+}
+
+func (u *UI) drawStatus() {
+	var b strings.Builder
+	switch {
+	case u.gone:
+		b.WriteString(" [red]secretvaultd went away: nothing can be shown until it is back. q quits.[-]")
+		u.status.SetText(b.String())
+		return
+	case u.vault == "":
+		b.WriteString(" [gray]no vault[-]")
+	default:
+		fmt.Fprintf(&b, " [::b]%s[::-] ", tview.Escape(u.vault))
+		switch v := u.vaultInfo(u.vault); {
+		case v == nil:
+		case v.ID == "":
+			b.WriteString("[red]missing[-]")
+		case v.Locked:
+			b.WriteString("[gray]locked[-]")
+		default:
+			b.WriteString("[green]unlocked[-]")
+			if u.listed {
+				if len(u.entries) == 1 {
+					b.WriteString(" · 1 item")
+				} else {
+					fmt.Fprintf(&b, " · %d items", len(u.entries))
+				}
+			}
+		}
+	}
+	if u.busy > 0 {
+		b.WriteString(" [yellow]…[-]")
+	}
+	if u.message != "" {
+		b.WriteString("  │ " + u.message)
+	}
+	u.status.SetText(b.String())
+}
+
+// showText puts a scrollable text panel up until Escape.
+func (u *UI) showText(title, body string) {
+	view := tview.NewTextView().SetDynamicColors(true).SetScrollable(true).SetWrap(true)
+	view.SetText(body)
+	view.SetBorder(true).SetTitle(" " + title + " — Esc closes ")
+	view.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
+		if ev.Key() == tcell.KeyEscape || ev.Rune() == 'q' || ev.Rune() == '?' {
+			u.closePage(pagePanel)
+			return nil
+		}
+		return ev
+	})
+	u.openPage(pagePanel, view, view)
+}
+
+func (u *UI) showHelp() {
+	u.showText("Keys", strings.TrimSpace(`
+[::b]Moving around[::-]
+  Tab, Shift+Tab, ← →    move between the vaults, the items and the open item
+  ↑ ↓ PgUp PgDn          move in a list
+  Enter                  open the vault or the item under the cursor
+  /                      filter the items as you type (Esc clears it)
+
+[::b]The item[::-]  (the one under the cursor in the list, else the open one)
+  c                      copy its secret, or the field selected in the item
+  u                      copy its username
+  o                      copy its current one-time code
+  r                      reveal or hide its concealed values
+  e                      edit it                 n    make a new item
+  d                      delete it (asks first)  m    rename it
+  h                      its history: every revision, each viewable
+  g                      the password generator
+
+[::b]Vaults[::-]
+  l                      lock this vault         L    lock every vault
+  U                      unlock the vault (asks for its passphrase)
+  G                      grants: what programs may do, and revoking them
+  A                      the audit log: who accessed what
+
+  ?                      this help               q    quit
+
+[::b]In the editor[::-]
+  Tab, Shift+Tab         move between fields     Ctrl+S  save
+  Ctrl+R                 show or hide secrets    Ctrl+G  generate a password
+  Esc                    close without saving
+
+Copies clear themselves from the clipboard after 30 seconds. Secrets are
+wiped from this program's memory when you leave the item, when the vault
+locks, and when you quit.`))
+}

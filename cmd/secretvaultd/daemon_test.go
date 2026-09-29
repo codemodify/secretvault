@@ -15,7 +15,8 @@ func TestTheDaemonLinksNoUserInterface(t *testing.T) {
 		t.Skipf("go list: %v", err)
 	}
 	for _, dep := range strings.Fields(string(out)) {
-		for _, banned := range []string{"github.com/codemodify/uitoolkit", "github.com/codemodify/paintengine2d", "golang.org/x/term"} {
+		for _, banned := range []string{"github.com/codemodify/uitoolkit", "github.com/codemodify/paintengine2d", "golang.org/x/term",
+			"github.com/rivo/tview", "github.com/gdamore/tcell"} {
 			if strings.HasPrefix(dep, banned) {
 				t.Errorf("secretvaultd depends on %s", dep)
 			}

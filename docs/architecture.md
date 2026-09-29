@@ -94,8 +94,9 @@ Clients speak JSON-RPC 2.0, one object per line, as comms-mail and
 comms-chat-lan do ([`svrpc`](../svrpc)). Methods are `noun.verb`, for example
 `vault.unlock`, `item.get` and `grant.revoke`.
 
-- **Both directions.** The daemon calls back into secretvault's own CLI
-  (`prompt.ask`) to prompt on its terminal.
+- **Both directions.** The daemon calls back into secretvault's own
+  terminal programs, the CLI and `secretvault-tui` (`prompt.ask`), to
+  prompt on their terminal.
 - **Events.** Events are notifications without an id, for example
   `vault.locked` and `item.changed`.
 
@@ -146,7 +147,7 @@ cases:
 secretvault's own CLI on a terminal is a special case. It is known by its
 **terminal session** (terminal device, session ID and the session leader's
 start time), so "allowed until the vault locks" covers that terminal, not
-every copy of the CLI.
+every copy of the CLI. `secretvault-tui` is treated the same way.
 
 ### What is decided
 
@@ -177,9 +178,9 @@ The manager (and `secretvault audit`) shows the log, and offers "revoke"
 next to each grant.
 
 **Who may be asked for a passphrase.** Only secretvault's own programs: the
-CLI on its terminal and the prompt programs. Any other program asked to
-collect a passphrase would learn it, so programs never get one; the person is
-asked by the desktop prompt instead.
+CLI and `secretvault-tui` on their terminal, and the prompt programs. Any
+other program asked to collect a passphrase would learn it, so programs
+never get one; the person is asked by the desktop prompt instead.
 
 **How the CLI proves itself.** The CLI proves it is the person by taking the
 vault's passphrase on its terminal, as sudo does. A "y" typed into a terminal
@@ -192,8 +193,8 @@ and operation, and why, when the program gives a reason.
 
 The daemon chooses a prompter in this order:
 
-1. The terminal of the CLI that made the request (for its own requests
-   only).
+1. The terminal of the CLI (or `secretvault-tui`) that made the request,
+   for its own requests only. The TUI asks in a dialog drawn inside it.
 2. A registered `secretvault-tui-prompt --agent`.
 3. The desktop prompt. Until `secretvault-gui-prompt` exists, this is the
    system's pinentry: pinentry-gnome3 on GNOME-like desktops, else
