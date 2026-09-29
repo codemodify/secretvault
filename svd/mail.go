@@ -3,10 +3,12 @@ package svd
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/mail"
 	"strings"
 
 	"github.com/codemodify/secretvault/svbroker"
@@ -26,6 +28,7 @@ import (
 
 func init() {
 	registerMethod(svrpc.MMailInspect, trustErrors((*Daemon).mailInspect))
+	registerMethod(svrpc.MMailCompose, trustErrors((*Daemon).mailCompose))
 }
 
 // mailKeys gives svmail the keys the daemon holds: contacts' keys to
@@ -157,9 +160,26 @@ func (k *mailKeys) DecryptPGP(req *svmail.PGPDecryptRequest) (*svpgp.Message, er
 func (k *mailKeys) SMIMERoots() ([]*x509.Certificate, error)         { return k.roots, nil }
 func (k *mailKeys) SMIMEIntermediates() ([]*x509.Certificate, error) { return k.inter, nil }
 
-// SMIMEContentKey: S/MIME keys of your own are not kept in the daemon yet.
+// SMIMEContentKey unwraps the content key with your S/MIME key for r,
+// asked about as decrypting with it.
 func (k *mailKeys) SMIMEContentKey(r *svcms.Recipient) ([]byte, error) {
-	return nil, fmt.Errorf("%w: secretvault holds no S/MIME key of yours yet", svcms.ErrNotRecipient)
+	if !k.decrypt {
+		return nil, fmt.Errorf("%w: %v", svcms.ErrNotRecipient, errNotAsked)
+	}
+	_, it, err := k.d.smimeKey(k.ctx, k.cl, k.vault, svbroker.OpDecrypt, smimeRecipient(r))
+	if err != nil {
+		return nil, err
+	}
+	defer it.e.Item.Wipe()
+	key, err := it.privateKey()
+	if err != nil {
+		return nil, err
+	}
+	dec, err := svcms.KeyDecrypter(it.cert, key)
+	if err != nil {
+		return nil, err
+	}
+	return dec.ContentKey(r)
 }
 
 func (d *Daemon) mailInspect(ctx context.Context, cl *client, decode func(any) error) (any, error) {
@@ -228,4 +248,205 @@ func (d *Daemon) mailVerdicts(st *svtrust.Store, rep *svmail.Report, pol svtrust
 		}
 	}
 	return out
+}
+
+// mailCompose signs or encrypts an outgoing message with your keys and
+// your contacts'. Signing is asked about as the sign operation on your
+// key; encrypting reads the contacts. A key the trust store says may be
+// an impostor's is never encrypted to.
+func (d *Daemon) mailCompose(ctx context.Context, cl *client, decode func(any) error) (any, error) {
+	var p svrpc.MailComposeParams
+	if err := decode(&p); err != nil {
+		return nil, err
+	}
+	if !p.Sign && !p.Encrypt {
+		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "neither signing nor encrypting: nothing to do")
+	}
+	if p.Format != "" && p.Format != "openpgp" && p.Format != "smime" {
+		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "%q is not a format (openpgp, smime)", p.Format)
+	}
+	hdr, err := mail.ReadMessage(bytes.NewReader(p.Message))
+	if err != nil {
+		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "not a mail message: %v", err)
+	}
+	from, err := mail.ParseAddress(hdr.Header.Get("From"))
+	if err != nil {
+		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "the message has no usable From: %v", err)
+	}
+	var to []string
+	for _, h := range []string{"To", "Cc", "Bcc"} {
+		if v := hdr.Header.Get(h); v != "" {
+			list, err := mail.ParseAddressList(v)
+			if err != nil {
+				return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "%s: %v", h, err)
+			}
+			for _, a := range list {
+				to = append(to, strings.ToLower(a.Address))
+			}
+		}
+	}
+	if p.Encrypt && len(to) == 0 {
+		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "no recipients to encrypt to")
+	}
+	var st *svtrust.Store
+	if p.Encrypt {
+		if _, st, err = d.contacts(ctx, cl, p.Contacts, svbroker.OpRead); err != nil {
+			return nil, err
+		}
+	}
+	format := p.Format
+	if format == "" {
+		format = d.pickFormat(st, to, p.Encrypt)
+	}
+	opts := &svmail.ComposeOptions{ProtectHeaders: !p.NoProtectedHeaders, Time: d.opts.Now()}
+	out := svrpc.MailComposeResult{Format: format}
+	ref := p.Key
+	if ref == "" {
+		ref = from.Address
+	}
+	switch format {
+	case "openpgp":
+		var signer *svpgp.Key
+		if p.Sign {
+			_, it, err := d.pgpKey(ctx, cl, p.Vault, svbroker.OpSign, named(ref))
+			if err != nil {
+				return nil, err
+			}
+			defer it.e.Item.Wipe()
+			if signer, err = pgpSecretOf(&it.e.Item); err != nil {
+				return nil, err
+			}
+			defer signer.Close()
+			out.SignedWith = it.e.Item.Name
+		}
+		if !p.Encrypt {
+			out.Message, err = svmail.SignPGPMIME(p.Message, signer, opts)
+			break
+		}
+		var keys []*svpgp.Key
+		var missing []string
+		for _, addr := range to {
+			ks := d.recipientPGP(st, addr)
+			if len(ks) == 0 {
+				missing = append(missing, addr)
+			}
+			keys = append(keys, ks...)
+		}
+		if len(missing) > 0 {
+			return nil, svrpc.Errorf(svrpc.CodeNotFound, "no OpenPGP key to encrypt to for %s", strings.Join(missing, ", "))
+		}
+		if signer != nil {
+			keys = append(keys, signer.Public())
+		}
+		out.EncryptedTo = to
+		out.Message, err = svmail.EncryptPGPMIME(p.Message, keys, signer, opts)
+	case "smime":
+		var key crypto.Signer
+		var chain []*x509.Certificate
+		if p.Sign {
+			_, it, err := d.smimeKey(ctx, cl, p.Vault, svbroker.OpSign, smimeFor(p.Key, from.Address))
+			if err != nil {
+				return nil, err
+			}
+			defer it.e.Item.Wipe()
+			pk, err := it.privateKey()
+			if err != nil {
+				return nil, err
+			}
+			s, ok := pk.(crypto.Signer)
+			if !ok {
+				return nil, svrpc.Errorf(svrpc.CodeFailed, "%s's key cannot sign", it.e.Item.Name)
+			}
+			key, chain = s, append([]*x509.Certificate{it.cert}, it.chain...)
+			out.SignedWith = it.e.Item.Name
+		}
+		if !p.Encrypt {
+			out.Message, err = svmail.SignSMIME(p.Message, key, chain, opts)
+			break
+		}
+		var certs []*x509.Certificate
+		var missing []string
+		for _, addr := range to {
+			c := d.recipientCert(st, addr)
+			if c == nil {
+				missing = append(missing, addr)
+				continue
+			}
+			certs = append(certs, c)
+		}
+		if len(missing) > 0 {
+			return nil, svrpc.Errorf(svrpc.CodeNotFound, "no S/MIME certificate to encrypt to for %s", strings.Join(missing, ", "))
+		}
+		if len(chain) > 0 {
+			certs = append(certs, chain[0])
+		}
+		out.EncryptedTo = to
+		out.Message, err = svmail.EncryptSMIME(p.Message, certs, key, chain, opts)
+	}
+	if err != nil {
+		return nil, svrpc.Errorf(svrpc.CodeFailed, "%s", strings.TrimPrefix(err.Error(), "svmail: "))
+	}
+	return out, nil
+}
+
+// pickFormat chooses OpenPGP unless encrypting to someone who has only
+// an S/MIME certificate.
+func (d *Daemon) pickFormat(st *svtrust.Store, to []string, encrypt bool) string {
+	if !encrypt {
+		return "openpgp"
+	}
+	for _, addr := range to {
+		if len(d.recipientPGP(st, addr)) == 0 && d.recipientCert(st, addr) != nil {
+			return "smime"
+		}
+	}
+	return "openpgp"
+}
+
+// usable reports whether a contact's key may be encrypted to for addr:
+// not one the trust store says may be an impostor's.
+func (d *Daemon) usable(st *svtrust.Store, fp, addr string) bool {
+	v, err := st.Check(svtrust.Query{Fingerprint: fp, From: addr})
+	return err == nil && d.verdictView(v, svtrust.DefaultPolicy).Status != "suspicious"
+}
+
+// recipientPGP are the OpenPGP keys the contacts hold for addr.
+func (d *Daemon) recipientPGP(st *svtrust.Store, addr string) []*svpgp.Key {
+	cs, err := st.ByEmail(addr)
+	if err != nil {
+		return nil
+	}
+	var out []*svpgp.Key
+	for _, c := range cs {
+		for _, k := range c.Keys {
+			if k.Type != svtrust.OpenPGP || !d.usable(st, k.Fingerprint, addr) {
+				continue
+			}
+			if pk, err := svpgp.ReadKey(bytes.NewReader(k.Material)); err == nil && pk.Valid(d.opts.Now()) == nil {
+				out = append(out, pk)
+			}
+		}
+	}
+	return out
+}
+
+// recipientCert is the S/MIME certificate the contacts hold for addr.
+func (d *Daemon) recipientCert(st *svtrust.Store, addr string) *x509.Certificate {
+	cs, err := st.ByEmail(addr)
+	if err != nil {
+		return nil
+	}
+	now := d.opts.Now()
+	for _, c := range cs {
+		for _, k := range c.Keys {
+			if k.Type != svtrust.X509 || !d.usable(st, k.Fingerprint, addr) {
+				continue
+			}
+			cert, err := x509.ParseCertificate(k.Material)
+			if err == nil && svcms.MatchEmail(cert, addr) && now.After(cert.NotBefore) && now.Before(cert.NotAfter) {
+				return cert
+			}
+		}
+	}
+	return nil
 }

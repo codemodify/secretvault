@@ -35,3 +35,22 @@ func TestMailInspectSaysWhoSignedAndWhetherYouKnowThem(t *testing.T) {
 		t.Fatalf("--json:\n%s", out)
 	}
 }
+
+func TestComposeSignsWithYourKeyAndInspectFindsItValid(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok("", h.with("pgp", "new", "--name", "Me", "--email", "me@example.org")...)
+	pub := h.ok("", h.with("pgp", "pub")...)
+	h.ok("", h.with("contact", "add", h.write("me.asc", pub))...)
+
+	msg := "From: Me <me@example.org>\r\nTo: you@example.org\r\nSubject: hi\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello.\r\n"
+	signedFile := h.dir + "/signed.eml"
+	h.ok("", h.with("mail", "compose", h.write("out.eml", msg), "--sign", "-o", signedFile)...)
+	out := h.ok("", h.with("mail", "inspect", signedFile)...)
+	if !strings.Contains(out, "signature: valid") || !strings.Contains(out, "Hello.") {
+		t.Fatalf("inspecting what compose signed:\n%s", out)
+	}
+	if _, errs, code := h.run("", h.with("mail", "compose", h.write("again.eml", msg), "--encrypt")...); code == 0 || !strings.Contains(errs, "you@example.org") {
+		t.Fatalf("encrypting to someone with no key: %d %s", code, errs)
+	}
+}

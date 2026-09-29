@@ -178,6 +178,8 @@ verified
   Signed by Alice Example's key, which you verified in person on 2026-09-01.
 $ bin/secretvault pgp sign --clear notes.txt  # the key signs inside the daemon
 $ bin/secretvault mail inspect message.eml --decrypt   # who signed it, judged against your contacts; its text
+$ bin/secretvault mail compose reply.eml --sign --encrypt -o out.eml   # your key signs; their keys encrypt
+$ bin/secretvault smime import me.p12       # your S/MIME key, kept in the vault, used in the daemon
 ```
 
 - **Verification levels**, strongest first: in person (fingerprint or QR

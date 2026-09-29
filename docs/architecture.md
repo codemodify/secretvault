@@ -609,6 +609,10 @@ as it is, or replaces it from a file read straight into bytes.
     verified, unverified, suspicious or unknown. `pgp.sign`,
     `pgp.decrypt` and `pgp.verify` use your OpenPGP keys and your
     contacts, each through the consent broker. `encrypt-to` is to come.
+  - **Outgoing:** `mail.compose(plain message)` signs with your key for
+    From and encrypts to every recipient's key and yours, in OpenPGP or
+    S/MIME; your S/MIME key and certificate are imported from PKCS #12
+    (`smime.import`) and used only inside the daemon.
   - **Whole messages:** `mail.inspect(raw message)` recognises PGP/MIME,
     inline PGP and S/MIME (signed, encrypted, both, nested). It returns the
     decrypted body, with consent, and a verdict per signature, so a mail

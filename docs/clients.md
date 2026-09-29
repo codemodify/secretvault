@@ -121,6 +121,15 @@ res, err := c.InspectMail(ctx, svrpc.MailInspectParams{Message: raw, Decrypt: tr
 // res.Verdicts: for each signature (layer, index), the verdict on its signer.
 ```
 
+To send, hand over the plain message and let secretvault sign it with the
+person's key for its From address, and encrypt it to every recipient's key
+(OpenPGP, or S/MIME where a recipient has only a certificate):
+
+```go
+out, err := c.ComposeMail(ctx, svrpc.MailComposeParams{Message: plain, Sign: true, Encrypt: true})
+// out.Message is ready to send; out.Format, out.SignedWith, out.EncryptedTo say how.
+```
+
 The methods and their shapes are in [`svrpc/trust.go`](../svrpc/trust.go) and
 [`svrpc/mail.go`](../svrpc/mail.go).
 

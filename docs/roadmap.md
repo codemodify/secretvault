@@ -283,8 +283,14 @@ the token.
   every signer; with `decrypt`, what is encrypted to your OpenPGP keys is
   decrypted in the daemon, asked about as decrypting (`secretvault mail
   inspect`).
-- **Still to do:** outgoing mail through the daemon (signing and
-  encrypting with your keys), S/MIME keys of your own, the LDAP directory,
+- **Outgoing mail and your S/MIME keys are built:** `mail.compose` signs
+  with your key for the From address (OpenPGP or S/MIME, asked about as
+  signing) and encrypts to every recipient's key from your contacts and to
+  your own, never to a key the trust store says may be an impostor's;
+  `smime.import` keeps a PKCS #12 key and certificate in the vault, which
+  then decrypts S/MIME mail in `mail.inspect` (`secretvault mail compose`,
+  `secretvault smime import|ls`).
+- **Still to do:** the LDAP directory,
   transparency logs, `encrypt-to`, the gpg-agent face, the OS certificate
   stores, and the token split.
 

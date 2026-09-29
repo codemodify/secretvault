@@ -122,3 +122,22 @@ func (c *Client) InspectMail(ctx context.Context, p svrpc.MailInspectParams) (ou
 	err = c.conn.Call(ctx, svrpc.MMailInspect, p, &out)
 	return
 }
+
+// ImportSMIME imports your S/MIME key and certificate from a PKCS #12 file.
+func (c *Client) ImportSMIME(ctx context.Context, p svrpc.SMIMEImportParams) (out svrpc.SMIMEKey, err error) {
+	err = c.conn.Call(ctx, svrpc.MSMIMEImport, p, &out)
+	return
+}
+
+// SMIMEKeys lists your S/MIME keys, without their private keys.
+func (c *Client) SMIMEKeys(ctx context.Context, vault string) (out []svrpc.SMIMEKey, err error) {
+	err = c.conn.Call(ctx, svrpc.MSMIMEList, svrpc.VaultRef{Vault: vault}, &out)
+	return
+}
+
+// ComposeMail signs or encrypts an outgoing message with your keys and
+// your contacts' keys.
+func (c *Client) ComposeMail(ctx context.Context, p svrpc.MailComposeParams) (out svrpc.MailComposeResult, err error) {
+	err = c.conn.Call(ctx, svrpc.MMailCompose, p, &out)
+	return
+}
