@@ -319,8 +319,13 @@ func cxfCredential(d *draft, t string, c cxfCred) {
 				}
 			}
 			typ := cxfToType(f.FieldType)
-			if typ == svcore.FieldText && strings.EqualFold(name, fOTP) && strings.HasPrefix(f.Value, "otpauth://") {
-				typ = svcore.FieldOTP
+			if strings.HasPrefix(f.Value, "otpauth://") {
+				// A key CXF's totp cannot hold (HOTP, Steam), as ExportCXF
+				// writes it.
+				if uri, err := otpURI(f.Value, "", ""); err == nil {
+					d.set(name, svcore.FieldOTP, uri)
+					continue
+				}
 			}
 			d.set(name, typ, f.Value)
 		}

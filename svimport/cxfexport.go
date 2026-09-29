@@ -146,9 +146,15 @@ func cxfExportItem(it *svrpc.Item) cxfItem {
 	if it.Kind == kIdentity {
 		add(map[string]any{"type": "person-name", "title": take("title", "string"), "given": take("first_name", "string"),
 			"given2": take("middle_name", "string"), "surname": take("last_name", "string")})
+		// Free text, unless it is a code: CXF's country-code and
+		// subdivision-code types promise ISO 3166 codes.
+		country := take("country", "string")
+		if country != nil && len(country.Value) == 2 && strings.Trim(strings.ToUpper(country.Value), "ABCDEFGHIJKLMNOPQRSTUVWXYZ") == "" {
+			country.FieldType, country.Value = "country-code", strings.ToUpper(country.Value)
+		}
 		add(map[string]any{"type": "address", "streetAddress": take("address", "string"), "city": take("city", "string"),
-			"territory": take("state", "subdivision-code"), "postalCode": take("postal_code", "string"),
-			"country": take("country", "country-code"), "tel": take("phone", "string")})
+			"territory": take("state", "string"), "postalCode": take("postal_code", "string"),
+			"country": country, "tel": take("phone", "string")})
 		add(map[string]any{"type": "passport", "passportNumber": take("passport_number", "string")})
 		add(map[string]any{"type": "drivers-license", "licenseNumber": take("license_number", "string")})
 		add(map[string]any{"type": "identity-document", "identificationNumber": take("ssn", "string")})

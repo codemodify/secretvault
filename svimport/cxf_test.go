@@ -154,6 +154,12 @@ func TestCXFExportsRoundTrip(t *testing.T) {
 			}
 		}
 	}
+	if got := back["otp/Bank (ada)"]["otp"]; !strings.HasPrefix(got, "otp otpauth://hotp/") {
+		t.Errorf("an HOTP key, which CXF's totp cannot hold, came back as %q", got)
+	}
+	if got := back["web/github.com"]["otp"]; !strings.HasPrefix(got, "otp otpauth://totp/") {
+		t.Errorf("a TOTP key came back as %q", got)
+	}
 	if got := back["odd/raw"]["blob"]; got != "binary "+string([]byte{0, 1, 2, 0xff, 0xfe}) {
 		t.Errorf("a binary field came back as %q", got)
 	}
