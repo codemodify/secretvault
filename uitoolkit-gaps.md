@@ -8,7 +8,7 @@ maintainers.
 - `secretvault-gui`, the manager, needed items 1, 2 and 7–11. It is built,
   on items 1–4, 6, 7 and 9, and on the folder-picking file dialog and the
   virtualised tables below. It works around item 8.
-- Items 12–17 are new, found while building the prompt, and items 18–22
+- Items 12–17 are new, found while building the prompt, and items 18–23
   while building the manager. None blocks either; each says what the
   program does in the meantime.
 
@@ -36,9 +36,10 @@ maintainers.
 | 20 | Dialogs that stack | Open (new) |
 | 21 | A wrapping label's height in a column | Open (new; a bug) |
 | 22 | Clicking something scrolled out of view, in a test | Open (new) |
+| 23 | Knowing that the tray icon is shown | Open (new) |
 
 The first findings come from reading uitoolkit's source at v0.20.x (file
-references are to that tree); 12–22 come from building on it after v0.21.0.
+references are to that tree); 12–23 come from building on it after v0.21.0.
 Each item says where the gap is, proposes an API in uitoolkit's own style,
 and gives a "done when" check. The names are suggestions; the behaviour is
 the requirement.
@@ -463,6 +464,24 @@ symbols in text; item names are the user's, and can still hold emoji.
 - **Proposal.** `ClickComponent` reveals the component first, as a person
   scrolls to what they are about to click, and `FocusOn` likewise.
 - **Done when:** `ClickComponent` on a button below the fold presses it.
+
+### 23. Knowing that the tray icon is shown
+
+- **Today** (`platform/status_linux.go`, `Alive`). A Linux status item is
+  alive whenever it has a session bus, which is as true of a GNOME that
+  shows no tray icons (no AppIndicator extension) as of a KDE that does. An
+  application that hides its window in the tray when it is closed, as the
+  manager does, would lose the window there.
+- **Workaround.** The manager asks the session's
+  `org.kde.StatusNotifierWatcher` itself whether
+  `IsStatusNotifierHostRegistered`, over secretvault's own D-Bus code, and
+  quits on close when no host is.
+- **Proposal.** `StatusItem.Shown() bool`: true when a host displays the
+  item (the watcher's host flag on Linux; the notification area on
+  Windows; the menu bar on macOS), and an `OnShownChange` for a host that
+  comes or goes.
+- **Done when:** on GNOME without the extension `Shown` is false, and
+  turning the extension on makes it true without a restart.
 
 ---
 

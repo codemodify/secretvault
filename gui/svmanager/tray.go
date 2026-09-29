@@ -1,9 +1,12 @@
 package svmanager
 
 import (
+	"context"
 	"math"
+	"time"
 
 	"github.com/codemodify/paintengine2d"
+	"github.com/codemodify/secretvault/svdbus"
 	"github.com/codemodify/uitoolkit/platform"
 )
 
@@ -37,9 +40,48 @@ func (m *Manager) trayMenu() []platform.StatusMenuItem {
 	}
 }
 
-// hasTray reports whether there is a tray to hide the window in.
+// hasTray reports whether there is a tray to hide the window in, and to
+// bring it back from.
 func (m *Manager) hasTray() bool {
-	return m.tray != nil && m.tray.Alive() && m.tray.Backend() != "stub"
+	if m.tray == nil || !m.tray.Alive() {
+		return false
+	}
+	switch m.tray.Backend() {
+	case "stub":
+		return false
+	case "sni":
+		// On Linux uitoolkit's status item is alive wherever there is a
+		// session bus, which is as true of a GNOME that shows no tray
+		// icons as of a KDE that does; there, hiding the window in the
+		// tray would lose it. The tray's own registry says whether any
+		// host shows the icons.
+		return sniHostRegistered()
+	}
+	return true
+}
+
+// sniHostRegistered asks the session's StatusNotifierWatcher whether a
+// host that shows status items has registered with it, over secretvault's
+// own D-Bus code.
+func sniHostRegistered() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	addr, err := svdbus.SessionBusAddress()
+	if err != nil {
+		return false
+	}
+	conn, err := svdbus.ConnectContext(ctx, addr)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	v, err := conn.GetProperty(ctx, "org.kde.StatusNotifierWatcher", "/StatusNotifierWatcher",
+		"org.kde.StatusNotifierWatcher", "IsStatusNotifierHostRegistered")
+	if err != nil {
+		return false
+	}
+	on, _ := v.Value.(bool)
+	return on
 }
 
 // closeRequested is the window's close button: to the tray if there is

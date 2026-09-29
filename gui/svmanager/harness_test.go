@@ -33,18 +33,22 @@ import (
 // takes the copies), no tray (uitoolkit's fake), and a daemon of their own
 // on a temporary socket, with a temporary home.
 func TestMain(m *testing.M) {
-	for _, k := range []string{"DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "AT_SPI_BUS_ADDRESS",
+	for _, k := range []string{"DISPLAY", "WAYLAND_DISPLAY", "AT_SPI_BUS_ADDRESS", "DBUS_SYSTEM_BUS_ADDRESS",
 		"SECRETVAULT_SOCK", "SECRETVAULT_HOME", "UITK_THEME", "UITK_NATIVE_DIALOGS"} {
 		os.Unsetenv(k)
 	}
-	cfg, err := os.MkdirTemp("", "svgui-config")
+	dir, err := os.MkdirTemp("", "svgui-env")
 	if err != nil {
 		panic(err)
 	}
-	os.Setenv("XDG_CONFIG_HOME", cfg)
+	// Every bus address leads nowhere, and so does the runtime directory
+	// a client falls back to for one ($XDG_RUNTIME_DIR/bus).
+	os.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/svgui-test")
+	os.Setenv("XDG_RUNTIME_DIR", filepath.Join(dir, "run"))
+	os.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
 	os.Setenv("UITK_TRAY", "fake")
 	code := m.Run()
-	os.RemoveAll(cfg)
+	os.RemoveAll(dir)
 	os.Exit(code)
 }
 
