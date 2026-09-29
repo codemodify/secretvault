@@ -1,6 +1,7 @@
 package svcrypto
 
 import (
+	"crypto/ecdh"
 	"crypto/hpke"
 	"encoding/binary"
 	"errors"
@@ -124,4 +125,63 @@ func (id *Identity) Open(sealed, info []byte) ([]byte, error) {
 		return nil, ErrOpen
 	}
 	return pt, nil
+}
+
+// Log keys seal append-only records (the audit log) that must be
+// writable while a vault is locked and readable only once it is unlocked:
+// the public half is kept in the clear, the private half is re-derived
+// from the vault key when needed. They use a classical KEM (X25519, or
+// P-256 in sv1-nist): a log entry costs tens of bytes of key material
+// instead of the hybrid's 1,120, and what it protects (which program read
+// which item, when) is not the kind of secret that must outlive a future
+// quantum computer.
+func (s Suite) logKEM() (hpke.KEM, error) {
+	switch s {
+	case Modern:
+		return hpke.DHKEM(ecdh.X25519()), nil
+	case NIST:
+		return hpke.DHKEM(ecdh.P256()), nil
+	}
+	return nil, ErrSuite
+}
+
+// DeriveLogKey derives a log key pair deterministically from seed (at
+// least 32 bytes of secret keying material).
+func (s Suite) DeriveLogKey(seed []byte) (*Identity, error) {
+	kem, err := s.logKEM()
+	if err != nil {
+		return nil, err
+	}
+	priv, err := kem.DeriveKeyPair(seed)
+	if err != nil {
+		return nil, err
+	}
+	return &Identity{suite: s, priv: priv}, nil
+}
+
+// SealToLog is SealTo for a log key's public half.
+func (s Suite) SealToLog(pub, plaintext, info []byte) ([]byte, error) {
+	kem, err := s.logKEM()
+	if err != nil {
+		return nil, err
+	}
+	_, kdf, aead, err := s.hpke()
+	if err != nil {
+		return nil, err
+	}
+	pk, err := kem.NewPublicKey(pub)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrRecipient, err)
+	}
+	enc, sender, err := hpke.NewSender(pk, kdf, aead, info)
+	if err != nil {
+		return nil, err
+	}
+	ct, err := sender.Seal(nil, plaintext)
+	if err != nil {
+		return nil, err
+	}
+	out := binary.BigEndian.AppendUint16(make([]byte, 0, 2+len(enc)+len(ct)), uint16(len(enc)))
+	out = append(out, enc...)
+	return append(out, ct...), nil
 }

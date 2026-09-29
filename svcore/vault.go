@@ -168,9 +168,31 @@ func (v *Vault) UnlockedBy() svformat.ID {
 // Unlock opens the vault with a key, trying every keyslot of the key's type.
 // An unlocked vault is re-unlocked (the key is still checked).
 func (v *Vault) Unlock(k Key) error {
-	slots, err := v.slots()
+	master, slot, err := v.findMaster(k)
 	if err != nil {
 		return err
+	}
+	v.mu.Lock()
+	v.setOpen(master)
+	v.unlockedBy = slot
+	v.mu.Unlock()
+	return v.Refresh()
+}
+
+// CheckKey reports whether k opens the vault, without changing whether
+// it is locked: for asking someone to prove they hold a key.
+func (v *Vault) CheckKey(k Key) error {
+	master, _, err := v.findMaster(k)
+	clear(master)
+	return err
+}
+
+// findMaster recovers the master key with k from the first keyslot that
+// takes it.
+func (v *Vault) findMaster(k Key) ([]byte, svformat.ID, error) {
+	slots, err := v.slots()
+	if err != nil {
+		return nil, svformat.ID{}, err
 	}
 	for _, s := range slots {
 		if s.Type != k.slotType() || s.Epoch != v.epoch() {
@@ -186,13 +208,9 @@ func (v *Vault) Unlock(k Key) error {
 			clear(master)
 			continue
 		}
-		v.mu.Lock()
-		v.setOpen(master)
-		v.unlockedBy = s.ID
-		v.mu.Unlock()
-		return v.Refresh()
+		return master, s.ID, nil
 	}
-	return ErrWrongKey
+	return nil, svformat.ID{}, ErrWrongKey
 }
 
 // setOpen installs the master key (and zeroes the caller's copy).
@@ -294,4 +312,16 @@ func (k identityKey) open(v *Vault, s *svformat.Slot) ([]byte, error) {
 		return nil, ErrWrongKey
 	}
 	return k.id.Open(s.Wrapped, s.AAD())
+}
+
+// DeriveKey derives a key for a purpose outside the vault format itself
+// (the daemon's audit log, say) from the vault master key. Each label
+// gives an independent key; none equals a key the format uses.
+func (v *Vault) DeriveKey(label string, n int) ([]byte, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.master == nil {
+		return nil, ErrLocked
+	}
+	return svcrypto.Derive(v.master.Bytes(), v.desc.ID[:], "app "+label, n), nil
 }

@@ -7,3 +7,5 @@ func allocProtected(int) ([]byte, bool, bool) { return nil, false, false }
 func freeProtected([]byte, bool) {}
 
 func hardenProcess() error { return nil }
+
+func noCoreDumps() error { return nil }

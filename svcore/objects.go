@@ -52,9 +52,20 @@ var ErrChecksum = errors.New("svcore: revision contents do not match its name")
 type revision struct {
 	id      svformat.RevID
 	hdr     svformat.RevisionHeader
+	kind    string // the payload type: "item", or a record kind
 	deleted bool
-	other   bool  // a record type this version does not know
-	item    *Item // decrypted; kept only while the revision is a head
+	item    *Item  // decrypted item; kept only while the revision is a head
+	record  []byte // decrypted record body (JSON); kept only while a head
+}
+
+// forget wipes and drops what was decrypted.
+func (r *revision) forget() {
+	if r.item != nil {
+		r.item.Wipe()
+		r.item = nil
+	}
+	clear(r.record)
+	r.record = nil
 }
 
 type object struct {
@@ -83,10 +94,7 @@ func newIndex() *index {
 func (x *index) wipe() {
 	for _, o := range x.objects {
 		for _, r := range o.revs {
-			if r.item != nil {
-				r.item.Wipe()
-				r.item = nil
-			}
+			r.forget()
 		}
 	}
 	x.objects = nil
@@ -113,10 +121,7 @@ func (o *object) computeHeads() {
 	o.heads = o.heads[:0]
 	for id, r := range o.revs {
 		if parent[id] {
-			if r.item != nil {
-				r.item.Wipe()
-				r.item = nil
-			}
+			r.forget()
 			continue
 		}
 		o.heads = append(o.heads, r)
@@ -132,7 +137,7 @@ func (o *object) computeHeads() {
 
 // live reports whether the object is an item that exists now.
 func (o *object) live() bool {
-	return len(o.heads) > 0 && !o.heads[0].deleted && !o.heads[0].other && o.heads[0].item != nil
+	return len(o.heads) > 0 && o.heads[0].kind == payloadItem && !o.heads[0].deleted && o.heads[0].item != nil
 }
 
 func (o *object) entry() Entry {
@@ -251,9 +256,9 @@ func (v *Vault) loadRevision(name string, obj svformat.ID, rid svformat.RevID) (
 		return nil, err
 	}
 	if p.Type != payloadItem {
-		return &revision{id: rid, hdr: hdr, other: true}, nil
+		return &revision{id: rid, hdr: hdr, kind: p.Type, deleted: p.Deleted, record: []byte(p.Record)}, nil
 	}
-	return &revision{id: rid, hdr: hdr, deleted: p.Deleted, item: p.Item}, nil
+	return &revision{id: rid, hdr: hdr, kind: payloadItem, deleted: p.Deleted, item: p.Item}, nil
 }
 
 // write seals and stores a new revision of obj with the given parents, and
@@ -291,10 +296,13 @@ func (v *Vault) write(obj svformat.ID, parents []*revision, p payload) (Entry, e
 	if err != nil {
 		return Entry{}, err
 	}
-	r := &revision{id: rid, hdr: parsed, deleted: p.Deleted}
+	r := &revision{id: rid, hdr: parsed, kind: p.Type, deleted: p.Deleted}
 	if p.Item != nil {
 		it := p.Item.clone()
 		r.item = &it
+	}
+	if p.Record != nil {
+		r.record = bytes.Clone(p.Record)
 	}
 	v.idx.seen[name] = true
 	o := v.idx.object(obj)

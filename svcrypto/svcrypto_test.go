@@ -354,3 +354,31 @@ func TestSecretFromZeroesItsSource(t *testing.T) {
 		t.Error("secret lost its contents")
 	}
 }
+
+func TestLogKeysAreDerivedAndSmall(t *testing.T) {
+	for _, s := range suites {
+		seed := RandomKey()
+		a, err := s.DeriveLogKey(seed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := s.DeriveLogKey(seed)
+		if !bytes.Equal(a.Recipient(), b.Recipient()) {
+			t.Fatalf("%v: the same seed gave two log keys", s)
+		}
+		sealed, err := s.SealToLog(a.Recipient(), []byte("entry"), []byte("log"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(sealed) > 128 {
+			t.Errorf("%v: a 5-byte log entry sealed to %d bytes", s, len(sealed))
+		}
+		if got, err := b.Open(sealed, []byte("log")); err != nil || string(got) != "entry" {
+			t.Fatalf("%v: %q, %v", s, got, err)
+		}
+		other, _ := s.DeriveLogKey(RandomKey())
+		if _, err := other.Open(sealed, []byte("log")); err == nil {
+			t.Fatalf("%v: another log key opened it", s)
+		}
+	}
+}

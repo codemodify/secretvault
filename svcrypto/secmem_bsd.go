@@ -6,4 +6,6 @@ import "golang.org/x/sys/unix"
 
 func excludeFromDumps([]byte) {}
 
-func hardenProcess() error { return unix.Setrlimit(unix.RLIMIT_CORE, &unix.Rlimit{}) }
+func hardenProcess() error { return noCoreDumps() }
+
+func noCoreDumps() error { return unix.Setrlimit(unix.RLIMIT_CORE, &unix.Rlimit{}) }

@@ -33,3 +33,5 @@ func freeProtected(region []byte, locked bool) {
 // Windows writes no core dumps by default; Windows Error Reporting's local
 // dumps are opt-in machine policy, outside a process's control.
 func hardenProcess() error { return nil }
+
+func noCoreDumps() error { return nil }

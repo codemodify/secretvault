@@ -180,9 +180,10 @@ func (it *Item) check() error {
 
 // payload is the plaintext of a revision.
 type payload struct {
-	Type    string `json:"type"` // "item"; other types are skipped (decodePayload)
-	Deleted bool   `json:"deleted,omitempty"`
-	Item    *Item  `json:"item,omitempty"`
+	Type    string          `json:"type"` // "item", or a record kind (records.go)
+	Deleted bool            `json:"deleted,omitempty"`
+	Item    *Item           `json:"item,omitempty"`
+	Record  json.RawMessage `json:"record,omitempty"`
 }
 
 const payloadItem = "item"
@@ -198,9 +199,9 @@ func decodePayload(b []byte) (payload, error) {
 		return p, errors.New("svcore: payload has no type")
 	}
 	if p.Type != payloadItem {
-		// A record type from a newer version (access grants, contacts, ...).
-		// It stays in the history, authenticated, and is otherwise ignored,
-		// so a vault shared with a newer version keeps working.
+		// A record (records.go), possibly of a kind from a newer version:
+		// it is kept, authenticated, and ignored by whoever does not ask
+		// for its kind, so a vault shared with a newer version keeps working.
 		return p, nil
 	}
 	if !p.Deleted {

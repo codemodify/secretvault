@@ -73,5 +73,12 @@ func (s *Secret) Destroy() {
 // HardenProcess makes the running process a worse place to find keys: no
 // core dumps, and on Linux not dumpable at all, which also stops other
 // processes of the same user attaching a debugger where Yama allows it.
-// Daemons and anything holding an unlocked vault call it first thing.
+// secretvaultd, which holds unlocked vaults, calls it first thing.
+//
+// A non-dumpable process cannot be identified by others (its /proc entry
+// becomes root's), so clients of the daemon, which must be identifiable,
+// call NoCoreDumps instead.
 func HardenProcess() error { return hardenProcess() }
+
+// NoCoreDumps stops the running process from ever writing a core file.
+func NoCoreDumps() error { return noCoreDumps() }

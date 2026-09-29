@@ -489,3 +489,67 @@ func TestRecordsFromANewerVersionAreKeptButIgnored(t *testing.T) {
 		t.Fatalf("Verify = %+v", rep)
 	}
 }
+
+func TestRecordsLiveBesideItemsWithTheirOwnHistory(t *testing.T) {
+	store := svstore.NewMem()
+	v := newVault(t, store, 0)
+	v.Put(login("site", "p"))
+	type grant struct{ App, Decision string }
+	r, err := v.PutRecord("grant", svformat.ID{}, grant{"/usr/bin/mail", "always"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.PutRecord("grant", r.ID, grant{"/usr/bin/mail", "deny"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.PutRecord("item", svformat.ID{}, 1); err == nil {
+		t.Fatal("a record of kind item was accepted")
+	}
+	if _, err := v.PutRecord("grant", svformat.NewID(), 1); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("updating a missing record: %v", err)
+	}
+
+	w, _ := Open(store, Options{})
+	w.Unlock(Passphrase(pass))
+	recs, err := w.Records("grant")
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("Records = %v, %v", recs, err)
+	}
+	var g grant
+	json.Unmarshal(recs[0].Data, &g)
+	if g.Decision != "deny" {
+		t.Fatalf("record = %+v", g)
+	}
+	if l, _ := w.List(""); len(l) != 1 {
+		t.Fatalf("records leak into List: %+v", l)
+	}
+	if other, _ := w.Records("contact"); len(other) != 0 {
+		t.Fatal("records of another kind were returned")
+	}
+	if err := w.DeleteRecord(recs[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if recs, _ := w.Records("grant"); len(recs) != 0 {
+		t.Fatal("a deleted record is still listed")
+	}
+	if err := w.DeleteRecord(recs[0].ID); err == nil {
+		t.Fatal("deleting twice succeeded")
+	}
+	if rep, _ := w.Verify(); !rep.OK() {
+		t.Fatalf("Verify: %+v", rep)
+	}
+}
+
+func TestCheckingAKeyLeavesTheVaultAsItWas(t *testing.T) {
+	v := newVault(t, svstore.NewMem(), 0)
+	v.Lock()
+	if err := v.CheckKey(Passphrase(pass)); err != nil {
+		t.Fatal(err)
+	}
+	if !v.Locked() {
+		t.Fatal("CheckKey unlocked the vault")
+	}
+	if err := v.CheckKey(Passphrase([]byte("nope"))); !errors.Is(err, ErrWrongKey) {
+		t.Fatalf("a wrong key: %v", err)
+	}
+}
