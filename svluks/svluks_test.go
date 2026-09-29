@@ -7,6 +7,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -298,6 +299,19 @@ func TestHostileHeaders(t *testing.T) {
 		"digest wants 4 billion iterations": {func(m map[string]any) {
 			obj(m, "digests", "0")["iterations"] = uint32(1<<32 - 1)
 		}, ErrHeader},
+		"digest wants 5 million iterations": {func(m map[string]any) {
+			obj(m, "digests", "0")["iterations"] = 5_000_000
+		}, ErrHeader},
+		"a long SHA-1 digest at 2 million iterations": {func(m map[string]any) {
+			d := obj(m, "digests", "0")
+			d["hash"], d["digest"], d["iterations"] = "sha1", base64.StdEncoding.EncodeToString(make([]byte, 64)), 2_000_000
+		}, ErrHeader},
+		"an offset that wraps round to the header": {func(m map[string]any) {
+			obj(m, "segments", "0")["offset"] = "18446744073692774400"
+		}, ErrHeader},
+		"a size past an exbibyte": {func(m map[string]any) {
+			obj(m, "segments", "0")["size"] = "9223372036854775808"
+		}, ErrHeader},
 		"a negative key size": {func(m map[string]any) {
 			obj(m, "keyslots", "0")["key_size"] = -64
 		}, ErrHeader},
@@ -448,6 +462,104 @@ func TestDamagedHeaders(t *testing.T) {
 	copy(d.b, "LUKS\xba\xbe\x00\x01")
 	if _, err := Read(d); !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "LUKS1") {
 		t.Fatalf("LUKS1: %v", err)
+	}
+}
+
+// A newer copy whose checksum holds but whose metadata does not parse is
+// an error: falling back to the older copy would have the next write put
+// the older state over it.
+func TestANewerCopyThatFailsIsNotSkipped(t *testing.T) {
+	dev, h, _ := newImage(t, 1<<20, Options{})
+	s := h.meta.segments[0]
+	raw, err := setMember(s.raw, "integrity", map[string]string{"type": "hmac(sha256)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := s.raw
+	s.raw = raw
+	text, _ := h.meta.marshal()
+	s.raw = old
+	b := h.bin
+	b.seqid++
+	b.salt = h.salts[0]
+	buf, err := encodeCopy(&b, magicPrimary, text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev.WriteAt(buf, 0)
+	if _, err := Read(dev); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("read the older copy instead: %v", err)
+	}
+}
+
+// failingDev fails every write after the first n.
+type failingDev struct {
+	*memDev
+	n int
+}
+
+func (f *failingDev) WriteAt(p []byte, off int64) (int, error) {
+	if f.n <= 0 {
+		return 0, errors.New("the disk is gone")
+	}
+	f.n--
+	return f.memDev.WriteAt(p, off)
+}
+
+// After a write fails half way, what is on disk is unknown: the Header
+// refuses further changes until read again, and no sequence number is
+// written twice.
+func TestAFailedWriteBreaksTheHeader(t *testing.T) {
+	dev, h, key := newImage(t, 1<<20, Options{})
+	fd := &failingDev{memDev: dev, n: 2} // the keyslot area and the primary copy
+	if _, err := h.AddKeyslot(fd, key, []byte("half written"), cheapPBKDF); err == nil {
+		t.Fatal("a failed write succeeded")
+	}
+	fd.n = 100
+	if _, err := h.AddKeyslot(fd, key, []byte("again"), cheapPBKDF); err == nil || !strings.Contains(err.Error(), "read it again") {
+		t.Fatalf("changed a broken header: %v", err)
+	}
+	h2, err := Read(dev)
+	if err != nil || h2.Seqid() != 3 || len(h2.Keyslots()) != 2 {
+		t.Fatalf("read again: %v, seqid %d", err, h2.Seqid())
+	}
+	if _, err := h2.AddKeyslot(dev, key, []byte("and now"), cheapPBKDF); err != nil || h2.Seqid() != 4 {
+		t.Fatalf("after reading again: %v, seqid %d", err, h2.Seqid())
+	}
+}
+
+// Writes and reads bigger than a chunk, at ragged offsets.
+func TestVolumeInChunks(t *testing.T) {
+	for _, ss := range []int{512, 4096} {
+		const size = 5 << 20
+		dev, h, key := newImage(t, size, Options{SectorSize: ss})
+		v, err := h.Volume(dev, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		model := make([]byte, size)
+		rand.Read(model)
+		if n, err := v.WriteAt(model, 0); n != size || err != nil {
+			t.Fatal(n, err)
+		}
+		for _, c := range [][2]int{{1, 3<<20 + 5}, {ss - 1, 2<<20 + 2}, {1<<20 - 3, 1<<20 + 7}, {size - (2<<20 + 1), 2<<20 + 1}} {
+			off, n := c[0], c[1]
+			p := make([]byte, n)
+			rand.Read(p)
+			if w, err := v.WriteAt(p, int64(off)); w != n || err != nil {
+				t.Fatal(w, err)
+			}
+			copy(model[off:], p)
+			got := make([]byte, size)
+			if r, err := v.ReadAt(got, 0); r != size || err != nil || !bytes.Equal(got, model) {
+				t.Fatalf("%d-byte sectors, %d at %d: read %d, %v", ss, n, off, r, err)
+			}
+			roff := max(off-1, 0)
+			got = got[:min(n+3, size-roff)]
+			if _, err := v.ReadAt(got, int64(roff)); err != nil || !bytes.Equal(got, model[roff:roff+len(got)]) {
+				t.Fatalf("%d-byte sectors: a ragged read at %d differs", ss, roff)
+			}
+		}
 	}
 }
 

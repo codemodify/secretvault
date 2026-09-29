@@ -53,6 +53,10 @@ const (
 	maxArgon2Work       = 64 << 20 // KiB times passes: 16 passes over 4 GiB
 	maxPBKDF2Iterations = 50_000_000
 
+	// A digest is benchmarked by cryptsetup at 125 ms, so a few million
+	// iterations at most; it is run once for every keyslot tried.
+	maxDigestIterations = 4_000_000
+
 	// What this package writes, as cryptsetup's own limits.
 	minPBKDF2Iterations = 1000
 	minArgon2Time       = 4

@@ -28,6 +28,7 @@ const (
 	maxKeyslots  = 128 << 20 // the keyslot area, as cryptsetup allows at most
 	cipherXTS    = "aes-xts-plain64"
 	maxCipherLen = 64
+	maxDataBytes = 1 << 60 // an exbibyte: data offsets and sizes past it are nonsense
 )
 
 // metadata is the parsed JSON area.
@@ -388,6 +389,11 @@ func parseSegment(id int, raw json.RawMessage) (*segment, error) {
 			return nil, headerErr("%s has size %q", what, j.Size)
 		}
 	}
+	// Offsets and sizes become int64 file positions: bounded here, so no
+	// sum of them can wrap round to before the header.
+	if s.Offset > maxDataBytes || s.Size > maxDataBytes {
+		return nil, headerErr("%s at %d, %d bytes, is beyond any device", what, s.Offset, s.Size)
+	}
 	if s.Type != "crypt" {
 		return s, nil
 	}
@@ -405,9 +411,6 @@ func parseSegment(id int, raw json.RawMessage) (*segment, error) {
 	}
 	if s.Offset%uint64(s.SectorSize) != 0 || s.Size%uint64(s.SectorSize) != 0 {
 		return nil, headerErr("%s is not aligned to its %d-byte sectors", what, s.SectorSize)
-	}
-	if s.Size != 0 && s.Offset+s.Size < s.Offset {
-		return nil, headerErr("%s runs past the end of any device", what)
 	}
 	if _, ok := obj["integrity"]; ok && string(obj["integrity"]) != "null" {
 		return nil, unsupported("%s is integrity-protected (dm-integrity), which secretvault does not do", what)
@@ -447,14 +450,17 @@ func parseDigest(id int, raw json.RawMessage) (*digest, error) {
 	if d.Type != "pbkdf2" {
 		return nil, unsupported("%s is of type %q", what, d.Type)
 	}
-	if _, err := hashNamed(d.Hash); err != nil {
+	h, err := hashNamed(d.Hash)
+	if err != nil {
 		return nil, fmt.Errorf("%s: %w", what, err)
-	}
-	if d.Iterations < 1 || d.Iterations > maxPBKDF2Iterations {
-		return nil, headerErr("%s: %d iterations", what, d.Iterations)
 	}
 	if len(d.Salt) < minSalt || len(d.Salt) > maxSalt || len(d.Digest) < 16 || len(d.Digest) > 64 {
 		return nil, headerErr("%s: a %d-byte salt and a %d-byte digest", what, len(d.Salt), len(d.Digest))
+	}
+	// The work is the iterations times the hash blocks the digest takes.
+	blocks := uint64((len(d.Digest) + h().Size() - 1) / h().Size())
+	if d.Iterations < 1 || uint64(d.Iterations)*blocks > maxDigestIterations {
+		return nil, headerErr("%s: %d iterations for a %d-byte digest", what, d.Iterations, len(d.Digest))
 	}
 	return d, nil
 }

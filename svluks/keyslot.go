@@ -210,7 +210,6 @@ func (h *Header) AddKeyslot(dev Device, key *Key, passphrase []byte, kdf KDF) (i
 	if err != nil {
 		return -1, err
 	}
-	oldDigest := d.raw
 	raw, err := setMember(d.raw, "keyslots", idStrings(append(slices.Clone(d.Keyslots), id)))
 	if err != nil {
 		return -1, err
@@ -218,9 +217,7 @@ func (h *Header) AddKeyslot(dev Device, key *Key, passphrase []byte, kdf KDF) (i
 	h.meta.keyslots[id] = ks
 	d.Keyslots, d.raw = append(d.Keyslots, id), raw
 	if err := h.write(dev); err != nil {
-		delete(h.meta.keyslots, id)
-		d.Keyslots, d.raw = d.Keyslots[:len(d.Keyslots)-1], oldDigest
-		return -1, err
+		return -1, err // the Header is broken until read again (see write)
 	}
 	return id, nil
 }
@@ -250,8 +247,9 @@ func (h *Header) ChangeKeyslot(dev Device, id int, key *Key, passphrase []byte, 
 		return err
 	}
 	h.meta.keyslots[id] = ks
+	// Should the write fail, the old area is left alone: the header on disk
+	// may still point at it (and the Header is broken until read again).
 	if err := h.write(dev); err != nil {
-		h.meta.keyslots[id] = old
 		return err
 	}
 	return wipeArea(dev, uint64(old.Area.Offset), uint64(old.Area.Size))

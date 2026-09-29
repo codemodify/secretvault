@@ -54,6 +54,10 @@ func (h *Header) Volume(dev Device, key *Key) (*Volume, error) {
 	}
 	v := &Volume{dev: dev, c: c, offset: int64(s.Offset), sectorSize: s.SectorSize, ivTweak: s.IVTweak}
 	switch {
+	case v.offset < h.MetadataSize():
+		// Read refuses such a header; this is the last word before any
+		// write could land on the header.
+		return nil, headerErr("the data would start at %d, inside the header", v.offset)
 	case devSize < v.offset:
 		return nil, fmt.Errorf("svluks: the image is %d bytes, but its data starts at %d", devSize, v.offset)
 	case s.Size == 0: // "dynamic": the rest of the device, in whole sectors
@@ -98,6 +102,7 @@ func (v *Volume) ReadAt(p []byte, off int64) (int, error) {
 	want := min(int64(len(p)), v.size-off)
 	ss := int64(v.sectorSize)
 	buf := make([]byte, min(chunkSize, (want+2*ss)/ss*ss))
+	defer clear(buf)
 	done := int64(0)
 	for done < want {
 		pos := off + done
@@ -110,7 +115,6 @@ func (v *Volume) ReadAt(p []byte, off int64) (int, error) {
 		cryptSectors(c, chunk, v.sectorSize, v.iv(start), false)
 		done += int64(copy(p[done:want], chunk[pos-start:]))
 	}
-	clear(buf)
 	if want < int64(len(p)) {
 		return int(want), io.EOF
 	}

@@ -27,30 +27,32 @@ type Header struct {
 	salts [2][saltLen]byte
 	fresh [2]bool // copy i was unreadable: a rewrite repairs it with a new salt
 	meta  *metadata
+
+	// broken is why a write failed: what is on disk is then unknown, and
+	// the header must be read again before it is changed.
+	broken error
 }
 
-// Read reads an image's header. Both copies are read and checked; the valid
-// one with the higher sequence number is used, so an image whose primary
-// header was damaged still opens from its secondary. Nothing beyond the
-// header copies is read.
+// Read reads an image's header. Both copies are read, and the newer of
+// those whose checksums hold is used, so an image whose primary header was
+// damaged still opens from its secondary. Only then is its metadata
+// parsed: a newer copy whose metadata fails is an error, never a reason to
+// fall back to an older copy, which a later write would put over what the
+// newer one recorded. Nothing beyond the header copies is read.
 func Read(r io.ReaderAt) (*Header, error) {
 	type found struct {
-		b   *binHeader
-		m   *metadata
-		err error
+		b    *binHeader
+		text []byte
+		err  error
 	}
 	var copies [2]found
-	b, text, err := readCopy(r, 0, magicPrimary)
-	if err == nil {
-		copies[0].m, err = parseMetadata(text, b.hdrSize)
-	}
-	copies[0].b, copies[0].err = b, err
+	copies[0].b, copies[0].text, copies[0].err = readCopy(r, 0, magicPrimary)
 
 	// The secondary copy is where a sound primary says; else it is looked
 	// for at each offset the specification allows.
 	offsets := hdrSizes
 	if copies[0].err == nil {
-		offsets = []uint64{b.hdrSize}
+		offsets = []uint64{copies[0].b.hdrSize}
 	}
 	copies[1].err = ErrNotLUKS
 	for _, off := range offsets {
@@ -58,10 +60,7 @@ func Read(r io.ReaderAt) (*Header, error) {
 		if errors.Is(err, ErrNotLUKS) {
 			continue
 		}
-		if err == nil {
-			copies[1].m, err = parseMetadata(text, b.hdrSize)
-		}
-		copies[1] = found{b, copies[1].m, err}
+		copies[1] = found{b, text, err}
 		break
 	}
 
@@ -81,7 +80,12 @@ func Read(r io.ReaderAt) (*Header, error) {
 	default:
 		return nil, copies[0].err
 	}
-	h := &Header{bin: *copies[use].b, meta: copies[use].m}
+	c := copies[use]
+	m, err := parseMetadata(c.text, c.b.hdrSize)
+	if err != nil {
+		return nil, err
+	}
+	h := &Header{bin: *c.b, meta: m}
 	for i := range copies {
 		if copies[i].err == nil && copies[i].b.hdrSize == h.bin.hdrSize {
 			h.salts[i] = copies[i].b.salt
@@ -139,6 +143,10 @@ type Keyslot struct {
 	KDF      KDF
 	Priority int  // 0: used only when named, 1: normal, 2: tried first
 	Bound    bool // it holds the data's volume key (not an unbound key)
+
+	// DigestIterations is the PBKDF2 count of the digest a key from this
+	// keyslot is checked against: work done for every key tried.
+	DigestIterations uint32
 }
 
 // Keyslots lists the keyslots in order.
@@ -150,6 +158,9 @@ func (h *Header) Keyslots() []Keyslot {
 		if ks.Type == "luks2" {
 			k.KDF = kdfFromJSON(ks.KDF)
 			k.Bound = dataDigest != nil && h.meta.digestOf(id) == dataDigest
+			if d := h.meta.digestOf(id); d != nil {
+				k.DigestIterations = d.Iterations
+			}
 		}
 		out = append(out, k)
 	}
@@ -157,8 +168,12 @@ func (h *Header) Keyslots() []Keyslot {
 	return out
 }
 
-// usable refuses to unlock or change a header that lists requirements.
+// usable refuses to unlock or change a header that lists requirements, or
+// one whose last write failed.
 func (h *Header) usable() error {
+	if h.broken != nil {
+		return fmt.Errorf("svluks: the header could not be written (%v); read it again before changing it", h.broken)
+	}
 	if len(h.meta.requirements) > 0 {
 		return unsupported("the header requires %v, which secretvault does not implement", h.meta.requirements)
 	}
@@ -167,11 +182,18 @@ func (h *Header) usable() error {
 
 // write writes both header copies with the next sequence number, primary
 // first: a crash between the two leaves one valid copy, which Read then
-// uses. What it writes must pass the same checks Read makes.
-func (h *Header) write(dev Device) error {
+// uses. What it writes must pass the same checks Read makes. After a
+// failure the Header is broken (see usable): what reached the disk is
+// unknown, and a sequence number is never written twice.
+func (h *Header) write(dev Device) (err error) {
 	if err := h.usable(); err != nil {
 		return err
 	}
+	defer func() {
+		if err != nil {
+			h.broken = err
+		}
+	}()
 	text, err := h.meta.marshal()
 	if err != nil {
 		return err
@@ -179,14 +201,13 @@ func (h *Header) write(dev Device) error {
 	if _, err := parseMetadata(text, h.bin.hdrSize); err != nil {
 		return fmt.Errorf("svluks: refusing to write metadata that does not check: %w", err)
 	}
-	b := h.bin
-	b.seqid++
+	h.bin.seqid++
 	for i, magic := range [][]byte{magicPrimary, magicSecondary} {
 		if h.fresh[i] {
 			rand.Read(h.salts[i][:])
 		}
-		c := b
-		c.hdrOffset = uint64(i) * b.hdrSize
+		c := h.bin
+		c.hdrOffset = uint64(i) * c.hdrSize
 		c.salt = h.salts[i]
 		buf, err := encodeCopy(&c, magic, text)
 		if err != nil {
@@ -200,7 +221,6 @@ func (h *Header) write(dev Device) error {
 		}
 		h.fresh[i] = false
 	}
-	h.bin.seqid = b.seqid
 	return nil
 }
 
