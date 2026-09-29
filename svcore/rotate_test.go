@@ -76,7 +76,7 @@ func TestRotatingCutsOffARecipientAndKeepsTheOthers(t *testing.T) {
 	}
 	store.Write(svformat.SlotName(bobSlot.ID), bobFile) // bob puts his old slot back
 	b, _ := Open(store, Options{})
-	if err := b.Unlock(IdentityKey(bob)); !errors.Is(err, ErrWrongKey) {
+	if err := b.Unlock(IdentityKey(bob)); !errors.Is(err, ErrKeyRemoved) {
 		t.Fatalf("bob after the rotation, with his old keyslot restored: %v", err)
 	}
 	// Every live revision is under the new epoch: an old key reads none of it.

@@ -176,13 +176,42 @@ written once:
   "n": 2,
   "created": "…",
   "check": "<16 bytes: CheckValue of epoch n's VMK>",
-  "prev": "<Seal(Derive(VMK_n, vault id, \"sv1 epoch prev\", 32), VMK_n-1, prev_aad)>"
+  "prev": "<Seal(Derive(VMK_n, vault id, \"sv1 epoch prev\", 32), VMK_n-1, prev_aad)>",
+  "revisions": "<the revision IDs that existed when epoch n began: 32 bytes each, ascending, no repeats>",
+  "auth": "<32 bytes: HMAC-SHA-256(Derive(VMK_n-1, vault id, \"sv1 epoch auth\", 32), auth_data)>"
 }
-prev_aad = "secretvault sv1 epoch prev" || vault id || n (4)
+prev_aad  = "secretvault sv1 epoch prev" || vault id || n (4)
+auth_data = "secretvault sv1 epoch" || TLV(
+              0x01 vault id
+              0x02 n (4)
+              0x03 created, RFC 3339 with nanoseconds, UTC
+              0x04 check
+              0x05 prev
+              0x06 SHA-256(revisions))
 ```
 
-- **Naming.** Records are named `epochs/%08d.json` and must run 2, 3, … with
-  no gap.
+- **Naming.** Records are named `epochs/%08d.json`. Only those that run 2,
+  3, … with no gap count; one past a gap, or one that does not parse, is
+  reported and ignored (it never stops the vault opening).
+- **Authenticated by the previous key.** Anyone who can write to the folder
+  can put a record there, so a record counts only if `auth` checks under
+  the previous epoch's VMK, which only someone who could open the vault
+  holds:
+  - An unlock tries the key's slots from the newest epoch down, and walks
+    the chain down from the one that opens: every `prev` must open and
+    match the older epoch's `check`, and every `auth` must check.
+  - When the key opens only an older epoch n-1, record n decides: if its
+    `auth` checks under VMK_n-1, it is a real rotation the key was left
+    out of, and the unlock fails ("this key was removed"). Otherwise the
+    record is planted: it, and every record after it, is ignored and
+    reported, and the vault opens at n-1.
+  - Rotating with a planted record in the way fails until it is removed.
+- **Revisions of earlier epochs.** Once epoch n exists, a revision sealed
+  under epoch e < n counts only if its ID is in record e+1's `revisions`.
+  Whoever was cut off at a rotation still holds the older key, and could
+  otherwise go on writing revisions every holder would accept. A device
+  that wrote under the old key before hearing of the rotation has those
+  writes refused too; they are reported, not lost from the folder.
 - **The commit point.** Writing the record is the rotation's commit point.
   Two devices rotating at once collide on its name (the store's
   create-if-absent), so the history never forks.
@@ -193,8 +222,10 @@ prev_aad = "secretvault sv1 epoch prev" || vault id || n (4)
   4. write every live item and record again under the new key.
 
   A crash at any step leaves a vault that opens.
-- **Seeing a rotation from elsewhere.** A reader that finds more epochs than
-  it had locks itself: its key is no longer current.
+- **Seeing a rotation from elsewhere.** An open reader that finds a record
+  for the next epoch locks itself if the record's `auth` checks under its
+  current VMK: its key is no longer current. A record that does not check
+  is reported and ignored.
 
 ## slots/<id>.json — keyslots
 
@@ -283,6 +314,8 @@ rev id   = SHA-256(revision)
 - **Readers refuse any revision that:**
   - names another vault, or an object other than its folder;
   - uses a suite or epoch other than the vault's;
+  - is sealed under an epoch that has ended, and is not in the next epoch
+    record's `revisions`;
   - fails its checksum or authentication.
 
   Refused revisions are skipped and reported, never trusted.

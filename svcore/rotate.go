@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/codemodify/secretvault/svcrypto"
 	"github.com/codemodify/secretvault/svformat"
@@ -23,7 +25,9 @@ import (
 // The order makes a crash harmless at any point:
 //
 //  1. the new epoch's keyslots are written (inert until the epoch exists);
-//  2. the epoch record is written: the commit point;
+//  2. the epoch record is written: the commit point. It lists every
+//     revision there is, since from then on no other revision sealed under
+//     an older key counts, and it is authenticated under the current key;
 //  3. the old epoch's keyslots are removed;
 //  4. every live item and record is written again under the new key.
 //
@@ -82,8 +86,15 @@ func (v *Vault) Rotate(slots []NewSlot, keepRecipients bool, drop func(SlotInfo)
 	if err != nil {
 		return nil, err
 	}
-	rec := svformat.EpochRecord{Format: svformat.EpochFormat, Vault: v.desc.ID, N: n, Created: v.opts.Now().UTC(),
-		Check: svformat.CheckValue(v.desc.ID, master), Prev: sealed}
+	var revs []svformat.RevID
+	for _, o := range v.idx.objects {
+		for id := range o.revs {
+			revs = append(revs, id)
+		}
+	}
+	rec := &svformat.EpochRecord{Format: svformat.EpochFormat, Vault: v.desc.ID, N: n, Created: v.opts.Now().UTC(),
+		Check: svformat.CheckValue(v.desc.ID, master), Prev: sealed, Revisions: svformat.RevisionList(revs)}
+	rec.Auth = svformat.EpochAuth(v.master().Bytes(), rec)
 	b, err := jsonIndent(rec)
 	if err != nil {
 		return nil, err
@@ -93,12 +104,14 @@ func (v *Vault) Rotate(slots []NewSlot, keepRecipients bool, drop func(SlotInfo)
 			v.store.Remove(svformat.SlotName(done.ID))
 		}
 		if errors.Is(err, svstore.ErrExist) {
-			return nil, ErrRotating
+			return nil, v.whoRotated(n)
 		}
 		return nil, err
 	}
-	v.epochs = append(v.epochs, svformat.Epoch{N: n, Check: rec.Check})
-	v.prev[n] = sealed
+	v.epochs = append(slices.Clone(v.epochs), svformat.Epoch{N: n, Check: rec.Check})
+	recs := maps.Clone(v.epochRecs)
+	recs[n] = rec
+	v.epochRecs = recs
 	v.masters[n] = svcrypto.SecretFrom(append([]byte(nil), master...))
 	v.wraps[n] = svcrypto.SecretFrom(svcrypto.Derive(master, v.desc.ID[:], "sv1 wrap", svcrypto.KeySize))
 	if len(infos) > 0 {
@@ -135,6 +148,21 @@ func (v *Vault) Rotate(slots []NewSlot, keepRecipients bool, drop func(SlotInfo)
 		}
 	}
 	return infos, nil
+}
+
+// whoRotated explains an epoch record that got there first: another
+// rotation, or one planted by someone who cannot open the vault, which
+// blocks rotating until it is removed. The caller holds v.mu.
+func (v *Vault) whoRotated(n uint32) error {
+	b, err := v.store.Read(svformat.EpochName(n))
+	if err != nil {
+		return ErrRotating
+	}
+	rec, err := svformat.ParseEpoch(b)
+	if err == nil && rec.Vault == v.desc.ID && rec.N == n && svformat.CheckEpochAuth(v.master().Bytes(), rec) {
+		return ErrRotating
+	}
+	return fmt.Errorf("svcore: %s was put there by someone who cannot open the vault; remove it, then rotate again", svformat.EpochName(n))
 }
 
 func jsonIndent(v any) ([]byte, error) {

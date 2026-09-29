@@ -7,7 +7,6 @@ package svcore
 
 import (
 	"bytes"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,10 +56,13 @@ type Vault struct {
 	opts  Options
 
 	// epochs are the check values of every generation of the master key
-	// (epochs[i] is epoch i+1); prev holds, for each epoch after the first,
-	// the previous master key sealed under it (epochs.go).
-	epochs []svformat.Epoch
-	prev   map[uint32][]byte
+	// (epochs[i] is epoch i+1), and epochRecs the records of those after
+	// the first. While locked they are what the folder holds; once open,
+	// only those the key vouched for (epochs.go). epochProblems are the
+	// records that do not count.
+	epochs        []svformat.Epoch
+	epochRecs     map[uint32]*svformat.EpochRecord
+	epochProblems []Problem
 
 	mu         sync.Mutex
 	masters    map[uint32]*svcrypto.Secret // every epoch's master key; nil while locked
@@ -93,10 +95,8 @@ func Create(store svstore.Backend, suite svcrypto.Suite, first NewSlot, opts Opt
 		Created: v.opts.Now().UTC(),
 		Epochs:  []svformat.Epoch{{N: 1, Check: svformat.CheckValue(id, master)}},
 	}
-	v.epochs, v.prev = v.desc.Epochs, map[uint32][]byte{}
-	if err := v.setOpen(master); err != nil {
-		return nil, SlotInfo{}, err
-	}
+	v.epochs, v.epochRecs = v.desc.Epochs, map[uint32]*svformat.EpochRecord{}
+	v.install(&opened{masters: map[uint32][]byte{1: master}, epoch: 1})
 
 	// The slot goes first: a crash between the two leaves a stray slot file
 	// in an empty directory, never a vault that no key opens.
@@ -201,86 +201,24 @@ func (v *Vault) Unlock(k Key) error {
 	if err != nil {
 		return err
 	}
-	master, slot, err := v.findMaster(k)
+	o, err := v.openChain(k)
 	if err != nil {
 		return err
 	}
 	v.mu.Lock()
-	err = v.setOpen(master)
-	v.unlockedBy = slot
+	v.install(o)
 	v.mu.Unlock()
-	if err != nil {
-		return err
-	}
 	return v.Refresh()
 }
 
 // CheckKey reports whether k opens the vault, without changing whether
 // it is locked: for asking someone to prove they hold a key.
 func (v *Vault) CheckKey(k Key) error {
-	master, _, err := v.findMaster(k)
-	clear(master)
-	return err
-}
-
-// findMaster recovers the master key with k from the first keyslot that
-// takes it.
-func (v *Vault) findMaster(k Key) ([]byte, svformat.ID, error) {
-	slots, err := v.slots()
+	o, err := v.openChain(k)
 	if err != nil {
-		return nil, svformat.ID{}, err
+		return err
 	}
-	for _, s := range slots {
-		if s.Type != k.slotType() || s.Epoch != v.epoch() {
-			continue
-		}
-		master, err := k.open(v, s)
-		if err != nil {
-			continue
-		}
-		if subtle.ConstantTimeCompare(svformat.CheckValue(v.desc.ID, master), v.epochs[s.Epoch-1].Check) != 1 {
-			// The slot opened, but to some other key: planted or from
-			// another vault. Keep looking.
-			clear(master)
-			continue
-		}
-		return master, s.ID, nil
-	}
-	return nil, svformat.ID{}, ErrWrongKey
-}
-
-// setOpen installs the current epoch's master key (and zeroes the
-// caller's copy), recovering every earlier epoch's key from the chain.
-func (v *Vault) setOpen(master []byte) error {
-	v.dropKeys()
-	masters := map[uint32]*svcrypto.Secret{}
-	wraps := map[uint32]*svcrypto.Secret{}
-	cur := master
-	for n := v.epoch(); n >= 1; n-- {
-		if n < v.epoch() && subtle.ConstantTimeCompare(svformat.CheckValue(v.desc.ID, cur), v.epochs[n-1].Check) != 1 {
-			clear(cur)
-			destroyAll(masters)
-			destroyAll(wraps)
-			return fmt.Errorf("svcore: the key of epoch %d does not match its record", n)
-		}
-		wraps[n] = svcrypto.SecretFrom(svcrypto.Derive(cur, v.desc.ID[:], "sv1 wrap", svcrypto.KeySize))
-		if n == 1 {
-			masters[n] = svcrypto.SecretFrom(cur)
-			break
-		}
-		prevKey := svcrypto.Derive(cur, v.desc.ID[:], svformat.EpochPrevKeyLabel, svcrypto.KeySize)
-		older, err := v.suite.Open(prevKey, v.prev[n], svformat.EpochPrevAAD(v.desc.ID, n))
-		clear(prevKey)
-		masters[n] = svcrypto.SecretFrom(cur)
-		if err != nil {
-			destroyAll(masters)
-			destroyAll(wraps)
-			return fmt.Errorf("svcore: epoch %d's record does not open: %w", n, err)
-		}
-		cur = older
-	}
-	v.masters, v.wraps = masters, wraps
-	v.idx = newIndex()
+	clearAll(o.masters)
 	return nil
 }
 

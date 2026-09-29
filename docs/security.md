@@ -94,6 +94,10 @@ This is the hard case, and it is worth being plain about it.
   writes every item's current state again under it. What was written
   before stays readable to whoever could read it then; nothing written
   after is.
+- **Writing with the old key.** Whoever was cut off still holds the old
+  key, and could seal new revisions with it. They do not count: each
+  rotation's record lists the revisions that existed when it was made, and
+  a revision sealed under an older key counts only if it is on that list.
 - **A leaked passphrase** calls for a rotation with a new passphrase.
 
 ### Other holders of the same vault
@@ -209,7 +213,8 @@ refuse rather than guess:
 | Gap | Planned fix |
 | --- | --- |
 | Rollback and withholding of revisions is not detected | signed checkpoints (M6) |
-| Whoever can write to a synced folder, or the sync server, can plant an epoch record that locks every device out until it is removed (denial of service, not disclosure) | signed checkpoints (M6) |
+| A planted epoch record is ignored, but blocks rotating until it is removed; on a sync server that keeps it, rotating stays blocked | epochs that name the one they follow, so a rotation can step over it |
+| Changes a device made under the old key before it heard of a rotation are refused with the rest (reported by `verify`, still in the folder) | re-sealing a device's own set-aside changes, once revisions are signed per device |
 | Revisions are not signed per device | device signatures (M6) |
 | On Windows and macOS, screen lock and sleep do not lock vaults yet (idle time and explicit locks do) | session notifications on those platforms |
 | Windows and macOS identify programs by path and hash, not by publisher signature | Authenticode and code-signing checks |

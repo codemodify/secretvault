@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -188,14 +189,8 @@ func (v *Vault) Refresh() error {
 	if v.masters == nil {
 		return ErrLocked
 	}
-	// A rotation made elsewhere: this handle's key is no longer current.
-	known := v.epoch()
-	if err := v.loadEpochs(); err != nil {
+	if err := v.checkRotation(); err != nil {
 		return err
-	}
-	if v.epoch() != known {
-		v.dropKeys()
-		return ErrRotated
 	}
 	return v.scan(v.idx)
 }
@@ -254,6 +249,9 @@ func (v *Vault) loadRevision(name string, obj svformat.ID, rid svformat.RevID) (
 	wrap := v.wraps[hdr.Epoch]
 	if hdr.Suite != v.suite || wrap == nil {
 		return nil, fmt.Errorf("svcore: revision uses suite %v epoch %d", hdr.Suite, hdr.Epoch)
+	}
+	if !v.committed(hdr.Epoch, rid) {
+		return nil, ErrLateRevision
 	}
 	hdr, plain, dek, err := svformat.OpenRevision(file, wrap.Bytes())
 	if err != nil {
@@ -478,7 +476,7 @@ func (v *Vault) Verify() (Report, error) {
 	if err := v.scan(x); err != nil {
 		return Report{}, err
 	}
-	rep := Report{Objects: len(x.objects), Problems: x.problems, Duplicates: x.dupes}
+	rep := Report{Objects: len(x.objects), Problems: append(slices.Clone(v.epochProblems), x.problems...), Duplicates: x.dupes}
 	for _, o := range x.objects {
 		rep.Revisions += len(o.revs)
 		if !o.live() {

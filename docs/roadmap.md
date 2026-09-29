@@ -205,7 +205,10 @@ correctly across all four verification levels.
 - **Still to come for sync:** the invite as a QR code; a hosted service.
 - **Sharing with people (done).** `share` and `unshare`, and `vault rotate`.
   Master-key rotation is crash-safe, and history stays readable down the
-  epoch chain.
+  epoch chain. Epoch records are authenticated under the previous key, so
+  a planted one is ignored instead of locking everyone out, and each lists
+  the revisions that existed when it was made, so someone cut off cannot
+  go on writing with the old key.
 - **Recovery.** Shamir recovery shares, and emergency access.
 
 **Done when:**

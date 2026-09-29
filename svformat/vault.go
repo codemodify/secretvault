@@ -1,10 +1,15 @@
 package svformat
 
 import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -207,6 +212,16 @@ func ParseSlot(b []byte) (*Slot, error) {
 // rotation can read nothing written after it. Writing the record is the
 // rotation's commit point; it is created once and never changed, so two
 // devices rotating at once collide on the name instead of forking.
+//
+// A record also lists every revision that existed when it was made. Those
+// are the only revisions sealed under an earlier epoch's key that count
+// from then on: whoever still holds an old key (someone cut off) cannot
+// add to the vault after the rotation that cut them off.
+//
+// And a record is authenticated (Auth) under the previous epoch's master
+// key, so that only someone who could open the vault before the rotation
+// can make one: a record planted by anyone else is ignored, where it would
+// otherwise lock every device out.
 
 // EpochsDir holds the epoch records.
 const EpochsDir = "epochs"
@@ -225,6 +240,65 @@ type EpochRecord struct {
 	Created time.Time `json:"created"`
 	Check   []byte    `json:"check"` // CheckValue of this epoch's master key
 	Prev    []byte    `json:"prev"`  // the previous master key, sealed (EpochPrevAAD)
+
+	// Revisions are the IDs of every revision that existed when the
+	// epoch began, 32 bytes each, in ascending order (RevisionList).
+	Revisions []byte `json:"revisions"`
+
+	// Auth is EpochAuth under the previous epoch's master key.
+	Auth []byte `json:"auth"`
+}
+
+// RevisionList encodes revision IDs for EpochRecord.Revisions.
+func RevisionList(ids []RevID) []byte {
+	sorted := slices.Clone(ids)
+	slices.SortFunc(sorted, func(a, b RevID) int { return bytes.Compare(a[:], b[:]) })
+	sorted = slices.Compact(sorted)
+	out := make([]byte, 0, len(sorted)*len(RevID{}))
+	for _, id := range sorted {
+		out = append(out, id[:]...)
+	}
+	return out
+}
+
+// HasRevision reports whether the revision existed when the epoch began.
+func (e *EpochRecord) HasRevision(id RevID) bool {
+	n := len(e.Revisions) / len(id)
+	i := sort.Search(n, func(i int) bool { return bytes.Compare(e.Revisions[i*len(id):(i+1)*len(id)], id[:]) >= 0 })
+	return i < n && bytes.Equal(e.Revisions[i*len(id):(i+1)*len(id)], id[:])
+}
+
+// EpochAuthKeyLabel names the key, derived from epoch n-1's master key,
+// that authenticates epoch n's record.
+const EpochAuthKeyLabel = "sv1 epoch auth"
+
+// EpochAuth is the record's Auth: HMAC-SHA-256, under a key derived from
+// the previous epoch's master key, of the vault, n, the time, the check
+// value, the sealed previous key and the SHA-256 of the revision list.
+func EpochAuth(prevMaster []byte, e *EpochRecord) []byte {
+	key := svcrypto.Derive(prevMaster, e.Vault[:], EpochAuthKeyLabel, svcrypto.KeySize)
+	defer clear(key)
+	revs := sha256.Sum256(e.Revisions)
+	var t tlvBuilder
+	t.add(0x01, e.Vault[:])
+	t.u32(0x02, e.N)
+	t.add(0x03, []byte(e.Created.UTC().Format(time.RFC3339Nano)))
+	t.add(0x04, e.Check)
+	t.add(0x05, e.Prev)
+	t.add(0x06, revs[:])
+	b, err := t.encode()
+	if err != nil {
+		panic(err) // every part is short
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte("secretvault sv1 epoch"))
+	mac.Write(b)
+	return mac.Sum(nil)
+}
+
+// CheckEpochAuth reports whether prevMaster made the record.
+func CheckEpochAuth(prevMaster []byte, e *EpochRecord) bool {
+	return hmac.Equal(EpochAuth(prevMaster, e), e.Auth)
 }
 
 // EpochPrevKeyLabel names the key, derived from epoch n's master key, that
@@ -246,8 +320,16 @@ func ParseEpoch(b []byte) (*EpochRecord, error) {
 	if err := json.Unmarshal(b, &e); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEpoch, err)
 	}
-	if e.Format != EpochFormat || e.Vault.IsZero() || e.N < 2 || len(e.Check) != 16 || len(e.Prev) == 0 {
+	if e.Format != EpochFormat || e.Vault.IsZero() || e.N < 2 || len(e.Check) != 16 || len(e.Prev) == 0 || len(e.Auth) != sha256.Size {
 		return nil, fmt.Errorf("%w: incomplete", ErrEpoch)
+	}
+	if len(e.Revisions)%len(RevID{}) != 0 {
+		return nil, fmt.Errorf("%w: revision list", ErrEpoch)
+	}
+	for i := len(RevID{}); i < len(e.Revisions); i += len(RevID{}) {
+		if bytes.Compare(e.Revisions[i-len(RevID{}):i], e.Revisions[i:i+len(RevID{})]) >= 0 {
+			return nil, fmt.Errorf("%w: revision list out of order", ErrEpoch)
+		}
 	}
 	return &e, nil
 }
