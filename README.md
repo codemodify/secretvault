@@ -86,6 +86,14 @@ go build -o bin/ ./cmd/secretvault ./cmd/secretvaultd ./cmd/secretvault-tui ./cm
 bin/secretvaultd install        # optional: start at every login (systemd user unit)
 ```
 
+Or install it for your user, into `~/.local/bin` with the git, docker and
+age helper links, and secretvaultd started at login (run it again to
+update; `--uninstall` removes the programs, never your vaults):
+
+```bash
+scripts/install.sh              # [--prefix DIR] [--no-service] [--uninstall]
+```
+
 ```console
 $ bin/secretvault init --recovery            # asks for a new passphrase, prints a recovery key
 $ bin/secretvault set web/github.com --kind login --field username=ada   # asks for the password
