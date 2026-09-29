@@ -32,6 +32,7 @@
 //	grant list|allow|deny|revoke  decide what programs may do
 //	audit                      show who accessed what
 //	keyring status|import|takeover|restore   be the desktop's keyring (Linux)
+//	browser install|uninstall|status|ls|rm   fill logins in browsers through KeePassXC-Browser
 //	read sv://VAULT/ITEM[#FIELD]            print one value ("-" is the default vault)
 //	run [--env-file F] -- CMD               run CMD with sv:// references in its environment resolved
 //	inject [-i IN] [-o OUT]                 fill {{ sv://... }} references in a template
@@ -42,7 +43,9 @@
 //
 // Installed as git-credential-secretvault or docker-credential-secretvault
 // (symlinks to this program), it is git's or docker's credential helper;
-// as age-plugin-secretvault, the age plugin for identities kept in vaults.
+// as age-plugin-secretvault, the age plugin for identities kept in vaults;
+// as secretvault-browser (or when a browser starts it by its manifest),
+// the native-messaging host KeePassXC-Browser talks to.
 //
 // Commands that use a vault also take --passphrase-file FILE, --keyfile
 // FILE, --identity FILE or --recovery, to unlock (and prove it is you)
@@ -134,6 +137,8 @@ func main() {
 	args := os.Args[1:]
 	if h := helperName(os.Args[0]); h != "" {
 		args = append([]string{h}, args...)
+	} else if _, ok := browserOrigin(args); ok {
+		args = append([]string{"browser-host"}, args...)
 	}
 	code := c.run(args)
 	if c.client != nil {
@@ -176,6 +181,8 @@ func init() {
 		{"grant", "decide what programs may do: list, allow, deny, revoke", (*cli).cmdGrant},
 		{"audit", "show who accessed what", (*cli).cmdAudit},
 		{"keyring", "be the desktop's keyring: status, import, takeover, restore", (*cli).cmdKeyring},
+		{"browser", "fill logins in browsers through KeePassXC-Browser: install, uninstall, status, ls, rm", (*cli).cmdBrowser},
+		{"browser-host", "the browsers' native-messaging host (run as secretvault-browser)", (*cli).cmdBrowserHost},
 		{"read", "print one value: sv://VAULT/ITEM[#FIELD]", (*cli).cmdRead},
 		{"run", "run a command with sv:// references in its environment resolved", (*cli).cmdRun},
 		{"inject", "fill {{ sv://... }} references in a template", (*cli).cmdInject},

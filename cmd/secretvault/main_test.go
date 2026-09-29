@@ -69,7 +69,7 @@ func (d *fakeDesk) questions() []string {
 	return append([]string(nil), d.asked...)
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T, tweaks ...func(*svd.Options)) *harness {
 	t.Helper()
 	a, p := svcrypto.DefaultArgon2, svcrypto.DefaultPBKDF2
 	svcrypto.DefaultArgon2 = svcrypto.KDFParams{Alg: svcrypto.Argon2id, Time: 1, MemoryKiB: 64, Threads: 1}
@@ -86,7 +86,11 @@ func newHarness(t *testing.T) *harness {
 	h.write("pass", "correct horse battery staple\n")
 
 	// A real daemon, in-process, which takes this test binary for the CLI.
-	d, err := svd.New(svd.Options{Home: h.home, Socket: h.sock, Desktop: h.desk, IsCLI: func(*svpeer.Process) bool { return true }})
+	opts := svd.Options{Home: h.home, Socket: h.sock, Desktop: h.desk, IsCLI: func(*svpeer.Process) bool { return true }}
+	for _, tweak := range tweaks {
+		tweak(&opts)
+	}
+	d, err := svd.New(opts)
 	if err != nil {
 		t.Fatal(err)
 	}

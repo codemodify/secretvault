@@ -496,6 +496,8 @@ func helperName(argv0 string) string {
 		return "docker-credential"
 	case "age-plugin-secretvault":
 		return "age-plugin"
+	case "secretvault-browser":
+		return "browser-host"
 	}
 	return ""
 }
