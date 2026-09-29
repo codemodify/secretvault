@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -80,6 +81,10 @@ type Options struct {
 	// Log receives one line per notable event. Nothing secret is logged.
 	Log func(string)
 
+	// HTTP fetches keys for contact lookups (WKD, keyservers);
+	// svtrust.DefaultClient() when nil (tests point it elsewhere).
+	HTTP *http.Client
+
 	// Now is the clock (tests replace it).
 	Now func() time.Time
 }
@@ -100,6 +105,7 @@ type Daemon struct {
 	desktop Prompter
 	ss      *secretService // the Secret Service face, when serving
 	ssStop  func()
+	stores  sync.Map // *svcore.Vault -> its contacts' *svtrust.Store (trust.go)
 
 	syncCtx context.Context  // set by StartSync; nil while the daemon does not sync
 	syncID  *svsync.Identity // this device's key for sync servers

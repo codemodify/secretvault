@@ -341,12 +341,14 @@ type Grant struct {
 
 // GrantAddParams decide about a program ahead of time: Program is its path
 // (or flatpak:<app>, snap:<name>), Item an item name ("" for the whole
-// vault), Decision allow-always, allow-until-lock or deny-always.
+// vault) or Contacts the vault's contacts, Decision allow-always,
+// allow-until-lock or deny-always.
 type GrantAddParams struct {
 	Vault    string   `json:"vault,omitempty"`
 	Program  string   `json:"program"`
 	Item     string   `json:"item,omitempty"`
-	Ops      []string `json:"ops,omitempty"` // default: read
+	Contacts bool     `json:"contacts,omitempty"` // the decision is about the vault's contacts, not an item
+	Ops      []string `json:"ops,omitempty"`      // default: read
 	Decision string   `json:"decision"`
 }
 

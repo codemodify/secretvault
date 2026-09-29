@@ -28,6 +28,10 @@ type Config struct {
 	// NoSSHAgent turns off the SSH agent socket (on by default: it serves
 	// only programs pointed at it with SSH_AUTH_SOCK).
 	NoSSHAgent bool `json:"no_ssh_agent,omitempty"`
+
+	// ContactsVault is the vault contacts are kept in ("" for the default
+	// vault). `secretvault contact vault NAME` sets it.
+	ContactsVault string `json:"contacts_vault,omitempty"`
 }
 
 // VaultConfig registers one vault.

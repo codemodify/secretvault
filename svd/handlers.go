@@ -520,6 +520,12 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 			return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
 		}
 		g := svbroker.Grant{Identity: prog.Identity(), Program: prog.Display(), ItemName: p.Item, Decision: svbroker.Decision(p.Decision)}
+		if p.Contacts {
+			if p.Item != "" {
+				return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "a decision is about an item or about contacts, not both")
+			}
+			g.Item, g.ItemName = contactsScope, contactsName
+		}
 		switch g.Decision {
 		case svbroker.AllowAlways, svbroker.AllowUntilLock, svbroker.DenyAlways:
 		default:
@@ -538,14 +544,14 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		}
 		for _, op := range p.Ops {
 			if _, known := verbs[svbroker.Op(op)]; !known {
-				return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "unknown operation %q (read, list, write, delete, manage)", op)
+				return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "unknown operation %q (read, list, write, delete, manage, sign, decrypt)", op)
 			}
 			g.Ops = append(g.Ops, svbroker.Op(op))
 		}
 		if err := d.broker.Remember(mv.v, g); err != nil {
 			return nil, err
 		}
-		return svrpc.Grant{Vault: mv.cfg.Name, Program: g.Program, Identity: g.Identity, Item: p.Item, Ops: p.Ops, Decision: p.Decision}, nil
+		return svrpc.Grant{Vault: mv.cfg.Name, Program: g.Program, Identity: g.Identity, Item: g.ItemName, Ops: p.Ops, Decision: p.Decision}, nil
 
 	case svrpc.MAuditList:
 		var p svrpc.AuditParams

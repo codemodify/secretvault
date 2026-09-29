@@ -34,16 +34,17 @@ import (
 type Op string
 
 const (
-	OpRead   Op = "read"   // read an item's contents
-	OpList   Op = "list"   // see item names and metadata
-	OpWrite  Op = "write"  // create or change items
-	OpDelete Op = "delete" // delete items
-	OpManage Op = "manage" // keyslots, grants, the audit log
-	OpSign   Op = "sign"   // sign with a key held in the vault, without seeing it
+	OpRead    Op = "read"    // read an item's contents
+	OpList    Op = "list"    // see item names and metadata
+	OpWrite   Op = "write"   // create or change items
+	OpDelete  Op = "delete"  // delete items
+	OpManage  Op = "manage"  // keyslots, grants, the audit log
+	OpSign    Op = "sign"    // sign with a key held in the vault, without seeing it
+	OpDecrypt Op = "decrypt" // decrypt with a key held in the vault, without seeing it
 )
 
 // AllOps is every operation, for grants that cover a whole vault.
-var AllOps = []Op{OpRead, OpList, OpWrite, OpDelete, OpManage, OpSign}
+var AllOps = []Op{OpRead, OpList, OpWrite, OpDelete, OpManage, OpSign, OpDecrypt}
 
 // Decision is what was decided.
 type Decision string

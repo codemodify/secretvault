@@ -125,6 +125,23 @@ func (s *Store) Check(q Query) (*Verdict, error) {
 	return v, nil
 }
 
+// Derived are the verifications of each key worked out now rather than
+// recorded: an organisation contact's CA vouching for a certificate.
+func (s *Store) Derived(keys []*Key) ([][]Event, error) {
+	s.mu.Lock()
+	b, err := s.load()
+	s.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	now := s.now()
+	out := make([][]Event, len(keys))
+	for i, k := range keys {
+		out[i] = b.vouchers(k, now)
+	}
+	return out, nil
+}
+
 // vouchers are the events organisations give a key now: an X.509
 // certificate whose chain leads to the CA of a contact marked as an
 // organisation is vouched for by it, for the certificate's addresses.

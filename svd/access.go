@@ -26,12 +26,13 @@ import (
 // Every outcome is written to the vault's audit log.
 
 var verbs = map[svbroker.Op]string{
-	svbroker.OpRead:   "read",
-	svbroker.OpList:   "list the items of",
-	svbroker.OpWrite:  "change",
-	svbroker.OpDelete: "delete",
-	svbroker.OpManage: "manage",
-	svbroker.OpSign:   "sign with",
+	svbroker.OpRead:    "read",
+	svbroker.OpList:    "list the items of",
+	svbroker.OpWrite:   "change",
+	svbroker.OpDelete:  "delete",
+	svbroker.OpManage:  "manage",
+	svbroker.OpSign:    "sign with",
+	svbroker.OpDecrypt: "decrypt with",
 }
 
 func describeRequest(cl *client, mv *managedVault, itemName string, op svbroker.Op) string {
