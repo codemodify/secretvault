@@ -37,12 +37,35 @@ func (c *cli) daemon() (*secretvault.Client, error) {
 	if c.canAsk {
 		opts.Prompter = c.answer
 	}
+	if c.host || c.hostAdmin {
+		// The host daemon runs as a system service: nothing starts it
+		// from here, and it asks nobody.
+		opts.Socket, opts.NoStart, opts.Prompter = svrpc.HostSocket(), true, nil
+		if c.hostAdmin || c.isRoot() {
+			opts.Socket = svrpc.HostAdminSocket()
+		}
+	}
 	cl, err := c.connect(opts)
 	if err != nil {
+		if opts.NoStart && errors.Is(err, secretvault.ErrNoDaemon) {
+			why := "is secretvaultd-host.service running?"
+			if opts.Socket == svrpc.HostAdminSocket() {
+				why += " Its admin socket is root's alone."
+			}
+			return nil, fmt.Errorf("the host daemon does not answer on %s: %v; %s", opts.Socket, err, why)
+		}
 		return nil, err
 	}
 	c.client = cl
 	return cl, nil
+}
+
+// isRoot reports whether this runs as root.
+func (c *cli) isRoot() bool {
+	if c.root != nil {
+		return c.root()
+	}
+	return os.Geteuid() == 0
 }
 
 // answer puts the daemon's question to the person at this terminal.

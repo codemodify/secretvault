@@ -34,27 +34,28 @@ import (
 // vault ("-" for the default one), an item, and optionally a field (the
 // item's secret when left out): sv://-/web/github.com#username.
 
-// ref is a parsed sv:// reference.
+// ref is a parsed sv:// reference (svrpc.Ref).
 type ref struct {
 	vault, item, field string
 }
 
-var refPattern = regexp.MustCompile(`^sv://([^/]*)/(.+?)(?:#([^#]+))?$`)
-
 func parseRef(s string) (ref, error) {
-	m := refPattern.FindStringSubmatch(strings.TrimSpace(s))
-	if m == nil {
-		return ref{}, fmt.Errorf("%q is not a reference (sv://VAULT/ITEM[#FIELD], VAULT - for the default)", s)
+	r, err := svrpc.ParseRef(s)
+	if err != nil {
+		return ref{}, err
 	}
-	r := ref{vault: m[1], item: m[2], field: m[3]}
-	if r.vault == "-" {
-		r.vault = ""
-	}
-	return r, nil
+	return ref{vault: r.Vault, item: r.Item, field: r.Field}, nil
 }
 
-// resolve reads what a reference points at.
+func (r ref) String() string { return svrpc.Ref{Vault: r.vault, Item: r.item, Field: r.field}.String() }
+
+// resolve reads what a reference points at. The host daemon resolves it
+// itself (host.resolve), so a local service is sent the one value its
+// policy lists and never the rest of the item.
 func (c *cli) resolve(ctx context.Context, cl *secretvault.Client, r ref) ([]byte, error) {
+	if c.host || c.hostAdmin {
+		return cl.HostResolve(ctx, r.String())
+	}
 	e, err := cl.Get(ctx, r.vault, r.item)
 	if err != nil {
 		return nil, fmt.Errorf("sv://%s/%s: %w", r.vault, r.item, err)

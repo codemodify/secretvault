@@ -149,6 +149,9 @@ func (c *cli) cmdStatus(args []string) error {
 		return err
 	}
 	fmt.Fprintf(c.stdout, "secretvaultd %s, process %d\n", st.Version, st.PID)
+	if st.Mode == "host" {
+		fmt.Fprintln(c.stdout, "mode:    host (the machine's service: 'secretvault host status' says more)")
+	}
 	fmt.Fprintf(c.stdout, "data:    %s\n", st.Home)
 	if st.Socket != "" {
 		fmt.Fprintf(c.stdout, "socket:  %s\n", st.Socket)

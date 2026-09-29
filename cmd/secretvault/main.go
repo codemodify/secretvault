@@ -43,6 +43,7 @@
 //	trust check|seen           the verdict on a message's signer; record a key seen in mail
 //	pgp ls|new|import|export|pub|sign|decrypt|verify       your OpenPGP keys, used inside the daemon
 //	verify                     re-authenticate every file of the vault
+//	host init|allow|deny|ls|status|audit    set up the host daemon (as root)
 //	version                    print the version
 //
 // Installed as git-credential-secretvault or docker-credential-secretvault
@@ -60,6 +61,11 @@
 // enough). While such a key is plugged in, unlocking asks for it first,
 // and for the passphrase only if it is not used.
 //
+// --host (or SECRETVAULT_HOST=1) talks to the host daemon (secretvaultd
+// --host) instead of your own: as root on its admin socket, where any
+// command works; as anyone else on its services socket, where read, run
+// and inject get what the host's policy lists for them.
+//
 // import reads KeePass (KDBX 3.1 and 4), Bitwarden JSON, 1Password (1PUX),
 // Proton Pass, browser and password-manager CSV, Aegis, Google
 // Authenticator and CXF exports; FORMAT auto guesses which. An encrypted
@@ -72,7 +78,9 @@
 // file's passphrase; CXF is not encrypted, and says so.
 //
 // Environment: SECRETVAULT_VAULT names the vault to use, SECRETVAULT_SOCK
-// the daemon's socket.
+// the daemon's socket; SECRETVAULT_HOST=1 is --host, and
+// SECRETVAULT_HOST_DATA and SECRETVAULT_HOST_RUNTIME move the host
+// daemon's data and sockets.
 package main
 
 import (
@@ -120,6 +128,19 @@ type cli struct {
 	// clientName is the name the daemon's logs give this connection
 	// ("secretvault" when empty).
 	clientName string
+
+	// host talks to the host daemon (--host): on its admin socket as
+	// root, else on its services socket. hostAdmin picks the admin socket
+	// whoever runs this (the host commands, which only root may use).
+	host, hostAdmin bool
+
+	// root reports whether this runs as root (os.Geteuid() == 0 when nil;
+	// tests stand in).
+	root func() bool
+
+	// systemdCreds runs systemd-creds with stdin, for 'host init --seal'
+	// (tests stand in, so nothing touches the system).
+	systemdCreds func(stdin []byte, args ...string) ([]byte, error)
 
 	vault  string
 	client *secretvault.Client
@@ -205,6 +226,7 @@ func init() {
 		{"trust", "who signed a message, as far as you know: check, seen", (*cli).cmdTrust},
 		{"pgp", "your OpenPGP keys: ls, new, import, export, pub, sign, decrypt, verify", (*cli).cmdPGP},
 		{"verify", "re-authenticate every file of the vault", (*cli).cmdVerify},
+		{"host", "set up the host daemon, as root: init, allow, deny, ls, status, audit", (*cli).cmdHost},
 		{"version", "print the version", (*cli).cmdVersion},
 	}
 }
@@ -216,6 +238,7 @@ func (c *cli) run(args []string) int {
 	global := flag.NewFlagSet("secretvault", flag.ContinueOnError)
 	global.SetOutput(c.stderr)
 	global.StringVar(&c.vault, "vault", os.Getenv(EnvVault), "the vault to use (default: the default vault)")
+	global.BoolVar(&c.host, "host", c.host || envTrue(svrpc.EnvHost), "talk to the host daemon (secretvaultd --host), not your own")
 	global.Usage = func() { c.usage() }
 	if err := global.Parse(args); err != nil {
 		return 2
@@ -270,7 +293,7 @@ func describe(err error) string {
 }
 
 func (c *cli) usage() {
-	fmt.Fprintln(c.stderr, "usage: secretvault [--vault NAME] <command> [flags] [args]")
+	fmt.Fprintln(c.stderr, "usage: secretvault [--vault NAME] [--host] <command> [flags] [args]")
 	fmt.Fprintln(c.stderr)
 	for _, cmd := range commands {
 		fmt.Fprintf(c.stderr, "  %-10s %s\n", cmd.name, cmd.summary)
@@ -306,9 +329,19 @@ func (c *cli) flags(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(c.stderr)
 	// --vault is global, and works after the command too, where people
-	// tend to type it.
+	// tend to type it. So does --host.
 	fs.StringVar(&c.vault, "vault", c.vault, "the vault to use (default: the default vault)")
+	fs.BoolVar(&c.host, "host", c.host, "talk to the host daemon (secretvaultd --host), not your own")
 	return fs
+}
+
+// envTrue reports whether an environment variable is set to yes.
+func envTrue(name string) bool {
+	switch strings.ToLower(os.Getenv(name)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 // multi is a repeatable string flag.
