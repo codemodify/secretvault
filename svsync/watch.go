@@ -36,6 +36,10 @@ type WatchOptions struct {
 	// displays, and for whoever waits on a sync they triggered.
 	Starting func()
 	Synced   func(Report, error)
+
+	// ReadOnly pulls (Pull) instead of syncing both ways: for a device
+	// that may only read the vault (a trustee's, with emergency access).
+	ReadOnly bool
 }
 
 // MaxBackoff is the longest Watch waits after a failed sync.
@@ -58,7 +62,7 @@ func Watch(ctx context.Context, local svstore.Backend, c *Client, st *State, o W
 		if o.Starting != nil {
 			o.Starting()
 		}
-		rep, err := Sync(ctx, local, c, st)
+		rep, err := syncWith(ctx, local, c, st, o.ReadOnly)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}

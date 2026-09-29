@@ -26,6 +26,11 @@ type Report struct {
 	// current epoch. No device removes the last one, so such a removal
 	// is a fault or an attack.
 	Kept int
+
+	// Events counts the events the server's change log held
+	// (svserver.OpEvent): an emergency grant changed, and the vault's
+	// devices should ask the server about its grants.
+	Events int
 }
 
 // Changed reports whether the local folder changed, so an open vault
@@ -90,9 +95,21 @@ func (e *DivergedError) Is(target error) bool { return target == ErrDiverged }
 // a folder that has lost its files fetches them again rather than
 // removing them everywhere.
 func Sync(ctx context.Context, local svstore.Backend, c *Client, st *State) (Report, error) {
+	return syncWith(ctx, local, c, st, false)
+}
+
+// Pull is Sync for a device that may only read the vault on the server (a
+// trustee's, with emergency access): it fetches what the server has,
+// applies keyslot removals made there, and fetches again what this folder
+// lost, and sends nothing. The local folder is a copy of the server's.
+func Pull(ctx context.Context, local svstore.Backend, c *Client, st *State) (Report, error) {
+	return syncWith(ctx, local, c, st, true)
+}
+
+func syncWith(ctx context.Context, local svstore.Backend, c *Client, st *State, readOnly bool) (Report, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	s := &syncer{local: local, c: c, st: st}
+	s := &syncer{local: local, c: c, st: st, readOnly: readOnly}
 	err := s.run(ctx)
 	if serr := st.save(); err == nil {
 		err = serr
@@ -128,11 +145,12 @@ func Clone(ctx context.Context, c *Client, local svstore.Backend, st *State) (Re
 }
 
 type syncer struct {
-	local   svstore.Backend
-	c       *Client
-	st      *State
-	rep     Report
-	unsaved int
+	local    svstore.Backend
+	c        *Client
+	st       *State
+	readOnly bool // Pull: send nothing
+	rep      Report
+	unsaved  int
 }
 
 // pageSize is how many changes are read at a time.
@@ -208,6 +226,9 @@ func (s *syncer) pull(ctx context.Context) error {
 				return fmt.Errorf("%w: its change log is out of order", ErrBadFile)
 			}
 			prev = ch.Seq
+			if ch.Op == svserver.OpEvent {
+				s.rep.Events++
+			}
 		}
 		if err := s.apply(ctx, cs.Changes); err != nil {
 			return err
@@ -387,8 +408,9 @@ func (s *syncer) push(ctx context.Context) error {
 			missing = append(missing, n)
 		}
 	}
-	if len(removed) > 0 && !s.opens(local) {
-		// Not a vault that opens: the keyslots were lost, not removed.
+	if len(removed) > 0 && (s.readOnly || !s.opens(local)) {
+		// Not a vault that opens, or a copy that removes nothing of its
+		// own: the keyslots were lost, not removed.
 		missing, removed = append(missing, removed...), nil
 	}
 	for _, n := range byRank(missing) {
@@ -397,6 +419,9 @@ func (s *syncer) push(ctx context.Context) error {
 		} else if err != nil {
 			return err
 		}
+	}
+	if s.readOnly {
+		return nil
 	}
 
 	// New here, in an order that never shows another device a vault it
