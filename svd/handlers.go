@@ -286,6 +286,21 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		for _, id := range p.Drop {
 			drop[id] = true
 		}
+		// A vault that opens at login keeps doing so: its login key gets a
+		// slot for the new vault key too. If the OS will not open that key
+		// now, the rotation goes ahead (cutting someone off matters more)
+		// and the vault stops opening at login.
+		var login *loginFile
+		if mv.cfg.LoginUnlock {
+			lf, key, err := d.loginKey(mv)
+			if err == nil {
+				defer clear(key)
+				login = &lf
+				specs = append(specs, svcore.NewSlot{Type: svformat.SlotKeyfile, Label: "login", Keyfile: key})
+			} else {
+				d.opts.Log(fmt.Sprintf("rotating %s: its login key could not be opened, so it will no longer open at login: %v", mv.cfg.Name, err))
+			}
+		}
 		before, err := mv.v.Slots()
 		if err != nil {
 			return nil, err
@@ -294,6 +309,20 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		infos, err := mv.v.Rotate(specs, true, func(s svcore.SlotInfo) bool { return drop[s.ID.String()] })
 		if err != nil {
 			return nil, err
+		}
+		carried := map[svformat.ID]bool{}
+		if mv.cfg.LoginUnlock {
+			moved := false
+			for _, info := range infos {
+				if login != nil && info.Type == svformat.SlotKeyfile && info.Label == "login" {
+					moved = d.loginRotated(mv, *login, info.ID) == nil
+				}
+			}
+			if moved {
+				carried[login.Slot] = true
+			} else if err := d.loginOff(mv); err != nil {
+				d.opts.Log(fmt.Sprintf("rotating %s: turning login unlock off: %v", mv.cfg.Name, err))
+			}
 		}
 		d.broker.Locked(mv.v.ID()) // decisions tied to the old key's session go
 		d.proved(cl, mv)
@@ -306,7 +335,7 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 			}
 		}
 		for _, s := range before {
-			if s.Epoch == epoch && (s.Type == svformat.SlotKeyfile || s.Type == svformat.SlotFIDO2) {
+			if s.Epoch == epoch && (s.Type == svformat.SlotKeyfile || s.Type == svformat.SlotFIDO2) && !carried[s.ID] {
 				out.Dropped = append(out.Dropped, slotInfo(mv, s))
 			}
 		}

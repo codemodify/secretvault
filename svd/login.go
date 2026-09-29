@@ -60,19 +60,33 @@ func (d *Daemon) UnlockAtLogin() {
 	}
 }
 
+// loginKey reads a vault's sealed login key and has the OS open it.
+func (d *Daemon) loginKey(mv *managedVault) (loginFile, []byte, error) {
+	var lf loginFile
+	b, err := os.ReadFile(d.loginPath(mv))
+	if err != nil {
+		return lf, nil, err
+	}
+	if err := json.Unmarshal(b, &lf); err != nil {
+		return lf, nil, fmt.Errorf("%s: %v", d.loginPath(mv), err)
+	}
+	key, err := d.opts.Sealer.Unseal(sealName(mv), lf.Sealed)
+	return lf, key, err
+}
+
+// loginRotated records that the login key's slot is now slot, after a
+// rotation made it again for the new vault key.
+func (d *Daemon) loginRotated(mv *managedVault, lf loginFile, slot svformat.ID) error {
+	lf.Slot = slot
+	b, _ := json.MarshalIndent(lf, "", "  ")
+	return writeFileAtomic(d.loginPath(mv), append(b, '\n'))
+}
+
 func (d *Daemon) unlockAtLogin(mv *managedVault) error {
 	if !mv.v.Locked() {
 		return nil
 	}
-	b, err := os.ReadFile(d.loginPath(mv))
-	if err != nil {
-		return err
-	}
-	var lf loginFile
-	if err := json.Unmarshal(b, &lf); err != nil {
-		return fmt.Errorf("%s: %v", d.loginPath(mv), err)
-	}
-	key, err := d.opts.Sealer.Unseal(sealName(mv), lf.Sealed)
+	_, key, err := d.loginKey(mv)
 	if err != nil {
 		return err
 	}

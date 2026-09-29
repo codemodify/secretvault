@@ -152,3 +152,49 @@ func TestNoSealingMeansNoLoginUnlock(t *testing.T) {
 		t.Fatalf("a failed attempt added a slot: %+v", slots)
 	}
 }
+
+func TestOpeningAtLoginSurvivesARotation(t *testing.T) {
+	h := newHarness(t)
+	sealer := &fakeSealer{machine: []byte("this machine, this user")}
+	h.opts.Sealer = sealer
+	h.restart()
+	cli := h.setup()
+	if _, err := cli.SetLoginUnlock(ctx(t), "", true); err != nil {
+		t.Fatal(err)
+	}
+	newPass := []byte("the passphrase after rotating")
+	res, err := cli.Rotate(ctx(t), svrpc.RotateParams{Passphrase: newPass})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Dropped) != 0 {
+		t.Fatalf("the login slot was reported dropped: %+v", res.Dropped)
+	}
+	h.restart()
+	h.d.UnlockAtLogin()
+	cli = h.connect("/usr/bin/secretvault", &scripted{})
+	if vs, _ := cli.Vaults(ctx(t)); vs[0].Locked || !vs[0].LoginUnlock {
+		t.Fatalf("after a rotation and a new session: %+v", vs[0])
+	}
+
+	// If the OS will not open the key when rotating, the rotation still
+	// happens, and the vault stops opening at login.
+	if _, err := cli.Unlock(ctx(t), "", &svrpc.Key{Type: "passphrase", Secret: newPass}); err != nil {
+		t.Fatal(err)
+	}
+	sealer.broken = true
+	res, err = cli.Rotate(ctx(t), svrpc.RotateParams{Passphrase: newPass})
+	sealer.broken = false
+	if err != nil {
+		t.Fatalf("a rotation with the OS refusing: %v", err)
+	}
+	if len(res.Dropped) != 1 || res.Dropped[0].Label != "login" {
+		t.Fatalf("dropped: %+v", res.Dropped)
+	}
+	if vs, _ := cli.Vaults(ctx(t)); vs[0].LoginUnlock {
+		t.Fatal("still set to open at login with no key for it")
+	}
+	if files, _ := filepath.Glob(filepath.Join(h.home, "login", "*")); len(files) != 0 {
+		t.Fatalf("a sealed key for a slot that is gone: %v", files)
+	}
+}
