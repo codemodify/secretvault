@@ -178,6 +178,9 @@ type trusteeKey struct {
 // for the vault's suite (or the one fp names), or a recipient's text.
 func (d *Daemon) trustee(ctx context.Context, cl *client, mv *managedVault, ref, fp string) (trusteeKey, error) {
 	suite := mv.v.Suite()
+	if strings.TrimSpace(ref) == "" {
+		return trusteeKey{}, svrpc.Errorf(svrpc.CodeInvalidParams, "whom? name a contact with a secretvault key, or give a recipient")
+	}
 	if strings.HasPrefix(ref, "sv-recipient-") {
 		s, pub, err := svformat.ParseRecipient(ref)
 		if err != nil {
