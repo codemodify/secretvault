@@ -561,7 +561,27 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		d.mu.Unlock()
 		return nil, nil
 	}
+	if h, ok := handlers[method]; ok {
+		return h(d, ctx, cl, decode)
+	}
 	return nil, svrpc.Errorf(svrpc.CodeMethodNotFound, "no method %q", method)
+}
+
+// handler serves one method. decode reads the request's parameters.
+type handler func(d *Daemon, ctx context.Context, cl *client, decode func(any) error) (any, error)
+
+// handlers holds the methods served outside dispatch's switch: each area
+// (sync, containers, contacts, ...) registers its own from an init
+// function in its own file.
+var handlers = map[string]handler{}
+
+// registerMethod makes h method's handler. It is called from init
+// functions only.
+func registerMethod(method string, h handler) {
+	if _, dup := handlers[method]; dup {
+		panic("svd: two handlers for " + method)
+	}
+	handlers[method] = h
 }
 
 // managed resolves a vault and authorizes a vault-wide (or item) operation.
