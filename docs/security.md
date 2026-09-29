@@ -21,6 +21,7 @@ The byte-level details are in [format.md](format.md).
 | Who accessed what (grants, audit log) | the vault, encrypted, from M1 |
 | Who you know: contacts, their keys, how you verified them, what mail they sent | vault records, encrypted, from M5 |
 | Files in encrypted containers | LUKS2 image files, AES-256-XTS; their keys in vault items, from M7 |
+| A delivery server's identities, policy and audit log | its delivery directory, sealed under a root key that only k unseal shares (or a TPM-sealed credential) open |
 
 ## Adversaries, and what each can do
 
@@ -303,6 +304,107 @@ identity lives.
   `PrivateTmp`, `PrivateDevices`, `NoNewPrivileges`, the kernel
   protections, and `RestrictAddressFamilies` to Unix and IP sockets.
 
+## The delivery server
+
+`secretvault-server` with `-delivery-dir` ([delivery.md](delivery.md),
+[`svdeliver`](../svdeliver)) is the one place where secretvault holds
+vaults open on a machine nobody is sitting at. Unlike the sync hub, it
+**can read everything in its delivery vaults**: that is its job. Share a
+vault with it only if every secret in the vault may be delivered; make a
+vault per purpose.
+
+**What it keeps, and how.**
+- **At rest, everything is sealed.** The server's identities, its policy
+  (vaults, issuers, the client CA, roles, token hashes and the admin
+  token's hash) and its audit log are sealed under a root key. The root key
+  is on disk only sealed under the unseal key, which exists only as Shamir
+  shares, and optionally under a credential key sealed by systemd-creds.
+  The policy is authenticated too, so writing to the delivery directory
+  grants nothing.
+- **Tokens are kept as SHA-256 hashes**, and are 256 random bits, so a hash
+  gives nothing to guess from. Sessions live in memory only.
+- **Unsealed, the keys are in memory**: the root key in locked memory, the
+  identities as `crypto/hpke` keys (which cannot be wiped), and the opened
+  vaults' items. Answers are built as Go strings, which cannot be wiped
+  either. The process makes itself undumpable (`HardenProcess`).
+
+**A compromised CI job** gets what its role allows, for as long as its
+session lasts (15 minutes unless the role says otherwise), and nothing
+else:
+- A role is bound to claims its issuer asserts, not to anything the job
+  says about itself. Bind deploy roles to the repository **and** the ref
+  or environment (GitHub environments with required reviewers make a good
+  gate), or to `job_workflow_ref` for a reusable workflow. A job on another
+  branch cannot take a role bound to `refs/heads/main`.
+- It can read the ID token it was given, and replay it until the token
+  expires (minutes, for GitHub and GitLab). Token IDs (`jti`) are not
+  remembered, so this is not stopped.
+- It cannot learn what exists beyond its role: a secret it may not read
+  and one that does not exist get the same answer, and the policy is
+  decided before any vault is touched. Role names are not secret.
+
+**A stolen token.**
+- A token works until it expires or is revoked, from anywhere its CIDRs
+  allow (they see the TCP peer, so behind a proxy they see the proxy). Give
+  tokens an expiry and CIDRs, and prefer ID tokens, which need no stored
+  secret.
+- A session works until it expires, the server is sealed, or it restarts.
+- **The admin token controls the policy**: whoever holds it can grant
+  themselves any secret. It cannot unseal the server or replace the shares:
+  rekeying takes k of the current shares. Keep it off CI, and rotate it
+  (`admin-token rotate`).
+
+**A malicious or compromised issuer.** An issuer vouches for its tokens'
+claims, and the server believes it, for the roles bound to that issuer:
+- A role is as trustworthy as its issuer. Whoever controls GitHub's,
+  GitLab's or the cluster's signing keys (or the host serving their JWKS,
+  or the DNS and TLS in front of it) can log in to every role on that
+  issuer.
+- Public issuers sign tokens for everyone, with whatever audience they ask
+  for. The audience check stops tokens meant for another service; the role
+  must pin whose tokens it takes (the repository, the project). A role
+  whose claims are only wildcards is refused.
+- Keys are fetched over HTTPS only, from the `jwks_uri` of a discovery
+  document that names the issuer; a CA can be pinned per issuer. Keys can
+  instead be configured, for a cluster with no public discovery.
+- Only RS256, ES256 and EdDSA verify, a key only for its own algorithm, so
+  neither `alg: none` nor HMAC with a public key gets through.
+
+**A stolen disk, while sealed.** Nothing comes of it:
+- Vault folders are vaults (above); `seal.json`, `policy.sealed` and
+  `audit.log` are ciphertext; `config.json` holds no secret.
+- Unsealing needs k shares, or the credential key. The credential file on
+  disk is sealed by systemd-creds: with `--with-key=tpm2` it opens only on
+  that machine's TPM. With the host key alone (`--with-key=host`), the key
+  that opens it is on the same disk, and the thief has both.
+- They learn sizes and times, and the number of vaults, roles and tokens,
+  roughly.
+
+**A stolen disk, or a snapshot, while unsealed.** The disk is as above:
+keys are only in memory. **A memory snapshot** (a VM image, a hypervisor)
+of an unsealed server gives everything it holds. So does root on the
+machine. Seal it (`seal`) when it is not needed, and keep swap encrypted or
+off.
+
+**Someone who can write to the delivery directory** (shared storage, a
+backup restored):
+- cannot grant themselves anything: the policy is authenticated, and a
+  vault's ID is pinned when it is added, so another vault put in its folder
+  is refused;
+- **can roll the policy back** to an older sealed copy, undoing a
+  revocation. This is not detected yet;
+- can cut the end off the audit log and append entries of their own,
+  sealed to its public key: the chain shows lines removed or altered in the
+  middle, not the end cut and replaced. Ship the log elsewhere (`audit
+  --json`) if that matters.
+
+**Operators.** Fewer than k shares reveal nothing about the key. Shares
+travel over the API's TLS, are held in memory for ten minutes at most
+(`unseal_timeout`), and are never logged. A share from another server or
+an older split is caught, and every share given so far is forgotten. The
+operator whose share completes a rekey sees all the new shares; hand them
+out from there.
+
 ## Keys in memory
 
 secretvault is written in Go, which moves and copies memory on its own.
@@ -507,6 +609,10 @@ by UDisks2 and the kernel's dm-crypt.
 | Container sectors are not authenticated (XTS garbles, it does not detect) | none planned: LUKS2's dm-integrity mode needs root to set up |
 | Containers cannot be mounted on Windows and macOS yet | the mount layer (VHD or iSCSI, `hdiutil`) |
 | The AES key schedule of a container opened in userspace cannot be wiped | none in Go |
+| The delivery server's policy can be rolled back to an older sealed copy by whoever can write its directory | a counter kept where they cannot write (the TPM) |
+| The delivery server's audit log can be cut short and extended by whoever can write its directory | entries MACed while unsealed; shipping the log off the machine |
+| An ID token can be replayed to the delivery server until it expires | remembering token IDs (`jti`) until then |
+| Token CIDR limits see the TCP peer: behind a proxy, the proxy | trusted proxies' `X-Forwarded-For` |
 
 ## Reporting a vulnerability
 

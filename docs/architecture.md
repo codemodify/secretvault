@@ -69,12 +69,14 @@ Secret Service returns to a GNOME application.
 
 | Binary | Role |
 | --- | --- |
-| `secretvaultd` | The daemon. It holds the keys and is the only process that opens vaults. It runs in three modes (below). It links no UI code, which a test enforces. |
+| `secretvaultd` | The daemon. It holds the keys and is the only process on a machine of people's that opens vaults. It runs in user or host mode; server mode is `secretvault-server` (below). It links no UI code, which a test enforces. |
 | `secretvault` | The CLI, a pure client of the daemon, which it starts if needed. In M0 only, it opens vault folders directly. |
 | `secretvault-gui` | The desktop manager on [uitoolkit](https://github.com/codemodify/uitoolkit), with a tray icon. |
 | `secretvault-tui` | The full-screen terminal manager, built on tview/tcell. |
 | `secretvault-gui-prompt` | A small, focused window that asks for a passphrase or a decision. It is also a pinentry and askpass. |
 | `secretvault-tui-prompt` | The same on a terminal, and a `pkttyagent`-style prompt agent for sessions without a display. |
+| `secretvault-server` | Server mode: the sync hub, and secret delivery to services and CI. |
+| `secretvault-csi-provider` | The Secrets Store CSI driver's provider, on each Kubernetes node. |
 
 Small helpers are the same binary under other names (dispatched on
 `argv[0]`): `git-credential-secretvault`, `docker-credential-secretvault`,
@@ -88,7 +90,11 @@ browser starts a host with).
 | --- | --- | --- | --- |
 | `user` (default) | the logged-in user, per session | the person: login, passphrase, fingerprint, YubiKey | every desktop face |
 | `host` (`--host`, Linux) | a system service, as root | the host identity: a systemd credential sealed to the TPM2 or the host key, or a root-only file | systemd credentials and local services, by policy; container unlock at boot later |
-| `server` | a service on a server | Shamir key shares (k of n operators) or TPM | the HTTPS API: sync hub (ciphertext only) and secret delivery to services and CI |
+| `server` | a service on a server (`secretvault-server`) | Shamir key shares (k of n operators), or a TPM-sealed systemd credential | the HTTPS API: sync hub (ciphertext only) and secret delivery to services and CI |
+
+Server mode is its own binary, `secretvault-server`, rather than a mode of
+`secretvaultd`: it links none of the desktop faces, and its keys are the
+server's own (a root key and identities), not a person's vaults.
 
 The modes are one daemon with a switch (`svd.Options.Mode`), not forks.
 The host daemon never prompts, and does not serve the Secret Service, the
@@ -663,16 +669,53 @@ rotates the vault master key).
     `/var/lib/secretvault/host.log` (one JSON object per line, moved
     aside at 8 MiB) and the journal; every read also goes to the vault's
     own audit log. `secretvault host audit` shows it.
-- **Server API.** Our own HTTPS API only; there are no Vault or cloud
-  compatibility layers.
-  - Machine authentication:
-    - tokens;
-    - mTLS;
-    - OIDC for CI (GitHub Actions and GitLab ID tokens) and for Kubernetes
-      service accounts, so pipelines store no secrets.
-  - Path-based policies, a hash-chained audit log, and Shamir unseal.
-- **Kubernetes.** A provider for External Secrets Operator's webhook, and our
-  own Secrets Store CSI driver provider.
+- **Server API** ([`svdeliver`](../svdeliver), [delivery.md](delivery.md)).
+  Our own HTTPS API only; there are no Vault or cloud compatibility layers.
+  - **Delivery vaults.** `secretvault-server -delivery-dir DIR` holds vaults
+    open with an identity of its own, through recipient keyslots their
+    owners gave it (`secretvault share`). It only reads them; whatever
+    syncs the folder (its own hub, where a vault is added by its sync name,
+    or Syncthing and the like) brings changes, read at most once a second.
+    Each vault's ID is pinned when it is added.
+  - **Mounted beside the sync hub**, under `/v1/deliver/` on the same
+    listener (which asks clients for a certificate they need not send), or
+    on its own with `-deliver-listen`: say, an internal address while the
+    hub faces the internet. The hub itself is unchanged; the two share a
+    process and a certificate, not state.
+  - **Sealed at start.** A root key seals everything (identities, policy,
+    audit key); it is sealed under an unseal key split into Shamir shares
+    (k of n), given one per request, held in memory with a timeout, never
+    logged; and optionally under a credential key for systemd-creds and the
+    TPM, for unattended start. `seal`, `status`, and `rekey`, which takes k
+    of the current shares and makes new ones.
+  - **Machine authentication**, no human logins:
+    - tokens, kept as hashes, with an expiry and CIDRs;
+    - mTLS: a client CA with subject and SAN globs, or pinned fingerprints;
+    - OIDC ID tokens from GitHub Actions, GitLab CI and Kubernetes service
+      accounts, verified in our own code (RS256, ES256, EdDSA; JWKS by
+      discovery or configured), so pipelines store no secrets. A login
+      gives a 15-minute session; an ID token can also be sent with each
+      request.
+  - **Path policies.** A role maps one identity (a token, a certificate
+    match, or an issuer and claim globs) to rules of vault, item glob and
+    capabilities (read, list). Deny by default; "not allowed" and "no such
+    secret" read the same.
+  - **A hash-chained audit log** of every request, each entry sealed to a
+    key of the server's, written while sealed too, with no secret in it.
+    svbroker's log was not reused: it is per vault and describes local
+    programs, where the server's entries mostly concern no vault and need
+    the caller's address and role.
+  - The admin API (tokens, roles, vaults, issuers, the client CA, seal,
+    rekey, audit) takes an admin token whose hash is in the sealed policy.
+- **CI.** `secretvault ci fetch|run` finds the job's ID token (GitHub
+  Actions, GitLab's `id_tokens`, a pod's service-account token), logs in,
+  and prints, exports or injects the secrets; no daemon needed.
+- **Kubernetes.** External Secrets Operator's webhook provider calls the
+  API with a token (delivery.md has the ClusterSecretStore). Our own
+  Secrets Store CSI driver provider ([`svcsi`](../svcsi),
+  `secretvault-csi-provider`) logs in as each pod with the service-account
+  token the driver passes; its gRPC and protobuf are our own, on the
+  standard library's HTTP/2.
 - **SOPS and age.** `age-plugin-secretvault` makes vault-held keys usable by
   age, rage, SOPS, gopass and chezmoi.
   - **The key.** An item of kind `key`: the field `age_identity` holds an
@@ -739,8 +782,10 @@ projects, with `sv` as the prefix:
 | `svcms`, `svtrust` | S/MIME, the trust store | M5 (`svtrust` done) |
 | `svqr` | QR codes, for the terminal | M5 |
 | `svfido`, `svpcsc`, `svtpm` | hardware tokens and TPM (`svfido`: FIDO2 on Linux) | M4 |
-| `svsync`, `svserver` | sync, and the server API | M6, M8 |
 | `svluks`, `svcontainer`, `svudisks` | LUKS2, containers, and mounting them through UDisks2 (Linux) | M7 |
+| `svsync`, `svserver` | sync, and the sync server | M6 |
+| `svdeliver` | secret delivery: the server's API, seal, auth, policy, audit | M8 |
+| `svcsi` | the Secrets Store CSI driver provider | M8 |
 | `svage` | age files and the age plugin protocol | M8 |
 | `gui/` (a module of its own), `svtui` | the desktop programs, with `gui/secretui` for what they share when asking about secrets; the terminal manager | M1–M2 |
 

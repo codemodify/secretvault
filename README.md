@@ -47,7 +47,8 @@ decision. If there is none, it asks you.
 | **`secretvault-tui`** | The terminal manager: vaults, items, one-time codes, the generator, history, grants and the audit log, full-screen. |
 | **`secretvault-tui-prompt`** | Asks you on a terminal, over the pinentry protocol: a pinentry for gpg-agent, an askpass helper, and (`--agent`) the daemon's prompter where there is no desktop. |
 | **`secretvault-gui-prompt`** | The same in a small window: the desktop prompt secretvaultd starts for each question, a pinentry for gpg-agent, and an askpass helper. The passphrase field holds bytes, never a string, and the keyboard is held while you type. |
-| **`secretvault-server`** | The sync server: keeps vaults' files for their devices and relays changes, seeing only ciphertext. Devices sign every request with their own keys. |
+| **`secretvault-server`** | The sync server: keeps vaults' files for their devices and relays changes, seeing only ciphertext. Devices sign every request with their own keys. With `-delivery-dir`, also the secret-delivery server for services and CI, sealed until operators unseal it. |
+| **`secretvault-csi-provider`** | The Kubernetes Secrets Store CSI driver's provider: pods get files from the delivery server, as their own service account. |
 
 | Package | Holds |
 | --- | --- |
@@ -58,6 +59,8 @@ decision. If there is none, it asks you.
 | [`svserver`](svserver) | The sync server: stores and relays vaults' files, and sees only ciphertext |
 | [`svsync`](svsync) | Syncing a vault folder with the server: device keys, enrolment, Sync, Clone, Watch |
 | [`svseal`](svseal) | Sealing a key to the user by the OS (systemd-creds, DPAPI, the keychain), to open vaults at login |
+| [`svdeliver`](svdeliver) | Secret delivery: the server's API, unseal shares, tokens, mTLS and OIDC, policies, the audit log |
+| [`svcsi`](svcsi) | The Secrets Store CSI driver provider, with our own gRPC and protobuf |
 | [`svrpc`](svrpc) | The daemon protocol (JSON-RPC over a local socket) |
 | [`svd`](svd) | The daemon, as a library |
 | [`svpeer`](svpeer) | Who is on the other end of a connection |
@@ -194,6 +197,24 @@ $ bin/secretvault container header-backup ~/work.img ~/work.header
   session. Inside is ext4, or `--fs exfat|vfat|btrfs`.
 - **On Windows and macOS** the images are read and written in userspace;
   mounting them there comes later.
+
+For services and CI, the server delivers secrets from vaults shared with
+it ([docs/delivery.md](docs/delivery.md)). Pipelines log in with their own
+ID token (GitHub Actions, GitLab CI, Kubernetes), so they store no secret:
+
+```console
+$ secretvault-server init --delivery-dir /var/lib/secretvault/deliver   # prints the unseal shares
+$ secretvault-server -self-signed -delivery-dir /var/lib/secretvault/deliver
+$ secretvault-server unseal                  # k operators, one share each
+$ secretvault-server deliver add-vault prod --sync VAULT-ID   # prints the server's recipient
+$ bin/secretvault share sv-recipient-1-modern-... --label delivery-server   # on your device
+$ secretvault-server issuer set github --url https://token.actions.githubusercontent.com --audience https://secrets.example.com:8443
+$ secretvault-server role set deploy --oidc github --claim repository=acme/app --claim ref=refs/heads/main --allow 'prod:app/*'
+
+# in the workflow (permissions: id-token: write):
+$ secretvault ci run --server https://secrets.example.com:8443 --role deploy --env DB_PASSWORD=sv://prod/app/db#password -- ./deploy.sh
+$ curl -H "Authorization: Bearer $TOKEN" 'https://secrets.example.com:8443/v1/deliver/secret/prod/app/db?field=password&raw=true'
+```
 
 For git and docker, link the CLI under their helper names:
 `ln -s secretvault bin/git-credential-secretvault`, then
@@ -333,6 +354,9 @@ where it stops. In short:
 - **Removing a keyslot is not revocation** until key rotation arrives (M6).
 - **Keys in memory** are kept in locked, non-dumpable memory and wiped on
   lock. Go's runtime makes that best effort, not a guarantee.
+- **A delivery server reads every vault shared with it**, by design. Its
+  own keys and policy are sealed on disk until k operators unseal it, but
+  an unsealed server's memory holds them all.
 
 ## Documentation
 
@@ -340,6 +364,7 @@ where it stops. In short:
 | --- | --- |
 | [docs/architecture.md](docs/architecture.md) | The design: processes, the consent broker, vaults, sync, every face |
 | [docs/clients.md](docs/clients.md) | Using secretvault from a program: Go and the raw protocol |
+| [docs/delivery.md](docs/delivery.md) | The secret-delivery server: setup, unsealing, the API, auth, policies; GitHub Actions, GitLab CI, Kubernetes and External Secrets Operator |
 | [docs/format.md](docs/format.md) | The v1 vault format, byte by byte |
 | [docs/security.md](docs/security.md) | The threat model and known gaps |
 | [docs/roadmap.md](docs/roadmap.md) | Milestones M0–M10, and the decisions log |
@@ -396,6 +421,11 @@ The tests include:
   other, with the same volume key), the encrypted sectors against Python's
   cryptography, hostile headers, and fuzzing; mounting against a pretend
   UDisks2 on a private bus, so no test ever mounts anything.
+- the delivery server's ID token checks against a fake OIDC issuer on
+  localhost, with RSA, EC and Ed25519 keys: algorithm confusion, `none`,
+  forged, tampered, expired and wrong-audience tokens, unknown keys and
+  claims that do not match; and the CSI provider's protobuf against
+  protoc.
 
 ## Licence
 

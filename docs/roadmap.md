@@ -340,12 +340,12 @@ flight.
   in CI.
 - **References (done).** `secretvault read`, `run` and `inject` with
   `sv://VAULT/ITEM#FIELD` references (`-` for the default vault).
-- **Server mode: our own HTTPS API.**
+- **Server mode: our own HTTPS API (done).**
   - Auth: tokens, mTLS, and OIDC (GitHub Actions, GitLab, Kubernetes service
     accounts).
   - Path policies, a hash-chained audit log, and Shamir unseal.
-- **Kubernetes.** A provider for External Secrets Operator's webhook, and our
-  own CSI driver provider.
+- **Kubernetes (done).** A provider for External Secrets Operator's
+  webhook, and our own CSI driver provider.
 - **SOPS and age (done).** `age-plugin-secretvault`, and `secretvault age`
   (`keygen`, `recipient`, `identity`, `encrypt`, `decrypt`) on our own age
   implementation (`svage`), including the post-quantum recipients of age
@@ -353,6 +353,38 @@ flight.
 
 **Done when:** a systemd service, a Kubernetes pod and a GitHub Actions job
 each receive a secret, and none of them stores a credential.
+
+**Where it stands.**
+- **Server mode is built** ([`svdeliver`](../svdeliver),
+  [delivery.md](delivery.md)): `secretvault-server -delivery-dir` holds
+  vaults open that their owners shared with its identity, and serves them
+  under `/v1/deliver/`, beside the sync hub or on its own listener.
+  - Sealed at start: Shamir unseal shares given one per request, or a
+    credential key from systemd-creds and the TPM; `seal`, `status`, and
+    `rekey` with k of the current shares.
+  - Auth: tokens (hashed, with expiry and CIDRs), mTLS (a client CA with
+    subject and SAN globs, or pinned fingerprints), and OIDC ID tokens from
+    GitHub Actions, GitLab CI and Kubernetes, verified in our own code.
+  - Path policies, deny by default; a hash-chained, sealed audit log of
+    every request.
+  - The admin CLI: `init`, `unseal`, `seal`, `status`, `rekey`, `token`,
+    `role`, `deliver add-vault`, `issuer`, `client-ca`, `admin-token`,
+    `audit`.
+- **CI:** `secretvault ci fetch|run`, with the job's own ID token from
+  GitHub Actions, GitLab's `id_tokens`, or a pod's service account.
+- **Kubernetes:** our own Secrets Store CSI driver provider
+  (`secretvault-csi-provider`, [`svcsi`](../svcsi)), and a documented
+  External Secrets Operator webhook configuration.
+- **Tested** against a fake OIDC issuer on localhost with RSA, EC and
+  Ed25519 keys, including alg confusion, forged and expired tokens and
+  claims that do not match; the CSI provider's protobuf against protoc.
+- **Still to do:**
+  - host mode (TPM unlock, and a systemd `LoadCredential=` socket);
+  - a `write` capability, so jobs can rotate what they own;
+  - trusted proxies' `X-Forwarded-For`, for CIDR limits behind a proxy;
+  - remembering ID tokens' `jti` against replay, and detecting a rolled
+    back policy or a cut audit log (security.md, known gaps);
+  - `run`-style injection into files for the CI command (`ci inject`).
 
 ## M9: phone companion
 
