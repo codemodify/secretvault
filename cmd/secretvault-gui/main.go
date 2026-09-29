@@ -4,9 +4,9 @@
 // unlock and search from anywhere. It talks to secretvaultd and holds no
 // keys itself.
 //
-// A stub in milestone 0: it does not import uitoolkit yet, so the whole
-// tree still builds with CGO_ENABLED=0. See docs/roadmap.md (track T4) and
-// uitoolkit-gaps.md for what the toolkit needs first.
+// A stub until uitoolkit gains what uitoolkit-gaps.md lists (items 1, 2 and
+// 7-11): until then it does not import uitoolkit, so the whole tree still
+// builds with CGO_ENABLED=0.
 package main
 
 import (

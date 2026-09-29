@@ -6,8 +6,9 @@
 // Like the terminal prompt it speaks the pinentry (Assuan) protocol, so it
 // doubles as a pinentry for gpg-agent and as an askpass helper.
 //
-// A stub in milestone 0; see docs/architecture.md, "Prompts", and
-// uitoolkit-gaps.md.
+// A stub until uitoolkit gains what uitoolkit-gaps.md lists (items 1-6);
+// until then secretvaultd asks through the desktop's own pinentry. See
+// docs/architecture.md, "Prompts".
 package main
 
 import (

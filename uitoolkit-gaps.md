@@ -1,123 +1,230 @@
-# uitoolkit gaps for secretvault
+# What secretvault needs from uitoolkit
 
-These are the gaps in [uitoolkit](https://github.com/codemodify/uitoolkit) that
-secretvault's GUI needs closed, written for the toolkit's maintainers. They
-were found by reading the toolkit's source at v0.20.0 while planning, before
-any secretvault GUI code existed. They are not yet confirmed by use. Each
-entry says where the gap is and what would close it.
+This list is for [uitoolkit](https://github.com/codemodify/uitoolkit)'s
+maintainers. Both secretvault GUIs are stubs until it is done.
 
-They are ordered by impact. The first seven block `secretvault-gui-prompt` (M1),
-because a window that asks for a vault passphrase must not leak it. The rest
-matter for the manager (M2).
+- `secretvault-gui-prompt` asks for passphrases and consent. Items 1–6 block
+  it.
+- `secretvault-gui`, the manager, needs items 1, 2 and 7–11.
 
-Not a gap, just a note: on Linux the X11 and Wayland back ends need cgo, so
-the GUI binaries are the only secretvault binaries built with cgo. The daemon
-links no UI code at all (`cmd/secretvaultd/daemon_test.go`).
+The findings come from reading uitoolkit's source at v0.20.x (file references
+are to that tree). Each item says where the gap is, proposes an API in
+uitoolkit's own style, and gives a "done when" check. The names are
+suggestions; the behaviour is the requirement.
 
-## Blocking the prompt (M1)
+Ground rule for everything below: **a secret never becomes a Go string
+inside the toolkit.** Strings are immutable and cannot be wiped, so every
+copy lives until the collector gets to it, and then lingers in freed memory.
+Secrets travel as `[]byte`, and whoever holds a buffer wipes it.
 
-### 1. A password field copies its plaintext
+---
 
-- **Where.** `NewPasswordField` sets `Password=true` on a `TextField`. The
-  field paints bullets and masks IME preedit and AT-SPI, but two paths ignore
-  `Password` and carry the real text out:
-  - Ctrl+C and Ctrl+X copy it (`widgets/textfield.go`, around lines 702–716);
-  - dragging the selection carries it too (`widgets/drag.go:34`).
-- **Fix.** When `Password` is set, refuse copy, cut and drag-out, and do not
-  publish the selection to PRIMARY.
+## For the prompt (blocking M1's desktop prompt)
 
-### 2. The secret lives in a Go string
+### 1. A secret field that does not leak
 
-- **Where.** The field's contents are the public `string` field `t.Text`.
-  Every keystroke makes a new immutable copy, and none of them can be wiped.
-- **Fix.** A secret-text mode that keeps the contents in a `[]byte` (or
-  `[]rune`) buffer the toolkit overwrites on edit, with:
-  - `Wipe()`;
-  - an `OnSubmit` that hands over the bytes, for the caller to wipe.
+- **Today.** `NewPasswordField` is a `*TextField` with `Password=true`
+  (`widgets/textfield.go`). It paints bullets and masks IME preedit and
+  AT-SPI, but:
+  - Ctrl+C and Ctrl+X copy the plaintext (around lines 702–716);
+  - dragging the selection carries it out (`widgets/drag.go:34`);
+  - the value is the public `string` field `Text`, re-created on every
+    keystroke.
+- **Proposal.** A widget of its own, so no code path shared with `TextField`
+  can leak:
 
-### 3. No prompt-style window
+  ```go
+  f := widgets.NewSecretField()      // *widgets.SecretField
+  f.Placeholder = "Passphrase"
+  f.OnSubmit = func(f *widgets.SecretField) {
+      pass := f.Bytes()              // a copy; the caller wipes it
+      f.Wipe()                       // zero the field's own buffer
+      ...
+  }
+  f.Len()                            // runes, for a strength meter; no content
+  f.Reveal = false                   // an app-controlled "show" toggle
+  ```
 
-- **Where.**
-  - `WindowOptions` has no parent/transient-for, modal or "centre on screen"
-    option.
-  - Keep-above works on X11, Windows and macOS, but not on Wayland
-    (`app/shade.go`).
-  - Wayland toplevels cannot be positioned. `Place: PlaceAtScreen` uses a
-    wlr-layer-shell overlay, which works on KWin, sway and Hyprland but not
-    GNOME, and takes the keyboard only on demand.
-- **Fix.**
-  - Options for a centred dialog window that is transient for a parent where
-    there is one.
-  - On Wayland, `xdg-dialog-v1` and `xdg-activation-v1`, so the prompt
-    appears in front and focused.
+  - Contents are held in a `[]byte` edited in place. When it has to grow, the
+    old array is zeroed before it is dropped.
+  - Nothing converts it to a `string`. That includes undo history (none),
+    accessibility (report the role and a bullet count only), and IME (see 5).
+- **Refused:** copy, cut, drag out, selection published to PRIMARY, and
+  middle-click paste into it.
+- **Allowed:** typing, Backspace and Delete, paste from CLIPBOARD (Ctrl+V),
+  select-all then type, and Home, End and the arrow keys.
+- **Done when:**
+  - Tests show Ctrl+C, Ctrl+X and drag put nothing on the clipboard.
+  - After `Wipe` the backing array is all zero.
+  - `grep` finds no `string(` conversion of the buffer in the widget.
 
-### 4. No keyboard grab while typing a secret
+### 2. A dialog window
 
-- **Where.** `XGrabKeyboard` is used only for menu popups
-  (`platform/x11_popup_linux.go`). Wayland has no
-  `keyboard-shortcuts-inhibit`, and macOS has no `EnableSecureEventInput`.
-- **Fix.** A window option that holds the keyboard while it is focused:
-  - X11: grab;
-  - Wayland: inhibit compositor shortcuts;
-  - macOS: secure event input, which also hides keystrokes from other
-    processes.
+- **Today** (`platform/event.go`, `WindowOptions`): there is no dialog role,
+  no centring, and no keep-above at creation. `Place: PlaceAtScreen` falls
+  back to layer-shell, which GNOME lacks. Keep-above does not work on
+  Wayland (`app/shade.go`).
+- **Proposal.**
 
-### 5. Prompt windows can be captured
+  ```go
+  win, _ := app.NewWindow(uitoolkit.WindowOptions{
+      Title: "Unlock vault", Width: 460, Height: 220,
+      Role:      platform.RoleDialog, // new: Normal (zero value), Dialog
+      Center:    true,                // new: centred on the monitor with the pointer or focus
+      KeepAbove: true,                // new: at creation, not only via SetKeepAbove later
+      Sizing:    platform.SizingFixed,
+  })
+  win.Activate() // new: bring to front and focus
+  ```
 
-- **Where.** Nothing keeps a window out of screenshots and screen sharing.
-- **Fix.** A window option:
-  - Windows: `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`;
-  - macOS: `NSWindowSharingNone`;
-  - Wayland: a no-op until a protocol exists.
+- **Per platform:**
 
-### 6. The input method stays on in password fields
+  | Platform | Dialog role | Centring | Activate |
+  | --- | --- | --- | --- |
+  | X11 | `_NET_WM_WINDOW_TYPE_DIALOG` | position at map | `_NET_ACTIVE_WINDOW` |
+  | Wayland | `xdg_toplevel`, plus `xdg_dialog_v1` where offered | compositors centre dialogs themselves | `xdg_activation_v1`, using `$XDG_ACTIVATION_TOKEN` when the launcher passed one |
+  | Windows | owned popup style | `SetWindowPos` | `SetForegroundWindow` |
+  | macOS | `NSPanel` at floating level | `center` | `makeKeyAndOrderFront` |
 
-- **Where.** IME remains enabled for password fields (`app/window.go:750`),
-  and no "password" purpose is sent to the input method (text-input-v3
-  content purpose, XIM, imm32). Input methods can learn and suggest what was
-  typed.
-- **Fix.** Disable IME for password fields, or at least send the password
-  content purpose.
+- **Done when:** a dialog opened from a terminal on GNOME, KDE and sway
+  appears in front, focused, centred (by us or by the compositor), and above
+  other windows where the desktop allows.
 
-### 7. The clipboard cannot hold a secret safely
+### 3. Holding the keyboard while a secret is typed
 
-- **Where** (`platform/clipboard.go`):
-  - `ClipboardSet(string)` writes both CLIPBOARD and PRIMARY.
-  - There is no clear call, so only `ClipboardSet("")` on a timer clears it.
-  - The toolkit keeps serving the text after its windows close.
-  - No clipboard-manager hints are set:
-    - `x-kde-passwordManagerHint: secret` on Linux;
-    - `ExcludeClipboardContentFromMonitorProcessing` on Windows;
-    - `org.nspasteboard.ConcealedType` on macOS.
-  - The copy also stays in a Go string.
-- **Fix.** `ClipboardSetSecret(data []byte, ttl)`:
-  - CLIPBOARD only;
-  - the hints above;
-  - clearing after `ttl` if the clipboard still holds our data;
-  - wiping the toolkit's own copy.
+- **Today.** `XGrabKeyboard` is used only for menu popups
+  (`platform/x11_popup_linux.go`). There is no Wayland shortcuts inhibitor
+  and no macOS secure input.
+- **Proposal.** `win.SetSecureInput(true)` while the prompt is focused, and
+  `platform.SecureInputAvailable()` to report whether the platform supports
+  it:
+  - X11: `XGrabKeyboard` on the window while it is focused, retried briefly
+    if another client holds a grab;
+  - Wayland: `zwp_keyboard_shortcuts_inhibit_manager_v1`, so compositor
+    shortcuts do not steal keys meant for the field;
+  - macOS: `EnableSecureEventInput` / `DisableSecureEventInput`, which also
+    hides the keystrokes from other processes;
+  - Windows: a no-op.
+- **Done when:** on X11, `xinput test` from another client sees no keys while
+  the prompt has focus. On macOS, the menu-bar lock indicator shows.
 
-  Plus a `ClipboardClear`.
+### 4. Keeping the prompt out of screenshots and screen shares
 
-## Needed for the manager (M2)
+- **Proposal.** `win.SetExcludeFromCapture(true)`, and
+  `platform.CaptureExclusionAvailable()`:
+  - Windows: `SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)`;
+  - macOS: `NSWindow.sharingType = .none`;
+  - Linux: not available, reported as such.
+- **Done when:** on Windows and macOS, a screenshot of the desktop shows the
+  prompt as blank or absent.
 
-### 8. No input or prompt dialog
+### 5. No input method in secret fields
 
-The same as comms-mail's gap 10. Small, since secretvault builds its own
-prompt, but the manager needs "rename", "new vault" and similar one-field
-dialogs.
+- **Today.** IME stays enabled for password fields (`app/window.go:750`), and
+  no password purpose reaches the input method. Input methods can learn and
+  suggest what was typed.
+- **Proposal.** While a `SecretField` has focus:
+  - Wayland text-input-v3: `set_content_type(hint: sensitive_data |
+    hidden_text, purpose: password)`, or disable text input entirely;
+  - X11: reset and unset the XIM input context;
+  - Windows: `ImmAssociateContext(hwnd, NULL)`;
+  - macOS: secure input (item 3) already covers it.
+- **Done when:** with an IME active (fcitx5 or ibus), typing into the field
+  shows no preedit or candidate window, and the IME's history gains nothing.
 
-### 9. The macOS tray shows no menu
+### 6. Headless driving for tests
+
+- **Needed for:** secretvault's tests type into a prompt and press its
+  buttons without a display.
+- **Today.** uitoolkit's `Headless` renders to a PNG.
+- **Proposal.** A small test API:
+
+  ```go
+  h := uitoolkit.NewTestWindow(opts)      // offscreen
+  h.Type("correct horse")                  // key events, as a keyboard would
+  h.Press(platform.KeyReturn)
+  h.Click(widgetOrID)
+  ```
+
+  If this already exists in a form we have not found, a pointer to it is
+  enough.
+
+---
+
+## For the manager (M2)
+
+### 7. A clipboard that can hold a secret
+
+- **Today** (`platform/clipboard.go`):
+  - `ClipboardSet(string)` writes CLIPBOARD and PRIMARY;
+  - there is no clear;
+  - the toolkit keeps serving the text after its windows close;
+  - no hint keeps clipboard managers from saving it;
+  - the copy is a string.
+- **Proposal.**
+
+  ```go
+  c := platform.ClipboardSetSecret(data []byte, clearAfter time.Duration) // takes ownership of data
+  c.Clear()                                                             // clear now, if still ours
+  platform.ClipboardClear()
+  ```
+
+  - **CLIPBOARD only**, never PRIMARY.
+  - **Content types:**
+    - Linux: `text/plain;charset=utf-8` and `UTF8_STRING`, plus
+      `x-kde-passwordManagerHint` with value `secret`, which KDE's Klipper
+      and many clipboard managers honour.
+    - Windows: `CF_UNICODETEXT`, plus the registered formats
+      `ExcludeClipboardContentFromMonitorProcessing`,
+      `CanIncludeInClipboardHistory` = 0 and `CanUploadToCloudClipboard`
+      = 0.
+    - macOS: the string, plus `org.nspasteboard.ConcealedType` and
+      `org.nspasteboard.TransientType`.
+  - **Clearing.** After `clearAfter`, if the clipboard still holds our data,
+    clear it. The toolkit's own copy is wiped then, and on quit.
+- **Done when:**
+  - A copied secret pastes, and is gone after the timeout.
+  - Klipper's history does not record it.
+  - Nothing remains after the app quits.
+
+secretvault's CLI and TUI speak the Wayland and X11 clipboard protocols
+themselves; the GUI should use this.
+
+### 8. Showing a secret without making it a string
+
+- **Proposal.** `widgets.NewSecretLabel(value func() []byte)`:
+  - it paints bullets;
+  - with `Reveal = true` it paints the real text, converting only for the
+    paint call and wiping the temporary afterwards;
+  - `Hide()` drops anything it cached.
+
+  This is for the item view's "show password" and for TOTP codes.
+
+### 9. A tray menu on macOS
 
 `SetMenu` stores the rows but shows nothing
-(`platform/status_darwin.go:178`). The tray's Lock, Unlock and Search entries
-need it.
+(`platform/status_darwin.go:178`). The manager's tray needs Lock all,
+Unlock, Search and Quit on every platform.
 
-### 10. No search-as-you-type suggestions
+### 10. Search-as-you-type suggestions
 
-The same as comms-mail's gap 1. A popup that keeps the field's focus, so the
-manager's search can suggest items as you type.
+The same as comms-mail's gap 1: a popup that does not take the keyboard from
+the field it belongs to, so typing continues while suggestions update.
 
-### 11. No symbol and emoji fallback
+### 11. Symbol and emoji fallback
 
-The same as comms-mail's gap 2. Status marks such as ✓ and ✗ and service
-icons in item names render as boxes.
+The same as comms-mail's gap 2: ✓, ✗, → and emoji in item names render as
+boxes.
+
+---
+
+## Also worth knowing (not blocking)
+
+- **The file dialog** cannot pick folders or suggest a save name (comms-mail
+  gaps 9 and 12). The manager needs both for import, export and choosing
+  where a vault lives.
+- **Large lists.** If `TableView` does not already virtualise its rows, the
+  item list needs it (10,000 items is a realistic vault).
+- **Clearing on lock.** When the daemon says a vault locked, the manager
+  wipes and hides every revealed secret. That is our code, but it relies on
+  item 8's `Hide()` really dropping what it drew from.
