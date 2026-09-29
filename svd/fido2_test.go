@@ -15,6 +15,7 @@ import (
 	"github.com/codemodify/secretvault/internal/fidotest"
 	"github.com/codemodify/secretvault/svfido"
 	"github.com/codemodify/secretvault/svformat"
+	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -357,7 +358,8 @@ func TestANewTerminalProvesItselfWithTheKey(t *testing.T) {
 
 	// The vault is unlocked; a second terminal proves itself with a touch.
 	term := &scripted{}
-	cli2 := h.connect("/usr/bin/secretvault", term)
+	cli2 := h.connectAs(&svpeer.Process{PID: 4246, Exe: "/usr/bin/secretvault", SystemOwned: true,
+		Terminal: "tty=34817;sid=78;start=124", TTY: "pts/1"}, term)
 	if _, err := cli2.Get(ctx(t), "", "mail/imap"); err != nil {
 		t.Fatal(err)
 	}

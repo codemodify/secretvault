@@ -61,11 +61,21 @@ type Options struct {
 	// Socket is the path it serves, for Status.
 	Socket string
 
-	// IsCLI reports whether a peer is one of secretvault's own terminal
-	// programs, the only clients ever asked to prompt for a passphrase.
-	// Nil means: "secretvault" or "secretvault-tui" in the daemon's own
+	// IsCLI reports whether a peer is one of secretvault's own programs
+	// that people type into, the only clients ever asked to prompt for a
+	// passphrase: the CLI and secretvault-tui on their terminal, and
+	// secretvault-gui in a window of its own. Nil means: "secretvault",
+	// "secretvault-tui" or "secretvault-gui" in the daemon's own
 	// directory.
 	IsCLI func(*svpeer.Process) bool
+
+	// IsWindowed reports whether a peer that IsCLI accepts asks in a
+	// window of its own rather than on a terminal (secretvault-gui). Such
+	// a program is known by its executable, never by a terminal it may
+	// have been started from: what it proved in its window says nothing
+	// about who is typing in that terminal. Nil means: "secretvault-gui"
+	// in the daemon's own directory.
+	IsWindowed func(*svpeer.Process) bool
 
 	// IsPromptAgent reports whether a peer is secretvault-tui-prompt, the
 	// only program besides the CLI that may register as the prompter. Nil
@@ -181,8 +191,11 @@ func New(opts Options) (*Daemon, error) {
 		opts.IdleUnit = time.Minute
 	}
 	if opts.IsCLI == nil {
-		cli, tui := sibling("secretvault"), sibling("secretvault-tui")
-		opts.IsCLI = func(p *svpeer.Process) bool { return cli(p) || tui(p) }
+		cli, tui, gui := sibling("secretvault"), sibling("secretvault-tui"), sibling("secretvault-gui")
+		opts.IsCLI = func(p *svpeer.Process) bool { return cli(p) || tui(p) || gui(p) }
+	}
+	if opts.IsWindowed == nil {
+		opts.IsWindowed = sibling("secretvault-gui")
 	}
 	if opts.IsPromptAgent == nil {
 		opts.IsPromptAgent = sibling("secretvault-tui-prompt")
@@ -320,7 +333,8 @@ type client struct {
 	conn      *svrpc.Conn
 	proc      *svpeer.Process
 	role      role
-	cli       bool // secretvault's own CLI (in host mode, root on the admin socket)
+	cli       bool // secretvault's own CLI, TUI or GUI (in host mode, root on the admin socket)
+	windowed  bool // the GUI: it asks in a window, not on a terminal
 	name      string
 	canPrompt bool
 
@@ -333,11 +347,16 @@ type client struct {
 	closed func()
 }
 
+// onTerminal reports whether the client is secretvault's CLI (or TUI) on
+// a terminal, which is then what it is known by.
+func (c *client) onTerminal() bool { return c.cli && !c.windowed && c.proc.Terminal != "" }
+
 // identity is the key decisions about this client are stored under. The
 // CLI on a terminal is known by its terminal session, so "allow until
-// locked" covers that terminal, not every copy of the CLI.
+// locked" covers that terminal, not every copy of the CLI. The GUI is
+// known by its executable, as any other program is.
 func (c *client) identity() string {
-	if c.cli && c.proc.Terminal != "" {
+	if c.onTerminal() {
 		return "terminal:" + c.proc.Terminal
 	}
 	return c.proc.Identity()
@@ -345,7 +364,7 @@ func (c *client) identity() string {
 
 // display is how the client is named in prompts.
 func (c *client) display() string {
-	if c.cli && c.proc.Terminal != "" {
+	if c.onTerminal() {
 		return fmt.Sprintf("%s in terminal %s", filepath.Base(c.proc.Exe), c.proc.TTY)
 	}
 	return c.proc.Display()
@@ -368,6 +387,7 @@ func (d *Daemon) serveConn(nc net.Conn, r role) {
 	switch r {
 	case roleUser:
 		cl.cli = d.opts.IsCLI(proc)
+		cl.windowed = cl.cli && d.opts.IsWindowed(proc)
 	case roleAdmin:
 		// The admin socket is 0600 already; the kernel's word on the peer
 		// is checked too. The host daemon runs as root, so this is root,

@@ -158,7 +158,10 @@ func newHarness(t *testing.T) *harness {
 				return svpeer.FromConn(c)
 			}
 		},
-		IsCLI:         func(p *svpeer.Process) bool { return filepath.Base(p.Exe) == "secretvault" },
+		IsCLI: func(p *svpeer.Process) bool {
+			return filepath.Base(p.Exe) == "secretvault" || filepath.Base(p.Exe) == "secretvault-gui"
+		},
+		IsWindowed:    func(p *svpeer.Process) bool { return filepath.Base(p.Exe) == "secretvault-gui" },
 		IsPromptAgent: func(p *svpeer.Process) bool { return filepath.Base(p.Exe) == "secretvault-tui-prompt" },
 	}
 	h.start()
@@ -197,7 +200,13 @@ func (h *harness) restart() {
 // terminal answers from term.
 func (h *harness) connect(exe string, term *scripted) *secretvault.Client {
 	h.t.Helper()
-	h.procs <- &svpeer.Process{PID: 4242, Exe: exe, SystemOwned: true}
+	return h.connectAs(&svpeer.Process{PID: 4242, Exe: exe, SystemOwned: true}, term)
+}
+
+// connectAs is connect as the program p describes.
+func (h *harness) connectAs(p *svpeer.Process, term *scripted) *secretvault.Client {
+	h.t.Helper()
+	h.procs <- p
 	opts := secretvault.Options{Socket: h.sock, NoStart: true}
 	if term != nil {
 		opts.Prompter = func(ctx context.Context, q svrpc.PromptAsk) (svrpc.PromptAnswer, error) {
@@ -367,6 +376,79 @@ func TestTheCLIProvesItselfWithThePassphraseOnItsTerminal(t *testing.T) {
 	}
 	term.done(t)
 	term2.done(t)
+}
+
+// secretvault-gui proves itself as the CLI does, with the passphrase in
+// its own window. It is known by its executable, not by a terminal it was
+// started from: what it proved says nothing about that terminal, and the
+// CLI there is still asked.
+func TestTheGUIProvesItselfInItsWindowAndVouchesForNoTerminal(t *testing.T) {
+	h := newHarness(t)
+	h.setup()
+	h.d.LockAll("test")
+	const session = "tty=34816;sid=77;start=123"
+	win := &scripted{}
+	gui := h.connectAs(&svpeer.Process{PID: 4243, Exe: "/usr/bin/secretvault-gui", SystemOwned: true,
+		Terminal: session, TTY: "pts/0"}, win)
+	win.script("pass:" + string(pass))
+	if e, err := gui.Get(ctx(t), "", "mail/imap"); err != nil || secretOf(e) != "hunter2" {
+		t.Fatalf("Get = %v", err)
+	}
+	if h.desk.count() != 0 {
+		t.Fatal("the desktop was asked on the GUI's behalf")
+	}
+	if q := win.asked[0]; q.Kind != svrpc.PromptPassphrase || !strings.Contains(q.Description, "secretvault-gui (/usr/bin/secretvault-gui)") ||
+		strings.Contains(q.Description, "terminal") {
+		t.Fatalf("the GUI was asked %+v", q)
+	}
+	// The GUI's connection may go on using the vault.
+	if _, err := gui.List(ctx(t), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	win.done(t)
+
+	// The CLI in the terminal the GUI was started from has proved nothing.
+	term := &scripted{}
+	cli := h.connectAs(&svpeer.Process{PID: 4244, Exe: "/usr/bin/secretvault", SystemOwned: true,
+		Terminal: session, TTY: "pts/0"}, term)
+	term.script("pass:" + string(pass))
+	if _, err := cli.Get(ctx(t), "", "mail/imap"); err != nil {
+		t.Fatal(err)
+	}
+	if len(term.asked) != 1 || term.asked[0].Title != "Allow this terminal" {
+		t.Fatalf("the CLI was asked %+v", term.asked)
+	}
+
+	// A second copy of the GUI proves itself on its own account, and is
+	// asked as the program it is.
+	win2 := &scripted{}
+	gui2 := h.connectAs(&svpeer.Process{PID: 4245, Exe: "/usr/bin/secretvault-gui", SystemOwned: true}, win2)
+	win2.script("pass:" + string(pass))
+	if _, err := gui2.List(ctx(t), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(win2.asked) != 1 || win2.asked[0].Title != "Allow secretvault-gui" {
+		t.Fatalf("the second GUI was asked %+v", win2.asked)
+	}
+
+	// Nothing about the GUI outlives its connection: the grants hold the
+	// terminal's decision alone.
+	grants, err := cli.Grants(ctx(t), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range grants {
+		if strings.Contains(g.Program, "secretvault-gui") || g.Identity != "terminal:"+session {
+			t.Fatalf("grant %+v", g)
+		}
+	}
+	// The GUI can do what the CLI does to the vaults themselves.
+	if _, err := gui.CreateVault(ctx(t), svrpc.VaultCreateParams{Name: "work", Passphrase: pass}); err != nil {
+		t.Fatal(err)
+	}
+	if err := gui.SetDefault(ctx(t), "work"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestAProgramIsNeverAskedToCollectAPassphrase(t *testing.T) {

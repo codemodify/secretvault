@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/codemodify/secretvault/svbroker"
 	"github.com/codemodify/secretvault/svcore"
@@ -51,7 +52,11 @@ func describeRequest(cl *client, mv *managedVault, itemName string, op svbroker.
 // passphrase then also proves who it is.
 func (d *Daemon) passphrasePrompter(cl *client) (p Prompter, own bool) {
 	if cl != nil && cl.mayPrompt() {
-		return rpcPrompter{c: cl, desc: "its terminal"}, true
+		desc := "its terminal"
+		if cl.windowed {
+			desc = "its window"
+		}
+		return rpcPrompter{c: cl, desc: desc}, true
 	}
 	d.mu.Lock()
 	agent := d.agent
@@ -153,10 +158,11 @@ func (d *Daemon) ensureUnlocked(ctx context.Context, cl *client, mv *managedVaul
 
 // proved records that cl showed it holds a key of mv: the connection may
 // use the vault until it locks, and so may the CLI's whole terminal
-// session.
+// session. The GUI proved it in its own window, which vouches for that
+// connection alone.
 func (d *Daemon) proved(cl *client, mv *managedVault) {
 	d.broker.AllowConn(cl, mv.v)
-	if cl.cli && cl.proc.Terminal != "" {
+	if cl.onTerminal() {
 		d.broker.Remember(mv.v, svbroker.Grant{
 			Identity: cl.identity(), Program: cl.display(),
 			Ops: svbroker.AllOps, Decision: svbroker.AllowUntilLock,
@@ -277,8 +283,17 @@ func (d *Daemon) ask(ctx context.Context, cl *client, mv *managedVault, item, it
 				"Enter the vault's passphrase to allow this terminal until the vault locks.", mv.cfg.Name),
 			Prompt: "Passphrase:",
 		}
+		who := "This terminal"
+		if !cl.onTerminal() {
+			// The GUI, or the CLI with no terminal: what is allowed is
+			// the program, on this connection.
+			who = filepath.Base(cl.proc.Exe)
+			q.Title = "Allow " + who
+			q.Description = fmt.Sprintf("%s has not used vault %q since it was unlocked.\n"+
+				"Enter the vault's passphrase to allow it until the vault locks.", who, mv.cfg.Name)
+		}
 		// Or with the vault's security key, if it is plugged in.
-		why := fmt.Sprintf("This terminal has not used vault %q since it was unlocked; the vault's security key allows it until the vault locks.", mv.cfg.Name)
+		why := fmt.Sprintf("%s has not used vault %q since it was unlocked; the vault's security key allows it until the vault locks.", who, mv.cfg.Name)
 		if tried, err := d.tryToken(ctx, p, mv, why, true); tried {
 			if err == nil {
 				d.proved(cl, mv)
