@@ -27,7 +27,8 @@ blobs/<id[0:2]>/<blob id>.svb                  one file per attached file's cont
 - A random 256-bit **vault master key** (VMK) protects everything.
 - **Keyslots** each recover the VMK from one kind of key: a passphrase, a
   printed recovery key, a keyfile, an identity (a device, a person, a
-  server), or a FIDO2 security key.
+  server), a FIDO2 security key, or a person's identity together with a
+  release key a sync server escrows (emergency access).
 - An **item** is stored as a chain of **revisions**. Each revision is sealed
   under its own random content key, which is wrapped under a key derived from
   the VMK. Each revision names the revisions it replaces, by hash.
@@ -242,8 +243,9 @@ auth_data = "secretvault sv1 epoch" || TLV(
   "created": "…",
   "grants": ["content"],
   "kdf": { … },               // passphrase slots
-  "recipient": "<bytes>",     // recipient slots: the public key
+  "recipient": "<bytes>",     // recipient and emergency slots: the public key
   "fido2": { … },             // fido2 slots: the credential (below)
+  "emergency": { … },         // emergency slots: the grant (below)
   "wrapped": "<bytes>"        // the sealed VMK
 }
 ```
@@ -263,14 +265,16 @@ slot_aad = "secretvault sv1 slot" || TLV {
     0x09 fido2 salt (32)
     0x0A fido2 uv (1 byte: 0x00 or 0x01)
     0x0B fido2 aaguid (16)
+    0x0C emergency grant (16)         emergency slots only
 }
 ```
 
 A slot file cannot be relabelled, moved to another vault, or given wider
 grants without failing to open; nor can a fido2 slot be pointed at another
-credential, salt, relying party or setting. Tags 0x07–0x0B appear exactly
-when the slot is of type `fido2`, so every other slot's associated data is
-as it always was.
+credential, salt, relying party or setting, nor an emergency slot at
+another grant. Tags 0x07–0x0B appear exactly when the slot is of type
+`fido2`, and 0x0C exactly when it is of type `emergency`, so every other
+slot's associated data is as it always was.
 
 | Type | Key-encryption key | `wrapped` |
 | --- | --- | --- |
@@ -279,10 +283,15 @@ as it always was.
 | `keyfile` | `Derive(file contents, vault id, "sv1 keyfile kek", 32)`; the file must hold ≥ 32 bytes | `Seal(kek, VMK, slot_aad)` |
 | `recipient` | the identity's HPKE private key | `SealTo(recipient, VMK, info = slot_aad)` |
 | `fido2` | `Derive(hmac-secret output, vault id, "sv1 fido2 kek", 32)` | `Seal(kek, VMK, slot_aad)` |
+| `emergency` | the trustee's HPKE private key, then `Derive(release key, vault id, "sv1 emergency kek", 32)` | `SealTo(recipient, Seal(kek, VMK, slot_aad), info = slot_aad)` |
 
 **Unlocking.** A reader tries every slot of the key's type for the current
 epoch. A slot counts only if it opens and the recovered key's `check` matches
 the descriptor's.
+
+**Readers from before a type** skip its slots as files that do not parse
+(below): a version without emergency access ignores emergency slots, and
+a rotation it makes does not carry them over.
 
 **Bad slot files.** Files that do not parse, or that name another vault, are
 skipped. A slot can only ever add a way in, so ignoring a bad one loses
@@ -343,6 +352,85 @@ each key, with `authenticatorGetAssertion` and `up = false` (no touch), for
 each slot's credential in turn; a key that does not hold it answers
 `CTAP2_ERR_NO_CREDENTIALS`. It then asks the one key that holds one for its
 PIN (if `uv`) and a touch, and opens that slot alone.
+
+### emergency slots
+
+An emergency slot lets a person the owner trusts (the trustee) open the
+vault after a waiting period that the vault's sync server keeps, and any
+of the owner's devices can cut short by refusing ([security.md](security.md#emergency-access)
+says why it is built this way, and what it does not stop). It opens with
+two things together: the trustee's identity, and a random 32-byte
+**release key** that the server holds sealed to that identity until the
+wait is over.
+
+```json
+"type": "emergency",
+"label": "emergency",
+"recipient": "<the trustee's public key>",
+"emergency": { "grant": "<grant id>" },
+"wrapped": "<SealTo(recipient, Seal(kek, VMK, slot_aad), info = slot_aad)>"
+
+kek = Derive(release key, vault id, "sv1 emergency kek", 32)
+```
+
+- **`grant`** names the grant on the sync server that escrows the release
+  key: an ID (16 random bytes) the owner's device makes. It is in the
+  slot's associated data (tag 0x0C), so a slot cannot be moved to another
+  grant.
+- **Two layers.** The outer is HPKE to the trustee, with the slot's
+  associated data as its info; the inner is `Seal` under a key derived
+  from the release key. The trustee's identity alone opens the outer
+  layer only; the release key alone opens nothing.
+- **Unlocking.** The trustee's key is their identity with the release key
+  of one grant: it tries the emergency slots of that grant whose
+  `recipient` is the identity's own. The slot then counts as any other
+  does: the recovered key must match the epoch's `check`.
+- **The label** is `emergency`, and says nothing of who the trustee is:
+  slot files are in the clear, on the server too.
+
+**The escrow.** The owner's device gives the sync server the release key
+sealed to the trustee, bound to its vault and grant:
+
+```
+escrow    = SealTo(recipient, release key, info = "secretvault sv1 emergency release" || vault id || grant id)
+challenge = SealTo(recipient, code, info = "secretvault sv1 emergency challenge" || grant id)
+```
+
+`code` is 32 random bytes, of which the server keeps the SHA-256. The
+trustee's device accepts the grant by opening the challenge with the
+identity and presenting the code, signed with its own device key, which
+then becomes the grant's trustee device on the server. The two infos, the
+slot's associated data and every other use of the identity differ, so
+none of them can be passed off as another to get the trustee to open it.
+The server's side of it is in [`svserver`](../svserver) (`emergency.go`).
+
+**The owner's record.** The vault keeps a record of each grant it made, of
+kind `emergency-grant`, encrypted like every record:
+
+```json
+{"grant": "<grant id>", "trustee": "Alice", "contact": "<contact id>",
+ "recipient": "sv-recipient-1-modern-...", "level": "in-person",
+ "wait": 604800, "release": "<the release key>", "created": "…"}
+```
+
+It names the trustee for the owner's devices, and holds the release key
+so that a rotation can carry the grant over: the new epoch gets an
+emergency slot for the same grant, recipient and release key, and the
+server's escrow stays as it is. A rotation made to cut the trustee off
+leaves the grant out, and the record is deleted with the grant. A slot
+whose grant has no record cannot be carried over, and is named as dropped.
+
+**The invite** the owner sends the trustee is a URI that holds no secret:
+
+```
+secretvault-emergency:?url=<server>&vault=<its name there>&fp=<certificate SHA-256>&grant=<grant id>
+                       &id=<vault id>&check=<epoch 1's check value, hex>&name=<what the owner calls it>
+```
+
+`id` and `check` pin the vault: the trustee's device refuses a vault whose
+descriptor does not match them, so a server cannot hand over a vault of
+its own making (every later epoch is checked down to epoch 1 when the
+vault opens).
 
 ## objects/…/<rev id>.svr — revisions
 

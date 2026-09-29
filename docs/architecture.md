@@ -331,6 +331,9 @@ signing make the program identity sturdier, not perfect.
   people or places none of which can open the vault alone; `unlock
   --shares` asks for them. The shares are made and combined by the CLI,
   and the whole key is never shown.
+- **Emergency access.** A person you trust can open a vault of yours
+  after a waiting period you can cut short by refusing
+  ([Emergency access](#emergency-access)).
 
 ## Storage and sync
 
@@ -367,13 +370,74 @@ ever added. That gives three sync modes on one format:
    the data directory, outside the vault folders. Only secretvault's own
    programs may set sync up, join, invite or turn it off.
 
-   It later relays phone approvals. An official hosted service may come
-   later; the design keeps it possible, and it would see no more than a
-   self-hosted server does.
+   It keeps the waits of emergency access (below). It later relays phone
+   approvals. An official hosted service may come later; the design keeps
+   it possible, and it would see no more than a self-hosted server does.
 
 Sharing a vault with a person adds a `recipient` keyslot for their identity.
 Removing them properly takes a new epoch (`secretvault unshare`, which
 rotates the vault master key).
+
+## Emergency access
+
+Like Bitwarden's and 1Password's: a person you trust (a contact with a
+secretvault identity) can get into a vault of yours if you cannot, after a
+waiting period during which you can refuse. "Alice may ask for vault
+Personal; if I do not deny it within 7 days of her asking, she gets it."
+The vault must sync with a server, which keeps the wait. What it protects,
+and where it stops (a server that lies can release early), is in
+[security.md](security.md#emergency-access); the format, in
+[format.md](format.md#emergency-slots).
+
+```console
+$ secretvault emergency grant Alice --wait 7d           # prints the invite for Alice; it holds no secret
+    ... on Alice's device:
+$ secretvault emergency accept 'secretvault-emergency:?...' --identity alice.id --as ada
+$ secretvault emergency request ada                     # the wait starts; the owner is told
+    ... the owner, told on the desktop, in 'secretvault status' and the audit log:
+$ secretvault emergency deny 3f2a                       # or let it run
+    ... after the wait, on Alice's device:
+$ secretvault emergency open ada --identity alice.id    # fetched, read-only, unlocked
+$ secretvault emergency revoke 3f2a --rotate            # the owner ends it, and cuts her off
+```
+
+- **The pieces.** Granting makes three things. The grant on the server
+  holds a random release key sealed to Alice (the escrow), a one-time
+  code sealed to her (the challenge), and the wait. A record in the vault
+  names Alice and holds the release key. An emergency keyslot opens only
+  with Alice's identity and the release key together.
+- **Accepting.** Alice's device opens the challenge with her identity and
+  presents the code, signed with its own sync key, which becomes the
+  grant's trustee device on the server. Only that device may ask.
+- **Asking.** The server starts the clock and logs an event in the vault's
+  change log. Every device of the owner's hears of it through its long
+  poll at once, and the daemon:
+  - writes it to the vault's audit log;
+  - shows a notice through the desktop prompt (or the terminal agent);
+  - tells clients (`emergency.changed`);
+  - lists it in `secretvault status`, until it is denied or released.
+
+  What was told is remembered per server, so a restart does not tell it
+  again; the grants are also looked at every 15 minutes, in case an event
+  was lost.
+- **Denying** ends the request; Alice may ask again, which starts the wait
+  over.
+- **Releasing.** After the wait, with no denial, the server gives Alice's
+  device the escrow, and lets it read the vault's files and change log,
+  never write them. Her daemon fetches the vault into a folder, checks it
+  is the vault the invite named (its ID and first check value), and
+  registers it read-only (`VaultConfig.Emergency`): a store that refuses
+  writes, and a watcher that only pulls. The escrow is kept in the config,
+  still sealed to her identity; `unlock --identity` opens the vault again.
+- **Rotations** carry grants over, with the release keys the vault's
+  records hold: the server's escrow stays as it was, and Alice's copy
+  locks and opens again with the same identity. Revoking with `--rotate`
+  leaves the grant out.
+- **The server's API** (`/v1/vaults/{vault}/emergency/...`) is in
+  [`svserver`](../svserver); the daemon's methods are `emergency.grant`,
+  `list`, `deny`, `revoke`, `accept`, `request` and `open`, for
+  secretvault's own programs only, and asked about as managing the vault
+  on the owner's side.
 
 ## The faces in detail
 

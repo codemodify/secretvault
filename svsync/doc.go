@@ -22,9 +22,14 @@
 //   - State is what a device remembers between syncs (a cursor into the
 //     server's change log, and the files it knows the server has), in a
 //     file of its own outside the vault folder.
-//   - Sync does one two-way sync; Clone fetches a vault into an empty
-//     folder; Watch syncs whenever the server reports a change, when
-//     triggered, and periodically, until cancelled.
+//   - Sync does one two-way sync; Pull one that sends nothing (for a copy
+//     that may only read); Clone fetches a vault into an empty folder;
+//     Watch syncs whenever the server reports a change, when triggered,
+//     and periodically, until cancelled.
+//   - Emergency access (emergency.go): the grant calls, for the owner's
+//     devices and for the trustee's, and the EmergencyInvite a trustee
+//     is sent. A sync counts the events the server logged (Report.Events),
+//     which say a grant changed.
 //
 // A new device is enrolled by one already enrolled: Enrol gives an
 // Invite (its String form fits a QR code), the new device makes a Client

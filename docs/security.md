@@ -22,6 +22,7 @@ The byte-level details are in [format.md](format.md).
 | Who you know: contacts, their keys, how you verified them, what mail they sent | vault records, encrypted, from M5 |
 | Files in encrypted containers | LUKS2 image files, AES-256-XTS; their keys in vault items, from M7 |
 | A delivery server's identities, policy and audit log | its delivery directory, sealed under a root key that only k unseal shares (or a TPM-sealed credential) open |
+| An emergency grant's release key | the vault's record of the grant, encrypted; on the sync server only sealed to the trustee |
 
 ## Adversaries, and what each can do
 
@@ -182,7 +183,9 @@ TLS (pinned by fingerprint for a self-signed server), and devices sign every
 request with their own keys, so a captured request cannot be replayed. What
 the sync server itself can see is listed in [`svserver`](../svserver)'s
 documentation: file names, sizes and times, keyslot metadata, device keys and
-labels, and IP addresses; never a key or anything inside an item.
+labels, emergency grants and their times, and IP addresses; never a key or
+anything inside an item. For emergency access it is trusted with more than
+that, time ([Emergency access](#emergency-access)).
 
 secretvault never phones home: no telemetry and no crash reports. The only
 network traffic is what you configure, such as sync and key lookups. An
@@ -412,6 +415,135 @@ of their own making, which fails the combination and starts it again.
 They learn nothing by it. Keep the API where only operators and machines
 reach it (`-deliver-listen` on an internal address), and requests are rate
 limited per address.
+
+## Emergency access
+
+`secretvault emergency grant` lets a person you trust (the trustee: a
+contact with a secretvault identity) open a vault of yours after a waiting
+period, seven days unless you choose otherwise, during which any of your
+devices can refuse. Like Bitwarden's and 1Password's, it is for when you
+cannot open the vault yourself. The vault must sync with a server. The
+format is in [format.md](format.md#emergency-slots), the server's side in
+[`svserver`](../svserver).
+
+**How it is built.**
+- The vault gets an emergency keyslot that opens only with the trustee's
+  identity and a random release key together.
+- The release key goes to the vault's sync server sealed to the trustee
+  (the escrow). The server keeps the escrow and the clock. When the
+  trustee asks, every device of yours hears of it at once (an event in the
+  vault's change log): the daemon writes it to the vault's audit log,
+  shows a notice on the desktop, and lists it in `secretvault status`,
+  and any device of yours can deny it. Once the wait has passed with no
+  denial, the server gives the trustee the escrow, and lets the trustee's
+  device read the vault's files, never write them.
+- The trustee's device accepts the grant first, by opening a code sealed
+  to the trustee's identity, and so becomes the one device that may ask.
+  The invite you send them holds no secret, and nobody else can accept it
+  in their place.
+- Your vault keeps an encrypted record of the grant (who, and the release
+  key), so a rotation can carry the grant over without asking the server
+  or the trustee for anything.
+
+**Why a server keeps the wait.** A wait that you can refuse needs
+something that is online while you may not be, counts time, and can be
+told to stop. What else was weighed:
+- **A time-lock without a server.** Time-lock puzzles (repeated squaring,
+  verifiable delay functions) make a key cost an amount of computation,
+  not an amount of time: a faster machine opens it early, the clock starts
+  when the trustee gets the puzzle rather than when they ask, and nothing
+  can stop it once it runs, so you could never refuse. Timelock encryption
+  to a public randomness beacon (drand's tlock) opens on a date fixed when
+  it is made, not a wait from a request, trusts the beacon's operators
+  instead of yours, and cannot be refused either. Neither gives "ask, then
+  wait, unless I say no". Without something trusted to keep time, it is
+  not possible.
+- **Your own devices as the clock.** They could refuse, but a release
+  would need one of them online after the wait, which is exactly what may
+  not be so when emergency access is needed.
+- **The trustee's own device as the clock.** It would hold everything, and
+  wait only as long as it chose to.
+- **Shamir between the trustee and the server.** A 2-of-2 split of the key
+  between the trustee and the server is what this design is: the escrowed
+  release key is the server's share (sealed to the trustee, so the server
+  holds nothing it can use), and the identity is the trustee's. Splitting
+  among several servers instead, k of n, each keeping the wait, would stop
+  a single lying server from releasing early; a vault syncs with one
+  server today, so that is left for later (known gaps).
+
+So the server is trusted with time, and with telling you, and with nothing
+secret.
+
+**A malicious or compromised server:**
+- **can give the trustee access early.** A server whose clock lies, or
+  whose code ignores the wait, releases the escrow when it likes: the
+  trustee then reads the whole vault at once, and your denial comes too
+  late. The wait is only as good as the server's word. This is the known
+  limit of any wait a server keeps, and a test shows it
+  (`TestALyingServerReleasesEarlyAndTheTrusteeGetsEverything`).
+- **can keep a request from you**: hide it, so your devices never hear of
+  it and cannot deny it, and then release it.
+- can refuse to release, or lose the escrow, so the trustee gets nothing;
+  and deny or revoke grants, like any of your devices.
+- can hand the trustee a vault of its own making in place of yours, which
+  the trustee's device refuses: the invite pins the vault's ID and its
+  first key's check value.
+- **cannot open anything**: it holds the release key only sealed to the
+  trustee, and never the trustee's identity; nor can it accept a grant for
+  the trustee in a way that gets it the key.
+
+**A malicious trustee:**
+- can ask again and again; each request starts the wait over and tells
+  you again. Requests are rate limited, like every request.
+- after the wait, reads everything in the vault as it is then, and what is
+  written until you revoke, and keeps it. Revoke with `--rotate` to cut
+  them off from what comes after.
+- cannot open anything before the wait is over, or while a request is
+  denied (unless the server lies), cannot write to the vault on the
+  server, and cannot accept the grant for anyone else.
+
+**Someone who steals the trustee's identity** can ask, and you are told.
+Someone with only the invite can do nothing: accepting takes the identity.
+
+**You, offline.** The wait runs whether or not any device of yours is on:
+that is what makes it emergency access. If you are out of reach for longer
+than the wait, a request you would have refused goes through. Choose a
+wait longer than you are ever away, and read `secretvault status` when you
+come back: a release is told too (the audit log, a notice), and stays in
+the status until you revoke the grant.
+
+**A compromised device of yours** holds the vault key already. It can
+grant access to anyone, and deny every request so that emergency access
+never happens (revoke and grant again from a device you trust). Granting,
+denying and revoking are for secretvault's own programs only, and asked
+about as managing the vault, which the CLI proves with the passphrase: a
+program running as you needs the passphrase too (with the limits in
+[Programs running as you](#programs-running-as-you)). Any device enrolled
+in the vault on the server, even one with no keyslot, can deny and revoke
+on the server: it is one of the vault's devices.
+
+**What the server learns**: that a grant exists, its wait, when it was
+asked for, denied and released, and the trustee's device key and the name
+it gave. The emergency keyslot, in the clear like every slot file, holds
+the trustee's public key and the grant's ID. The trustee's name is in
+the vault's encrypted record only; the keyslot's label is `emergency`.
+The trustee's device signs with the same key as for its own vaults, so a
+trustee who syncs with the same server is recognisable as the same device.
+
+**Revoking** forgets the grant on the server (its escrow, and the trustee's
+access to the files), removes its keyslot, and deletes the vault's record.
+It ends access only as far as the server can be trusted to forget:
+- Once the escrow was released, the trustee has had the vault key: revoke
+  with `--rotate`, which cuts them off from everything written afterwards.
+  What they read before, they keep.
+- Before any release, a server that kept the escrow and the keyslot's file
+  could still hand both to the trustee later. If you do not trust the
+  server with that, rotate on every revoke.
+
+**On the trustee's device** the vault is kept read-only, and follows your
+copy (it only ever fetches). The escrow is kept there, sealed to the
+trustee's identity; the identity itself is never kept, and is given again
+(`unlock --identity`) whenever the vault is opened.
 
 ## Keys in memory
 
@@ -670,6 +802,9 @@ guess, like `svpgp`:
 | The daemon's audit log shows lines removed from its middle, but whoever can write its files can cut it short and append entries that chain on | a signed checkpoint of the log's head, kept where they cannot write |
 | Token CIDR limits see the TCP peer: behind a proxy, the proxy | trusted proxies' `X-Forwarded-For` |
 | S/MIME certificate revocation (CRL, OCSP) is not checked | revocation in the trust store |
+| The wait of emergency access is kept by the sync server: one that lies releases early, and one that hides a request keeps the owner from refusing it | escrow with several servers, k of n, each keeping the wait |
+| Revoking emergency access that was never released relies on the server forgetting the escrow | rotating on every revoke (`emergency revoke --rotate`) does not |
+| Emergency access is to read: the trustee cannot take the vault over, nor change it | a takeover grant, if it is wanted |
 
 ## Reporting a vulnerability
 

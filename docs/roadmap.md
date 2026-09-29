@@ -337,7 +337,33 @@ correctly across all four verification levels.
   sealed by the OS (systemd-creds, DPAPI, the keychain), opened as the
   daemon starts with the session; the vault locks at logout.
 - **Recovery.** Shamir recovery shares (done: `slot add recovery --split N
-  --threshold K`, `unlock --shares`), and emergency access (to come).
+  --threshold K`, `unlock --shares`), and emergency access (done).
+- **Emergency access (done).** A contact with a secretvault identity may
+  open a vault after a wait any of the owner's devices can refuse
+  (`secretvault emergency grant | ls | deny | revoke`, and on the other
+  side `accept | request | open`):
+  - an emergency keyslot opens with the trustee's identity and a release
+    key together, and the sync server escrows the release key sealed to
+    the trustee, keeps the wait on its own clock (across restarts), and
+    releases it only after the wait with no denial;
+  - the trustee's device accepts by opening a code sealed to their
+    identity, so the invite holds no secret;
+  - the owner's devices hear of a request at once (events in the change
+    log): the audit log, a desktop notice, `secretvault status`, and an
+    event to clients;
+  - once released, the trustee gets a read-only copy that follows the
+    owner's; rotations carry grants over, and `revoke --rotate` cuts the
+    trustee off;
+  - tested with a server in the test with its own clock, and two
+    daemons: denied, released after the wait, revoked, and a server that
+    lies about the time and releases early, which gives the trustee
+    everything at once ([security.md](security.md#emergency-access) says
+    so plainly).
+
+  **Still to do:** escrow with several servers (k of n) so that one lying
+  server cannot release early; showing grants and requests in the GUI and
+  TUI (they get the `emergency.changed` event); a takeover grant, if
+  wanted; approving a request early.
 
 **Done when:**
 - Two devices edit through each of the three sync modes and converge.

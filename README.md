@@ -15,10 +15,10 @@ already sync, or nothing.
 
 > **Status: pre-release.** On Linux, the vault engine, the daemon with its
 > consent prompts, the CLI, and the terminal and desktop managers work, and
-> so do the desktop keyring (Secret Service), the SSH agent, sync, import,
-> OpenPGP, age, browser autofill, the trust store, encrypted containers,
-> and host mode for a server's systemd units; Windows and macOS builds
-> compile but are not yet exercised. Unlocking with a FIDO2 security key
+> so do the desktop keyring (Secret Service), the SSH agent, sync, emergency
+> access, import, OpenPGP, age, browser autofill, the trust store, encrypted
+> containers, and host mode for a server's systemd units; Windows and macOS
+> builds compile but are not yet exercised. Unlocking with a FIDO2 security key
 > works on Linux, tested against a software key but not yet against real
 > ones. What remains is in
 > [docs/roadmap.md](docs/roadmap.md). The format may still change, and
@@ -57,8 +57,8 @@ decision. If there is none, it asks you.
 | [`svformat`](svformat) | The v1 on-disk format ([spec](docs/format.md)) |
 | [`svstore`](svstore) | Where vault files live |
 | [`svcore`](svcore) | The vault engine: keyslots, items, revisions, conflicts |
-| [`svserver`](svserver) | The sync server: stores and relays vaults' files, and sees only ciphertext |
-| [`svsync`](svsync) | Syncing a vault folder with the server: device keys, enrolment, Sync, Clone, Watch |
+| [`svserver`](svserver) | The sync server: stores and relays vaults' files, and sees only ciphertext; escrows emergency grants and keeps their waits |
+| [`svsync`](svsync) | Syncing a vault folder with the server: device keys, enrolment, Sync, Pull, Clone, Watch, emergency grants |
 | [`svseal`](svseal) | Sealing a key to the user by the OS (systemd-creds, DPAPI, the keychain), to open vaults at login |
 | [`svdeliver`](svdeliver) | Secret delivery: the server's API, unseal shares, tokens, mTLS and OIDC, policies, the audit log |
 | [`svcsi`](svcsi) | The Secrets Store CSI driver provider, with our own gRPC and protobuf |
@@ -87,8 +87,9 @@ file. Nothing about an item is readable in the folder, including its name.
 
 - **Keyslots.** A vault opens with any of its keyslots: a passphrase, a
   printed recovery key, a keyfile, an identity (a device, a person, a
-  server), or a FIDO2 security key (its `hmac-secret`, with a touch and
-  its PIN).
+  server), a FIDO2 security key (its `hmac-secret`, with a touch and
+  its PIN), or emergency access (a person's identity, once a waiting
+  period you could have refused is over).
 - **Recipient keyslots** use post-quantum hybrid encryption (ML-KEM-768 with
   X25519).
 
@@ -165,6 +166,19 @@ $ bin/secretvault keyring takeover --dry-run # become the desktop's keyring (Lin
 $ bin/secretvault sync setup https://sync.example.com:8443 --fingerprint FP --admin-token-file token
 $ bin/secretvault sync invite                # then, on the other device:
 $ bin/secretvault sync join 'secretvault-sync:?...' --name personal
+```
+
+Emergency access, for a vault that syncs: a contact you trust can get into
+it if you cannot, after a wait during which you are told, and can refuse.
+
+```console
+$ bin/secretvault emergency grant Alice --wait 7d    # prints an invite for Alice (it holds no secret)
+    ... Alice: secretvault emergency accept 'secretvault-emergency:?...' --identity alice.id --as ada
+    ... Alice, when she needs it: secretvault emergency request ada
+$ bin/secretvault status                     # "Alice asked for emergency access to vault ..."
+$ bin/secretvault emergency deny 3f2a        # or, if you do not, after 7 days:
+    ... Alice: secretvault emergency open ada --identity alice.id   (read-only)
+$ bin/secretvault emergency revoke 3f2a --rotate
 ```
 
 Contacts, and your own OpenPGP key:
@@ -373,6 +387,10 @@ where it stops. In short:
 - **A delivery server reads every vault shared with it**, by design. Its
   own keys and policy are sealed on disk until k operators unseal it, but
   an unsealed server's memory holds them all.
+- **The wait of emergency access is your sync server's word.** The server
+  holds nothing that opens the vault, but one that lies (about the time,
+  or by releasing early) gives the trustee access early, and one that
+  hides a request keeps you from refusing it.
 
 ## Documentation
 
@@ -447,6 +465,10 @@ The tests include:
   forged, tampered, expired and wrong-audience tokens, unknown keys and
   claims that do not match; and the CSI provider's protobuf against
   protoc.
+- emergency access between two daemons and a sync server with a clock of
+  the test's own: a request denied, one released after the wait, grants
+  revoked and carried over by rotations, and a server that lies about
+  the time, which gives the trustee everything early.
 
 ## Licence
 
