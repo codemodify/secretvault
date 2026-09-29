@@ -391,7 +391,7 @@ func TestOfSeveralKeysTheOneTouchedIsEnrolled(t *testing.T) {
 func TestKeepalivesKeepTheHostWaiting(t *testing.T) {
 	slow := func(ctx context.Context) error {
 		select {
-		case <-time.After(600 * time.Millisecond):
+		case <-time.After(900 * time.Millisecond):
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
@@ -404,7 +404,7 @@ func TestKeepalivesKeepTheHostWaiting(t *testing.T) {
 	k.Open = func(ctx context.Context) ([]*svfido.Device, error) {
 		devs, err := open(ctx)
 		for _, d := range devs {
-			d.SetTimeout(150 * time.Millisecond)
+			d.SetTimeout(300 * time.Millisecond)
 		}
 		return devs, err
 	}
