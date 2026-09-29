@@ -273,8 +273,10 @@ func TestTwoDevicesEditingAtOnceConvergeThroughTheServer(t *testing.T) {
 	}
 
 	// Everything on the server is ciphertext: no item name, label,
-	// attribute, field or passphrase appears in any file it keeps.
-	forbidden := []string{"e2e/", "LABEL", attrValue, "USERNAME-ada", "SECRET-VALUE", string(passphrase), string(newPassphrase), "temporary passphrase"}
+	// attribute, field or passphrase appears in any file it keeps. (The
+	// names are looked for whole: "e2e/" alone is also what a file name
+	// in the change log holds when an object's hex ID ends in e2e.)
+	forbidden := []string{"e2e/shared", "e2e/only-on-a", "e2e/new-on-", "e2e/busy-", "LABEL", attrValue, "USERNAME-ada", "SECRET-VALUE", string(passphrase), string(newPassphrase), "temporary passphrase"}
 	err = filepath.WalkDir(s.root, func(p string, e fs.DirEntry, err error) error {
 		if err != nil || e.IsDir() {
 			return err
