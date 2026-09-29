@@ -32,6 +32,11 @@ type Config struct {
 	// ContactsVault is the vault contacts are kept in ("" for the default
 	// vault). `secretvault contact vault NAME` sets it.
 	ContactsVault string `json:"contacts_vault,omitempty"`
+
+	// CloseContainersOnLock closes a vault's open containers when the
+	// vault locks. Off by default: containers stay mounted, as VeraCrypt's
+	// do (containers.go).
+	CloseContainersOnLock bool `json:"close_containers_on_lock,omitempty"`
 }
 
 // VaultConfig registers one vault.

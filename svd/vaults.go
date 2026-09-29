@@ -148,13 +148,16 @@ func (d *Daemon) touch(mv *managedVault) {
 	}
 }
 
-// lock locks a vault and forgets every in-memory decision about it.
+// lock locks a vault and forgets every in-memory decision about it (and,
+// if the config says so, closes the containers whose keys it holds).
 func (d *Daemon) lock(mv *managedVault, why string) {
 	if mv.v == nil || mv.v.Locked() {
 		return
 	}
+	images := d.containerImages(mv)
 	mv.v.Lock()
 	d.locked(mv, why)
+	d.closeContainers(images, mv.cfg.Name, why)
 }
 
 // locked does what follows a vault locking, whether the daemon locked it

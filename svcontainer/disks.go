@@ -66,15 +66,18 @@ type Status struct {
 // Mounted reports whether the image's filesystem is mounted.
 func (s Status) Mounted() bool { return s.MountPoint != "" }
 
-// canonical is a path as the kernel reports a loop device's file: absolute,
-// with no symbolic links.
-func canonical(path string) string {
+// Canonical is a path as the kernel reports a loop device's file: absolute,
+// with no symbolic links (in as much of it as exists).
+func Canonical(path string) string {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return filepath.Clean(path)
 	}
 	if real, err := filepath.EvalSymlinks(abs); err == nil {
 		return real
+	}
+	if dir, err := filepath.EvalSymlinks(filepath.Dir(abs)); err == nil {
+		return filepath.Join(dir, filepath.Base(abs))
 	}
 	return abs
 }
@@ -111,7 +114,7 @@ func (d *Disks) Status(ctx context.Context, path string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	want := canonical(path)
+	want := Canonical(path)
 	for _, s := range all {
 		if s.Image == want {
 			return s, nil
@@ -179,7 +182,7 @@ func (d *Disks) Mount(ctx context.Context, path string, key []byte, mountOptions
 
 // attach attaches and unlocks an image; undo takes both back.
 func (d *Disks) attach(ctx context.Context, path string, key []byte) (Status, func(), error) {
-	s := Status{Image: canonical(path)}
+	s := Status{Image: Canonical(path)}
 	f, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
 		return s, nil, err
@@ -213,7 +216,7 @@ func (d *Disks) Unmount(ctx context.Context, target string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	want := canonical(target)
+	want := Canonical(target)
 	i := slices.IndexFunc(all, func(s Status) bool {
 		return s.ours && (s.Image == want || s.MountPoint != "" && (s.MountPoint == want || s.MountPoint == filepath.Clean(target)))
 	})

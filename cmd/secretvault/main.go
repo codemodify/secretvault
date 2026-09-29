@@ -38,6 +38,7 @@
 //	run [--env-file F] -- CMD               run CMD with sv:// references in its environment resolved
 //	inject [-i IN] [-o OUT]                 fill {{ sv://... }} references in a template
 //	age keygen|recipient|identity|encrypt|decrypt   age files with vault-held keys
+//	container create|open|close|ls|header-backup|passwd   encrypted containers (LUKS2 images)
 //	identity new|pub           make or show a recipient identity
 //	contact ls|show|add|import|rm|verify|lookup|qr|vault   people, their keys, and how you verified them
 //	trust check|seen           the verdict on a message's signer; record a key seen in mail
@@ -220,6 +221,7 @@ func init() {
 		{"git-credential", "git's credential helper (get, store, erase)", (*cli).cmdGitCredential},
 		{"docker-credential", "docker's credential helper (get, store, erase, list)", (*cli).cmdDockerCredential},
 		{"age", "age files with vault-held keys: keygen, recipient, identity, encrypt, decrypt", (*cli).cmdAge},
+		{"container", "encrypted containers: create, open, close, ls, header-backup, passwd", (*cli).cmdContainer},
 		{"age-plugin", "age's plugin protocol (run as age-plugin-secretvault)", (*cli).cmdAgePlugin},
 		{"identity", "make (new) or show (pub) a recipient identity", (*cli).cmdIdentity},
 		{"contact", "people and their keys: ls, show, add, import, rm, verify, lookup, qr, vault", (*cli).cmdContact},

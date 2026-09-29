@@ -136,6 +136,8 @@ type Daemon struct {
 	syncID  *svsync.Identity // this device's key for sync servers
 
 	host *hostState // host mode's identity, policy and log; nil in user mode
+
+	ctr containers // encrypted containers (containers.go)
 }
 
 // New prepares a daemon: it reads the config and opens (locked) every

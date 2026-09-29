@@ -75,16 +75,17 @@ const (
 // Kinds are the item kinds the faces know. Others are allowed and kept as
 // they are.
 var Kinds = []string{
-	"login",    // username, password, URLs, OTP
-	"password", // a bare password (pass, Secret Service)
-	"note",     // secure note
-	"card",     // payment card
-	"identity", // name, address, documents
-	"ssh-key",  // served by the SSH agent face
-	"api-key",  // tokens, cloud credentials
-	"key",      // a cryptographic key used in place (transit, age identities)
-	"kv",       // Vault-style key/value data
-	"otp",      // an authenticator entry: an otpauth:// URI and little else
+	"login",     // username, password, URLs, OTP
+	"password",  // a bare password (pass, Secret Service)
+	"note",      // secure note
+	"card",      // payment card
+	"identity",  // name, address, documents
+	"ssh-key",   // served by the SSH agent face
+	"api-key",   // tokens, cloud credentials
+	"key",       // a cryptographic key used in place (transit, age identities)
+	"kv",        // Vault-style key/value data
+	"otp",       // an authenticator entry: an otpauth:// URI and little else
+	"container", // an encrypted container's key; the image and its LUKS UUID are attributes
 	"generic",
 }
 
