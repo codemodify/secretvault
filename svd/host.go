@@ -55,9 +55,10 @@ import (
 // ('secretvault share' on the machine that holds the vault). systemd hands
 // the identity over as a credential (LoadCredentialEncrypted=, sealed by
 // systemd-creds to the TPM2 or the host key); without systemd it is read
-// from a file only root can read. Nothing prompts, the Secret Service,
-// the SSH agent and the prompt protocol are not served, and vaults do not
-// lock on idle unless their config says so.
+// from a file only root can read. Nothing prompts; the Secret Service,
+// the SSH agent, the browser relay, the prompt protocol and unlocking at
+// login are not served (personOnly); and vaults do not lock on idle
+// unless their config says so.
 
 // HostOptions configure host mode.
 type HostOptions struct {
@@ -812,6 +813,16 @@ func (d *Daemon) hostStatus() svrpc.HostStatus {
 		st.Vaults = append(st.Vaults, hv)
 	}
 	return st
+}
+
+// personOnly are a person's daemon's methods that the host daemon does not
+// serve, and why: faces for a desktop session, and what needs someone to
+// ask.
+var personOnly = map[string]string{
+	svrpc.MPromptRegister: "asks nobody, so it takes no prompter",
+	svrpc.MKeyringServe:   "is no desktop's keyring",
+	svrpc.MBrowserOpen:    "serves no browser",
+	svrpc.MVaultLogin:     "opens its vaults with the host identity, not at a login",
 }
 
 // errNotHost answers a host method on a person's own daemon.

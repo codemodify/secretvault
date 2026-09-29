@@ -56,6 +56,9 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		// for it, and do nothing else.
 		return nil, svrpc.Errorf(svrpc.CodeDenied, "the host daemon only resolves sv:// references here (%s), and not %s", svrpc.MHostResolve, method)
 	}
+	if why, ok := personOnly[method]; ok && d.host != nil {
+		return nil, svrpc.Errorf(svrpc.CodeDenied, "the host daemon %s", why)
+	}
 	switch method {
 	case svrpc.MHello:
 		var p svrpc.HelloParams
@@ -80,9 +83,6 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		}
 		if !cl.cli {
 			return nil, svrpc.Errorf(svrpc.CodeDenied, "%v", errNotCLI)
-		}
-		if d.host != nil {
-			return nil, svrpc.Errorf(svrpc.CodeDenied, "the host daemon is no desktop's keyring")
 		}
 		return nil, d.setSecretService(ctx, p.Enable)
 
@@ -647,9 +647,6 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		var p svrpc.PromptRegisterParams
 		if err := decode(&p); err != nil {
 			return nil, err
-		}
-		if d.host != nil {
-			return nil, svrpc.Errorf(svrpc.CodeDenied, "the host daemon asks nobody, so it takes no prompter")
 		}
 		// The prompter sees the passphrases typed into it: only
 		// secretvault's own programs may be it.

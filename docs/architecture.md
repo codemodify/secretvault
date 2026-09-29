@@ -92,8 +92,8 @@ browser starts a host with).
 
 The modes are one daemon with a switch (`svd.Options.Mode`), not forks.
 The host daemon never prompts, and does not serve the Secret Service, the
-SSH agent or the prompt protocol; its vaults do not lock on idle unless
-their `auto_lock` says so. It is described under
+SSH agent, the browser or the prompt protocol, nor open vaults at a
+login; its vaults do not lock on idle unless their `auto_lock` says so. It is described under
 [Secret delivery](#secret-delivery).
 
 ## Talking to the daemon

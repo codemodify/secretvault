@@ -397,12 +397,19 @@ func TestTheHostIdentityOpensVaultsAndNobodyIsAsked(t *testing.T) {
 		t.Fatalf("after root unlocked it: %q", got)
 	}
 
-	// The host daemon takes no prompter, and is no keyring.
+	// The host daemon takes no prompter, and is no keyring, no browser's
+	// store, nor anything that opens at a login.
 	if err := admin.RegisterPrompter(ctx(t), "pts/1"); !errors.Is(err, svrpc.ErrDenied) {
 		t.Fatalf("prompt.register: %v", err)
 	}
 	if err := admin.ServeKeyring(ctx(t), true); !errors.Is(err, svrpc.ErrDenied) {
 		t.Fatalf("keyring.serve: %v", err)
+	}
+	if err := admin.Call(ctx(t), svrpc.MBrowserOpen, svrpc.BrowserOpenParams{}, nil); !errors.Is(err, svrpc.ErrDenied) {
+		t.Fatalf("browser.open: %v", err)
+	}
+	if err := admin.Call(ctx(t), svrpc.MVaultLogin, svrpc.VaultLoginParams{Vault: "prod", On: true}, nil); !errors.Is(err, svrpc.ErrDenied) {
+		t.Fatalf("vault.login: %v", err)
 	}
 	if st, _ := admin.Status(ctx(t)); st.Mode != "host" || st.SSHAgent != "" {
 		t.Fatalf("daemon.status %+v", st)
