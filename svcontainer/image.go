@@ -128,8 +128,15 @@ func CreateImage(path string, key []byte, o CreateOptions) (img Image, err error
 
 // openImage opens an image file, refusing anything but a regular file: a
 // FIFO named as an image would keep whoever opens it waiting for ever, and
-// a device is not a container.
+// a device is not a container (and is not even opened: opening some
+// devices does things). The file is checked again once open, as the path
+// may have changed in between.
 func openImage(path string, write bool) (*os.File, error) {
+	if st, err := os.Stat(path); err != nil {
+		return nil, err
+	} else if !st.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file, so not a container", path)
+	}
 	flag := os.O_RDONLY
 	if write {
 		flag = os.O_RDWR
@@ -168,16 +175,16 @@ func readHeader(f *os.File, path string) (*svluks.Header, error) {
 }
 
 // maxKeyIterations bounds the keyslots a container key is tried on. The
-// key only ever goes in a PBKDF2 keyslot at svluks.KeyKDF's cost; trying
-// it on others would let a planted image make the daemon run Argon2 over
-// gigabytes.
+// key only ever goes in a PBKDF2 keyslot at svluks.KeyKDF's cost, checked
+// by a digest as cheap; trying it on others would let a planted image make
+// the daemon run Argon2 over gigabytes, or millions of PBKDF2 rounds.
 const maxKeyIterations = 100_000
 
 // unlockKey opens the header with a container key, trying only keyslots
 // that could hold one.
 func unlockKey(f *os.File, h *svluks.Header, path string, key []byte) (*svluks.Key, int, error) {
 	for _, k := range h.Keyslots() {
-		if !k.Bound || k.KDF.Type != svluks.KDFPBKDF2 || k.KDF.Iterations > maxKeyIterations {
+		if !k.Bound || k.KDF.Type != svluks.KDFPBKDF2 || k.KDF.Iterations > maxKeyIterations || k.DigestIterations > maxKeyIterations {
 			continue
 		}
 		vk, err := h.UnlockSlot(f, k.ID, key)
@@ -201,19 +208,40 @@ func Check(path string, key []byte) (int, error) {
 		return -1, err
 	}
 	defer f.Close()
+	_, slot, err := checkOpen(f, path, key)
+	return slot, err
+}
+
+// openChecked opens an image to attach it, and checks it as Check does, on
+// the descriptor it returns: attached through that same descriptor, the
+// file checked is the file the kernel reads, whatever becomes of the path.
+func openChecked(path string, key []byte) (*os.File, *svluks.Header, error) {
+	f, err := openImage(path, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	h, _, err := checkOpen(f, path, key)
+	if err != nil {
+		f.Close()
+		return nil, nil, err
+	}
+	return f, h, nil
+}
+
+func checkOpen(f *os.File, path string, key []byte) (*svluks.Header, int, error) {
 	h, err := readHeader(f, path)
 	if err != nil {
-		return -1, err
+		return nil, -1, err
 	}
 	if c := h.Cipher(); c != "aes-xts-plain64" {
-		return -1, fmt.Errorf("%s encrypts its data with %q; secretvault opens only aes-xts-plain64 containers", path, c)
+		return nil, -1, fmt.Errorf("%s encrypts its data with %q; secretvault opens only aes-xts-plain64 containers", path, c)
 	}
 	vk, slot, err := unlockKey(f, h, path, key)
 	if err != nil {
-		return -1, err
+		return nil, -1, err
 	}
 	vk.Destroy()
-	return slot, nil
+	return h, slot, nil
 }
 
 // CheckPassphrase returns the keyslot a passphrase opens, trying every

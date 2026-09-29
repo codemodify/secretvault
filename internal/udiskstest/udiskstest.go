@@ -49,6 +49,7 @@ type loop struct {
 	n       int
 	file    *os.File
 	backing string
+	uuid    string
 	uid     uint32
 	clear   *cleartext
 }
@@ -192,6 +193,9 @@ func (f *Fake) loopSetup(_ context.Context, call *svdbus.Call) ([]any, error) {
 		return nil, err
 	}
 	l := &loop{n: f.next, file: file, backing: backing, uid: uint32(os.Getuid())}
+	if h, err := svluks.Read(file); err == nil {
+		l.uuid = h.UUID() // as udev reads it
+	}
 	f.next++
 	f.loops[loopPath(l.n)] = l
 	return []any{loopPath(l.n)}, nil
@@ -445,7 +449,7 @@ func (f *Fake) objects() map[svdbus.ObjectPath]map[string]map[string]svdbus.Vari
 		}
 		out[path] = map[string]map[string]svdbus.Variant{
 			svudisks.IfaceBlock: {"Device": dev(fmt.Sprintf("/dev/loop%d", l.n)), "CryptoBackingDevice": v(svdbus.ObjectPath("/")),
-				"IdUsage": v("crypto"), "IdType": v("crypto_LUKS")},
+				"IdUsage": v("crypto"), "IdType": v("crypto_LUKS"), "IdUUID": v(l.uuid)},
 			svudisks.IfaceLoop:      {"BackingFile": dev(l.backing), "SetupByUID": v(l.uid)},
 			svudisks.IfaceEncrypted: {"CleartextDevice": v(cleartext)},
 		}

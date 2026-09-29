@@ -60,7 +60,8 @@ type Status struct {
 	Device     string // the decrypted device, /dev/dm-N
 
 	loop, cleartext svdbus.ObjectPath
-	ours            bool // attached by this user
+	ours            bool   // attached by this user
+	uuid            string // the LUKS UUID udev read from the attached image
 }
 
 // Mounted reports whether the image's filesystem is mounted.
@@ -94,7 +95,7 @@ func (d *Disks) All(ctx context.Context) ([]Status, error) {
 		if !l.IsLoop || l.BackingFile == "" {
 			continue
 		}
-		s := Status{Image: l.BackingFile, Attached: true, loop: l.Path, ours: l.SetupByUID == uid}
+		s := Status{Image: l.BackingFile, Attached: true, loop: l.Path, ours: l.SetupByUID == uid, uuid: l.IDUUID}
 		for _, c := range devs {
 			if c.CryptoBacking == l.Path {
 				s.Unlocked, s.cleartext, s.Device = true, c.Path, c.Device
@@ -132,7 +133,15 @@ func (d *Disks) Format(ctx context.Context, path string, key []byte, fstype, lab
 	if err := CheckFormat(fstype, label); err != nil {
 		return Status{}, err
 	}
-	s, undo, err := d.attach(ctx, path, key)
+	s, f, done, err := d.prepare(ctx, path, key)
+	if err != nil || done {
+		if done {
+			err = fmt.Errorf("%s is already open; a new container is never open", s.Image)
+		}
+		return s, err
+	}
+	defer f.Close()
+	s, undo, err := d.attach(ctx, f, s.Image, key)
 	if err != nil {
 		return s, err
 	}
@@ -153,29 +162,14 @@ func (d *Disks) Format(ctx context.Context, path string, key []byte, fstype, lab
 func (d *Disks) Mount(ctx context.Context, path string, key []byte, mountOptions string) (Status, error) {
 	ctx, cancel := patient(ctx)
 	defer cancel()
-	s, err := d.Status(ctx, path)
-	if err != nil {
+	s, f, done, err := d.prepare(ctx, path, key)
+	if err != nil || done {
 		return s, err
 	}
-	if s.Mounted() {
-		return s, nil
-	}
-	undo := func() {}
-	switch {
-	case !s.Attached:
-		if s, undo, err = d.attach(ctx, path, key); err != nil {
-			return s, err
-		}
-	case !s.Unlocked:
-		if s.cleartext, err = d.ud.Unlock(ctx, s.loop, key); err != nil {
-			return s, err
-		}
-		s.Unlocked = true
-		undo = func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			d.ud.Lock(ctx, s.loop)
-		}
+	defer f.Close()
+	s, undo, err := d.attach(ctx, f, s.Image, key)
+	if err != nil {
+		return s, err
 	}
 	if s.MountPoint, err = d.mount(ctx, s, mountOptions); err != nil {
 		undo()
@@ -184,16 +178,65 @@ func (d *Disks) Mount(ctx context.Context, path string, key []byte, mountOptions
 	return d.refresh(ctx, s), nil
 }
 
-// attach attaches and unlocks an image; undo takes both back.
-func (d *Disks) attach(ctx context.Context, path string, key []byte) (Status, func(), error) {
-	s := Status{Image: Canonical(path)}
-	f, err := openImage(path, true)
+// prepare opens and checks the image (see openChecked), and looks at what
+// is attached already: the image itself, or another file with its LUKS
+// UUID (a copy, a hard link, the same file through a bind mount).
+//
+//   - This image, attached by this user and mounted: done, it is open.
+//   - This image attached by this user otherwise (locked, or unlocked but
+//     not mounted, after a crash or an unmount done elsewhere): taken
+//     down, to be attached again from the file just checked.
+//   - Anything else with this UUID unlocked (by another user, or from
+//     another path): refused, as two unlocked mappings of one filesystem
+//     corrupt it.
+//   - Other locked attachments are left alone: the kernel reads nothing
+//     through them.
+//
+// Otherwise it returns the open file, which the caller attaches and closes.
+func (d *Disks) prepare(ctx context.Context, path string, key []byte) (Status, *os.File, bool, error) {
+	want := Canonical(path)
+	f, h, err := openChecked(path, key)
 	if err != nil {
-		return s, nil, err
+		return Status{Image: want}, nil, false, err
 	}
-	s.loop, err = d.ud.LoopSetup(ctx, f)
-	f.Close()
+	all, err := d.All(ctx)
 	if err != nil {
+		f.Close()
+		return Status{Image: want}, nil, false, err
+	}
+	// Mounted ones first, so that a stale attachment is never taken down
+	// when this image is in fact open.
+	slices.SortStableFunc(all, func(a, b Status) int { return boolRank(b.Mounted()) - boolRank(a.Mounted()) })
+	for _, s := range all {
+		same := s.Image == want
+		switch {
+		case same && s.ours && s.Mounted():
+			f.Close()
+			return s, nil, true, nil
+		case same && s.ours:
+			d.teardown(s)
+			continue
+		case !s.Unlocked || !same && s.uuid != h.UUID():
+			continue
+		case same:
+			err = fmt.Errorf("%s is already unlocked by another user", want)
+		default:
+			err = fmt.Errorf("a container with the same LUKS UUID (%s) is already unlocked from %s; close it first", h.UUID(), s.Image)
+		}
+		f.Close()
+		return s, nil, false, err
+	}
+	return Status{Image: want}, f, false, nil
+}
+
+// attach attaches the open image and unlocks it; undo takes both back.
+// The descriptor handed to UDisks2 is the one whose header was checked,
+// so the kernel reads the file that was checked, not whatever the path
+// names by then.
+func (d *Disks) attach(ctx context.Context, f *os.File, image string, key []byte) (Status, func(), error) {
+	s := Status{Image: image}
+	var err error
+	if s.loop, err = d.ud.LoopSetup(ctx, f); err != nil {
 		return s, nil, err
 	}
 	s.Attached, s.ours = true, true
@@ -237,30 +280,48 @@ func (d *Disks) Unmount(ctx context.Context, target string) (Status, error) {
 		return Status{}, err
 	}
 	want := Canonical(target)
-	i := slices.IndexFunc(all, func(s Status) bool {
-		return s.ours && (s.Image == want || s.MountPoint != "" && (s.MountPoint == want || s.MountPoint == filepath.Clean(target)))
-	})
-	if i < 0 {
+	// Every attachment of ours the target names (a stale one may sit
+	// beside the open one), the mounted first.
+	var mine []Status
+	for _, s := range all {
+		if s.ours && (s.Image == want || s.MountPoint != "" && (s.MountPoint == want || s.MountPoint == filepath.Clean(target))) {
+			mine = append(mine, s)
+		}
+	}
+	if len(mine) == 0 {
 		return Status{Image: want}, ErrNotOpen
 	}
-	s := all[i]
-	if s.Mounted() {
-		if err := d.ud.Unmount(ctx, s.cleartext); err != nil {
+	slices.SortStableFunc(mine, func(a, b Status) int { return boolRank(b.Mounted()) - boolRank(a.Mounted()) })
+	var closed Status
+	for i, s := range mine {
+		if s.Mounted() {
+			if err := d.ud.Unmount(ctx, s.cleartext); err != nil {
+				return s, err
+			}
+			s.MountPoint = ""
+		}
+		if s.Unlocked {
+			if err := d.ud.Lock(ctx, s.loop); err != nil {
+				return s, err
+			}
+			s.Unlocked, s.Device = false, ""
+		}
+		if err := d.ud.DeleteLoop(ctx, s.loop); err != nil {
 			return s, err
 		}
-		s.MountPoint = ""
-	}
-	if s.Unlocked {
-		if err := d.ud.Lock(ctx, s.loop); err != nil {
-			return s, err
+		s.Attached = false
+		if i == 0 {
+			closed = s
 		}
-		s.Unlocked, s.Device = false, ""
 	}
-	if err := d.ud.DeleteLoop(ctx, s.loop); err != nil {
-		return s, err
+	return closed, nil
+}
+
+func boolRank(b bool) int {
+	if b {
+		return 1
 	}
-	s.Attached = false
-	return s, nil
+	return 0
 }
 
 // patient gives calls to UDisks2 room for a polkit password prompt, or

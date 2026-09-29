@@ -123,6 +123,31 @@ func TestPassphraseSlots(t *testing.T) {
 	}
 }
 
+// A header whose data is not encrypted (cipher_null), even one the key
+// opens, never reaches the kernel: it would store the files in the clear.
+func TestCipherNullIsRefused(t *testing.T) {
+	if _, err := exec.LookPath("cryptsetup"); err != nil {
+		t.Skip("cryptsetup is not installed")
+	}
+	dir := t.TempDir()
+	path, kf := filepath.Join(dir, "null.img"), filepath.Join(dir, "key")
+	key := NewKey()
+	os.WriteFile(kf, key, 0o600)
+	os.WriteFile(path, nil, 0o600)
+	os.Truncate(path, MinSize)
+	out, err := exec.Command("cryptsetup", "luksFormat", "--type", "luks2", "--batch-mode", "--key-file", kf,
+		"--cipher", "cipher_null-ecb", "--key-size", "0", "--pbkdf", "pbkdf2", "--pbkdf-force-iterations", "1000", path).CombinedOutput()
+	if err != nil {
+		t.Skipf("cryptsetup makes no cipher_null image here: %v\n%s", err, out)
+	}
+	if _, err := Check(path, key); err == nil || !strings.Contains(err.Error(), "cipher_null") {
+		t.Fatalf("a cipher_null image: %v", err)
+	}
+	if _, _, err := openChecked(path, key); err == nil {
+		t.Fatal("opened a cipher_null image to attach it")
+	}
+}
+
 // The container key and a passphrase slot both open the image in plain
 // cryptsetup: the recovery path without secretvault.
 func TestCryptsetupOpensContainers(t *testing.T) {
@@ -258,8 +283,8 @@ func TestDisks(t *testing.T) {
 	}
 	fake.Fail("Mount", "", "")
 
-	// A container attached but locked (after a crash, say) is taken up
-	// from there.
+	// A container left attached (after a crash, say) is taken down and
+	// attached again from the file just checked, never reused unchecked.
 	f, _ := os.OpenFile(path, os.O_RDWR, 0)
 	ud, err := svudisks.Connect()
 	if err != nil {
@@ -273,9 +298,26 @@ func TestDisks(t *testing.T) {
 	if st, err := d.Mount(ctx(t), path, key, ""); err != nil || !st.Mounted() {
 		t.Fatalf("from attached: %+v %v", st, err)
 	}
-	// Ours was the last LoopSetup: Mount took up from the attached image.
-	if calls := strings.Join(fake.Calls(), " "); !strings.HasSuffix(calls, "Mount Lock Delete LoopSetup(c.img) Unlock Mount") {
+	if calls := strings.Join(fake.Calls(), " "); !strings.HasSuffix(calls, "LoopSetup(c.img) Delete LoopSetup(c.img) Unlock Mount") {
 		t.Fatalf("calls: %s", calls)
+	}
+
+	// The same filesystem is never unlocked twice: not through a hard
+	// link, not from a copy (the same LUKS UUID).
+	hard := filepath.Join(dir, "hard.img")
+	if err := os.Link(path, hard); err != nil {
+		t.Fatal(err)
+	}
+	copyOf := filepath.Join(dir, "copy.img")
+	data, _ := os.ReadFile(path)
+	os.WriteFile(copyOf, data, 0o600)
+	for _, other := range []string{hard, copyOf} {
+		if _, err := d.Mount(ctx(t), other, key, ""); err == nil || !strings.Contains(err.Error(), "same LUKS UUID") {
+			t.Fatalf("%s while the original is open: %v", other, err)
+		}
+	}
+	if n := len(fake.Attached()); n != 1 {
+		t.Fatalf("%d attached", n)
 	}
 
 	// A desktop that automounts new disks gets there first: where it
