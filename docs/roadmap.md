@@ -51,17 +51,20 @@ The order below is the planned order, and they can overlap.
 - A process of another user is refused.
 
 **Where it stands.**
-- **Built and tested on Linux.** Everything above except screen-lock and
-  sleep detection, which waits for the D-Bus library (M3's, brought forward).
+- **Built and tested on Linux**, including locking on screen lock, sleep and
+  logout. That follows logind and the screensaver over our own D-Bus library
+  (`svdbus`), brought forward from M3.
 - **The comms-mail wiring** is described in [clients.md](clients.md), and
   lands on comms-mail's side.
 - **The desktop prompt** is the system's pinentry until
   `secretvault-gui-prompt` can be built (see uitoolkit-gaps.md).
 - **Windows and macOS code compiles.** Caller identification there does not
   yet read publisher signatures.
-- **Added along the way:** `grant allow` (decide for a program ahead of
-  time), and an audit log sealed so it can be written while locked but read
-  only when unlocked.
+- **Added along the way:**
+  - `grant allow`, to decide for a program ahead of time;
+  - an audit log sealed so it can be written while locked but read only
+    when unlocked;
+  - the clipboard in our own Wayland and X11 code (`get --clip`), from M2.
 
 ## M2: the desktop password manager
 

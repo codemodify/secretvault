@@ -427,7 +427,9 @@ projects, with `sv` as the prefix:
 | `svd`, `svrpc` | the daemon, and the JSON-RPC wire protocol | M1 |
 | `svpeer` | who is on the other end of a connection | M1 |
 | `svbroker` | grants and the audit log | M1 |
-| `svdbus`, `svsecretservice` | our D-Bus implementation and the Secret Service face | M3 |
+| `svdbus` | our D-Bus implementation | M1 |
+| `svsecretservice` | the Secret Service face | M3 |
+| `svwayland`, `svx11`, `svclip` | the clipboard in our own protocol code | M2 |
 | `svpgp`, `svcms`, `svtrust` | OpenPGP, S/MIME, the trust store | M5 |
 | `svfido`, `svpcsc`, `svtpm` | hardware tokens and TPM | M4 |
 | `svsync`, `svserver` | sync, and the server API | M6, M8 |

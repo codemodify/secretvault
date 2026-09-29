@@ -159,7 +159,7 @@ Wiping keys in Go is therefore hygiene, not a guarantee. What it does:
 | Rollback and withholding of revisions is not detected | signed checkpoints (M6) |
 | Removing a keyslot does not revoke a key already used | epoch rotation (M6) |
 | Revisions are not signed per device | device signatures (M6) |
-| Screen lock and sleep do not lock vaults yet (idle time, logout and explicit locks do) | D-Bus session signals (M1, with the D-Bus library) |
+| On Windows and macOS, screen lock and sleep do not lock vaults yet (idle time and explicit locks do) | session notifications on those platforms |
 | Windows and macOS identify programs by path and hash, not by publisher signature | Authenticode and code-signing checks |
 | Unknown JSON fields in an item are dropped when an older version rewrites it | fixed before the format freeze |
 | The format is not frozen | format freeze (M10) |

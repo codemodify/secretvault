@@ -16,8 +16,9 @@
 //     `secretvault-tui-prompt --agent`, or the desktop's pinentry
 //     (pinentry-gnome3/-qt/-gtk) until secretvault-gui-prompt exists.
 //
-//   - Vaults lock after 15 idle minutes by default, and every vault locks
-//     when the daemon stops.
+//   - Vaults lock after 15 idle minutes, when the screen locks and before
+//     the machine sleeps (all adjustable per vault); every vault locks when
+//     the user's last session ends and when the daemon stops.
 //
 // Usage:
 //
@@ -99,6 +100,7 @@ func main() {
 	defer cleanup()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	d.WatchSession(ctx) // lock on screen lock, sleep and logout
 	log.Printf("%s serving %s", secretvault.Version, sock)
 	if err := d.Serve(ctx, ln); err != nil {
 		log.Print(err)
