@@ -179,6 +179,13 @@ func TestTheListFiltersAsYouTypeAndFoldersNarrowIt(t *testing.T) {
 		t.Fatalf("%d items match git, want 2", n)
 	}
 	h.waitText("2 of 4 items")
+	// Down goes from the search to the results, the best match selected.
+	h.win().Press(platform.KeyDown)
+	if h.win().Focus() != h.m.ui.items || h.m.ui.items.Selected != 0 || h.m.cursor != "web/github.com" {
+		t.Fatalf("Down: the keyboard is on %T, row %d, %q selected", h.win().Focus(), h.m.ui.items.Selected, h.m.cursor)
+	}
+	h.win().FocusOn(h.m.ui.search)
+	h.win().Press(platform.KeyEnd)
 	h.win().Type("lab")
 	if n := h.m.ui.items.RowCount; n != 1 || h.m.itemCell(0, 0) != "web/gitlab.com" {
 		t.Fatalf("gitlab: %d rows, first %q", n, h.m.itemCell(0, 0))

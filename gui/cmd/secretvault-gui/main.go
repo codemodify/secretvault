@@ -38,6 +38,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/codemodify/uitoolkit"
 
@@ -77,6 +79,15 @@ func main() {
 		fmt.Fprintln(os.Stderr, "secretvault-gui:", err)
 		os.Exit(1)
 	}
+	// Told to stop, it quits as if asked: what it holds is wiped, and a
+	// copy it put on the clipboard is taken back (on Windows and macOS the
+	// clipboard would otherwise keep it after the program is gone).
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-stop
+		a.Post(m.Quit)
+	}()
 	if err := m.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "secretvault-gui:", err)
 		os.Exit(1)
