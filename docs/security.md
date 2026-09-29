@@ -524,6 +524,13 @@ What it rests on:
   names the address, and bind the key to that address alone.
   keys.openpgp.org's answers are recorded as email-checked; plain HKP
   keyservers check nothing, and their keys carry no verification.
+- **Directories.** A configured LDAP directory is believed about its own
+  people: its answers are recorded as the organisation vouching for the
+  key, for the address asked about. Only secretvault's own programs can
+  configure one. Its connection is TLS (ldaps://, or StartTLS), except to
+  this machine; the search is equality on the address, never a filter built
+  from text; its bind password is a vault item, read with the asking
+  program's consent.
 - **Organisations.** Marking a contact as an organisation makes its CA
   certificates vouch for every certificate they issue, within whatever
   constraints the CA certificate itself carries.

@@ -290,7 +290,12 @@ the token.
   `smime.import` keeps a PKCS #12 key and certificate in the vault, which
   then decrypts S/MIME mail in `mail.inspect` (`secretvault mail compose`,
   `secretvault smime import|ls`).
-- **Still to do:** the LDAP directory,
+- **The company directory is built** (`svldap`): an LDAP or Active
+  Directory directory is asked for a colleague's S/MIME certificates and
+  OpenPGP keys, first, and what it gives is recorded as the organisation
+  vouching for it (`secretvault contact directory add`, `contact lookup
+  --directory`).
+- **Still to do:**
   transparency logs, `encrypt-to`, the gpg-agent face, the OS certificate
   stores, and the token split.
 

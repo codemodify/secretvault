@@ -202,6 +202,9 @@ type ContactLookupParams struct {
 	Query     string `json:"query"`
 	WKD       bool   `json:"wkd,omitempty"`
 	Keyserver string `json:"keyserver,omitempty"`
+	// Directory asks only this directory ("" asks every one configured,
+	// with WKD).
+	Directory string `json:"directory,omitempty"`
 	Add       bool   `json:"add,omitempty"`
 	Name      string `json:"name,omitempty"`
 }
@@ -413,4 +416,28 @@ type PGPSignature struct {
 	SigningKey string    `json:"signing_key,omitempty"` // the (sub)key it verified with
 	Created    time.Time `json:"created"`
 	Verdict    *Verdict  `json:"verdict,omitempty"`
+}
+
+// Organisations' directories of people's keys.
+const (
+	MDirectoryAdd    = "directory.add"    // DirectoryConfig -> nil
+	MDirectoryList   = "directory.list"   // nil -> []DirectoryConfig
+	MDirectoryRemove = "directory.remove" // DirectoryRef -> nil
+)
+
+// DirectoryConfig is an LDAP directory to ask for people's keys. Password,
+// when binding needs one, is a reference to it in a vault (sv://...),
+// read with the consent of the program looking something up.
+type DirectoryConfig struct {
+	Name     string `json:"name"`
+	URL      string `json:"url"` // ldaps://host, or ldap://host (StartTLS)
+	BaseDN   string `json:"base_dn"`
+	BindDN   string `json:"bind_dn,omitempty"`
+	Password string `json:"password,omitempty"` // sv://VAULT/ITEM[#FIELD]
+	CAFile   string `json:"ca_file,omitempty"`  // PEM roots, for a private CA
+}
+
+// DirectoryRef names a directory.
+type DirectoryRef struct {
+	Name string `json:"name"`
 }

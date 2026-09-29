@@ -141,3 +141,19 @@ func (c *Client) ComposeMail(ctx context.Context, p svrpc.MailComposeParams) (ou
 	err = c.conn.Call(ctx, svrpc.MMailCompose, p, &out)
 	return
 }
+
+// AddDirectory adds an organisation's LDAP directory to ask for keys.
+func (c *Client) AddDirectory(ctx context.Context, p svrpc.DirectoryConfig) error {
+	return c.conn.Call(ctx, svrpc.MDirectoryAdd, p, nil)
+}
+
+// Directories lists the directories asked for keys.
+func (c *Client) Directories(ctx context.Context) (out []svrpc.DirectoryConfig, err error) {
+	err = c.conn.Call(ctx, svrpc.MDirectoryList, nil, &out)
+	return
+}
+
+// RemoveDirectory stops asking a directory.
+func (c *Client) RemoveDirectory(ctx context.Context, name string) error {
+	return c.conn.Call(ctx, svrpc.MDirectoryRemove, svrpc.DirectoryRef{Name: name}, nil)
+}

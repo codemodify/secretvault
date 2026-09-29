@@ -70,6 +70,7 @@ decision. If there is none, it asks you.
 | [`svpgp`](svpgp) | OpenPGP, our own: keys, signatures, encryption (RFC 9580, reading RFC 4880) |
 | [`svtrust`](svtrust) | The trust store: contacts, how their keys were verified, and verdicts on signers; WKD and keyserver lookups |
 | [`svqr`](svqr) | QR codes, our own, drawn on a terminal |
+| [`svldap`](svldap) | An LDAP client of our own, to ask an organisation's directory for people's keys |
 | [`svfido`](svfido) | FIDO2 security keys, our own: CTAPHID, CTAP2 and its PIN protocols, for hmac-secret |
 | [`svcms`](svcms) | CMS and S/MIME, our own: signed and enveloped data (RFC 5652, 8551), certificate checks, PKCS #12 |
 | [`svmail`](svmail) | Whole mail messages: PGP/MIME, inline OpenPGP and S/MIME taken apart, verified, decrypted and reported; and built |

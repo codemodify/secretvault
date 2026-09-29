@@ -29,6 +29,10 @@ type Config struct {
 	// only programs pointed at it with SSH_AUTH_SOCK).
 	NoSSHAgent bool `json:"no_ssh_agent,omitempty"`
 
+	// Directories are organisations' LDAP directories, asked for people's
+	// keys (directory.go).
+	Directories []svrpc.DirectoryConfig `json:"directories,omitempty"`
+
 	// ContactsVault is the vault contacts are kept in ("" for the default
 	// vault). `secretvault contact vault NAME` sets it.
 	ContactsVault string `json:"contacts_vault,omitempty"`

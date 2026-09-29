@@ -357,8 +357,25 @@ func (d *Daemon) contactLookup(ctx context.Context, cl *client, decode func(any)
 		}
 		found = append(found, f)
 	}
+	dirs, err := d.directories(ctx, cl, p.Directory)
+	if err != nil {
+		return nil, err
+	}
 	switch {
+	case addr != "" && p.Directory != "":
+		for _, dir := range dirs {
+			f, err := svtrust.LookupDirectory(lctx, dir, addr, d.opts.Now())
+			try(dir.Name(), f, err)
+		}
 	case addr != "":
+		// An organisation's directory is asked first: for its own people
+		// it is the authority.
+		if !p.WKD && p.Keyserver == "" {
+			for _, dir := range dirs {
+				f, err := svtrust.LookupDirectory(lctx, dir, addr, d.opts.Now())
+				try(dir.Name(), f, err)
+			}
+		}
 		if p.WKD || p.Keyserver == "" {
 			f, err := (&svtrust.WKD{Client: d.httpClient(), Now: d.opts.Now}).Lookup(lctx, addr)
 			try("WKD", f, err)

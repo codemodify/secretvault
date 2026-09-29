@@ -79,6 +79,8 @@ func (c *cli) cmdContact(args []string) error {
 		return c.contactQR(args[1:])
 	case "vault":
 		return c.contactVault(args[1:])
+	case "directory":
+		return c.contactDirectory(args[1:])
 	case "-h", "--help", "help":
 		usage()
 		return nil
@@ -445,11 +447,12 @@ func (c *cli) contactLookup(args []string) error {
 	fs := c.flags("contact lookup")
 	wkd := fs.Bool("wkd", false, "ask only the address's Web Key Directory")
 	keyserver := fs.String("keyserver", "", "ask only this keyserver (https://, hkps:// or hkp://)")
+	directory := fs.String("directory", "", "ask only this organisation directory ('contact directory ls')")
 	add := fs.Bool("add", false, "keep what is found, as contacts")
 	name := fs.String("name", "", "the name for new contacts (with --add)")
 	var u unlockFlags
 	u.register(fs)
-	pos, err := parse(fs, args, 1, 1, "ADDRESS|FPR [--wkd] [--keyserver URL] [--add] [--name N]")
+	pos, err := parse(fs, args, 1, 1, "ADDRESS|FPR [--wkd] [--keyserver URL] [--directory NAME] [--add] [--name N]")
 	if err != nil {
 		return err
 	}
@@ -459,7 +462,7 @@ func (c *cli) contactLookup(args []string) error {
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
-	res, err := cl.LookupContact(ctx, svrpc.ContactLookupParams{Vault: c.vault, Query: pos[0], WKD: *wkd, Keyserver: *keyserver, Add: *add, Name: *name})
+	res, err := cl.LookupContact(ctx, svrpc.ContactLookupParams{Vault: c.vault, Query: pos[0], WKD: *wkd, Keyserver: *keyserver, Directory: *directory, Add: *add, Name: *name})
 	if err != nil {
 		return err
 	}
@@ -772,4 +775,64 @@ func (c *cli) trustSeen(args []string) error {
 	fmt.Fprintf(c.stdout, "%s: %s from %s (%s)\n", what, groupFP(res.Fingerprint), svtrust.ParseAddress(*from), res.Contact.Name)
 	c.warn(res.Warnings)
 	return nil
+}
+
+// contactDirectory is `secretvault contact directory add|ls|rm`: the
+// organisations' LDAP directories asked for people's keys.
+func (c *cli) contactDirectory(args []string) error {
+	if len(args) == 0 {
+		args = []string{"ls"}
+	}
+	fs := c.flags("contact directory " + args[0])
+	cl, err := c.daemon()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := c.ctx()
+	defer cancel()
+	switch args[0] {
+	case "add":
+		base := fs.String("base", "", "where people are: `DN`, like dc=example,dc=com")
+		bindDN := fs.String("bind-dn", "", "bind as this `DN` (default: anonymously)")
+		password := fs.String("password", "", "the bind password, as a reference to a vault item: sv://VAULT/ITEM[#FIELD]")
+		ca := fs.String("ca", "", "trust the directory's certificate from this PEM `FILE` (a private CA)")
+		pos, err := parse(fs, args[1:], 2, 2, "NAME ldaps://HOST|ldap://HOST --base DN [--bind-dn DN --password sv://...] [--ca FILE]")
+		if err != nil {
+			return err
+		}
+		if err := cl.AddDirectory(ctx, svrpc.DirectoryConfig{Name: pos[0], URL: pos[1], BaseDN: *base, BindDN: *bindDN, Password: *password, CAFile: *ca}); err != nil {
+			return err
+		}
+		fmt.Fprintf(c.stdout, "Lookups of an address now ask %s first; what it says counts as %s vouching for the key.\n", pos[0], pos[0])
+		return nil
+	case "ls", "list":
+		if _, err := parse(fs, args[1:], 0, 0, ""); err != nil {
+			return err
+		}
+		dirs, err := cl.Directories(ctx)
+		if err != nil {
+			return err
+		}
+		if len(dirs) == 0 {
+			fmt.Fprintln(c.stdout, "No directories: add one with 'secretvault contact directory add NAME ldaps://HOST --base DN'.")
+			return nil
+		}
+		tw := tabwriter.NewWriter(c.stdout, 0, 4, 2, ' ', 0)
+		for _, d := range dirs {
+			bind := "anonymous"
+			if d.BindDN != "" {
+				bind = d.BindDN
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", d.Name, d.URL, d.BaseDN, bind)
+		}
+		return tw.Flush()
+	case "rm", "remove":
+		pos, err := parse(fs, args[1:], 1, 1, "NAME")
+		if err != nil {
+			return err
+		}
+		return cl.RemoveDirectory(ctx, pos[0])
+	}
+	fmt.Fprintln(c.stderr, "secretvault contact directory: add NAME URL --base DN | ls | rm NAME")
+	return errUsage
 }
