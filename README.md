@@ -55,6 +55,7 @@ decision. If there is none, it asks you.
 | [`svpeer`](svpeer) | Who is on the other end of a connection |
 | [`svbroker`](svbroker) | Remembered decisions, and the audit log |
 | [`svprompt`](svprompt), [`svterm`](svterm) | Asking people: the pinentry protocol, and terminals |
+| [`svpgp`](svpgp) | OpenPGP, our own: keys, signatures, encryption (RFC 9580, reading RFC 4880) |
 | [`secretvault`](client.go) | The Go client library |
 
 A vault is a folder of files that are only ever added, never rewritten, so
@@ -147,7 +148,7 @@ where it stops. In short:
 | Dependency | For | Licence |
 | --- | --- | --- |
 | Go standard library | nearly everything, including HPKE, ML-KEM, HKDF, PBKDF2, AES-GCM | BSD-3-Clause |
-| [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | Argon2id, XChaCha20-Poly1305 | BSD-3-Clause |
+| [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | Argon2id, XChaCha20-Poly1305; CAST5, Blowfish and Twofish to read old OpenPGP data | BSD-3-Clause |
 | [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys) | locked memory, process hardening | BSD-3-Clause |
 | [golang.org/x/term](https://pkg.go.dev/golang.org/x/term) | passphrase entry without echo | BSD-3-Clause |
 
@@ -173,7 +174,9 @@ The tests include:
   clear;
 - golden revisions for each cipher suite;
 - key derivation pinned against independent implementations (the reference
-  Argon2 CLI and Python's hashlib).
+  Argon2 CLI and Python's hashlib);
+- OpenPGP against the RFC 9580 test vectors and GnuPG 2.4, both ways, with
+  every byte of signatures and ciphertexts tampered with, and fuzzing.
 
 ## Licence
 

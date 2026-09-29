@@ -147,12 +147,44 @@ Wiping keys in Go is therefore hygiene, not a guarantee. What it does:
 - **No hand-written cipher code.** secretvault implements no cipher or hash
   itself. Its own code is the constructions that combine them (documented in
   format.md) and Shamir sharing over GF(2⁸), written without tables or
-  secret-dependent branches.
+  secret-dependent branches. For OpenPGP, `svpgp` also implements the modes
+  the standard library lacks, on top of `crypto/aes`: OCB (RFC 7253), EAX,
+  CFB and AES key wrap (RFC 3394), each checked against its published test
+  vectors.
 - **Nonces.** Every AEAD message gets a fresh random nonce. It is 192-bit for
   XChaCha20. For AES-GCM, a per-message key is derived from a 256-bit salt.
   Streams use counters under a per-stream key.
 - **Test vectors.** Pinned against independent implementations (the reference
   Argon2 CLI and Python's hashlib), and golden revisions for each suite.
+
+## OpenPGP
+
+`svpgp` reads other people's keys, signatures and mail, so it is written to
+refuse rather than guess:
+
+- **Integrity before parsing.** An encrypted message is decrypted whole and
+  its MDC or AEAD tags checked before anything inside it is parsed; nothing
+  comes back from a message that fails. Every failure at that stage is the
+  same error, so a decryption service cannot be used as an oracle. Messages
+  without integrity protection (SED) are refused unless the caller asks.
+- **Signatures mean something.** A signature is valid only if it verifies,
+  its key was bound, unexpired, unrevoked and allowed to sign when it was
+  made (a signing subkey also has to have signed its own binding), and its
+  hash passes the policy. Signatures that name their intended recipients
+  count only inside a message encrypted to one of them.
+- **Policy.** SHA-1 is refused in signatures made from 2023 on, MD5 always;
+  RSA under 2048 bits, Ed448, X448, the brainpool curves, IDEA and Camellia
+  are refused. DSA is only verified and ElGamal only decrypted, for old
+  data, with a warning. Revocations count whatever their hash (fail closed).
+- **Bounded.** Packet sizes, nesting, decompressed size and ratio (no zip
+  bombs), Argon2 cost and the number of packets and signatures are all
+  limited; the parsers are fuzzed.
+- **Where it stops.** SHA-1 cutoffs by date can be defeated by a forger who
+  backdates a collision; old keys whose earlier self-signatures were
+  stripped will not validate older signatures; timing is only as constant
+  as Go's crypto (ElGamal and DSA use `math/big`, with the ElGamal exponent
+  blinded); decrypted secret keys are in locked memory but Go's own copies
+  of key objects cannot be wiped.
 
 ## Known gaps
 
@@ -164,6 +196,9 @@ Wiping keys in Go is therefore hygiene, not a guarantee. What it does:
 | Windows and macOS identify programs by path and hash, not by publisher signature | Authenticode and code-signing checks |
 | Unknown JSON fields in an item are dropped when an older version rewrites it | fixed before the format freeze |
 | The format is not frozen | format freeze (M10) |
+| OpenPGP messages are read whole, into memory, up to a size limit | streaming decryption of v2 SEIPD, chunk by chunk |
+| OpenPGP designated revokers (a deprecated mechanism) are not honoured | escrowed revocation signatures instead |
+| OpenPGP version 6 interoperability is checked against the RFC's vectors only | Sequoia in the test suite |
 
 ## Reporting a vulnerability
 

@@ -333,8 +333,13 @@ Removing them properly needs a new epoch (VMK rotation), planned for M6.
 ### Trust store and identities
 
 - **Keys.** Contacts hold public keys of four kinds:
-  - **OpenPGP.** Our own implementation of RFC 9580, able to read RFC 4880
-    keys.
+  - **OpenPGP.** Our own implementation of RFC 9580 (`svpgp`), able to
+    read RFC 4880 keys and messages. It is strict: integrity is checked
+    before anything inside an encrypted message is parsed, a signature
+    counts only if its key was valid and allowed to sign when it was made,
+    SHA-1 signatures are refused from 2023, and everything read is bounded.
+    Third-party certifications are kept for the trust store to judge;
+    `svpgp` does not.
   - **X.509 / S/MIME.** Built on the standard library's `crypto/x509`, plus
     our own CMS.
   - **SSH.**
@@ -441,7 +446,8 @@ projects, with `sv` as the prefix:
 | `svdbus` | our D-Bus implementation | M1 |
 | `svsecretservice` | the Secret Service face | M3 |
 | `svwayland`, `svx11`, `svclip` | the clipboard in our own protocol code | M2 |
-| `svpgp`, `svcms`, `svtrust` | OpenPGP, S/MIME, the trust store | M5 |
+| `svpgp` | OpenPGP, our own | M5 |
+| `svcms`, `svtrust` | S/MIME, the trust store | M5 |
 | `svfido`, `svpcsc`, `svtpm` | hardware tokens and TPM | M4 |
 | `svsync`, `svserver` | sync, and the server API | M6, M8 |
 | `svcontainer`, `svmount` | containers, and per-OS mounting | M7 |
@@ -450,7 +456,9 @@ projects, with `sv` as the prefix:
 **Dependencies:**
 - **Allowed:**
   - the Go standard library;
-  - `golang.org/x/crypto` (Argon2, ChaCha20-Poly1305), `golang.org/x/sys`,
+  - `golang.org/x/crypto` (Argon2, ChaCha20-Poly1305; and for OpenPGP,
+    CAST5, Blowfish and Twofish to read old data, and cryptobyte for ECDSA
+    signatures), `golang.org/x/sys`,
     `golang.org/x/term`;
   - `github.com/codemodify/uitoolkit` in the GUI binaries only;
   - `tview`/`tcell` in the TUI only.

@@ -144,8 +144,9 @@ the token.
     mail (Autocrypt, S/MIME).
 - **Key formats.**
   - **OpenPGP:** our own implementation (`svpgp`), writing RFC 9580 and
-    reading RFC 4880 too. Its test suite checks against real GnuPG and
-    Sequoia output.
+    reading RFC 4880 too. Done: its test suite checks the RFC 9580 vectors
+    and real GnuPG 2.4, both ways. Sequoia, which also speaks version 6, is
+    still to add.
   - **S/MIME:** built on `crypto/x509`, plus our own CMS (`svcms`).
 - **The API.** `verify`, `sign`, `decrypt` and `encrypt-to`, all through the
   consent broker.
