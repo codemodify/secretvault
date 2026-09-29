@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codemodify/uitoolkit"
 	"github.com/codemodify/uitoolkit/a11y"
 	"github.com/codemodify/uitoolkit/a11y/a11ytest"
 	"github.com/codemodify/uitoolkit/platform"
@@ -1125,6 +1126,37 @@ func TestTheWindowsAreAccessible(t *testing.T) {
 	a11ytest.Audit(t, "the editor", h.win().AccessibleTree())
 	h.win().Press(platform.KeyG, platform.ModCtrl)
 	a11ytest.Audit(t, "the generator", h.win().AccessibleTree())
+}
+
+// With no look chosen, the manager follows the desktop's light or dark
+// mode; a look chosen in uitoolkit's Settings is kept.
+func TestTheLookFollowsTheDesktop(t *testing.T) {
+	dark := func(lk style.LookAndFeel) bool {
+		c := lk.Palette().Background
+		return c.R+c.G+c.B < 1.5
+	}
+	for _, scheme := range []string{"dark", "light"} {
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		t.Setenv("UITK_COLOR_SCHEME", scheme)
+		a := uitoolkit.New(uitoolkit.Options{Headless: true, DisableLookWatch: true})
+		FollowTheDesktop(a)
+		if !a.Appearance().FollowDesktop || dark(a.Look()) != (scheme == "dark") {
+			t.Errorf("in a %s desktop: following %v, the look is dark: %v", scheme, a.Appearance().FollowDesktop, dark(a.Look()))
+		}
+	}
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "uitoolkit"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(uitoolkit.AppearancePath(), []byte(`{"version": 2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := uitoolkit.New(uitoolkit.Options{Headless: true, DisableLookWatch: true})
+	FollowTheDesktop(a)
+	if a.Appearance().FollowDesktop {
+		t.Error("a look chosen in Settings was overridden")
+	}
 }
 
 func TestWithNoTrayClosingTheWindowQuits(t *testing.T) {

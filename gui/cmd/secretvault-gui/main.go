@@ -74,6 +74,7 @@ func main() {
 	// The look is the desktop's: its light or dark mode, and whatever
 	// uitoolkit's settings say.
 	a := uitoolkit.New(uitoolkit.Options{})
+	svmanager.FollowTheDesktop(a)
 	m, err := svmanager.New(svmanager.Options{App: a, Vault: *vault, Tray: !*noTray})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "secretvault-gui:", err)

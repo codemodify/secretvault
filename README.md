@@ -120,6 +120,12 @@ speak the pinentry protocol to it (it opens a window; Escape cancels):
 printf 'SETTITLE Test\nSETDESC Type anything.\nGETPIN\n' | bin/secretvault-gui-prompt
 ```
 
+No build tags are needed: both use uitoolkit's default theme engine. With
+no look chosen in uitoolkit's Settings, `secretvault-gui` follows the
+desktop's light or dark mode. Keep it in the same directory as
+`secretvaultd`: that is how the daemon knows it for one of secretvault's
+own programs, which it asks for passphrases.
+
 Or install it for your user, into `~/.local/bin` with the git, docker and
 age helper links, and secretvaultd started at login (run it again to
 update; `--uninstall` removes the programs, never your vaults):

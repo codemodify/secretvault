@@ -8,7 +8,6 @@ import (
 	"github.com/codemodify/uitoolkit"
 	"github.com/codemodify/uitoolkit/app"
 	"github.com/codemodify/uitoolkit/platform"
-	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widgets"
 )
 
@@ -30,14 +29,15 @@ func TestScreenshots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, light := range []bool{false, true} {
-		suffix := "-dark"
-		look := style.DarkLook()
-		if light {
-			suffix, look = "-light", style.LightLook()
-		}
+	for _, scheme := range []string{"dark", "light"} {
+		// The look the program starts in, in a desktop of each mode.
+		suffix := "-" + scheme
+		t.Setenv("UITK_COLOR_SCHEME", scheme)
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		a := uitoolkit.New(uitoolkit.Options{Headless: true, Scale: 1, DisableLookWatch: true})
+		FollowTheDesktop(a)
 		h := newHarness(t)
-		h.start(Options{App: uitoolkit.New(uitoolkit.Options{Look: look, Headless: true, Scale: 1, DisableLookWatch: true})})
+		h.start(Options{App: a})
 		h.waitText("Vault personal is locked")
 		h.idle()
 		shoot(h.win(), "01-locked"+suffix)
