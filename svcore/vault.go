@@ -323,6 +323,35 @@ func (k identityKey) open(v *Vault, s *svformat.Slot) ([]byte, error) {
 	return k.id.Open(s.Wrapped, s.AAD())
 }
 
+type emergencyKey struct {
+	id      *svcrypto.Identity
+	grant   svformat.ID
+	release []byte
+}
+
+// EmergencyKey is a key for the emergency slots of one grant: the
+// trustee's identity, and the release key the sync server escrowed for
+// them (svformat/emergency.go). Either alone opens nothing.
+func EmergencyKey(id *svcrypto.Identity, grant svformat.ID, release []byte) Key {
+	return emergencyKey{id, grant, release}
+}
+
+func (emergencyKey) slotType() string { return svformat.SlotEmergency }
+
+func (k emergencyKey) open(v *Vault, s *svformat.Slot) ([]byte, error) {
+	if k.id.Suite() != v.suite || s.Emergency == nil || s.Emergency.Grant != k.grant || !bytes.Equal(s.Recipient, k.id.Recipient()) {
+		return nil, ErrWrongKey
+	}
+	inner, err := k.id.Open(s.Wrapped, s.AAD())
+	if err != nil {
+		return nil, err
+	}
+	defer clear(inner)
+	kek := svcrypto.Derive(k.release, v.desc.ID[:], svformat.EmergencyKEKLabel, svcrypto.KeySize)
+	defer clear(kek)
+	return v.suite.Open(kek, inner, s.AAD())
+}
+
 // DeriveKey derives a key for a purpose outside the vault format itself
 // (the daemon's audit log, say) from the vault master key. Each label
 // gives an independent key; none equals a key the format uses.

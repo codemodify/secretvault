@@ -21,9 +21,11 @@ type NewSlot struct {
 	Passphrase   []byte              // SlotPassphrase
 	KDF          *svcrypto.KDFParams // SlotPassphrase: nil for the suite default
 	Keyfile      []byte              // SlotKeyfile: the file's contents
-	Recipient    []byte              // SlotRecipient: the public key
+	Recipient    []byte              // SlotRecipient, SlotEmergency: the public key
 	SecurityKeys SecurityKeys        // SlotFIDO2: reaches the key to enrol
 	FIDO2UV      *bool               // SlotFIDO2: use the key's PIN; nil: when it has one
+	Grant        svformat.ID         // SlotEmergency: the grant on the sync server
+	ReleaseKey   []byte              // SlotEmergency: the release key the server escrows
 
 	enrolled *enrolled // SlotFIDO2: the credential, once made
 }
@@ -40,6 +42,7 @@ type SlotInfo struct {
 	KDF         *svcrypto.KDFParams
 	Recipient   []byte
 	FIDO2       *svformat.FIDO2
+	Grant       svformat.ID // an emergency slot's grant
 	RecoveryKey string
 }
 
@@ -116,6 +119,22 @@ func (v *Vault) addSlot(ns NewSlot, epoch uint32, master []byte) (SlotInfo, erro
 		}
 		s.Recipient = append([]byte(nil), ns.Recipient...)
 		s.Wrapped, err = v.suite.SealTo(s.Recipient, master, s.AAD())
+	case svformat.SlotEmergency:
+		// Sealed under the release key, then to the trustee: it takes
+		// both to open (svformat/emergency.go).
+		if err := v.suite.CheckRecipient(ns.Recipient); err != nil {
+			return SlotInfo{}, err
+		}
+		if len(ns.ReleaseKey) != svformat.ReleaseKeySize || ns.Grant.IsZero() {
+			return SlotInfo{}, errors.New("svcore: an emergency slot needs its grant and a 32-byte release key")
+		}
+		s.Recipient = append([]byte(nil), ns.Recipient...)
+		s.Emergency = &svformat.Emergency{Grant: ns.Grant}
+		kek = svcrypto.Derive(ns.ReleaseKey, v.desc.ID[:], svformat.EmergencyKEKLabel, svcrypto.KeySize)
+		var inner []byte
+		if inner, err = v.suite.Seal(kek, master, s.AAD()); err == nil {
+			s.Wrapped, err = v.suite.SealTo(s.Recipient, inner, s.AAD())
+		}
 	case svformat.SlotFIDO2:
 		if ns.enrolled == nil {
 			return SlotInfo{}, errors.New("svcore: the security key was not enrolled")
@@ -144,7 +163,11 @@ func (v *Vault) addSlot(ns NewSlot, epoch uint32, master []byte) (SlotInfo, erro
 }
 
 func slotInfo(s *svformat.Slot) SlotInfo {
-	return SlotInfo{ID: s.ID, Type: s.Type, Label: s.Label, Created: s.Created, Epoch: s.Epoch, KDF: s.KDF, Recipient: s.Recipient, FIDO2: s.FIDO2}
+	info := SlotInfo{ID: s.ID, Type: s.Type, Label: s.Label, Created: s.Created, Epoch: s.Epoch, KDF: s.KDF, Recipient: s.Recipient, FIDO2: s.FIDO2}
+	if s.Emergency != nil {
+		info.Grant = s.Emergency.Grant
+	}
+	return info
 }
 
 // Slots lists the vault's keyslots. It works while locked.

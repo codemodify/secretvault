@@ -132,6 +132,7 @@ const (
 	SlotKeyfile    = "keyfile"    // the contents of a file
 	SlotRecipient  = "recipient"  // an HPKE identity: a device, a person, a server
 	SlotFIDO2      = "fido2"      // a FIDO2 security key's hmac-secret
+	SlotEmergency  = "emergency"  // a person's identity together with a release key a server escrows (emergency.go)
 )
 
 // FIDO2RPID is the relying party new fido2 keyslots' credentials are made
@@ -181,14 +182,16 @@ type Slot struct {
 	KDF       *svcrypto.KDFParams `json:"kdf,omitempty"`       // passphrase
 	Recipient []byte              `json:"recipient,omitempty"` // recipient: the public key
 	FIDO2     *FIDO2              `json:"fido2,omitempty"`     // fido2: the credential
+	Emergency *Emergency          `json:"emergency,omitempty"` // emergency: the grant
 	Wrapped   []byte              `json:"wrapped"`             // the sealed master key
 }
 
 // AAD is what the wrapped master key is bound to: the vault, the slot, its
-// epoch, type, label and grants, and for a fido2 slot everything about its
-// credential. A slot file cannot be relabelled, moved to another vault or
-// given wider grants, nor a fido2 slot pointed at another credential,
-// salt or setting, without failing to open.
+// epoch, type, label and grants, for a fido2 slot everything about its
+// credential, and for an emergency slot its grant. A slot file cannot be
+// relabelled, moved to another vault or given wider grants, nor a fido2
+// slot pointed at another credential, salt or setting, nor an emergency
+// slot at another grant, without failing to open.
 func (s *Slot) AAD() []byte {
 	var t tlvBuilder
 	t.add(0x01, s.Vault[:])
@@ -207,6 +210,9 @@ func (s *Slot) AAD() []byte {
 		t.add(0x09, f.Salt)
 		t.add(0x0A, []byte{uv})
 		t.add(0x0B, f.AAGUID)
+	}
+	if e := s.Emergency; e != nil {
+		t.add(0x0C, e.Grant[:])
 	}
 	b, err := t.encode()
 	if err != nil {
@@ -242,12 +248,19 @@ func ParseSlot(b []byte) (*Slot, error) {
 			len(f.Salt) != 32 || len(f.AAGUID) != 16 {
 			return nil, fmt.Errorf("%w: fido2 slot without a complete credential", ErrSlot)
 		}
+	case SlotEmergency:
+		if len(s.Recipient) == 0 || s.Emergency == nil || s.Emergency.Grant.IsZero() {
+			return nil, fmt.Errorf("%w: emergency slot without a recipient or a grant", ErrSlot)
+		}
 	case SlotRecovery, SlotKeyfile:
 	default:
 		return nil, fmt.Errorf("%w: unknown type %q", ErrSlot, s.Type)
 	}
 	if s.FIDO2 != nil && s.Type != SlotFIDO2 {
 		return nil, fmt.Errorf("%w: a %s slot with a security key's credential", ErrSlot, s.Type)
+	}
+	if s.Emergency != nil && s.Type != SlotEmergency {
+		return nil, fmt.Errorf("%w: a %s slot with an emergency grant", ErrSlot, s.Type)
 	}
 	return &s, nil
 }
