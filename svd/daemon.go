@@ -38,9 +38,10 @@ type Options struct {
 	// Socket is the path it serves, for Status.
 	Socket string
 
-	// IsCLI reports whether a peer is secretvault's own CLI, the only
-	// client ever asked to prompt for a passphrase. Nil means: the program
-	// named "secretvault" in the daemon's own directory.
+	// IsCLI reports whether a peer is one of secretvault's own terminal
+	// programs, the only clients ever asked to prompt for a passphrase.
+	// Nil means: "secretvault" or "secretvault-tui" in the daemon's own
+	// directory.
 	IsCLI func(*svpeer.Process) bool
 
 	// IsPromptAgent reports whether a peer is secretvault-tui-prompt, the
@@ -105,7 +106,8 @@ func New(opts Options) (*Daemon, error) {
 		opts.IdleUnit = time.Minute
 	}
 	if opts.IsCLI == nil {
-		opts.IsCLI = sibling("secretvault")
+		cli, tui := sibling("secretvault"), sibling("secretvault-tui")
+		opts.IsCLI = func(p *svpeer.Process) bool { return cli(p) || tui(p) }
 	}
 	if opts.IsPromptAgent == nil {
 		opts.IsPromptAgent = sibling("secretvault-tui-prompt")
@@ -205,7 +207,7 @@ func (c *client) identity() string {
 // display is how the client is named in prompts.
 func (c *client) display() string {
 	if c.cli && c.proc.Terminal != "" {
-		return fmt.Sprintf("the secretvault command in terminal %s", c.proc.TTY)
+		return fmt.Sprintf("%s in terminal %s", filepath.Base(c.proc.Exe), c.proc.TTY)
 	}
 	return c.proc.Display()
 }
