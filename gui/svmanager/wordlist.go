@@ -83,7 +83,7 @@ beret biplane blimp blueprint bobcat bonfire bouquet bramble brass breadbox bris
 bungalow cabbage caboose cadet caliper calm cameo canopy capsule cardinal carousel cashew catalog cathedral
 cavern celery chamber chariot cheetah chestnut chipmunk chisel cinnamon citrus clarinet clipper cobble
 cockpit collar condor cookie cornet cottage cougar cowboy coyote cradle cricket crocus crystal cupcake
-curry cymbal dagger dairy dandelion daybreak decoy denim diamond dinghy dingo dipper dogwood domino doodle
+curry cymbal dairy dandelion daybreak decoy denim diamond dinghy dingo dipper dogwood domino doodle
 dormouse dragonfly drizzle dumpling dynamo easel eggplant elephant elevator elk embassy emblem encore
 envelope estuary evergreen falafel fawn ferret fiddle fiesta firefly fjord flamingo flannel flipper foghorn
 fondue footpath fresco fudge funnel gadget galleon gallop gazebo gecko geyser gingham glider goblet gondola
@@ -96,7 +96,7 @@ mandolin mantis marigold marina marmalade marzipan mast meerkat merit mesa miles
 molasses monsoon moonbeam moth muffler mulberry mustang nautilus nebula nightingale nomad nutshell oatmeal
 obelisk ocelot omelet opossum orca origami ostrich outpost overture paddock pagoda palette pampas pancake
 panther papaya parasol parchment parsley partridge pavilion peacock peppermint periscope petal pewter
-pheasant piccolo pinecone pinwheel pistol platypus plover plume pollen pomegranate porcupine postcard
+pheasant piccolo pinecone pinwheel platypus plover plume pollen pomegranate porcupine postcard
 prawn pretzel primrose propeller pudding puffin quiche quokka raccoon railway rainbow rampart raspberry
 redwood reindeer rhubarb riddle riverbank robot rosemary rowboat safflower sailboat sandal sapphire sardine
 sawmill scallop scarecrow schooner scroll seahorse seashell sequoia sesame shamrock sherbet shipyard

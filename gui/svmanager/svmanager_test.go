@@ -602,7 +602,7 @@ func TestTheGenerator(t *testing.T) {
 	preview = find(d, func(*secretText) bool { return true })
 	find(d, func(*widgets.Segmented) bool { return true }).OnChange(1)
 	words := strings.Split(string(preview.value), "-")
-	if len(words) != 5 {
+	if len(words) != 7 {
 		t.Fatalf("a passphrase of %q", preview.value)
 	}
 	for _, w := range words {

@@ -27,7 +27,7 @@ type generator struct {
 }
 
 func defaultGenerator() generator {
-	return generator{length: 24, count: 5, classes: [4]bool{true, true, true, true}, sep: "-"}
+	return generator{length: 24, count: 7, classes: [4]bool{true, true, true, true}, sep: "-"}
 }
 
 var classSets = [4]string{svcrypto.Lower, svcrypto.Upper, svcrypto.Digits, svcrypto.Symbols}

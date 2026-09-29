@@ -91,16 +91,7 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan<- svrpc.PromptAnswer
 	if title == "" {
 		title = "secretvault"
 	}
-	win, err := m.app.NewWindow(platform.WindowOptions{
-		Title: title, Width: promptWidth, Height: 240,
-		Role: platform.RoleDialog, Center: true, KeepAbove: true, Sizing: platform.SizingFixed,
-		Headless: m.opts.Headless,
-	})
-	if err != nil {
-		answer <- svrpc.PromptAnswer{Canceled: true}
-		return d.id
-	}
-	d.win = win
+	var win *app.Window // made below, once the dialog knows how tall it is
 	m.asking = d
 
 	finish := func(a svrpc.PromptAnswer) {
@@ -196,19 +187,34 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan<- svrpc.PromptAnswer
 		}
 		return false
 	})
+	// As tall as what it says, measured in the main window's look before
+	// the dialog's own window exists, so that it is made that size and
+	// centred as it is.
+	root.SetHost(m.win)
+	scale := m.win.Scale()
+	if scale <= 0 {
+		scale = 1
+	}
+	need := root.Measure(layout.Loose(float32(promptWidth)*scale, 4000*scale))
+	root.SetHost(nil)
+	win, err := m.app.NewWindow(platform.WindowOptions{
+		Title: title, Width: promptWidth, Height: int(need.Y/scale) + 8,
+		Role: platform.RoleDialog, Center: true, KeepAbove: true, Sizing: platform.SizingFixed,
+		Headless: m.opts.Headless,
+	})
+	if err != nil {
+		m.asking = nil
+		d.answered = true
+		answer <- svrpc.PromptAnswer{Canceled: true}
+		return d.id
+	}
+	d.win = win
 	win.SetContent(root)
 	win.SetInitialFocus(focus)
 	win.SetOnCloseRequest(func() bool {
 		cancel()
 		return false // cancel has closed it already
 	})
-	// As tall as what it says.
-	scale := win.Scale()
-	if scale <= 0 {
-		scale = 1
-	}
-	need := root.Measure(layout.Loose(float32(promptWidth)*scale, 4000*scale))
-	win.SetSize(promptWidth, int(need.Y/scale)+8)
 	win.SetSecureInput(true)
 	win.SetExcludeFromCapture(true)
 	win.Activate()
