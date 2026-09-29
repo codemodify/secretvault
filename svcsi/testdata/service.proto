@@ -1,0 +1,51 @@
+// The Secrets Store CSI driver's provider protocol, as the driver defines
+// it (sigs.k8s.io/secrets-store-csi-driver, provider/v1alpha1/service.proto),
+// without its comments. Tests give it to protoc, when it is installed, to
+// check svcsi's hand-written encoding against the reference one.
+syntax = "proto3";
+
+package v1alpha1;
+
+service CSIDriverProvider {
+    rpc Version(VersionRequest) returns (VersionResponse) {}
+    rpc Mount(MountRequest) returns (MountResponse) {}
+}
+
+message VersionRequest {
+    string version = 1;
+}
+
+message VersionResponse {
+    string version = 1;
+    string runtime_name = 2;
+    string runtime_version = 3;
+}
+
+message MountRequest {
+    string attributes = 1;
+    string secrets = 2;
+    string target_path = 3;
+    string permission = 4;
+    repeated ObjectVersion current_object_version = 5;
+}
+
+message MountResponse {
+    repeated ObjectVersion object_version = 1;
+    Error error = 2;
+    repeated File files = 3;
+}
+
+message File {
+    string path = 1;
+    int32 mode = 2;
+    bytes contents = 3;
+}
+
+message ObjectVersion {
+    string id = 1;
+    string version = 2;
+}
+
+message Error {
+    string code = 1;
+}
