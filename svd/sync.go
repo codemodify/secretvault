@@ -31,9 +31,11 @@ import (
 // vaultSync keeps one vault in step with its server.
 type vaultSync struct {
 	client  *svsync.Client
+	ctx     context.Context // until the watcher stops
 	trigger chan struct{}
 	stop    context.CancelFunc
 	done    chan struct{}
+	em      *emergencyWatch // what the vault's emergency grants were when last looked at (emergency.go)
 
 	mu      sync.Mutex
 	status  svrpc.SyncStatus
@@ -180,6 +182,21 @@ func (d *Daemon) syncStatePath(r svsync.Remote) string {
 	return filepath.Join(d.home, "sync", hex.EncodeToString(sum[:12])+".json")
 }
 
+// syncClient is a client for a vault on a server, signing as this device
+// with the daemon's clock.
+func (d *Daemon) syncClient(r svsync.Remote) (*svsync.Client, error) {
+	id, err := d.syncIdentity()
+	if err != nil {
+		return nil, err
+	}
+	c, err := svsync.NewClient(r, id)
+	if err != nil {
+		return nil, err
+	}
+	c.Now = d.opts.Now
+	return c, nil
+}
+
 func (d *Daemon) loadSyncState(r svsync.Remote) (*svsync.State, error) {
 	path := d.syncStatePath(r)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -197,11 +214,7 @@ func (d *Daemon) startSync(mv *managedVault) error {
 		return errors.New("this daemon does not sync")
 	}
 	r := *mv.cfg.Sync
-	id, err := d.syncIdentity()
-	if err != nil {
-		return err
-	}
-	c, err := svsync.NewClient(r, id)
+	c, err := d.syncClient(r)
 	if err != nil {
 		return err
 	}
@@ -212,11 +225,13 @@ func (d *Daemon) startSync(mv *managedVault) error {
 	ctx, cancel := context.WithCancel(ctx)
 	s := &vaultSync{
 		client:  c,
+		ctx:     ctx,
 		trigger: make(chan struct{}, 1),
 		stop:    cancel,
 		done:    make(chan struct{}),
 		wake:    make(chan struct{}),
-		status:  svrpc.SyncStatus{Vault: mv.cfg.Name, URL: r.URL, ServerVault: r.Vault, Device: id.Key()},
+		status:  svrpc.SyncStatus{Vault: mv.cfg.Name, URL: r.URL, ServerVault: r.Vault, Device: c.Identity().Key()},
+		em:      d.newEmergencyWatch(ctx, r),
 	}
 	mv.mu.Lock()
 	old := mv.sync
@@ -228,8 +243,11 @@ func (d *Daemon) startSync(mv *managedVault) error {
 	go func() {
 		defer close(s.done)
 		svsync.Watch(ctx, mv.store, c, st, svsync.WatchOptions{
-			Trigger: s.trigger,
-			Changed: func(svsync.Report) { d.pulled(mv) },
+			// Someone else's vault, opened with emergency access, only
+			// ever follows the server.
+			ReadOnly: mv.cfg.Emergency != "",
+			Trigger:  s.trigger,
+			Changed:  func(svsync.Report) { d.pulled(mv) },
 			Failed: func(err error) {
 				d.opts.Log(fmt.Sprintf("sync for %s: %v", mv.cfg.Name, err))
 			},
@@ -239,6 +257,7 @@ func (d *Daemon) startSync(mv *managedVault) error {
 				s.mu.Unlock()
 			},
 			Synced: func(rep svsync.Report, err error) {
+				d.emergencySynced(mv, s, rep, err)
 				s.mu.Lock()
 				defer s.mu.Unlock()
 				now := d.opts.Now()
@@ -535,11 +554,7 @@ func (d *Daemon) syncSetup(ctx context.Context, cl *client, decode func(any) err
 		return nil, svrpc.Errorf(svrpc.CodeFailed, "this daemon does not sync")
 	}
 	r := svsync.Remote{URL: strings.TrimSuffix(p.URL, "/"), Vault: mv.v.ID().String(), Fingerprint: p.Fingerprint}
-	id, err := d.syncIdentity()
-	if err != nil {
-		return nil, err
-	}
-	c, err := svsync.NewClient(r, id)
+	c, err := d.syncClient(r)
 	if err != nil {
 		return nil, syncErr(err)
 	}
@@ -611,11 +626,7 @@ func (d *Daemon) syncJoin(ctx context.Context, cl *client, decode func(any) erro
 	_, statErr := os.Stat(path)
 	made := errors.Is(statErr, os.ErrNotExist)
 
-	id, err := d.syncIdentity()
-	if err != nil {
-		return nil, err
-	}
-	c, err := svsync.NewClient(inv.Remote, id)
+	c, err := d.syncClient(inv.Remote)
 	if err != nil {
 		return nil, syncErr(err)
 	}

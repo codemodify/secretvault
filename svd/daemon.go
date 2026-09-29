@@ -453,6 +453,7 @@ func (d *Daemon) Status() svrpc.Status {
 	if p := d.desktopNow(); p != nil {
 		st.Prompts = p.Describe()
 	}
+	st.Emergency = d.emergencyNotices()
 	d.mu.Lock()
 	if d.agent != nil {
 		st.Prompts = "terminal agent (" + d.agent.proc.TTY + "), else " + st.Prompts

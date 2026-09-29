@@ -41,7 +41,12 @@ func (d *Daemon) openVault(vc VaultConfig) (*managedVault, error) {
 	if _, err := os.Stat(filepath.Join(vc.Path, svformat.DescriptorName)); err != nil {
 		return mv, fmt.Errorf("no vault there")
 	}
-	v, err := svcore.Open(d.hook(mv, store), d.svOpts)
+	backend := d.hook(mv, store)
+	if vc.Emergency != "" {
+		// Someone else's: the watcher alone writes to its folder.
+		backend = readOnlyStore{backend}
+	}
+	v, err := svcore.Open(backend, d.svOpts)
 	if err != nil {
 		return mv, err
 	}

@@ -173,6 +173,12 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 				fmt.Sprintf("%s asks to unlock vault %q with a security key.", cl.display(), mv.cfg.Name)))
 			mv.prompt.Lock()
 			defer mv.prompt.Unlock()
+		} else if p.Key.Type == "identity" && mv.cfg.Emergency != "" {
+			// Someone else's vault, opened with emergency access: the
+			// identity opens it with the release key kept for it.
+			if key, wipe, err = d.emergencyKey(mv, p.Key.Secret); err != nil {
+				return nil, err
+			}
 		} else if key, wipe, err = keyFrom(mv, p.Key); err != nil {
 			return nil, err
 		}
@@ -309,6 +315,19 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 				d.opts.Log(fmt.Sprintf("rotating %s: its login key could not be opened, so it will no longer open at login: %v", mv.cfg.Name, err))
 			}
 		}
+		// Emergency grants are kept, with the release keys the vault's
+		// records hold (emergency.go), unless dropped: that is how
+		// emergency access is cut off once it was released.
+		carry, lost, err := emergencyCarry(mv, drop)
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			for _, s := range carry {
+				clear(s.ReleaseKey)
+			}
+		}()
+		specs = append(specs, carry...)
 		before, err := mv.v.Slots()
 		if err != nil {
 			return nil, err
@@ -346,6 +365,9 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 			if s.Epoch == epoch && (s.Type == svformat.SlotKeyfile || s.Type == svformat.SlotFIDO2) && !carried[s.ID] {
 				out.Dropped = append(out.Dropped, slotInfo(mv, s))
 			}
+		}
+		for _, s := range lost {
+			out.Dropped = append(out.Dropped, slotInfo(mv, s))
 		}
 		return out, nil
 
@@ -772,6 +794,9 @@ func slotInfo(mv *managedVault, s svcore.SlotInfo) svrpc.SlotInfo {
 		out.Detail = fmt.Sprintf("argon2id t=%d m=%s p=%d", s.KDF.Time, mem, s.KDF.Threads)
 	case s.KDF != nil:
 		out.Detail = fmt.Sprintf("%s i=%d", s.KDF.Alg, s.KDF.Iterations)
+	case s.Type == svformat.SlotEmergency:
+		out.Recipient = svformat.EncodeRecipient(mv.v.Suite(), s.Recipient)
+		out.Detail = "emergency access, grant " + s.Grant.String()
 	case s.Recipient != nil:
 		out.Recipient = svformat.EncodeRecipient(mv.v.Suite(), s.Recipient)
 	case s.FIDO2 != nil:

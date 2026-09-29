@@ -95,6 +95,12 @@ func (d *Daemon) ensureUnlocked(ctx context.Context, cl *client, mv *managedVaul
 		// nothing does (host.go).
 		return false, false, d.hostUnlock(mv)
 	}
+	if mv.cfg.Emergency != "" {
+		// Someone else's, opened with emergency access: what opens it is
+		// the identity in a file, which no prompt asks for.
+		return false, false, svrpc.Errorf(svrpc.CodeLocked,
+			"vault %q is someone else's, opened with emergency access: unlock it with 'secretvault unlock %s --identity FILE'", mv.cfg.Name, mv.cfg.Name)
+	}
 	mv.prompt.Lock()
 	defer mv.prompt.Unlock()
 	if !mv.v.Locked() {
@@ -273,6 +279,14 @@ func (d *Daemon) ask(ctx context.Context, cl *client, mv *managedVault, item, it
 		return denied(mv)
 	}
 
+	if cl.mayPrompt() && !everyTime && mv.cfg.Emergency != "" {
+		// Someone else's vault, opened with emergency access: its
+		// passphrase is not this person's to type, and what they hold is
+		// the identity in a file.
+		record("denied", "no identity presented")
+		return svrpc.Errorf(svrpc.CodeDenied,
+			"vault %q is someone else's, opened with emergency access: prove it is you with --identity FILE", mv.cfg.Name)
+	}
 	if cl.mayPrompt() && !everyTime {
 		// The CLI proves it is the person with the passphrase, as sudo does.
 		p := rpcPrompter{c: cl}

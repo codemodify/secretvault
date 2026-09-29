@@ -127,7 +127,7 @@ func (c *Client) serve(ctx context.Context, _ *svrpc.Conn, method string, params
 			return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
 		}
 		return c.opts.Prompter(ctx, q)
-	case svrpc.EVaultLocked, svrpc.EVaultUnlocked, svrpc.EItemChanged:
+	case svrpc.EVaultLocked, svrpc.EVaultUnlocked, svrpc.EItemChanged, svrpc.EEmergency:
 		if c.opts.OnEvent != nil {
 			var ev svrpc.VaultEvent
 			json.Unmarshal(params, &ev)

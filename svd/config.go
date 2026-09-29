@@ -41,6 +41,10 @@ type Config struct {
 	// vault locks. Off by default: containers stay mounted, as VeraCrypt's
 	// do (containers.go).
 	CloseContainersOnLock bool `json:"close_containers_on_lock,omitempty"`
+
+	// Emergency is the emergency access this device holds to other
+	// people's vaults (`secretvault emergency accept`; emergency.go).
+	Emergency []EmergencyAccess `json:"emergency,omitempty"`
 }
 
 // VaultConfig registers one vault.
@@ -55,6 +59,11 @@ type VaultConfig struct {
 
 	// LoginUnlock opens the vault when the daemon starts at login (login.go).
 	LoginUnlock bool `json:"login_unlock,omitempty"`
+
+	// Emergency names the emergency access the vault was opened with
+	// (Config.Emergency): it is someone else's, read-only here, and its
+	// copy only ever pulls from the server.
+	Emergency string `json:"emergency,omitempty"`
 }
 
 // PromptConfig says how desktop prompts are shown.

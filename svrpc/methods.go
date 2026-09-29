@@ -151,6 +151,10 @@ type Status struct {
 	// Mode is "host" for the host daemon (secretvaultd --host), "" for a
 	// person's own.
 	Mode string `json:"mode,omitempty"`
+
+	// Emergency are requests for emergency access to vaults here that are
+	// waiting or were released, and this device's own requests.
+	Emergency []EmergencyNotice `json:"emergency,omitempty"`
 }
 
 // VaultRef names a vault.
@@ -430,6 +434,11 @@ type PromptAsk struct {
 	Prompt      string   `json:"prompt,omitempty"`
 	Choices     []Choice `json:"choices,omitempty"`
 	Error       string   `json:"error,omitempty"` // why a previous attempt failed
+
+	// OK labels a notice's one button ("" for Cancel, which calls off
+	// what the daemon waits for; a notice that waits for nothing says
+	// what pressing it does instead).
+	OK string `json:"ok,omitempty"`
 }
 
 // Choice is one answer to a PromptChoose.

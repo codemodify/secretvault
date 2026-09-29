@@ -134,7 +134,7 @@ func cheapKDF(t *testing.T) {
 	t.Cleanup(func() { svcrypto.DefaultArgon2 = a })
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T, tweaks ...func(*Options)) *harness {
 	t.Helper()
 	cheapKDF(t)
 	dir, err := os.MkdirTemp("", "svd")
@@ -163,6 +163,9 @@ func newHarness(t *testing.T) *harness {
 		},
 		IsWindowed:    func(p *svpeer.Process) bool { return filepath.Base(p.Exe) == "secretvault-gui" },
 		IsPromptAgent: func(p *svpeer.Process) bool { return filepath.Base(p.Exe) == "secretvault-tui-prompt" },
+	}
+	for _, tweak := range tweaks {
+		tweak(&h.opts)
 	}
 	h.start()
 	return h

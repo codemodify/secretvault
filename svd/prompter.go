@@ -92,7 +92,7 @@ type pinentryPrompter struct {
 }
 
 func request(q svrpc.PromptAsk) svprompt.Request {
-	r := svprompt.Request{Title: q.Title, Description: q.Description, Prompt: q.Prompt, Error: q.Error}
+	r := svprompt.Request{Title: q.Title, Description: q.Description, Prompt: q.Prompt, Error: q.Error, OK: q.OK}
 	if q.Kind == svrpc.PromptNewPassphrase {
 		r.Repeat = "Repeat:"
 	}
