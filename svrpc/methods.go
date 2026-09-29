@@ -225,6 +225,11 @@ type Item struct {
 	Attrs  map[string]string `json:"attrs,omitempty"`
 	Tags   []string          `json:"tags,omitempty"`
 	Fields []Field           `json:"fields,omitempty"`
+
+	// Files describe the item's attachments; their contents come from
+	// file.get. They are read-only here: item.put keeps an item's files as
+	// they are, and file.attach and file.remove change them.
+	Files []FileInfo `json:"files,omitempty"`
 }
 
 // Field is one named value of an item.

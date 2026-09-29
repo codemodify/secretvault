@@ -639,3 +639,40 @@ func TestARecoveryKeyInSharesOpensWithAnyThreshold(t *testing.T) {
 		t.Fatalf("a threshold above the shares: %d %s", code, errs)
 	}
 }
+
+func TestFilesAttachToItemsAndComeBack(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok("hunter2", h.with("set", "bank")...)
+	scan := filepath.Join(h.dir, "passport scan.pdf")
+	contents := bytes.Repeat([]byte("%PDF-1.7 scan "), 5000)
+	os.WriteFile(scan, contents, 0o600)
+	if out := h.ok("", h.with("attach", "bank", scan)...); !strings.Contains(out, "Attached passport scan.pdf (70000 bytes)") {
+		t.Fatalf("attach: %s", out)
+	}
+	h.ok("", h.with("attach", "bank", "-", "--name", "pin.txt")...)
+	if out := h.ok("", h.with("file", "ls", "bank")...); !strings.Contains(out, "passport scan.pdf  70000  application/pdf") || !strings.Contains(out, "pin.txt") {
+		t.Fatalf("file ls:\n%s", out)
+	}
+	// Changing the item leaves its files alone.
+	h.ok("changed", h.with("set", "bank")...)
+
+	out := filepath.Join(h.dir, "out.pdf")
+	h.ok("", h.with("file", "get", "bank", "passport scan.pdf", "-o", out)...)
+	if got, _ := os.ReadFile(out); !bytes.Equal(got, contents) {
+		t.Fatal("the file came back different")
+	}
+	if _, errs, code := h.run("", h.with("file", "get", "bank", "passport scan.pdf", "-o", out)...); code == 0 || !strings.Contains(errs, "exists") {
+		t.Fatalf("overwriting without --force: %d %s", code, errs)
+	}
+	if got := h.ok("", h.with("file", "get", "bank", "pin.txt", "-o", "-")...); got != "" {
+		t.Fatalf("pin.txt from empty stdin: %q", got)
+	}
+	h.ok("", h.with("file", "rm", "bank", "pin.txt")...)
+	if _, _, code := h.run("", h.with("file", "get", "bank", "pin.txt", "-o", "-")...); code == 0 {
+		t.Fatal("a removed file came back")
+	}
+	if !strings.Contains(h.ok("", h.with("get", "bank", "--json")...), `"passport scan.pdf"`) {
+		t.Fatal("get --json does not list the files")
+	}
+}

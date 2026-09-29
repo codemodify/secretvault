@@ -191,6 +191,7 @@ type jsonItem struct {
 	Attrs     map[string]string `json:"attrs,omitempty"`
 	Tags      []string          `json:"tags,omitempty"`
 	Fields    []jsonField       `json:"fields,omitempty"`
+	Files     []svrpc.FileInfo  `json:"files,omitempty"`
 	Conflicts []string          `json:"conflicts,omitempty"`
 }
 
@@ -203,7 +204,7 @@ type jsonField struct {
 
 func toJSON(e svrpc.Entry) jsonItem {
 	j := jsonItem{ID: e.ID, Rev: e.Rev, Time: e.Time, Kind: e.Item.Kind, Name: e.Item.Name,
-		Label: e.Item.Label, Attrs: e.Item.Attrs, Tags: e.Item.Tags, Conflicts: e.Conflicts}
+		Label: e.Item.Label, Attrs: e.Item.Attrs, Tags: e.Item.Tags, Files: e.Item.Files, Conflicts: e.Conflicts}
 	for _, f := range e.Item.Fields {
 		jf := jsonField{Name: f.Name, Type: f.Type}
 		if utf8.Valid(f.Value) && f.Type != svcore.FieldBinary && f.Type != svcore.FieldKey {

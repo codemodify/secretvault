@@ -1,6 +1,7 @@
 package svd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http/httptest"
@@ -329,4 +330,19 @@ func TestAVaultInASyncedFolderSeesOtherDevicesWrites(t *testing.T) {
 		t.Fatalf("after the rotation: %q, %v", s, err)
 	}
 	term.done(t)
+}
+
+func TestAttachedFilesSyncWithTheirItems(t *testing.T) {
+	_, _, _, ca, cb := twoDevices(t)
+	data := bytes.Repeat([]byte("scan"), 50000)
+	if _, err := ca.Attach(ctx(t), svrpc.FileAttachParams{Item: "mail/imap", Name: "scan.png", Type: "image/png", Data: data}); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the file reaching the other device", func() error {
+		fd, err := cb.File(context.Background(), "shared", "mail/imap", "scan.png")
+		if err == nil && !bytes.Equal(fd.Data, data) {
+			err = errors.New("different contents")
+		}
+		return err
+	})
 }

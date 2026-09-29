@@ -47,7 +47,7 @@ func TestTheSecretPortalGivesEachFlatpakAppItsOwnKey(t *testing.T) {
 	h.d.opts.IsPortal = func(*svpeer.Process) bool { return true }
 	h.d.opts.Log = func(s string) { t.Log(s) }
 
-	h.desk.script("choose:"+svrpc.ChoiceAlways)
+	h.desk.script("choose:" + svrpc.ChoiceAlways)
 	resp, first, err := askPortal(t, h, "org.example.Mail")
 	if err != nil || resp != portalOK || len(first) != 64 {
 		t.Fatalf("first ask: %d, %d bytes, %v", resp, len(first), err)
@@ -65,11 +65,11 @@ func TestTheSecretPortalGivesEachFlatpakAppItsOwnKey(t *testing.T) {
 	}
 	// Another app: its own key, and its own question; saying no gives it
 	// nothing.
-	h.desk.script("choose:"+svrpc.ChoiceDeny)
+	h.desk.script("choose:" + svrpc.ChoiceDeny)
 	if resp, other, _ := askPortal(t, h, "org.example.Chat"); resp != portalNo || len(other) != 0 {
 		t.Fatalf("a refused app: %d, %d bytes", resp, len(other))
 	}
-	h.desk.script("choose:"+svrpc.ChoiceOnce)
+	h.desk.script("choose:" + svrpc.ChoiceOnce)
 	if resp, other, _ := askPortal(t, h, "org.example.Chat"); resp != portalOK || len(other) != 64 || bytes.Equal(other, first) {
 		t.Fatalf("a second app: %d, %d bytes", resp, len(other))
 	}

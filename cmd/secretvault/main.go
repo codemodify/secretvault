@@ -164,6 +164,8 @@ func init() {
 		{"mv", "rename an item", (*cli).cmdMove},
 		{"rm", "delete an item", (*cli).cmdRemove},
 		{"history", "list an item's revisions", (*cli).cmdHistory},
+		{"attach", "attach a file to an item", (*cli).cmdAttach},
+		{"file", "an item's attached files: ls, get, rm", (*cli).cmdFile},
 		{"import", "import another password manager's export", (*cli).cmdImport},
 		{"export", "export items to a CXF or KeePass (KDBX) file", (*cli).cmdExport},
 		{"gen", "print a random password", (*cli).cmdGen},

@@ -705,6 +705,9 @@ func toEntry(e svcore.Entry, withFields bool) svrpc.Entry {
 	for _, r := range e.Conflicts {
 		out.Conflicts = append(out.Conflicts, r.String())
 	}
+	for _, f := range e.Item.Files {
+		out.Item.Files = append(out.Item.Files, fileInfo(f))
+	}
 	if withFields {
 		for _, f := range e.Item.Fields {
 			out.Item.Fields = append(out.Item.Fields, svrpc.Field{Name: f.Name, Type: f.Type, Value: append([]byte(nil), f.Value...)})
