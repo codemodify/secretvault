@@ -78,10 +78,11 @@ func (p *parser) done() {
 
 // mpi reads a multiprecision integer and returns its value octets. In a
 // version 6 packet the bit count must be exact, counted from the most
-// significant set bit (RFC 9580, section 3.2). Older packets are held to
-// less: the count may overstate the value's length (GnuPG writes 32-byte
-// EdDSA and Curve25519 secrets as 256-bit MPIs whatever their value), but
-// never understate it, and the octets must be exactly as many as it says.
+// significant set bit (RFC 9580, section 3.2). Older packets may also count
+// every bit of the octets, leading zeros included: GnuPG writes 32-byte
+// EdDSA and Curve25519 secrets as 256-bit MPIs whatever their value. No
+// other count is accepted, so no single changed bit gives another valid
+// encoding.
 func (p *parser) mpi(strict bool) []byte {
 	n := p.u16()
 	if p.err != nil {
@@ -91,7 +92,7 @@ func (p *parser) mpi(strict bool) []byte {
 	if p.err != nil {
 		return nil
 	}
-	if got := bitLen(b); got != int(n) && (strict || got > int(n)) {
+	if got := bitLen(b); got != int(n) && (strict || int(n) != 8*len(b)) {
 		p.fail("MPI bit count %d does not match its value (%d bits)", n, got)
 		return nil
 	}

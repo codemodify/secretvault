@@ -60,10 +60,12 @@ const (
 )
 
 // ReadKeys reads one or more keys, public or secret, binary or armored
-// (several armor blocks may follow each other). Keys of a version or
-// primary algorithm this package does not support are skipped, as are
-// subkeys it does not support; ReadKeys fails only if the input is
-// malformed or holds no usable key at all.
+// (several armor blocks may follow each other). Keys that cannot be read at
+// all (versions 2, 3 and 5, or a version 4 secret key of an unknown
+// algorithm) are skipped, as are subkeys of that kind; keys that read but
+// use an algorithm this package does not implement are returned, and every
+// use of them fails with ErrUnsupported. ReadKeys fails if the input is
+// malformed or holds no key it can read.
 func ReadKeys(r io.Reader) ([]*Key, error) {
 	br, typ, err := openInput(r)
 	if err != nil {
@@ -393,10 +395,12 @@ func latestGood(sigs []*signature, t time.Time, types ...SignatureType) *signatu
 
 // revocationAt returns a valid revocation that applies at time t, as seen
 // from now: a hard revocation made by now applies at any time, a soft one
-// only from when it was made.
+// only from when it was made. Revocations fail closed: they count whatever
+// hash they use, since ignoring a real one is worse than honouring a
+// forged one.
 func revocationAt(sigs []*signature, typ SignatureType, t, now time.Time) *signature {
 	for _, s := range sigs {
-		if s.typ != typ || !s.checked || s.checkErr != nil || s.invalid != nil || s.hashPolicy() != nil || s.created.After(now) {
+		if s.typ != typ || !s.checked || s.checkErr != nil || s.invalid != nil || s.created.After(now) {
 			continue
 		}
 		if s.hardRevocation() || !s.created.After(t) {
@@ -427,7 +431,8 @@ func keyExpiry(pk *publicKey, binding *signature) time.Time {
 func expiredBy(exp, t time.Time) bool { return !exp.IsZero() && !t.Before(exp) }
 
 // identityAt returns the user ID's latest self-certification at t, or nil
-// if it has none or has been revoked since.
+// if it had none then or had been revoked since it was made. A user ID
+// revoked later was still the key's at t.
 func (k *Key) identityAt(id *identity, t, now time.Time) *signature {
 	cert := latestGood(id.sigs, t, SigGenericCert, SigPersonaCert, SigCasualCert, SigPositiveCert)
 	if cert == nil {
@@ -435,7 +440,7 @@ func (k *Key) identityAt(id *identity, t, now time.Time) *signature {
 	}
 	for _, s := range id.sigs {
 		if s.typ == SigCertRevocation && s.checked && s.checkErr == nil && s.invalid == nil &&
-			s.hashPolicy() == nil && !s.created.After(now) && !s.created.Before(cert.created) {
+			!s.created.After(t) && !s.created.After(now) && !s.created.Before(cert.created) {
 			return nil
 		}
 	}

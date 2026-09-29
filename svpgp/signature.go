@@ -158,6 +158,11 @@ func parseSignature(body []byte, depth int) (*signature, error) {
 		return nil, p.err
 	}
 	if s.version == 3 {
+		// Version 3 signatures predate the elliptic curve algorithms,
+		// which must not be used with them (RFC 9580, section 5.2.3).
+		if s.alg != RSA && s.alg != RSASignOnly && s.alg != DSA {
+			s.invalid = malformed("a version 3 signature with %v", s.alg)
+		}
 		return s, nil
 	}
 	if s.version == 6 && len(s.salt) != s.hash.saltSize() {
@@ -395,18 +400,11 @@ func (s *signature) flags() byte {
 	return s.keyFlags[0]
 }
 
-// hardRevocation reports whether a revocation signature invalidates the key
-// for all time: when the key was compromised, or no reason is given.
+// hardRevocation reports whether a key revocation invalidates the key for
+// all time: when it was compromised, or for any reason but these two.
 // Superseded and retired keys stay good for what they signed before.
 func (s *signature) hardRevocation() bool {
-	if !s.hasRevReason {
-		return true
-	}
-	switch s.revReason {
-	case 1, 3, 32: // superseded, retired, user ID no longer valid
-		return false
-	}
-	return true
+	return !s.hasRevReason || s.revReason != byte(RevocationSuperseded) && s.revReason != byte(RevocationRetired)
 }
 
 // hashPolicy says whether the signature's hash is accepted, given when the

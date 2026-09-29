@@ -115,7 +115,9 @@
 // # Policy
 //
 // SHA-1 is not accepted in any signature (data, certification or binding)
-// made on or after 2023-01-01, nor in any version 6 signature. A forger who
+// made on or after 2023-01-01, nor in any version 6 signature. Revocations
+// are the exception: they count whatever hash they use, because ignoring a
+// real revocation is worse than honouring a forged one. A forger who
 // can find a SHA-1 collision can also backdate a signature, so this is a
 // migration aid for old keys and archives, not a guarantee; the cutoff
 // matches the one other implementations use. MD5 is never accepted. A

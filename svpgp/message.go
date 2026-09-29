@@ -362,14 +362,16 @@ func (m *msgReader) decrypt(tag packetType, body *bodyReader, esks []any, depth 
 			clear(c.key)
 		}
 	}()
+	// The first PKESK that gives a session key wins: the checksum or the
+	// key wrap has authenticated it, so there is no need to go on.
 	var keyErr error
 	tries := 0
+pkesks:
 	for _, e := range esks {
 		p, ok := e.(*pkesk)
 		if !ok || p.version != pkeskVersion {
 			continue
 		}
-	keys:
 		for _, k := range m.opts.Keyring {
 			for _, c := range k.components() {
 				if c.sec == nil || !c.pub.alg.canEncrypt() || !(p.matches(c.pub) || p.anonymous()) {
@@ -377,7 +379,7 @@ func (m *msgReader) decrypt(tag packetType, body *bodyReader, esks []any, depth 
 				}
 				if p.anonymous() {
 					if tries++; tries > maxRecipientTries {
-						break keys
+						continue pkesks
 					}
 				}
 				if err := c.sec.usable(); err != nil {
@@ -389,7 +391,7 @@ func (m *msgReader) decrypt(tag packetType, body *bodyReader, esks []any, depth 
 					continue
 				}
 				cands = append(cands, candidate{alg: alg, key: key, from: k, comp: c})
-				break keys
+				break pkesks
 			}
 		}
 	}

@@ -88,10 +88,13 @@ func parseSecretKey(body []byte, tag packetType) (*secretKey, error) {
 			sk.unavailable = pub.unusable
 			return sk, nil
 		}
-		if err := sk.setMaterial(material); err != nil {
+		// The cleartext now lives in protected memory; wipe the packet's
+		// copy whether or not it was good.
+		err := sk.setMaterial(material)
+		clear(material)
+		if err != nil {
 			return nil, err
 		}
-		clear(material)
 		return sk, nil
 	}
 	sk.raw = body

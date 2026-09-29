@@ -172,10 +172,18 @@ func singleValid(t *testing.T, results []SignatureResult, k *Key, fpr []byte) {
 	}
 }
 
-var gpgAlgorithms = []struct{ name, primary, sub string }{
-	{"ed25519-cv25519", "ed25519", "cv25519"},
-	{"nistp256", "nistp256", "nistp256"},
-	{"rsa3072", "rsa3072", "rsa3072"},
+// gpgAlgorithms are the key types checked both ways, with the hashes each
+// can sign with (the curve's security level sets a minimum).
+var gpgAlgorithms = []struct {
+	name, primary, sub string
+	hashes             []string
+	hash               HashAlgorithm
+}{
+	{"ed25519-cv25519", "ed25519", "cv25519", []string{"SHA256", "SHA384"}, SHA256},
+	{"nistp256", "nistp256", "nistp256", []string{"SHA256", "SHA384"}, SHA256},
+	{"nistp384", "nistp384", "nistp384", []string{"SHA384", "SHA512"}, SHA384},
+	{"nistp521", "nistp521", "nistp521", []string{"SHA512"}, SHA512},
+	{"rsa3072", "rsa3072", "rsa3072", []string{"SHA256", "SHA384"}, SHA256},
 }
 
 // gpg-made keys, signatures and messages, read by this package; and this
@@ -203,12 +211,11 @@ func TestGnuPGKeysSignaturesAndMessagesInteroperate(t *testing.T) {
 			textFile := g.file("text.txt", text)
 
 			// gpg's signatures, verified here.
-			for _, args := range [][]string{
-				{"--detach-sign"},
-				{"--detach-sign", "--armor"},
-				{"--detach-sign", "--digest-algo", "SHA256"},
-				{"--detach-sign", "--digest-algo", "SHA384"},
-			} {
+			signArgs := [][]string{{"--detach-sign"}, {"--detach-sign", "--armor"}}
+			for _, h := range a.hashes {
+				signArgs = append(signArgs, []string{"--detach-sign", "--digest-algo", h})
+			}
+			for _, args := range signArgs {
 				sig, _ := g.must(nil, append([]string{"--passphrase", gpgPass, "-o", "-"}, append(args, data)...)...)
 				results, err := Verify(bytes.NewReader(msg), bytes.NewReader(sig), keyring, time.Time{})
 				if err != nil {
@@ -288,7 +295,7 @@ func TestGnuPGKeysSignaturesAndMessagesInteroperate(t *testing.T) {
 			// This package's signatures with gpg's key, verified by gpg.
 			for _, opts := range []SignOptions{
 				{Mode: SignDetached},
-				{Mode: SignDetached, Armor: true, Hash: SHA256},
+				{Mode: SignDetached, Armor: true, Hash: a.hash},
 				{Mode: SignDetached, Text: true},
 			} {
 				var out bytes.Buffer
@@ -468,5 +475,80 @@ func TestGnuPGExpiryAndRevocationAreHonoured(t *testing.T) {
 	results, _ = Verify(bytes.NewReader(msg), bytes.NewReader(sig), []*Key{pub}, time.Time{})
 	if results[0].Valid || !errors.Is(results[0].Err, ErrKeyRevoked) {
 		t.Fatalf("signature by a revoked key: %+v", results[0])
+	}
+}
+
+// Old and unusual gpg keys: DSA signatures verify and ElGamal messages
+// decrypt (with a warning), but neither is used to sign or encrypt; the
+// brainpool curves are refused clearly; SHA-1 counts only before 2023.
+func TestGnuPGOldAlgorithmsAndPolicy(t *testing.T) {
+	g := newGPG(t)
+	msg := []byte("an old message")
+	data := g.file("msg.txt", msg)
+
+	fpr := g.generate("Dee Ess Ay <dsa@example.org>", "dsa2048", "elg2048", "never")
+	pub, sec := g.keys(fpr)
+	sig, _ := g.must(nil, "--passphrase", gpgPass, "-u", fpr, "--detach-sign", "-o", "-", data)
+	results, err := Verify(bytes.NewReader(msg), bytes.NewReader(sig), []*Key{pub}, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	singleValid(t, results, pub, pub.Fingerprint())
+	if results[0].Algorithm != DSA {
+		t.Fatalf("algorithm %v", results[0].Algorithm)
+	}
+	ct, _ := g.must(nil, "--encrypt", "-r", fpr, "-o", "-", data)
+	m, err := Decrypt(bytes.NewReader(ct), []*Key{sec}, nil)
+	if err != nil || !bytes.Equal(m.Body, msg) {
+		t.Fatalf("ElGamal: %v", err)
+	}
+	if len(m.Warnings) == 0 || !strings.Contains(strings.Join(m.Warnings, " "), "ElGamal") {
+		t.Fatalf("no ElGamal warning: %q", m.Warnings)
+	}
+	if err := Sign(io.Discard, bytes.NewReader(msg), sec, SignOptions{}); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("signing with DSA: %v", err)
+	}
+	if _, err := Encrypt(io.Discard, []*Key{pub}, EncryptOptions{}); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("encrypting to ElGamal: %v", err)
+	}
+
+	fpr = g.generate("Brain Pool <bp@example.org>", "brainpoolP256r1", "brainpoolP256r1", "never")
+	out, _ := g.must(nil, "--armor", "--export", fpr)
+	bp, err := ReadKey(bytes.NewReader(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bp.Valid(time.Now()); !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "brainpoolP256r1") {
+		t.Fatalf("brainpool key: %v", err)
+	}
+	sig, _ = g.must(nil, "--passphrase", gpgPass, "-u", fpr, "--detach-sign", "-o", "-", data)
+	results, _ = Verify(bytes.NewReader(msg), bytes.NewReader(sig), []*Key{bp}, time.Time{})
+	if results[0].Valid || !errors.Is(results[0].Err, ErrUnsupported) {
+		t.Fatalf("brainpool signature: %+v", results[0])
+	}
+	if _, err := Encrypt(io.Discard, []*Key{bp}, EncryptOptions{}); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("encrypting to brainpool: %v", err)
+	}
+
+	// An RSA-2048 key from 2020, with SHA-1 signatures then and now.
+	then := time.Date(2020, 6, 1, 12, 0, 0, 0, time.UTC)
+	faked := fmt.Sprintf("--faked-system-time=%d!", then.Unix())
+	fpr = g.generate("Old Rsa <rsa@example.org>", "rsa2048", "rsa2048", "never", faked)
+	pub, sec = g.keys(fpr)
+	sig2020, _ := g.must(nil, faked, "--passphrase", gpgPass, "-u", fpr, "--digest-algo", "SHA1", "--detach-sign", "-o", "-", data)
+	results, _ = Verify(bytes.NewReader(msg), bytes.NewReader(sig2020), []*Key{pub}, time.Time{})
+	singleValid(t, results, pub, pub.Fingerprint())
+	if results[0].Hash != SHA1 {
+		t.Fatalf("hash %v", results[0].Hash)
+	}
+	sigNow, _ := g.must(nil, "--passphrase", gpgPass, "-u", fpr, "--digest-algo", "SHA1", "--detach-sign", "-o", "-", data)
+	results, _ = Verify(bytes.NewReader(msg), bytes.NewReader(sigNow), []*Key{pub}, time.Time{})
+	if results[0].Valid || !errors.Is(results[0].Err, ErrWeakAlgorithm) || results[0].Key == nil {
+		t.Fatalf("a SHA-1 signature made now: %+v", results[0])
+	}
+	ct, _ = g.must(nil, "--encrypt", "-r", fpr, "-o", "-", data)
+	m, err = Decrypt(bytes.NewReader(ct), []*Key{sec}, nil)
+	if err != nil || !bytes.Equal(m.Body, msg) || !strings.Contains(strings.Join(m.Warnings, " "), "2048-bit RSA") {
+		t.Fatalf("RSA-2048: %v %q", err, m.Warnings)
 	}
 }

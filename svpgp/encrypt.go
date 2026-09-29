@@ -101,6 +101,13 @@ func Encrypt(w io.Writer, recipients []*Key, opts EncryptOptions) (io.WriteClose
 			return nil, errors.New("svpgp: a recipient does not support v2 SEIPD (AEAD) encryption")
 		}
 	}
+	if !v2 {
+		for i, r := range recipients {
+			if !supportsV1(r, prefs[i]) {
+				return nil, fmt.Errorf("svpgp: %v only reads v2 SEIPD (AEAD) encryption, and another recipient does not, or v1 was asked for", r)
+			}
+		}
+	}
 	var signer *keyComponent
 	if opts.Signer != nil {
 		var err error
@@ -311,6 +318,16 @@ func supportsV2(k *Key, pref *signature) bool {
 		return len(pref.features) > 0 && pref.features[0]&featureSEIPDv2 != 0
 	}
 	return k.Version() == 6
+}
+
+// supportsV1 reports whether a recipient can read v1 SEIPD: its features say
+// so, or it is a version 4 key without a features subpacket (which predates
+// them, and so the MDC).
+func supportsV1(k *Key, pref *signature) bool {
+	if pref.hasFeatures {
+		return len(pref.features) > 0 && pref.features[0]&featureSEIPDv1 != 0
+	}
+	return k.Version() == 4
 }
 
 // chooseCipher picks the v1 SEIPD cipher: the first of AES-256, AES-192 and
