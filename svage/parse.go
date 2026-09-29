@@ -2,6 +2,7 @@ package svage
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -27,17 +28,23 @@ func ParseRecipient(s string) (Recipient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("svage: %q is not a recipient: %v", shorten([]byte(s)), err)
 	}
+	var r Recipient
 	switch {
 	case hrp == "age":
-		return ParseX25519Recipient(s)
+		r, err = ParseX25519Recipient(s)
 	case hrp == "age1pq":
-		return ParseHybridRecipient(s)
+		r, err = ParseHybridRecipient(s)
 	case hrp == "age1tag", hrp == "age1tagpq":
-		return ParseTagRecipient(s)
+		r, err = ParseTagRecipient(s)
 	case strings.HasPrefix(hrp, "age1") && len(hrp) > 4:
-		return NewPluginRecipient(s, nil)
+		r, err = NewPluginRecipient(s, nil)
+	default:
+		err = fmt.Errorf("svage: %q is not a recipient", shorten([]byte(s)))
 	}
-	return nil, fmt.Errorf("svage: %q is not a recipient", shorten([]byte(s)))
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // ParseIdentity reads one identity: AGE-SECRET-KEY-1... (X25519),
@@ -46,20 +53,37 @@ func ParseRecipient(s string) (Recipient, error) {
 // NewPluginIdentity to give it one).
 func ParseIdentity(s string) (Identity, error) {
 	s = strings.TrimSpace(s)
-	hrp, _, err := bech32Decode(s)
-	if err != nil {
-		// Nothing of the line in the error: it may be a mistyped key.
-		return nil, fmt.Errorf("svage: not an identity: %v", err)
+	if strings.HasPrefix(s, "AGE-PLUGIN-") {
+		id, err := NewPluginIdentity(s, nil)
+		if err != nil {
+			return nil, err
+		}
+		return id, nil
 	}
+	b := []byte(s)
+	defer clear(b)
+	return ParseIdentityBytes(b)
+}
+
+// ParseIdentityBytes is ParseIdentity for a native identity (X25519 or
+// post-quantum) held in memory the caller will wipe: it makes no copy of
+// it that it does not wipe itself.
+func ParseIdentityBytes(b []byte) (Identity, error) {
+	b = bytes.TrimSpace(b)
+	var id Identity
+	var err error
 	switch {
-	case hrp == "AGE-SECRET-KEY-":
-		return ParseX25519Identity(s)
-	case hrp == "AGE-SECRET-KEY-PQ-":
-		return ParseHybridIdentity(s)
-	case strings.HasPrefix(hrp, "AGE-PLUGIN-"):
-		return NewPluginIdentity(s, nil)
+	case bytes.HasPrefix(b, []byte("AGE-SECRET-KEY-PQ-1")):
+		id, err = parseHybridIdentity(b)
+	case bytes.HasPrefix(b, []byte("AGE-SECRET-KEY-1")):
+		id, err = parseX25519Identity(b)
+	default:
+		err = errors.New("svage: not an X25519 or post-quantum identity")
 	}
-	return nil, errors.New("svage: not an identity")
+	if err != nil {
+		return nil, err
+	}
+	return id, nil
 }
 
 // ParseRecipients reads recipients, one per line.

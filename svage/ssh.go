@@ -159,8 +159,8 @@ func (r *SSHRSARecipient) Wrap(fileKey []byte) ([]*Stanza, error) {
 
 // ParseSSHIdentity reads an SSH private key (OpenSSH or PEM format,
 // ssh-ed25519 or ssh-rsa). For a key protected by a passphrase it calls
-// passphrase, but only once a stanza for that key turns up; with a nil
-// passphrase such keys are an error.
+// passphrase, but only once a stanza for that key turns up, and wipes
+// what it returns; with a nil passphrase such keys are an error.
 func ParseSSHIdentity(pemBytes []byte, passphrase func() ([]byte, error)) (Identity, error) {
 	k, err := ssh.ParseRawPrivateKey(pemBytes)
 	var missing *ssh.PassphraseMissingError

@@ -17,7 +17,7 @@ func TestBech32AcceptsBIP173ValidChecksums(t *testing.T) {
 		"split1checkupstagehandshakeupstreamerranterredcaperred2y9e3w",
 		"?1ezyfcl",
 	} {
-		if _, _, err := bech32Values(s); err != nil {
+		if _, _, err := bech32Values([]byte(s)); err != nil {
 			t.Errorf("%q: %v", s, err)
 		}
 	}
@@ -39,7 +39,7 @@ func TestBech32RefusesBIP173InvalidStrings(t *testing.T) {
 		"1qzzfhee",      // empty HRP
 		"a12UEL5L",      // mixed case
 	} {
-		if _, _, err := bech32Values(s); err == nil {
+		if _, _, err := bech32Values([]byte(s)); err == nil {
 			t.Errorf("%q was accepted", s)
 		}
 	}

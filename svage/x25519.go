@@ -105,7 +105,13 @@ func NewX25519Identity(priv []byte) (*X25519Identity, error) {
 
 // ParseX25519Identity reads an AGE-SECRET-KEY-1... identity.
 func ParseX25519Identity(s string) (*X25519Identity, error) {
-	hrp, data, err := bech32Decode(s)
+	b := []byte(s)
+	defer clear(b)
+	return parseX25519Identity(b)
+}
+
+func parseX25519Identity(b []byte) (*X25519Identity, error) {
+	hrp, data, err := bech32DecodeBytes(b)
 	if err != nil {
 		return nil, fmt.Errorf("svage: malformed identity: %v", err)
 	}
@@ -122,12 +128,18 @@ func (id *X25519Identity) Recipient() *X25519Recipient {
 }
 
 // String is the identity's AGE-SECRET-KEY-1... form. Treat it like a
-// passphrase.
+// passphrase; AppendText gives it in memory that can be wiped.
 func (id *X25519Identity) String() string {
-	b := id.priv.Bytes()
+	b, _ := id.AppendText(nil)
 	defer clear(b)
-	s, _ := bech32Encode("AGE-SECRET-KEY-", b)
-	return s
+	return string(b)
+}
+
+// AppendText appends the identity's AGE-SECRET-KEY-1... form to b.
+func (id *X25519Identity) AppendText(b []byte) ([]byte, error) {
+	k := id.priv.Bytes() // a copy
+	defer clear(k)
+	return bech32Append(b, "AGE-SECRET-KEY-", k)
 }
 
 // Unwrap implements Identity.

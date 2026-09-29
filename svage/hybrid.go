@@ -109,7 +109,13 @@ func NewHybridIdentity(seed []byte) (*HybridIdentity, error) {
 
 // ParseHybridIdentity reads an AGE-SECRET-KEY-PQ-1... identity.
 func ParseHybridIdentity(s string) (*HybridIdentity, error) {
-	hrp, data, err := bech32Decode(s)
+	b := []byte(s)
+	defer clear(b)
+	return parseHybridIdentity(b)
+}
+
+func parseHybridIdentity(b []byte) (*HybridIdentity, error) {
+	hrp, data, err := bech32DecodeBytes(b)
 	if err != nil {
 		return nil, fmt.Errorf("svage: malformed identity: %v", err)
 	}
@@ -126,15 +132,21 @@ func (id *HybridIdentity) Recipient() *HybridRecipient {
 }
 
 // String is the identity's AGE-SECRET-KEY-PQ-1... form. Treat it like a
-// passphrase.
+// passphrase; AppendText gives it in memory that can be wiped.
 func (id *HybridIdentity) String() string {
-	// Bytes returns the key's own copy of its seed: not to be cleared.
-	b, err := id.priv.Bytes()
+	b, _ := id.AppendText(nil)
+	defer clear(b)
+	return string(b)
+}
+
+// AppendText appends the identity's AGE-SECRET-KEY-PQ-1... form to b.
+func (id *HybridIdentity) AppendText(b []byte) ([]byte, error) {
+	// Bytes returns the key's own seed, not a copy: not to be cleared.
+	seed, err := id.priv.Bytes()
 	if err != nil {
-		return ""
+		return nil, err
 	}
-	s, _ := bech32Encode("AGE-SECRET-KEY-PQ-", b)
-	return s
+	return bech32Append(b, "AGE-SECRET-KEY-PQ-", seed)
 }
 
 // Unwrap implements Identity.

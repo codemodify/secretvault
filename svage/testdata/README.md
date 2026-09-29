@@ -26,7 +26,15 @@ folder, update the commit above, and run `go test ./svage/`.
 ## interop/
 
 Files written by the reference implementation (filippo.io/age v1.3.2) for
-recipient types the CCTV vectors do not cover (SSH keys, and the
-hardware-tag recipients). They were generated once, outside this
-repository, by `interop/generate.go.txt`; secretvault's build does not
-depend on that code.
+recipient types the CCTV vectors do not cover: SSH keys (the ed25519 key is
+the one in age's own test scripts; the RSA key was made for this), and the
+hardware-tag recipients. They were generated once, outside this repository,
+by `interop/generate.go.txt` in the module `interop/generate.go.mod.txt`
+describes; secretvault's build does not depend on that code. Its `check`
+mode also encrypts with each implementation and decrypts with the other,
+for every recipient type.
+
+## spec-keys.txt
+
+The example keys quoted in the age specification, which
+`TestSpecExampleKeysPairUp` checks pair up as the spec says.

@@ -1,8 +1,10 @@
 package svage
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -12,6 +14,9 @@ import (
 // a post-quantum recipient needs (1,216 bytes of key). A string is all
 // lowercase or all uppercase, and the checksum is always computed over the
 // lowercase form.
+//
+// Identities are secrets, so the byte-slice forms here make no copy of
+// their data that they do not wipe.
 
 const bech32Charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
@@ -20,8 +25,8 @@ const maxHRP = 83
 
 var bech32Generator = [5]uint32{0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3}
 
-func bech32Polymod(values []byte) uint32 {
-	chk := uint32(1)
+// bech32Polymod continues the checksum chk over values; it starts at 1.
+func bech32Polymod(chk uint32, values []byte) uint32 {
 	for _, v := range values {
 		top := chk >> 25
 		chk = (chk&0x1ffffff)<<5 ^ uint32(v)
@@ -54,9 +59,13 @@ func convertBits(data []byte, from, to uint, pad bool) ([]byte, error) {
 	var bits uint
 	maxv := uint32(1)<<to - 1
 	out := make([]byte, 0, len(data)*int(from)/int(to)+1)
+	fail := func(msg string) ([]byte, error) {
+		clear(out)
+		return nil, errors.New(msg)
+	}
 	for _, v := range data {
 		if uint32(v)>>from != 0 {
-			return nil, errors.New("bech32: value out of range")
+			return fail("bech32: value out of range")
 		}
 		acc = acc<<from | uint32(v)
 		bits += from
@@ -71,9 +80,9 @@ func convertBits(data []byte, from, to uint, pad bool) ([]byte, error) {
 			out = append(out, byte(acc<<(to-bits)&maxv))
 		}
 	case bits >= from:
-		return nil, errors.New("bech32: too much padding")
+		return fail("bech32: too much padding")
 	case acc<<(to-bits)&maxv != 0:
-		return nil, errors.New("bech32: non-zero padding")
+		return fail("bech32: non-zero padding")
 	}
 	return out, nil
 }
@@ -90,45 +99,64 @@ func checkHRP(hrp string) error {
 	return nil
 }
 
-// bech32Encode encodes data under hrp. The result is uppercase when hrp
-// is, lowercase otherwise; a mixed-case hrp is an error.
-func bech32Encode(hrp string, data []byte) (string, error) {
+// bech32Append appends the encoding of data under hrp to dst. The result
+// is uppercase when hrp is, lowercase otherwise; a mixed-case hrp is an
+// error.
+func bech32Append(dst []byte, hrp string, data []byte) ([]byte, error) {
 	if err := checkHRP(hrp); err != nil {
-		return "", err
+		return nil, err
 	}
 	lower := strings.ToLower(hrp)
 	upper := hrp == strings.ToUpper(hrp) && hrp != lower
 	if !upper && hrp != lower {
-		return "", errors.New("bech32: mixed-case human-readable part")
+		return nil, errors.New("bech32: mixed-case human-readable part")
 	}
 	values, err := convertBits(data, 8, 5, true)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	chk := bech32Polymod(append(append(bech32HRPExpand(lower), values...), 0, 0, 0, 0, 0, 0)) ^ 1
-	var b strings.Builder
-	b.Grow(len(lower) + 1 + len(values) + 6)
-	b.WriteString(lower)
-	b.WriteByte('1')
+	defer clear(values)
+	chk := bech32Polymod(bech32Polymod(bech32Polymod(1, bech32HRPExpand(lower)), values), make([]byte, 6)) ^ 1
+	start := len(dst)
+	dst = slices.Grow(dst, len(lower)+1+len(values)+6)
+	dst = append(dst, lower...)
+	dst = append(dst, '1')
 	for _, v := range values {
-		b.WriteByte(bech32Charset[v])
+		dst = append(dst, bech32Charset[v])
 	}
 	for i := range 6 {
-		b.WriteByte(bech32Charset[chk>>(5*(5-i))&31])
+		dst = append(dst, bech32Charset[chk>>(5*(5-i))&31])
 	}
 	if upper {
-		return strings.ToUpper(b.String()), nil
+		for i := start; i < len(dst); i++ {
+			if c := dst[i]; c >= 'a' && c <= 'z' {
+				dst[i] = c - 'a' + 'A'
+			}
+		}
 	}
-	return b.String(), nil
+	return dst, nil
+}
+
+// bech32Encode is bech32Append for a string.
+func bech32Encode(hrp string, data []byte) (string, error) {
+	b, err := bech32Append(nil, hrp, data)
+	return string(b), err
 }
 
 // bech32Decode decodes s, returning its human-readable part as written
 // (so its case tells an identity from a recipient) and its data.
 func bech32Decode(s string) (hrp string, data []byte, err error) {
-	hrp, values, err := bech32Values(s)
+	return bech32DecodeBytes([]byte(s))
+}
+
+// bech32DecodeBytes is bech32Decode for bytes. The data it returns is
+// the only copy it makes of the data part.
+func bech32DecodeBytes(b []byte) (hrp string, data []byte, err error) {
+	hrp, values, err := bech32Values(b)
 	if err != nil {
 		return "", nil, err
 	}
+	defer clear(values)
 	data, err = convertBits(values, 5, 8, false)
 	if err != nil {
 		return "", nil, err
@@ -136,29 +164,36 @@ func bech32Decode(s string) (hrp string, data []byte, err error) {
 	return hrp, data, nil
 }
 
-// bech32Values checks s and returns its human-readable part and its data
+// bech32Values checks b and returns its human-readable part and its data
 // as 5-bit values, without the checksum.
-func bech32Values(s string) (hrp string, values []byte, err error) {
-	if strings.ToLower(s) != s && strings.ToUpper(s) != s {
+func bech32Values(b []byte) (hrp string, values []byte, err error) {
+	var hasLower, hasUpper bool
+	for _, c := range b {
+		hasLower = hasLower || c >= 'a' && c <= 'z'
+		hasUpper = hasUpper || c >= 'A' && c <= 'Z'
+	}
+	if hasLower && hasUpper {
 		return "", nil, errors.New("bech32: mixed case")
 	}
-	pos := strings.LastIndexByte(s, '1')
-	if pos < 1 || pos+7 > len(s) {
+	pos := bytes.LastIndexByte(b, '1')
+	if pos < 1 || pos+7 > len(b) {
 		return "", nil, errors.New("bech32: separator missing or misplaced")
 	}
-	hrp = s[:pos]
+	hrp = string(b[:pos])
 	if err := checkHRP(hrp); err != nil {
 		return "", nil, err
 	}
-	values = make([]byte, 0, len(s)-pos-1)
-	for i := pos + 1; i < len(s); i++ {
-		d := strings.IndexByte(bech32Charset, lowerASCII(s[i]))
+	values = make([]byte, 0, len(b)-pos-1)
+	for i := pos + 1; i < len(b); i++ {
+		d := strings.IndexByte(bech32Charset, lowerASCII(b[i]))
 		if d < 0 {
+			clear(values)
 			return "", nil, fmt.Errorf("bech32: invalid character at %d", i)
 		}
 		values = append(values, byte(d))
 	}
-	if bech32Polymod(append(bech32HRPExpand(strings.ToLower(hrp)), values...)) != 1 {
+	if bech32Polymod(bech32Polymod(1, bech32HRPExpand(strings.ToLower(hrp))), values) != 1 {
+		clear(values)
 		return "", nil, errors.New("bech32: bad checksum")
 	}
 	return hrp, values[:len(values)-6], nil
