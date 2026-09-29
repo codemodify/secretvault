@@ -85,6 +85,31 @@ keyringKey = func() ([]byte, bool) {
 }
 ```
 
+### Mail clients: who signed this?
+
+A mail client tells secretvault about the keys that come with messages,
+and asks about each signature's signer. Reading the contacts is asked
+about once (and remembered), and recording keys is a write:
+
+```go
+// A key that came with a message: an Autocrypt header's keydata
+// (base64-decoded), or an S/MIME signer's certificate.
+c.KeySeen(ctx, svrpc.TrustSeenParams{Key: keydata, Address: "alice@example.org", Time: received, Name: "Alice"})
+
+// A signature your OpenPGP or CMS code verified, by this key.
+v, err := c.CheckSigner(ctx, svrpc.TrustCheckParams{Fingerprint: signerFP, From: fromHeader})
+// v.Status: "verified", "unverified", "suspicious" (the address belongs to
+// someone else's key) or "unknown"; v.Reasons in plain words to show.
+
+// Or let secretvault verify OpenPGP too, with the person's contacts.
+r, err := c.VerifyPGP(ctx, svrpc.PGPVerifyParams{Data: body, Signature: sig, From: fromHeader})
+
+// Decrypt with the person's own key, which never leaves the daemon.
+d, err := c.DecryptPGP(ctx, svrpc.PGPDecryptParams{Data: armored, Verify: true, From: fromHeader})
+```
+
+The methods and their shapes are in [`svrpc/trust.go`](../svrpc/trust.go).
+
 ## From any language
 
 Connect to the socket (`$SECRETVAULT_SOCK`, else
@@ -113,4 +138,9 @@ allow-always: backup (/usr/local/bin/backup) may read "backup/key"
 ```
 
 A program in your home directory is identified by its content too: after it
-changes, it is asked about again.
+changes, it is asked about again. `--contacts` decides about the contacts
+instead of an item:
+
+```console
+$ secretvault grant allow /usr/bin/comms-mail --contacts --ops read,write
+```

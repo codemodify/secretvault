@@ -201,6 +201,28 @@ the token.
 - **Your own keys** live in the vault, with the token split offered when a
   YubiKey is present.
 
+**Where it stands.**
+- **The trust store is built** (`svtrust`):
+  - contacts with keys of all four types, in vault records that merge
+    when two devices change one at once;
+  - verification events at every level (the transparency log level is
+    reserved), trust on first use per address and key, and a different key
+    for an address kept apart as a conflict, never a replacement;
+  - `trust.check`: the verdict on a signer for a From address, as facts
+    and plain-words reasons, judged by a policy the caller may set;
+  - discovery from files, `secretvault-contact:` and `openpgp4fpr:` QR
+    URIs, WKD (both methods), keyservers (VKS, then HKP), and keys seen in
+    mail (`trust.seen`); the company directory is an interface only;
+  - the CLI: `secretvault contact`, `trust` and `pgp`, and `contact qr`
+    on our own QR encoder (`svqr`).
+- **Your OpenPGP keys** live in vault items and sign and decrypt inside
+  the daemon (`pgp.sign`, `pgp.decrypt`, with `sign` and a new `decrypt`
+  operation for consent); `pgp.verify` checks signatures against your
+  contacts.
+- **Still to do:** the LDAP directory, transparency logs, S/MIME (`svcms`),
+  whole mail messages (the mail face), `encrypt-to`, the gpg-agent face,
+  the OS certificate stores, and the token split.
+
 **Brought forward and done:**
 - **The SSH agent**, tested with OpenSSH's own `ssh-add` and `ssh-keygen -Y`:
   - keys live in vaults;
@@ -211,7 +233,7 @@ the token.
 
 **Done when:** comms-mail signs, encrypts, decrypts and verifies OpenPGP and
 S/MIME mail through secretvault, recognising every structure above from the
-raw message,, and answers "is this signed by Alice?"
+raw message, and answers "is this signed by Alice?"
 correctly across all four verification levels.
 
 ## M6: sync and sharing

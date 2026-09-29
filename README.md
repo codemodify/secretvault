@@ -16,10 +16,11 @@ already sync, or nothing.
 > **Status: pre-release.** On Linux, the vault engine, the daemon with its
 > consent prompts, the CLI and the terminal manager work, and so do the
 > desktop keyring (Secret Service), the SSH agent, sync, import, OpenPGP,
-> age and browser autofill; Windows and macOS builds compile but are not
-> yet exercised. What remains is in [docs/roadmap.md](docs/roadmap.md).
-> The format may still change, and nothing has been audited: do not keep
-> anything here that exists nowhere else yet.
+> age, browser autofill and the trust store; Windows and macOS builds
+> compile but are not yet exercised. What remains is in
+> [docs/roadmap.md](docs/roadmap.md). The format may still change, and
+> nothing has been audited: do not keep anything here that exists nowhere
+> else yet.
 
 ## How it fits together
 
@@ -61,6 +62,8 @@ decision. If there is none, it asks you.
 | [`svbroker`](svbroker) | Remembered decisions, and the audit log |
 | [`svprompt`](svprompt), [`svterm`](svterm) | Asking people: the pinentry protocol, and terminals |
 | [`svpgp`](svpgp) | OpenPGP, our own: keys, signatures, encryption (RFC 9580, reading RFC 4880) |
+| [`svtrust`](svtrust) | The trust store: contacts, how their keys were verified, and verdicts on signers; WKD and keyserver lookups |
+| [`svqr`](svqr) | QR codes, our own, drawn on a terminal |
 | [`svage`](svage) | age files and the age plugin protocol, both ends |
 | [`svbrowser`](svbrowser) | The KeePassXC-Browser protocol, for filling logins in browsers |
 | [`svimport`](svimport) | Import from other password managers, export to KeePass and CXF |
@@ -133,6 +136,32 @@ $ bin/secretvault sync setup https://sync.example.com:8443 --fingerprint FP --ad
 $ bin/secretvault sync invite                # then, on the other device:
 $ bin/secretvault sync join 'secretvault-sync:?...' --name personal
 ```
+
+Contacts, and your own OpenPGP key:
+
+```console
+$ bin/secretvault pgp new --name "Ada Lovelace" --email ada@example.org   # made in the daemon, kept in the vault
+$ bin/secretvault contact qr                 # your key's fingerprint as a QR code, for someone to scan
+$ bin/secretvault contact add alice.asc      # OpenPGP, an S/MIME certificate, SSH, or a secretvault recipient
+$ bin/secretvault contact verify "Alice Example" --fingerprint "1A2B 3C4D ..." --in-person
+$ bin/secretvault contact import 'openpgp4fpr:1A2B3C4D...'   # a QR code you scanned from their screen
+$ bin/secretvault contact lookup bob@example.org --add       # WKD, then keys.openpgp.org
+$ bin/secretvault trust check --fingerprint 1A2B3C4D... --from alice@example.org
+verified
+  Signed by Alice Example's key, which you verified in person on 2026-09-01.
+$ bin/secretvault pgp sign --clear notes.txt  # the key signs inside the daemon
+```
+
+- **Verification levels**, strongest first: in person (fingerprint or QR
+  code), an organisation (its CA or directory), a transparency log
+  (reserved), published (WKD, or keys.openpgp.org's email check), and
+  trust on first use.
+- **Mail clients** tell secretvault the keys that come with messages
+  (`trust.seen`), and ask about each signer (`trust.check`). A different
+  key for an address that already has one is a warning, never a quiet
+  replacement.
+- **Who you know is private**: a program is asked about reading your
+  contacts as it is about reading an item.
 
 For git and docker, link the CLI under their helper names:
 `ln -s secretvault bin/git-credential-secretvault`, then
@@ -258,12 +287,16 @@ The tests include:
 - key derivation pinned against independent implementations (the reference
   Argon2 CLI and Python's hashlib);
 - OpenPGP against the RFC 9580 test vectors and GnuPG 2.4, both ways, with
-  every byte of signatures and ciphertexts tampered with, and fuzzing.
+  every byte of signatures and ciphertexts tampered with, and fuzzing;
 - all 147 C2SP CCTV age test vectors, and files the reference age
   implementation wrote;
 - KeePassXC-Browser's side of its protocol, played through the relay
   against the daemon: consent, saving, codes, locking, replays, bad
-  nonces and bad frames; and browser installs in a home of the test's own.
+  nonces and bad frames; and browser installs in a home of the test's own;
+- QR codes module for module against qrencode at every version and
+  level, and read back by zbar;
+- WKD hashes against GnuPG's own client, and lookups against a fake
+  internet (httptest, with its own CA).
 
 ## Licence
 

@@ -16,8 +16,9 @@ The byte-level details are in [format.md](format.md).
 | Item contents: passwords, keys, notes, fields | vault revisions, encrypted |
 | Item metadata: names, kinds, attributes, tags, labels | vault revisions, encrypted |
 | The vault master key (VMK) | nowhere on disk in the clear; wrapped once per keyslot |
-| Your private keys (identities, OpenPGP, SSH) | vault items, from M5; optionally a hardware token |
+| Your private keys (identities, OpenPGP, SSH) | vault items, from M5; optionally a hardware token (later) |
 | Who accessed what (grants, audit log) | the vault, encrypted, from M1 |
+| Who you know: contacts, their keys, how you verified them, what mail they sent | vault records, encrypted, from M5 |
 
 ## Adversaries, and what each can do
 
@@ -263,6 +264,39 @@ refuse rather than guess:
   blinded); decrypted secret keys are in locked memory but Go's own copies
   of key objects cannot be wiped.
 
+## The trust store
+
+A verdict ("Signed by Alice Example's key, which you verified in person")
+is only as good as the verification behind it, and says which that was.
+What it rests on:
+
+- **Consent.** Reading your contacts (listing them, checking a signer,
+  verifying a signature) is asked about per program, like reading an
+  item; changing them (adding, importing, recording a verification or a
+  key seen in mail) is a write. A program allowed to change your contacts
+  can record that it verified a key in person: every event says who
+  recorded it, and `secretvault contact show` lists them.
+- **Your keys stay in the daemon.** Signing asks as `sign` and decrypting
+  as `decrypt` on the key's item; neither lets the program read the key,
+  as a `read` grant would. `pgp export --secret` takes a key out, protected
+  with a new passphrase unless you say otherwise.
+- **Trust on first use** only notices change: the first key seen for an
+  address is believed. A later, different key is kept apart and verdicts
+  about it say "this may be an impostor"; it never replaces the first.
+- **Lookups** go to the network only when asked, and tell the domain (WKD)
+  or keyserver whose key you want. WKD answers are kept only when the key
+  names the address, and bind the key to that address alone.
+  keys.openpgp.org's answers are recorded as email-checked; plain HKP
+  keyservers check nothing, and their keys carry no verification.
+- **Organisations.** Marking a contact as an organisation makes its CA
+  certificates vouch for every certificate they issue, within whatever
+  constraints the CA certificate itself carries.
+- **Where it stops.** An OpenPGP key found again (from a keyserver, or in
+  mail) is not merged packet by packet: the new copy is taken only when it
+  carries a revocation the old one lacks, or user IDs where the old one has
+  none. S/MIME signatures are not verified here yet: `trust.check` takes
+  the signer's certificate, and the caller checks the signature.
+
 ## Known gaps
 
 | Gap | Planned fix |
@@ -280,6 +314,10 @@ refuse rather than guess:
 | OpenPGP version 6 interoperability is checked against the RFC's vectors only | Sequoia in the test suite |
 | A browser in Flatpak or Snap starts its host through the desktop portal, which the daemon then names instead of the browser | identifying the app behind the portal |
 | The browser extension names the page it asks for, and "always" for a browser covers any page | decisions that name the site as well as the item |
+| An OpenPGP certificate seen again is not merged packet by packet with the copy held | certificate merging in `svpgp` |
+| No transparency log is checked; the level is reserved | key transparency, when a log to check exists |
+| A company directory (LDAP/AD) cannot be asked yet | an LDAP `Directory` |
+| S/MIME (CMS) signatures are not verified by secretvault | `svcms` |
 
 ## Reporting a vulnerability
 

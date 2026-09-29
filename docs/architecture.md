@@ -154,8 +154,11 @@ every copy of the CLI. `secretvault-tui` is treated the same way.
 ### What is decided
 
 A grant covers (program, item or whole vault, operation). The operation is
-one of read, list, write, delete or manage. Sign and decrypt arrive with the
-trust store in M5.
+one of read, list, write, delete, manage, sign or decrypt. Signing and
+decrypting with a key held in a vault are their own operations, so a
+program allowed them still cannot read the key. The contacts are decided
+about as an "item" of their own: a decision about them covers no item,
+and one about an item covers no contacts.
 
 | Answer | Lasts |
 | --- | --- |
@@ -432,19 +435,59 @@ rotates the vault master key).
     our own CMS.
   - **SSH.**
   - **secretvault identities.** Post-quantum hybrid (ML-KEM-768 + X25519).
-- **How a key is verified.** Each key records its verification, from
-  strongest to weakest:
+- **Contacts** ([`svtrust`](../svtrust)) are vault records of kind
+  `contact`, so they are encrypted, keep their history and sync like
+  items; a contact changed on two devices at once is merged when read
+  (every address, key, verification and sighting of both). Their JSON
+  keeps members a newer version adds. They live in the default vault, or
+  a configured contacts vault (`secretvault contact vault NAME`).
+- **How a key is verified.** Each key records its verification events:
+  the level, the method, who recorded it, when, and where from. Levels,
+  from strongest to weakest:
   1. In person, by QR code or comparing a fingerprint face to face.
-  2. Vouched for by an organisation's CA or directory.
-  3. Checked against public logs or WKD.
-  4. Trusted on first use, which flags any later change loudly.
-- **Where keys come from.** Files, QR codes, paste, WKD and keyservers, a
-  company directory (LDAP/AD, or an organisation's secretvault server), and
-  incoming mail (Autocrypt headers, S/MIME signatures).
+  2. Vouched for by an organisation: a certificate that chains to the CA
+     of a contact marked as an organisation, or its directory.
+  3. Recorded in a transparency log (the level is reserved; nothing
+     records it yet).
+  4. Published: by the address's domain (WKD), or by a keyserver that
+     checked the address by email (keys.openpgp.org).
+  5. Trusted on first use. An event covers the key as a whole, or only
+     the addresses it names: a key found by WKD is published for that one
+     address.
+- **Trust on first use** binds an address to the first key seen for it,
+  and counts the messages (first seen, last seen, how many) per address
+  and key. A different key for an address that already has one is kept
+  apart, in a contact of its own, with the conflict recorded: it never
+  quietly replaces the first, and verdicts about it warn of an impostor
+  until you verify it.
+- **Where keys come from.**
+  - Files: OpenPGP (armored or binary, many at once), PEM or DER
+    certificates (the chain becomes the certificate's intermediates), SSH
+    public keys and authorized_keys lines, secretvault recipients.
+  - QR codes: `openpgp4fpr:` and our own `secretvault-contact:` URI,
+    which carries a name, addresses and fingerprints (not keys), so a
+    scan verifies keys you have, or names the ones to fetch.
+    `secretvault contact qr` draws yours on the terminal
+    ([`svqr`](../svqr), our own encoder).
+  - WKD (the advanced method, then the direct one when the `openpgpkey`
+    subdomain does not exist), keeping only keys that name the address;
+    keyservers by VKS, then HKP.
+  - A company directory: the `Directory` interface, for LDAP/AD or an
+    organisation's secretvault server, not yet implemented.
+  - Incoming mail: `trust.seen` records a key that came with a message
+    (the Autocrypt header's key, an S/MIME certificate); parsing the mail
+    is the mail face's work.
 - **Using the keys.**
-  - **Our API:** `verify(signature, digest, claimed signer)` → valid or not,
-    which key, and its verification level. Also `sign`, `decrypt` and
-    `encrypt-to`, each through the consent broker.
+  - **Our API:** `trust.check` takes the signer's fingerprint or
+    certificate and the claimed From address, and returns the facts: the
+    contact, the best verification for that address and for the key
+    alone, whether the address is bound to the key, how often it was seen,
+    other contacts' keys bound to the address, and reasons in plain words
+    ("Signed by Alice Example's key, which you verified in person on
+    2026-09-01."). A policy, which the caller may set, judges the facts:
+    verified, unverified, suspicious or unknown. `pgp.sign`,
+    `pgp.decrypt` and `pgp.verify` use your OpenPGP keys and your
+    contacts, each through the consent broker. `encrypt-to` is to come.
   - **Whole messages:** `mail.inspect(raw message)` recognises PGP/MIME,
     inline PGP and S/MIME (signed, encrypted, both, nested). It returns the
     decrypted body, with consent, and a verdict per signature, so a mail
@@ -454,8 +497,13 @@ rotates the vault master key).
     covers git signing.
   - **OS certificate stores:** contacts' certificates are published to the
     Windows and macOS stores for Outlook and Apple Mail.
-- **Your own private keys** live in the vault by default. With a YubiKey
-  present, secretvault offers the usual split:
+- **Your own private keys** live in the vault by default. An OpenPGP key
+  is an item of kind `key` (the armored secret and public keys, the
+  passphrase if it has one, the fingerprint and primary user ID as
+  attributes), made in the daemon by `pgp.generate` (version 6, or 4 for
+  GnuPG). Signing and decrypting happen in the daemon; the key leaves it
+  only when you export it. With a YubiKey present, secretvault offers the
+  usual split:
   - the signing key is made on the token;
   - the decryption key is made in the vault and copied to the token, with the
     vault copy kept as a backup, so old mail stays readable.
@@ -554,7 +602,8 @@ projects, with `sv` as the prefix:
 | `svwayland`, `svx11`, `svclip` | the clipboard in our own protocol code | M2 |
 | `svimport` | import from other password managers; export to KDBX and CXF | M2 |
 | `svpgp` | OpenPGP, our own | M5 |
-| `svcms`, `svtrust` | S/MIME, the trust store | M5 |
+| `svcms`, `svtrust` | S/MIME, the trust store | M5 (`svtrust` done) |
+| `svqr` | QR codes, for the terminal | M5 |
 | `svfido`, `svpcsc`, `svtpm` | hardware tokens and TPM | M4 |
 | `svsync`, `svserver` | sync, and the server API | M6, M8 |
 | `svcontainer`, `svmount` | containers, and per-OS mounting | M7 |
