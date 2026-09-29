@@ -280,9 +280,10 @@ func (c *cli) cmdGet(args []string) error {
 func (c *cli) cmdList(args []string) error {
 	fs := c.flags("ls")
 	long := fs.Bool("l", false, "long listing: kind, last change, revision")
+	deleted := fs.Bool("deleted", false, "list deleted items instead ('secretvault restore NAME' brings one back)")
 	var u unlockFlags
 	u.register(fs)
-	pos, err := parse(fs, args, 0, 1, "[-l] [PREFIX]")
+	pos, err := parse(fs, args, 0, 1, "[-l] [--deleted] [PREFIX]")
 	if err != nil {
 		return err
 	}
@@ -296,6 +297,17 @@ func (c *cli) cmdList(args []string) error {
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
+	if *deleted {
+		del, err := cl.Deleted(ctx, c.vault, prefix)
+		if err != nil {
+			return err
+		}
+		tw := tabwriter.NewWriter(c.stdout, 0, 4, 2, ' ', 0)
+		for _, d := range del {
+			fmt.Fprintf(tw, "%s\t%s\tdeleted %s\n", d.Name, d.Kind, d.Deleted.Local().Format("2006-01-02 15:04"))
+		}
+		return tw.Flush()
+	}
 	entries, err := cl.List(ctx, c.vault, prefix)
 	if err != nil {
 		return err
@@ -442,4 +454,101 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	slices.Sort(keys)
 	return keys
+}
+
+// cmdRestore is `secretvault restore NAME [REV]`: an earlier revision (see
+// history), or a deleted item's last contents, made current again.
+func (c *cli) cmdRestore(args []string) error {
+	fs := c.flags("restore")
+	var u unlockFlags
+	u.register(fs)
+	pos, err := parse(fs, args, 1, 2, "NAME [REV]   (REV from 'secretvault history NAME'; none brings back a deleted item)")
+	if err != nil {
+		return err
+	}
+	rev := ""
+	if len(pos) == 2 {
+		rev = pos[1]
+	}
+	cl, err := c.open(&u)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := c.ctx()
+	defer cancel()
+	e, err := cl.Restore(ctx, svrpc.RestoreParams{Vault: c.vault, Name: pos[0], Rev: rev})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(c.stdout, "Restored %s (revision %s)\n", e.Item.Name, short(e.Rev))
+	return nil
+}
+
+// cmdResolve is `secretvault resolve NAME [--keep REV]`: an item changed
+// on two devices at once shows its versions, and keeps the one chosen.
+func (c *cli) cmdResolve(args []string) error {
+	fs := c.flags("resolve")
+	keep := fs.String("keep", "", "keep this version (a revision from the list), on every device")
+	var u unlockFlags
+	u.register(fs)
+	pos, err := parse(fs, args, 1, 1, "NAME [--keep REV]")
+	if err != nil {
+		return err
+	}
+	cl, err := c.open(&u)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := c.ctx()
+	defer cancel()
+	if *keep != "" {
+		e, err := cl.Restore(ctx, svrpc.RestoreParams{Vault: c.vault, Name: pos[0], Rev: *keep})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(c.stdout, "Kept that version of %s; the conflict is settled (revision %s).\n", e.Item.Name, short(e.Rev))
+		return nil
+	}
+	cur, err := cl.Get(ctx, c.vault, pos[0])
+	if err != nil {
+		return err
+	}
+	wipe(&cur.Item)
+	if len(cur.Conflicts) == 0 {
+		fmt.Fprintf(c.stdout, "%s has no conflict.\n", pos[0])
+		return nil
+	}
+	heads := map[string]bool{cur.Rev: true}
+	for _, r := range cur.Conflicts {
+		heads[r] = true
+	}
+	hist, err := cl.History(ctx, c.vault, pos[0])
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(c.stdout, "%s was changed on two devices at once. Its versions:\n\n", pos[0])
+	tw := tabwriter.NewWriter(c.stdout, 0, 4, 2, ' ', 0)
+	for _, e := range hist {
+		if !heads[e.Rev] {
+			wipe(&e.Item)
+			continue
+		}
+		note := ""
+		if e.Rev == cur.Rev {
+			note = "(shown now)"
+		}
+		device := "-"
+		if e.Device != "" {
+			device = e.Device[:8]
+		}
+		var fields []string
+		for _, f := range e.Item.Fields {
+			fields = append(fields, f.Name)
+		}
+		fmt.Fprintf(tw, "  %s\t%s\tdevice %s\tfields %s\t%s\n", short(e.Rev), e.Time.Local().Format("2006-01-02 15:04:05"), device, strings.Join(fields, ","), note)
+		wipe(&e.Item)
+	}
+	tw.Flush()
+	fmt.Fprintf(c.stdout, "\nSee each with 'secretvault history %s --show'; keep one with 'secretvault resolve %s --keep REV'.\n", pos[0], pos[0])
+	return nil
 }

@@ -142,6 +142,8 @@ hunter2
 $ bin/secretvault set api/token --generate 32   # generate, store, and print a secret
 $ bin/secretvault ls -l
 $ bin/secretvault history web/github.com
+$ bin/secretvault restore web/github.com 3f2a9c   # an earlier revision back; or a deleted item (ls --deleted)
+$ bin/secretvault resolve web/github.com     # changed on two devices at once: see both, --keep one
 $ bin/secretvault attach bank ~/scans/card.pdf   # files go into the vault too
 $ bin/secretvault file get bank card.pdf -o -    # and come back out
 $ bin/secretvault import auto ~/Downloads/passwords.kdbx --prefix imported/keepass   # or Bitwarden, 1Password, CSV...

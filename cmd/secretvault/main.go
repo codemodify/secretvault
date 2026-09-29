@@ -201,6 +201,8 @@ func init() {
 		{"mv", "rename an item", (*cli).cmdMove},
 		{"rm", "delete an item", (*cli).cmdRemove},
 		{"history", "list an item's revisions", (*cli).cmdHistory},
+		{"restore", "make an earlier revision, or a deleted item, current again", (*cli).cmdRestore},
+		{"resolve", "settle an item changed on two devices at once: show its versions, keep one", (*cli).cmdResolve},
 		{"attach", "attach a file to an item", (*cli).cmdAttach},
 		{"file", "an item's attached files: ls, get, rm", (*cli).cmdFile},
 		{"import", "import another password manager's export", (*cli).cmdImport},

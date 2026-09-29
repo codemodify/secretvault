@@ -452,6 +452,9 @@ The payload is JSON:
   on a tie the greater revision ID (compared bytewise). Every reader of the same
   files therefore agrees, without talking to anyone.
 - **Merging.** The next write names every head as a parent, which merges them.
+  Restoring a revision (`secretvault restore`, or `resolve --keep`) writes its
+  contents again with every head as a parent: the version kept wins, on
+  every device. A deleted item's earlier revisions can be restored the same way.
 - **Deletion** writes a tombstone. Earlier revisions stay until pruned.
 - **Duplicate names.** Two live objects with the same name are a duplicate. The
   name resolves to the one whose head is newest (on a tie, the greater object

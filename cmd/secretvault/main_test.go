@@ -716,3 +716,36 @@ func TestFilesAttachToItemsAndComeBack(t *testing.T) {
 		t.Fatal("get --json does not list the files")
 	}
 }
+
+func TestRestoreBringsBackOldVersionsAndDeletedItems(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok("first", h.with("set", "bank")...)
+	h.ok("second", h.with("set", "bank")...)
+	hist := h.ok("", h.with("history", "bank")...)
+	var old string
+	for _, line := range strings.Split(hist, "\n") {
+		// date, time, revision, device[, note]
+		if f := strings.Fields(line); len(f) > 2 && !strings.Contains(line, "current") {
+			old = f[2]
+		}
+	}
+	if old == "" {
+		t.Fatalf("history:\n%s", hist)
+	}
+	h.ok("", h.with("restore", "bank", old)...)
+	if got := h.ok("", h.with("get", "bank")...); got != "first\n" {
+		t.Fatalf("after restore: %q", got)
+	}
+	h.ok("", h.with("rm", "bank")...)
+	if out := h.ok("", h.with("ls", "--deleted")...); !strings.Contains(out, "bank") {
+		t.Fatalf("ls --deleted: %q", out)
+	}
+	h.ok("", h.with("restore", "bank")...)
+	if got := h.ok("", h.with("get", "bank")...); got != "first\n" {
+		t.Fatalf("after undelete: %q", got)
+	}
+	if out := h.ok("", h.with("resolve", "bank")...); !strings.Contains(out, "no conflict") {
+		t.Fatalf("resolve with no conflict: %q", out)
+	}
+}

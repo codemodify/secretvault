@@ -370,3 +370,16 @@ func (c *Client) SetLoginUnlock(ctx context.Context, vault string, on bool) (out
 	err = c.conn.Call(ctx, svrpc.MVaultLogin, svrpc.VaultLoginParams{Vault: vault, On: on}, &out)
 	return
 }
+
+// Restore makes an earlier revision of an item (or a deleted item) current
+// again; restoring one of its conflicting versions settles the conflict.
+func (c *Client) Restore(ctx context.Context, p svrpc.RestoreParams) (out svrpc.Entry, err error) {
+	err = c.conn.Call(ctx, svrpc.MItemRestore, p, &out)
+	return
+}
+
+// Deleted lists deleted items whose names start with prefix.
+func (c *Client) Deleted(ctx context.Context, vault, prefix string) (out []svrpc.DeletedItem, err error) {
+	err = c.conn.Call(ctx, svrpc.MItemDeleted, svrpc.ListParams{Vault: vault, Prefix: prefix}, &out)
+	return
+}
