@@ -413,6 +413,9 @@ pkesks:
 			if err != nil {
 				return err
 			}
+			if len(skesks) > maxPassphraseTries {
+				skesks = skesks[:maxPassphraseTries]
+			}
 			for _, s := range skesks {
 				alg, key, err := s.decrypt(pass, ed.cipher, m.lim)
 				if err != nil {

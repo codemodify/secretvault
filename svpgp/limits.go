@@ -60,11 +60,12 @@ func (l *Limits) withDefaults() Limits {
 
 // Fixed limits, not worth a knob.
 const (
-	maxESKPackets     = 256  // session key packets in front of one encrypted message
-	maxOnePass        = 64   // one-pass signatures (and prefix signatures) on one message
-	maxDetachedSigs   = 256  // signatures in one detached signature
-	maxSubpackets     = 1024 // subpackets in one signature area
-	maxPacketsPerKey  = 1 << 17
-	maxSelfSigChecks  = 1024 // self-signature candidates verified per key
-	maxRecipientTries = 64   // secret keys tried against an anonymous recipient
+	maxESKPackets      = 256  // session key packets in front of one encrypted message
+	maxOnePass         = 64   // one-pass signatures (and prefix signatures) on one message
+	maxDetachedSigs    = 256  // signatures in one detached signature
+	maxSubpackets      = 1024 // subpackets in one signature area
+	maxPacketsPerKey   = 1 << 17
+	maxSelfSigChecks   = 1024 // self-signature candidates verified per key
+	maxRecipientTries  = 64   // secret keys tried against an anonymous recipient
+	maxPassphraseTries = 8    // SKESK packets a passphrase is tried on, each costing an S2K run
 )

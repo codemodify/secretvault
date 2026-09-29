@@ -168,3 +168,28 @@ func TestAnonymousRecipientsAreFound(t *testing.T) {
 		}
 	}
 }
+
+func TestSeveralKeysReadFromOneInput(t *testing.T) {
+	a := generate(t, KeyOptions{Version: 4, UserIDs: []string{"A"}})
+	b := generate(t, KeyOptions{Version: 6, UserIDs: []string{"B"}})
+	aArm, _ := a.Armor(false)
+	bArm, _ := b.Armor(true)
+	var bin bytes.Buffer
+	a.Serialize(&bin, false)
+	b.Serialize(&bin, false)
+	for name, input := range map[string][]byte{
+		"two armor blocks, with text between": append(append(append([]byte("first:\n"), aArm...), "and second:\n"...), bArm...),
+		"binary, one after the other":         bin.Bytes(),
+	} {
+		keys, err := ReadKeys(bytes.NewReader(input))
+		if err != nil || len(keys) != 2 {
+			t.Fatalf("%s: %d keys, %v", name, len(keys), err)
+		}
+		if !bytes.Equal(keys[0].Fingerprint(), a.Fingerprint()) || !bytes.Equal(keys[1].Fingerprint(), b.Fingerprint()) {
+			t.Fatalf("%s: wrong keys", name)
+		}
+	}
+	if _, err := ReadKey(bytes.NewReader(bin.Bytes())); err == nil {
+		t.Fatal("ReadKey accepted two keys")
+	}
+}

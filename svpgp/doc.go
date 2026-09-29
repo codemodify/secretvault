@@ -143,9 +143,9 @@
 // messages (512 MiB of plaintext by default, read whole into memory),
 // decompression (by size, and by ratio once past 1 MiB, which stops
 // compression bombs), nesting of compressed data (8 levels), Argon2 S2K
-// cost (2 GiB and 16 passes by default), the number of session key
-// packets, signatures, subpackets and packets per key, and the
-// self-signatures verified per key. Malformed input is refused with
+// cost (2 GiB and 16 passes by default, and at most 8 passphrase attempts
+// per message), the number of session key packets, signatures, subpackets
+// and packets per key, and the self-signatures verified per key. Malformed input is refused with
 // ErrMalformed and never makes the package panic; fuzz targets check that.
 //
 // # Secret key material in memory

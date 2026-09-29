@@ -552,3 +552,74 @@ func TestGnuPGOldAlgorithmsAndPolicy(t *testing.T) {
 		t.Fatalf("RSA-2048: %v %q", err, m.Warnings)
 	}
 }
+
+// A key with a signing subkey, as people set up for tokens: gpg's
+// signatures by the subkey verify here (the subkey's back-signature is
+// checked), this package signs with the subkey too, and a copy exported
+// with the primary secret key left out (a GnuPG stub) still signs and
+// decrypts, while the primary key stays unusable.
+func TestGnuPGSigningSubkeysAndStubbedPrimaryKeys(t *testing.T) {
+	g := newGPG(t)
+	fpr := g.generate("Sub Signer <sub@example.org>", "ed25519", "cv25519", "never")
+	g.must(nil, "--passphrase", gpgPass, "--quick-add-key", fpr, "ed25519", "sign", "never")
+	pub, sec := g.keys(fpr)
+	var signingSub []byte
+	for _, s := range pub.Subkeys() {
+		if s.CanSign {
+			signingSub = s.Fingerprint
+		}
+	}
+	if signingSub == nil {
+		t.Fatalf("no signing subkey in %+v", pub.Subkeys())
+	}
+	msg := []byte("signed by a subkey")
+	data := g.file("msg.txt", msg)
+	sig, _ := g.must(nil, "--passphrase", gpgPass, "--detach-sign", "-o", "-", data)
+	results, err := Verify(bytes.NewReader(msg), bytes.NewReader(sig), []*Key{pub}, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	singleValid(t, results, pub, signingSub)
+
+	var out bytes.Buffer
+	if err := Sign(&out, bytes.NewReader(msg), sec, SignOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	_, status := g.must(nil, "--verify", g.file("sig", out.Bytes()), data)
+	goodSignature(t, status, signingSub)
+
+	stubbed, _ := g.must(nil, "--armor", "--passphrase", gpgPass, "--export-secret-subkeys", fpr)
+	laptop, err := ReadKey(bytes.NewReader(stubbed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := laptop.Unlock([]byte(gpgPass)); err != nil {
+		t.Fatalf("unlocking the subkeys: %v", err)
+	}
+	if err := laptop.primary.sec.usable(); !errors.Is(err, ErrKeyLocked) {
+		t.Fatalf("the stubbed primary key: %v", err)
+	}
+	out.Reset()
+	if err := Sign(&out, bytes.NewReader(msg), laptop, SignOptions{Mode: SignCleartext}); err != nil {
+		t.Fatal(err)
+	}
+	_, status = g.must(nil, "--verify", g.file("clear.asc", out.Bytes()))
+	goodSignature(t, status, signingSub)
+	ct, _ := g.must(nil, "--encrypt", "-r", fpr, "-o", "-", data)
+	m, err := Decrypt(bytes.NewReader(ct), []*Key{laptop}, nil)
+	if err != nil || !bytes.Equal(m.Body, msg) {
+		t.Fatalf("decrypting with the subkeys only: %v", err)
+	}
+	if err := laptop.Revoke(RevocationRetired, "", time.Time{}); !errors.Is(err, ErrKeyLocked) {
+		t.Fatalf("revoking without the primary secret: %v", err)
+	}
+	// The stub survives a round trip, still a stub.
+	again, err := laptop.Armor(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := ReadKey(bytes.NewReader(again))
+	if err != nil || back.primary.sec == nil || back.primary.sec.prot.s2k == nil || back.primary.sec.prot.s2k.typ != s2kGNU {
+		t.Fatalf("the stub did not round-trip: %v", err)
+	}
+}
