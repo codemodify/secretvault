@@ -1,0 +1,26 @@
+# Compiled binaries
+/secretvault
+/secretvaultd
+/secretvault-tui
+/secretvault-tui-prompt
+/secretvault-gui
+/secretvault-gui-prompt
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go workspace / build caches
+go.work
+go.work.sum
+/vendor/
+
+# Editor / OS / agent noise
+.idea/
+.vscode/
+.claude/
+*.swp
+.DS_Store
