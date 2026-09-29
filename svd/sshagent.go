@@ -278,4 +278,3 @@ func (a *sshAgent) Signers() ([]ssh.Signer, error) { return nil, errors.New("not
 func (a *sshAgent) Extension(string, []byte) ([]byte, error) {
 	return nil, agent.ErrExtensionUnsupported
 }
-

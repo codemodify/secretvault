@@ -207,6 +207,16 @@ func TestIdentitiesSealAndOpen(t *testing.T) {
 			if got, err := back.Open(sealed, []byte("slot-1")); err != nil || string(got) != "vault master key" {
 				t.Fatalf("parsed identity: %q, %v", got, err)
 			}
+
+			// Clearing what Bytes returned must leave the identity whole.
+			clear(raw)
+			if got, err := id.Open(sealed, []byte("slot-1")); err != nil || string(got) != "vault master key" {
+				t.Fatalf("after clearing its Bytes: %q, %v", got, err)
+			}
+			again, _ := id.Bytes()
+			if back2, err := s.ParseIdentity(again); err != nil || !bytes.Equal(back2.Recipient(), pub) {
+				t.Fatalf("Bytes after clearing a copy: %v", err)
+			}
 		})
 	}
 }

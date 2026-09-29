@@ -1,6 +1,7 @@
 package svcrypto
 
 import (
+	"bytes"
 	"crypto/ecdh"
 	"crypto/hpke"
 	"encoding/binary"
@@ -60,8 +61,17 @@ func (s Suite) ParseIdentity(b []byte) (*Identity, error) {
 // Suite is the suite the identity belongs to.
 func (id *Identity) Suite() Suite { return id.suite }
 
-// Bytes is the serialized private key. Handle it like a passphrase.
-func (id *Identity) Bytes() ([]byte, error) { return id.priv.Bytes() }
+// Bytes is the serialized private key. Handle it like a passphrase: the
+// result is a copy the caller may, and should, clear.
+func (id *Identity) Bytes() ([]byte, error) {
+	b, err := id.priv.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	// crypto/hpke's hybrid keys hand out their own seed, so clearing
+	// what they return would break the identity.
+	return bytes.Clone(b), nil
+}
 
 // Recipient is the serialized public key that SealTo addresses.
 func (id *Identity) Recipient() []byte { return id.priv.PublicKey().Bytes() }

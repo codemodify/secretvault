@@ -46,13 +46,15 @@ func (c *cli) copySecret(secret []byte, ttl time.Duration) (string, error) {
 	if err := cmd.Start(); err != nil {
 		return "", err
 	}
-	go cmd.Wait()
 	in.Write(secret)
 	in.Close()
 	status := make(chan string, 1)
 	go func() {
+		// Read before waiting: Wait closes the pipe, and would lose the
+		// error line of a helper that fails at once.
 		line, _ := bufio.NewReader(out).ReadString('\n')
 		status <- strings.TrimSpace(line)
+		cmd.Wait()
 	}()
 	select {
 	case s := <-status:
