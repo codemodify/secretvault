@@ -426,27 +426,31 @@ func (c *cli) cmdHistory(args []string) error {
 }
 
 // author says who wrote a revision, as far as its signature tells: the
-// device's label when the signature verifies, and otherwise what the
-// revision claims, marked as a claim.
+// device's label and the start of its key ID (labels are anyone's to
+// choose; keys are not) when the signature verifies, and otherwise what
+// the revision claims, marked as a claim.
 func author(e svrpc.Entry) string {
 	s := e.Signature
-	named := s.Label
-	if named == "" && len(s.Key) >= 8 {
-		named = "key " + s.Key[:8]
+	key := s.Key
+	if len(key) > 8 {
+		key = key[:8]
 	}
+	named := strings.TrimSpace(s.Label + " " + key)
 	switch s.Status {
 	case svrpc.SigVerified:
 		switch {
 		case s.Mine:
-			named += " (this device)"
+			return s.Label + " (this device)"
 		case s.Removed:
-			named += " (removed)"
+			return named + " (removed)"
+		case s.Vouched:
+			return named + " (vouched for)"
 		}
 		return named
 	case svrpc.SigBad:
 		return "BAD SIGNATURE, as " + named
 	case svrpc.SigUnverified:
-		return "unverified, " + named
+		return "unverified, key " + key
 	}
 	if len(e.Device) >= 8 {
 		return "unsigned, device " + e.Device[:8]

@@ -446,6 +446,9 @@ func (v *Vault) RegisterDevice(label string) (info DeviceInfo, registered bool, 
 	}
 	own := v.ownKey()
 	if e := v.idx.reg[own]; e != nil {
+		if e.device != v.opts.Device {
+			return e.info(own), false, fmt.Errorf("svcore: this device key is registered for device %s, not %s: what it signs as %s will not verify", e.device, v.opts.Device, v.opts.Device)
+		}
 		return e.info(own), false, nil
 	}
 	rec := deviceRecord{Alg: "ed25519", Key: v.opts.Signer.Public(), Device: v.opts.Device, Label: label}
