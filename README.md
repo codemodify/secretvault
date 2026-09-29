@@ -144,9 +144,10 @@ $ bin/secretvault get web/github.com         # first use in this terminal asks f
 hunter2
 $ bin/secretvault set api/token --generate 32   # generate, store, and print a secret
 $ bin/secretvault ls -l
-$ bin/secretvault history web/github.com
+$ bin/secretvault history web/github.com     # every revision, and which device signed it
 $ bin/secretvault restore web/github.com 3f2a9c   # an earlier revision back; or a deleted item (ls --deleted)
 $ bin/secretvault resolve web/github.com     # changed on two devices at once: see both, --keep one
+$ bin/secretvault device ls                  # the devices that write to the vault, and their keys
 $ bin/secretvault attach bank ~/scans/card.pdf   # files go into the vault too
 $ bin/secretvault file get bank card.pdf -o -    # and come back out
 $ bin/secretvault import auto ~/Downloads/passwords.kdbx --prefix imported/keepass   # or Bitwarden, 1Password, CSV...
@@ -412,6 +413,11 @@ where it stops. In short:
   - They cannot change anything without detection.
   - They *can* roll an item back to an older authentic version, which is not
     detected until signed checkpoints arrive (M6).
+- **Everyone who can open a vault holds its key**, so each device signs what
+  it writes with a key of its own, and `history` says which device signed
+  what. A signature names a device key, not a person: anyone who can open
+  the vault can register a device under any name, so compare key IDs
+  (`device ls`) before vouching for one.
 - **Removing a keyslot is not revocation** until key rotation arrives (M6).
 - **Keys in memory** are kept in locked, non-dumpable memory and wiped on
   lock. Go's runtime makes that best effort, not a guarantee.

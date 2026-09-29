@@ -343,7 +343,15 @@ correctly across all four verification levels.
 - **Devices.**
   - Each device has its own identity.
   - Enrolment by QR code from a device that is already trusted.
-  - Optional per-device signatures on revisions.
+  - **Per-device signatures on revisions (done).** Every device signs what
+    it writes with an Ed25519 key of its own (format tag 0x82), and
+    registers itself in each vault it opens; history and entries say
+    which device signed each revision, and whether the signature is
+    good. `secretvault vault signatures required` makes a vault count
+    only signed revisions; `secretvault device ls | label | rm | vouch`
+    manages the registry. Still to come: rollback checkpoints signed with
+    these keys, and a device re-sealing its own writes set aside by a
+    rotation.
 - **Own-server sync (done).** `secretvault-server` is a zero-knowledge hub
   (it stores ciphertext files only) that tells devices of changes at once.
   The daemon keeps each synced vault in step, locked or not, and reads

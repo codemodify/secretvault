@@ -35,7 +35,9 @@ blobs/<id[0:2]>/<blob id>.svb                  one file per attached file's cont
 
 Nothing about an item is stored in the clear: not its name, kind, attributes or
 any field. What the folder reveals is the number of items, the number and times
-of their revisions, and their sizes, rounded up (see [Padding](#padding)).
+of their revisions, their sizes, rounded up (see [Padding](#padding)), and
+which device wrote each revision, and with which key it signed it (their IDs,
+not their names; see [Signatures](#signatures)).
 
 Because files are only ever added, a vault folder can be synchronised by
 anything that copies files (Syncthing, Dropbox, iCloud Drive, git, rsync).
@@ -459,6 +461,7 @@ header   = TLV {
     0x05 parents (32 each)         sorted, unique revision IDs; absent for the first
     0x06 wrapped content key       Seal(wrap, content key, dek_aad)
     0x81 device id (16)            optional: which device wrote it
+    0x82 signature                 optional: that device's (see Signatures)
 }
 body     = Seal(content key, padded payload, aad = prefix)
 dek_aad  = "secretvault sv1 dek" || vault id || object id || epoch (4)
@@ -477,9 +480,12 @@ rev id   = SHA-256(revision)
   - uses a suite or epoch other than the vault's;
   - is sealed under an epoch that has ended, and is not in the next epoch
     record's `revisions`;
-  - fails its checksum or authentication.
+  - fails its checksum or authentication;
+  - is signed but names no device (0x81).
 
-  Refused revisions are skipped and reported, never trusted.
+  Refused revisions are skipped and reported, never trusted. A vault whose
+  policy requires signatures also ignores those whose signature is missing
+  or does not verify ([The policy record](#the-policy-record)).
 
 ### TLV
 
@@ -502,6 +508,69 @@ The total size is `Padmé(max(4 + len(payload), 256))`, after Nikitin et al.,
 "Reducing Metadata Leakage from Encrypted Files and Communication with PURBs"
 (2019). That leaks at most O(log log n) bits of the size, and costs at most
 about 12% overhead. Readers refuse non-zero padding.
+
+### Signatures
+
+Everyone who can open a vault holds the same master key, so the key alone
+cannot say who wrote a revision. A revision may therefore carry a signature
+by the device that wrote it, made with an Ed25519 key (RFC 8032) of that
+device's own, in the optional header field 0x82:
+
+```
+0x82 signature  = alg (1) || key id (16) || signature
+alg             = 0x01: Ed25519; the signature is 64 bytes
+key id          = SHA-256("secretvault sv1 device key" || alg (1) || public key)[0:16]
+
+signed          = "secretvault sv1 revision signature" || TLV {
+                      0x01 alg (1)
+                      0x02 key id (16)
+                      0x03 SHA-256(unsigned prefix)
+                      0x04 commit (32)
+                  }
+unsigned prefix = "SVR1" || suite (1) || 0x00 || header_len (2) || unsigned header
+unsigned header = the header, with its 0x82 field left out
+commit          = HMAC-SHA-256(Derive(content key, vault id, "sv1 revision commit", 32), payload)
+signature       = Ed25519(device key, signed)
+```
+
+- **In the header, so the rules above still hold.** The prefix, signature
+  included, is the body's associated data, and the file, signature
+  included, is what the revision ID hashes. Someone without the vault key
+  cannot strip, change or move a signature: the revision would fail to
+  open and its ID would change. Tag 0x82 is optional, so a reader from
+  before signatures skips it and opens a signed revision as any other.
+- **What it covers.** The suite, every header field but itself (vault,
+  object, epoch, time, parents, the wrapped content key, the device, and
+  any field added later), and the payload. It cannot cover the body, which
+  is sealed with the signature already in its associated data. Instead the
+  wrapped content key, which it covers, pins the content key, and the
+  commitment pins the payload under that key.
+- **Why the commitment is keyed.** Checking a signature takes the content
+  key, so only someone who can open the vault can check one. Someone who
+  knows a device's public key but cannot open the vault (a person cut off
+  by a rotation) cannot test guesses at a revision's contents against its
+  signature, as a plain hash of the payload would let them.
+- **The device is named.** A signed revision must name its device (0x81),
+  which the signature covers, and it must be the device the key is
+  registered for ([Device records](#device-records)).
+- **Checking.** A reader opens the revision, computes `signed`, and looks
+  the key id up in the vault's registry. A revision is then:
+  - *unsigned*: it has no 0x82 field. Its 0x81, if any, is a claim;
+  - *unverified*: signed by a key the registry does not hold (not synced
+    here yet, or never registered), or with an alg it does not know;
+  - *bad*: the registered key does not verify it, or it names a device
+    other than the key's. Someone who can open the vault changed it, or
+    made it posing as that device;
+  - *verified*: a good signature by a registered device.
+- **What it cannot stop.** Anyone who can open the vault can seal a
+  verified revision's payload again under its content key, with a new
+  nonce. The copy has another ID and still verifies, but says only what the
+  device said: the same contents, parents and time. At most it shows as a
+  conflict whose contents that device wrote.
+
+Writers: the reference implementation signs every revision a daemon writes
+(`svcore.Options.Signer`). Each device has one key for every vault, kept in
+its data directory as `device-signing.key` (PKCS #8, PEM, mode 0600).
 
 ### Payload
 
@@ -536,8 +605,10 @@ The payload is JSON:
     material.
 - **Kinds** are listed in [`svcore/item.go`](../svcore/item.go). Unknown kinds
   are kept as they are.
-- **Unknown record types** are written by newer versions (access grants,
-  contacts). A reader keeps and authenticates them but otherwise ignores them.
+- **Records** are payloads of any other type: remembered access grants,
+  contacts, browser associations, and the two below that the format itself
+  reads, `device` and `policy`. A reader keeps and authenticates types it
+  does not know, but otherwise ignores them.
 - **Known draft limitation:** unknown JSON fields inside an item are dropped
   when an older version rewrites it. This must be fixed before the format
   freeze.
@@ -545,7 +616,10 @@ The payload is JSON:
 ### History and conflicts
 
 - **The current state is the head.** An object's current state is its head:
-  the revision that no other revision of it names as a parent.
+  the revision that no other revision of it names as a parent. Only
+  revisions that count take part: in a vault that requires signatures, one
+  that is ignored is not a head, and does not supersede the parents it
+  names.
 - **Concurrent writes.** Two writers that did not see each other's change leave
   two heads, which is a conflict.
 - **Everyone agrees on the winner.** It is the head with the greatest time, and
@@ -563,6 +637,72 @@ The payload is JSON:
   every parent and every revision that writer wrote before (a hybrid logical
   clock). A skewed clock can therefore make an old edit win a conflict, but
   cannot make it older than what it replaced.
+
+### Device records
+
+The vault's registry of devices is records of type `device`:
+
+```json
+{"type": "device", "record": {
+    "alg": "ed25519",
+    "key": "<32 bytes: the public key>",
+    "device": "<device id: what its revisions name in 0x81>",
+    "label": "laptop",
+    "removed": false,
+    "vouches": ["<key id>", "…"]
+}}
+```
+
+- **One object per key.** A key's records live in the object whose ID is
+  its key id. A record there for any other key is ignored.
+- **A key registers itself.** A key is registered when its object holds a
+  record for it, signed by that key, from the device the record names (the
+  revision's 0x81). That revision proves possession of the key: nobody can
+  register a key they do not hold, or bind someone else's key to a device
+  of theirs, and so claim that key's revisions. A key whose own records name
+  two devices is registered for neither.
+- **A registration is never undone.** Every such revision counts, whatever
+  came after it, so what a key signed stays checkable whatever its record
+  says now.
+- **Label and removal** are read from the newest of the object's records
+  for the key's device (its head among them), whoever wrote it: any device
+  can rename or remove another, and its signature says which did. A badly
+  signed record never counts. A removed device's signatures still verify;
+  readers name it as removed. Removal cuts nobody off: that takes a
+  rotation.
+- **Vouches** are read only from the newest record the key itself signed.
+  Each reader decides from its own device: a device is *vouched for* when
+  the reader's device vouches for it, or a device vouched for does, and so
+  on. A removed device vouches for nobody and is vouched for by nobody.
+  There is no vault-wide root: nothing in a vault tells the device that
+  made it from any other that can open it, while no one but a device can
+  sign its own vouches.
+
+### The policy record
+
+A vault's policy is a record of type `policy`, in the one object whose ID
+is `SHA-256("secretvault sv1 policy" || vault id)[0:16]`, so that every
+device writes the same object:
+
+```json
+{"type": "policy", "record": {"require_signatures": true}}
+```
+
+- **Only a registered device sets it.** Only verified revisions of the
+  object count, the newest (its head among them) winning. Without one,
+  every revision counts.
+- **`require_signatures`** makes a vault count only verified revisions.
+  The rest (unsigned, unverified, bad) are reported and ignored: they are
+  never heads, and do not supersede the parents they name, so they can
+  neither hide nor delete a revision that counts. A device's registration
+  is verified by its own signature, so a new device can always join.
+- **Turning it on keeps what is there.** The reference implementation
+  first writes again, signed, every object whose head is unsigned, and so
+  adopts that state as the enabling device's; a head that is badly signed,
+  or unverified, is not adopted, and the object falls back to its newest
+  revision that counts.
+- **Readers from before signatures** do not know the policy: they count,
+  and write, unsigned revisions, which readers that know it ignore.
 
 ### Attachments: blobs/…/<blob id>.svb
 
@@ -620,16 +760,23 @@ suite, as hex. They are sealed with `crypto/rand` made deterministic
 Every version must still open them. Sealing must reproduce them byte for byte,
 so an accidental change to the layout fails the build.
 
+A signed golden revision for each suite has the same header and payload,
+signed with the Ed25519 key whose seed is 32 × `0x33` (public key
+`17cb79fb…e18080ce`, key id `bb01ccccfed954348b5f424b1a95677e`). Every
+version must still verify them; a reader that knows no tag above 0x81, as
+readers before signatures, must still open them. The sv1-nist one is
+checked against this document with Python's `cryptography`.
+
 The passphrase KDFs are pinned against independent implementations: the
 reference `argon2` CLI and Python's `hashlib.pbkdf2_hmac`.
 
 ## Reserved and future
 
-- **Revision signatures.** An optional signature by the writing device's key,
-  for vaults shared between people. Tag range 0x82+.
-- **Rollback protection.** Signed checkpoints, so that removing the newest
-  revisions from a synced folder is detected. Today it is not; see
-  security.md.
+- **Rollback protection.** Checkpoints signed with the device keys above,
+  so that removing the newest revisions from a synced folder is detected.
+  Today it is not; see security.md. Header tags 0x83 and up are free.
+- **More signature algorithms.** `alg` values other than 0x01 are reserved
+  (a post-quantum signature, when one is in the standard library).
 - **Narrower keyslot grants.** For example, search while locked.
 - **Pruning.** Rules for pruning old revisions.
 - **Encrypted containers.** Not this format: they are LUKS2 images, as

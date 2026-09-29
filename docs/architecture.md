@@ -378,6 +378,38 @@ Sharing a vault with a person adds a `recipient` keyslot for their identity.
 Removing them properly takes a new epoch (`secretvault unshare`, which
 rotates the vault master key).
 
+**Devices and signatures.** Everyone who can open a vault holds its master
+key, so it is device keys that say who wrote what
+([format.md](format.md#signatures), [security.md](security.md#other-holders-of-the-same-vault)):
+
+- **One key per device.** secretvaultd keeps an Ed25519 key in its data
+  directory (`device-signing.key`, beside `device.json` and the sync key,
+  which it is not), and signs every revision it writes with it
+  (`svcore.Options.Signer`).
+- **A registry per vault.** Each vault has records of the kind `device`,
+  one per key, which only that key's own signature registers. The daemon
+  registers its device, under the machine's name, in each vault it creates
+  or unlocks that does not know it yet; a device removed from elsewhere is
+  not registered again by itself.
+- **Every entry says who signed it.** svcore checks each revision's
+  signature against the registry as it reads it (`Entry.Signature`:
+  verified, unsigned, unverified or bad, and the device's label), again
+  whenever the registry changes; `item.get`, `item.list` and
+  `item.history` carry it, and `secretvault history` shows it.
+- **A policy per vault.** `secretvault vault signatures required` makes a
+  vault count only revisions a registered device signed (a `policy`
+  record, which only such a revision changes). svcore then leaves the rest
+  out of the heads, and refuses to write what would not count.
+- **Managing devices.** `secretvault device ls | label | rm | vouch`.
+  Vouching records, signed by this device, that its person checked another
+  device's key ID; each device reads vouches from itself, so only its own
+  word, and that of devices it vouched for, counts.
+
+Rotation writes every item again, signed by the rotating device; device
+records and the policy are left as they are, readable down the epoch
+chain, since signing them would adopt what others wrote. Sync moves their
+files like any other: what arrives is checked when it is read in.
+
 ## Emergency access
 
 Like Bitwarden's and 1Password's: a person you trust (a contact with a

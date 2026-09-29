@@ -37,6 +37,8 @@ folder lives in, and the operator of a secretvault sync server.
 - Change anything without detection. Every revision is authenticated and
   named by its SHA-256, and parents are named by hash.
 - Move a wrapped key or a header to another object.
+- Strip, change or move a revision's signature: it is inside the
+  authenticated header, and part of what the revision's name hashes.
 - Relabel, re-scope or move a keyslot.
 - Get anything by planting keyslots. A keyslot can only add a way in. A
   planted slot that opens to some other key is rejected by the descriptor's
@@ -50,7 +52,9 @@ folder lives in, and the operator of a secretvault sync server.
 - See the number of items, the number and times of their revisions, and their
   sizes, rounded up by Padmé padding.
 - See which device wrote each revision. The optional device ID in the
-  revision header is in the clear.
+  revision header is in the clear, and so is the ID of the key that signed
+  it; the key itself, and the device's label, are in the encrypted
+  registry.
 - Delete revisions, or hold back new ones. This rolls an item back to an
   earlier authentic version, or hides a change. **This is not detected
   yet.** Signed checkpoints, planned for M6, will detect it.
@@ -213,14 +217,76 @@ as you can talk to it, gpg or not.
   key, and could seal new revisions with it. They do not count: each
   rotation's record lists the revisions that existed when it was made, and
   a revision sealed under an older key counts only if it is on that list.
+  Their device key does not help them: signed or not, such a revision is
+  refused. What they signed before stays theirs in the history.
 - **A leaked passphrase** calls for a rotation with a new passphrase.
 
 ### Other holders of the same vault
 
-Everyone who can unlock a vault holds the same master key. In version 1
-they can therefore write revisions that look like any device's. Optional
-per-device signatures on revisions are planned for vaults shared between
-people (M6).
+Everyone who can unlock a vault holds the same master key, so the key
+cannot say which of them wrote what: anyone who holds it can write a
+revision, and put any device's ID in its header. What answers "who
+changed this?" is the device signature ([format.md](format.md#signatures)).
+
+- **Each device signs what it writes,** with an Ed25519 key of its own
+  (`device-signing.key` in the data directory, 0600; one key for every
+  vault). The daemon registers the device in each vault it opens, under
+  the machine's name, and signs every revision it writes there.
+  `secretvault history` says, for each revision, which device signed it.
+- **The key is not the sync key.** The sync key signs requests to sync
+  servers, which list it and see it on every request: a revision signed
+  with it would tell the server which enrolled device wrote it. And one
+  key signing for two protocols could be made to sign, for one, what was
+  meant for the other.
+- **What a verified signature proves:** the revision, header and contents,
+  was made with the key whose ID it names, and that key registered itself
+  in this vault, for the device ID the revision names. Nobody else who can
+  open the vault can make one: not by editing a revision, not by copying a
+  signature onto another, not by registering someone else's key as a
+  device of theirs. It is the key that is proven: a device ID, like a
+  label, is only what a key registered under, and two keys can claim the
+  same one (a device whose key was replaced, or an impostor). `history`
+  shows the start of each key ID beside the label.
+- **What it does not prove: who the device is.** The registry is records
+  in the vault, which anyone who can open it can write. It proves only that
+  someone who could open the vault registered a device that holds that key.
+  Anyone who can open the vault can register a device of their own, under
+  any label (`device ls` shows them all); rename or remove another device
+  (their signature then says who did); or seal a copy of a signed
+  revision under a new ID, which says only what the device said.
+- **Vouching** is how a device is told apart from an impostor with the
+  same label. Compare the device's key ID, as `secretvault device ls` shows
+  it there ("this device") and here, and `secretvault device vouch KEY`.
+  Vouches count only as the vouching device signed them, and each device
+  reads them from itself: a device is vouched for when this device vouched
+  for it, or a device it vouched for did, and so on. Nobody else can make a
+  device look vouched for here; the laptop vouching for the phone says
+  nothing about the laptop, on the phone. There is no chain from the
+  vault's creator: nothing in a vault tells the device that made it from
+  any other that can open it, so such a root would be whoever claimed it.
+- **Unsigned revisions** are those of versions before signatures, and of
+  programs without a device key. By default they count, shown as unsigned;
+  their device ID is a claim. So does a badly signed one, shown as bad
+  (whoever made it could as well have left it unsigned), and `get` warns
+  about it.
+- **Requiring signatures** (`secretvault vault signatures required`) makes
+  the vault count only revisions with a verified signature; the others
+  are reported by `verify`, shown in `history` as ignored, and cannot hide
+  or delete a revision that counts. The policy is in the vault, the same
+  for every device, and only a registered device's signed revision changes
+  it. It stops anonymous writes and writes posing as another device; it
+  does not stop someone who can open the vault from registering a device
+  of their own and writing as it. Versions before signatures do not know
+  it: what they write is ignored by those that do.
+- **Rotating the key, and turning the policy on, re-sign the current
+  state** as the device doing it: the newest revision of every item then
+  names that device, and who wrote the contents before is in the history.
+- **Removing a device is not revocation.** Its signatures still verify,
+  marked as a removed device's, and it can still open the vault and write,
+  signed, until the key is rotated without it.
+- **A device key held by someone else** (a stolen laptop) lets them sign
+  as that device, for as long as they can also open the vault. Rotate the
+  vault key without it; removing the device only marks what it signs.
 
 ### A future quantum computer
 
@@ -231,6 +297,9 @@ people (M6).
   either half holds.
 - OpenPGP, S/MIME and SSH keys in the trust store are as quantum-safe as those
   ecosystems are, which today is mostly not.
+- Device signatures are Ed25519, which is not. Forging one would still take
+  the vault key, and would only misattribute a revision; the format leaves
+  room for another algorithm (format.md, "Reserved and future").
 
 ### The network
 
@@ -633,6 +702,9 @@ Wiping keys in Go is therefore hygiene, not a guarantee. What it does:
 - **Where it stops.**
   - Item names, labels and attributes are Go strings, which cannot be zeroed.
     Secrets belong in fields, not names.
+  - The device signing key, like the sync key, is ordinary Go memory for as
+    long as the daemon runs: `crypto/ed25519` keeps its own expanded copy
+    of any key it signs with, which cannot be locked or wiped.
   - The `sv1-nist` PBKDF2 call takes the passphrase as a string.
   - An age identity used by `age-plugin-secretvault` or `secretvault age
     decrypt` becomes, in that process, a `crypto/ecdh` or `crypto/hpke` key,
@@ -644,8 +716,8 @@ Wiping keys in Go is therefore hygiene, not a guarantee. What it does:
 
 - **Primitives.** Only well-studied ones, from Go's standard library and
   `golang.org/x/crypto`: Argon2id, PBKDF2-HMAC-SHA256, HKDF-SHA256,
-  XChaCha20-Poly1305, ChaCha20-Poly1305, AES-256-GCM, SHA-256, and HPKE with
-  ML-KEM-768 hybrids.
+  XChaCha20-Poly1305, ChaCha20-Poly1305, AES-256-GCM, SHA-256, HPKE with
+  ML-KEM-768 hybrids, and Ed25519 for device signatures.
 - **No hand-written cipher code.** secretvault implements no cipher or hash
   itself. Its own code is the constructions that combine them (documented in
   format.md) and Shamir sharing over GF(2⁸), written without tables or
@@ -668,7 +740,9 @@ Wiping keys in Go is therefore hygiene, not a guarantee. What it does:
   XChaCha20. For AES-GCM, a per-message key is derived from a 256-bit salt.
   Streams use counters under a per-stream key.
 - **Test vectors.** Pinned against independent implementations (the reference
-  Argon2 CLI and Python's hashlib), and golden revisions for each suite. The
+  Argon2 CLI and Python's hashlib), and golden revisions for each suite,
+  signed and not; the signed sv1-nist one is checked against format.md with
+  Python's `cryptography`. The
   age implementation passes all of the C2SP CCTV age vectors, and reads what
   the reference age implementation writes for the types they leave out.
 
@@ -843,8 +917,12 @@ guess, like `svpgp`:
 | --- | --- |
 | Rollback and withholding of revisions is not detected | signed checkpoints (M6) |
 | A planted epoch record is ignored, but blocks rotating until it is removed; on a sync server that keeps it, rotating stays blocked | epochs that name the one they follow, so a rotation can step over it |
-| Changes a device made under the old key before it heard of a rotation are refused with the rest (reported by `verify`, still in the folder) | re-sealing a device's own set-aside changes, once revisions are signed per device |
-| Revisions are not signed per device | device signatures (M6) |
+| Changes a device made under the old key before it heard of a rotation are refused with the rest (reported by `verify`, still in the folder) | re-sealing a device's own set-aside changes, which it can now tell by its signature |
+| Anyone who can open a vault can register a device of their own under any label, and rename or remove others; a verified signature names a key, not a person | comparing key IDs and vouching (`device vouch`); nothing more within the vault |
+| Signatures are not required by default, and versions before them cannot sign | `vault signatures required`, once every device signs |
+| Rotating the key, or requiring signatures, re-signs the current state as the device doing it; who wrote it before is only in the history | marking such rewrites as copies of what they replace |
+| A signed revision can be sealed again under its content key: a copy with another ID, saying what the device said | none planned |
+| Epoch records and keyslots are not signed by a device | device signatures on them, with the rollback checkpoints |
 | On Windows and macOS, screen lock and sleep do not lock vaults yet (idle time and explicit locks do) | session notifications on those platforms |
 | Windows and macOS identify programs by path and hash, not by publisher signature | Authenticode and code-signing checks |
 | Unknown JSON fields in an item are dropped when an older version rewrites it | fixed before the format freeze |
