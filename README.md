@@ -16,10 +16,10 @@ already sync, or nothing.
 > **Status: pre-release.** On Linux, the vault engine, the daemon with its
 > consent prompts, the CLI and the terminal manager work, and so do the
 > desktop keyring (Secret Service), the SSH agent, sync, import, OpenPGP,
-> age, browser autofill, the trust store, and host mode for a server's
-> systemd units; Windows and macOS builds compile but are not yet
-> exercised. Unlocking with a FIDO2 security key works on Linux, tested
-> against a software key but not yet against real ones. What remains is in
+> age, browser autofill, the trust store, encrypted containers, and host
+> mode for a server's systemd units; Windows and macOS builds compile but
+> are not yet exercised. Unlocking with a FIDO2 security key works on
+> Linux, tested against a software key but not yet against real ones. What remains is in
 > [docs/roadmap.md](docs/roadmap.md). The format may still change, and
 > nothing has been audited: do not keep anything here that exists nowhere
 > else yet.
@@ -70,6 +70,8 @@ decision. If there is none, it asks you.
 | [`svage`](svage) | age files and the age plugin protocol, both ends |
 | [`svbrowser`](svbrowser) | The KeePassXC-Browser protocol, for filling logins in browsers |
 | [`svimport`](svimport) | Import from other password managers, export to KeePass and CXF |
+| [`svluks`](svluks) | LUKS2, our own: headers, keyslots, and the encrypted sectors in userspace |
+| [`svcontainer`](svcontainer), [`svudisks`](svudisks) | Encrypted containers, and mounting them through UDisks2 on Linux |
 | [`secretvault`](client.go) | The Go client library |
 
 A vault is a folder of files that are only ever added, never rewritten, so
@@ -174,6 +176,24 @@ $ bin/secretvault pgp sign --clear notes.txt  # the key signs inside the daemon
   replacement.
 - **Who you know is private**: a program is asked about reading your
   contacts as it is about reading an item.
+
+Encrypted containers are LUKS2 image files whose keys are vault items:
+
+```console
+$ bin/secretvault container create ~/work.img --size 2G --label Work   # prints the mount point
+/run/media/ada/Work
+$ bin/secretvault container close ~/work.img
+$ bin/secretvault container open ~/work.img     # asked about as any read of its item is
+$ bin/secretvault container ls
+$ bin/secretvault container passwd ~/work.img   # a passphrase keyslot: cryptsetup opens it alone
+$ bin/secretvault container header-backup ~/work.img ~/work.header
+```
+
+- **On Linux** UDisks2 attaches the image and the kernel's dm-crypt decrypts
+  it, as the desktop mounts a USB drive: no root, from your desktop
+  session. Inside is ext4, or `--fs exfat|vfat|btrfs`.
+- **On Windows and macOS** the images are read and written in userspace;
+  mounting them there comes later.
 
 For git and docker, link the CLI under their helper names:
 `ln -s secretvault bin/git-credential-secretvault`, then
@@ -339,7 +359,7 @@ where it stops. In short:
 Planned: [uitoolkit](https://github.com/codemodify/uitoolkit) in the GUI
 binaries only.
 
-Everything else, including D-Bus, OpenPGP, CTAP2 and PC/SC, is written here.
+Everything else, including D-Bus, LUKS2, OpenPGP, CTAP2 and PC/SC, is written here.
 The policy is in [docs/architecture.md](docs/architecture.md#code-layout-and-dependencies).
 
 ## Testing
@@ -372,6 +392,10 @@ The tests include:
   protocols 1 and 2, retries and blocking), its PIN protocols checked
   against Python's `cryptography`, and the CBOR and HID parsers fuzzed. No
   test opens a real device.
+- LUKS2 against cryptsetup both ways (images each writes open in the
+  other, with the same volume key), the encrypted sectors against Python's
+  cryptography, hostile headers, and fuzzing; mounting against a pretend
+  UDisks2 on a private bus, so no test ever mounts anything.
 
 ## Licence
 

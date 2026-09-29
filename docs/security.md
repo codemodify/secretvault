@@ -20,6 +20,7 @@ The byte-level details are in [format.md](format.md).
 | A security key's secret, for fido2 keyslots | inside the key; never leaves it |
 | Who accessed what (grants, audit log) | the vault, encrypted, from M1 |
 | Who you know: contacts, their keys, how you verified them, what mail they sent | vault records, encrypted, from M5 |
+| Files in encrypted containers | LUKS2 image files, AES-256-XTS; their keys in vault items, from M7 |
 
 ## Adversaries, and what each can do
 
@@ -419,6 +420,47 @@ What it rests on:
   none. S/MIME signatures are not verified here yet: `trust.check` takes
   the signer's certificate, and the caller checks the signature.
 
+## Encrypted containers
+
+A container is a LUKS2 image file ([`svluks`](../svluks)), mounted on Linux
+by UDisks2 and the kernel's dm-crypt.
+
+- **What it hides.** The files inside, their names and the filesystem's
+  structure: AES-256 in XTS mode, per sector, under a random 512-bit volume
+  key.
+- **What it does not.** Someone with the image sees its size, its UUID and
+  header (which KDFs its keyslots use), and, comparing two copies, which
+  sectors changed. XTS does not authenticate: they can garble a 16-byte
+  block without it being detected, or put back an older copy of the image.
+  LUKS2 has no hidden volumes; a container is plainly a container.
+- **Its keys.** Keyslot 0 opens with a random 256-bit key kept in a vault
+  item (so the image is as safe as the vault), stretched only by PBKDF2's
+  minimum, since stretching a random key adds nothing. An optional
+  passphrase keyslot uses Argon2id (4 passes over 256 MiB); it is then as
+  strong as that passphrase, and anyone with the image may guess at it
+  offline. A header backup opens with every key the image opened with when
+  it was taken, even after a keyslot is removed.
+- **Consent.** Opening a container reads its key's item and creating one
+  writes an item, each asked about as any other access. Closing needs no
+  consent: a program running as you can already unmount your disks through
+  UDisks2.
+- **Where the key goes.** From the daemon over the system bus to udisksd
+  (root), which hands it to cryptsetup and the kernel; never to a client.
+  The kernel holds the volume key while the container is open, as for any
+  dm-crypt disk, and whoever can read your files can read the mounted
+  container's.
+- **Hostile images.** Before the kernel sees a header, the daemon parses it
+  itself: sizes and checksums, the JSON, keyslot and data areas that stay in
+  bounds and apart, KDF costs within what cryptsetup writes, and a data
+  cipher that is AES-XTS (a planted `cipher_null` header would otherwise
+  have the kernel store files in the clear). The parser is fuzzed.
+- **Locking leaves containers open.** A vault that locks (on idle, screen
+  lock, sleep or `lock --all`) leaves its containers mounted, as VeraCrypt
+  does: pulling a disk from under programs writing to it loses data. Set
+  `"close_containers_on_lock": true` in the daemon's `config.json` to have
+  a vault close its containers when it locks; a container still in use
+  stays open, and the daemon's log says so.
+
 ## Known gaps
 
 | Gap | Planned fix |
@@ -445,6 +487,9 @@ What it rests on:
 | Host mode's TPM binding goes through `systemd-creds`, and binds to no PCRs unless asked | TPM code of our own (`svtpm`, M4), with a measured-boot policy |
 | A unit refused a credential starts with an empty one | nothing within `LoadCredential=`; services should check |
 | The host identity cannot be wiped from the daemon's memory (`crypto/hpke`) | an identity type of our own in locked memory |
+| Container sectors are not authenticated (XTS garbles, it does not detect) | none planned: LUKS2's dm-integrity mode needs root to set up |
+| Containers cannot be mounted on Windows and macOS yet | the mount layer (VHD or iSCSI, `hdiutil`) |
+| The AES key schedule of a container opened in userspace cannot be wiped | none in Go |
 
 ## Reporting a vulnerability
 

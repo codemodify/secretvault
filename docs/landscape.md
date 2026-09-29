@@ -16,7 +16,7 @@ secretvault deliberately differs. The decisions referred to are in
 | 1Password, Bitwarden, Proton Pass | cloud password managers | **competitors**: import from all three; own-server sync instead of their cloud |
 | pass / gopass | GPG-encrypted files in git | **competitor**: import; our synced-folder mode is the same idea, encrypted better |
 | systemd-creds | encrypted service credentials | **complemented**: we deliver credentials to units over systemd's socket interface |
-| VeraCrypt | encrypted volumes | **competitor**: our own container format, mounted natively |
+| VeraCrypt | encrypted volumes | **competitor**: LUKS2 containers, mounted natively |
 | HashiCorp Vault, OpenBao | infrastructure secrets servers | **competitors** for delivery; our own API, no compatibility layer |
 | AWS, GCP, Azure secret managers | cloud-hosted secret stores | **competitors**; self-hosted instead |
 | SOPS, age | encrypted files in repositories | **interoperate**: `age-plugin-secretvault` makes vault-held keys usable by both |
@@ -200,14 +200,17 @@ shape.
 
 - **One container file, mounted as a real disk** with the OS's own
   filesystem.
-- **Authenticated sectors.** Per-sector encryption that detects tampering,
-  where XTS only garbles it.
-- **No kernel driver of our own.** We serve a decrypted virtual image and let
-  each OS attach it with its own tools (loop or dm-crypt, VHD or iSCSI,
-  `hdiutil`).
-- **Keys in the vault, or not.** A container can be unlocked from a vault,
-  and still opens on its own with its passphrase.
-- **Hidden volumes later.** The header keeps room for them.
+- **LUKS2, not a format of our own.** The image is what cryptsetup writes,
+  so every LUKS2 tool opens it; our own code reads and writes it. Like
+  VeraCrypt it is XTS, which garbles tampered sectors rather than detecting
+  them.
+- **No kernel driver of our own.** On Linux, UDisks2 and dm-crypt mount it,
+  as they do USB drives, without root. Elsewhere we decrypt in userspace,
+  and the OS will attach that with its own tools (VHD or iSCSI, `hdiutil`).
+- **Keys in the vault, or not.** A container opens from a vault item, and
+  still on its own with a passphrase keyslot.
+- **No hidden volumes.** LUKS2 headers are in plain sight; this was
+  accepted.
 
 ## Infrastructure secrets
 

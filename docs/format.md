@@ -529,4 +529,5 @@ reference `argon2` CLI and Python's `hashlib.pbkdf2_hmac`.
   security.md.
 - **Narrower keyslot grants.** For example, search while locked.
 - **Pruning.** Rules for pruning old revisions.
-- **Encrypted containers.** A separate format, specified when M7 starts.
+- **Encrypted containers.** Not this format: they are LUKS2 images, as
+  cryptsetup specifies them (see the `svluks` package).

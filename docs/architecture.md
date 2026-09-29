@@ -555,23 +555,35 @@ rotates the vault master key).
 
 ### Encrypted containers
 
-- **The container file** carries its own header and keyslots, so it opens on
-  a machine that has never seen your vault. Its keys can also live in a vault
-  item, for one-click mounting. The header leaves room for a hidden volume
-  later.
-- **Data** is encrypted per sector with authentication. The sector format is
-  specified when M7 starts.
-- **Inside** is the OS's own filesystem (ext4, NTFS, APFS), for full native
-  behaviour.
-- **Mounting without kernel drivers of our own.** secretvaultd serves the
-  decrypted container as a virtual disk image, and the OS attaches that image
-  with its own tools:
-  - Linux: a loop device or dm-crypt;
-  - Windows: VHD attach, or iSCSI to a local target;
-  - macOS: `hdiutil`.
-
-  This needs admin rights once per machine. Each OS path gets a spike before
-  the format is fixed.
+- **A container is a LUKS2 image file**, the format of Linux's cryptsetup,
+  written and read by our own code ([`svluks`](../svluks)): a 16 MiB header
+  (two checksummed copies of the metadata, and the keyslots), then the data,
+  AES-256-XTS per 512- or 4096-byte sector. The header carries its own
+  keyslots, so the image opens on a machine that has never seen your vault,
+  with any LUKS2 tool. Hidden volumes are not possible in LUKS2.
+- **Its key is a vault item** of kind `container`
+  ([`svcontainer`](../svcontainer)): 256 random bits as 64 hex digits, the
+  passphrase of keyslot 0, with the image's path and LUKS UUID as
+  attributes. `--passphrase` (or `container passwd`) adds a keyslot that
+  opens with a passphrase, for opening it with cryptsetup alone.
+- **Consent** is the vault's: creating a container writes an item, opening
+  one reads it, as `item.put` and `item.get` do. Closing needs none.
+- **Inside** is the OS's own filesystem: ext4 by default, or exFAT, FAT or
+  btrfs.
+- **Mounting with the OS's own tools, no kernel code of ours.**
+  - **Linux:** through UDisks2 on the system bus ([`svudisks`](../svudisks)):
+    `Manager.LoopSetup` with the image's descriptor, `Encrypted.Unlock` with
+    the key as `keyfile_contents`, `Block.Format` (taking ownership) for a
+    new one, and `Filesystem.Mount`; closing is the reverse. This is the
+    route file managers take for USB drives, so polkit lets the person at
+    an active session do it without an administrator's password. The daemon
+    checks the header itself (sound, AES-XTS, opened by the key) before the
+    kernel sees it.
+  - **Windows and macOS:** `svluks` reads and writes the decrypted sectors in
+    userspace; the mount layer that will serve them to the OS (VHD or
+    iSCSI, `hdiutil`) comes later.
+- **Locking** a vault leaves its containers mounted, as VeraCrypt does;
+  `close_containers_on_lock` in the config closes them with the vault.
 
 ### Secret delivery
 
@@ -727,7 +739,7 @@ projects, with `sv` as the prefix:
 | `svqr` | QR codes, for the terminal | M5 |
 | `svfido`, `svpcsc`, `svtpm` | hardware tokens and TPM (`svfido`: FIDO2 on Linux) | M4 |
 | `svsync`, `svserver` | sync, and the server API | M6, M8 |
-| `svcontainer`, `svmount` | containers, and per-OS mounting | M7 |
+| `svluks`, `svcontainer`, `svudisks` | LUKS2, containers, and mounting them through UDisks2 (Linux) | M7 |
 | `svage` | age files and the age plugin protocol | M8 |
 | `gui/` (a module of its own), `svtui` | the desktop programs, with `gui/secretui` for what they share when asking about secrets; the terminal manager | M1–M2 |
 
@@ -764,5 +776,5 @@ All on x86-64 and ARM64.
 | System keyring | replaced (Secret Service) | bridged; passkey provider later | bridged; AutoFill extension later |
 | Login unlock | PAM | DPAPI slot | login Keychain item |
 | Quick unlock | fingerprint via fprintd, YubiKey, TPM | Windows Hello, YubiKey, TPM | Touch ID, YubiKey, Secure Enclave |
-| Containers | loop or dm-crypt | VHD attach or iSCSI | `hdiutil` |
+| Containers | LUKS2 through UDisks2 and dm-crypt, no root | LUKS2 in userspace; mounting later (VHD or iSCSI) | LUKS2 in userspace; mounting later (`hdiutil`) |
 | GUI | uitoolkit (X11, Wayland) | uitoolkit (Win32) | uitoolkit (AppKit, cgo) |

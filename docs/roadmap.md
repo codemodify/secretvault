@@ -292,17 +292,31 @@ correctly across all four verification levels.
 
 ## M7: encrypted containers
 
-- **Container format.** Its own header and keyslots (so it opens without a
-  vault), with room for a hidden volume later. Authenticated per-sector
-  encryption.
-- **Spikes first,** one per OS: serve a decrypted virtual image and attach it
-  natively (Linux loop or dm-crypt, Windows VHD or iSCSI, macOS `hdiutil`).
+- **Container format.** LUKS2 image files (decided 2026-09-29), with their
+  own header and keyslots, so they open without a vault and with any LUKS2
+  tool. No hidden volumes: LUKS2 has none.
+- **Mounting per OS:** Linux through UDisks2 and dm-crypt; Windows (VHD or
+  iSCSI) and macOS (`hdiutil`) from sectors decrypted in userspace.
 - **Create, format (OS-native filesystem), open, mount, unmount, resize,**
   and change keys. Keys can live in a vault item.
 
 **Done when:** a container created on each OS mounts as a disk there, and
 survives a crash during writes without corruption beyond the sectors in
 flight.
+
+**Where it stands.**
+- **LUKS2 in our own code** (`svluks`): create, open, add, change and
+  remove keyslots (Argon2id, Argon2i, PBKDF2), back up and restore headers,
+  and read and write the decrypted sectors on every OS. Checked against
+  cryptsetup both ways and Python's `cryptography`, with hostile headers
+  refused and the parser fuzzed.
+- **Linux is done** (`svudisks`, `svcontainer`): `secretvault container
+  create|open|close|ls|header-backup|passwd`, through UDisks2 without root.
+  Keys are vault items of kind `container`, read and written with consent.
+  Tested against a pretend UDisks2 on a private bus; not yet run against
+  the real one.
+- **Still to do:** the Windows and macOS mount layer, resizing, and the
+  crash test in "done when".
 
 ## M8: secret delivery for services
 
@@ -370,7 +384,7 @@ change.
 | OpenPGP | Our own implementation |
 | Engineering secrets | Delivery only; no StrongDM-style access gateway |
 | Server API | Our own only; no Vault or cloud compatibility layers |
-| Containers | Native disk with the OS's own filesystem, best route per OS; admin once is fine; hidden volumes later |
+| Containers | LUKS2 image files with the OS's own filesystem inside (2026-09-29). Linux: dm-crypt through UDisks2, no root. Windows and macOS: decrypted in userspace, mount layer later. No hidden volumes (LUKS2 has none). Containers stay mounted when vaults lock, unless configured otherwise |
 | Key types in the trust store | OpenPGP, S/MIME/X.509, SSH, secretvault identities |
 | Verification levels | In person, organisation, public logs or WKD, trust on first use |
 | Own private keys | In the vault by default; token split offered when a YubiKey is present |
