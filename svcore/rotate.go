@@ -39,10 +39,28 @@ import (
 var ErrRotating = errors.New("svcore: another device rotated the vault key at the same time; unlock and try again")
 
 // Rotate replaces the master key. slots are the keyslots the new key gets
-// (passphrase, recovery, keyfile, recipient). With keepRecipients, every
-// recipient slot of the current epoch (a device, a person) is carried over
-// too, unless drop says otherwise: that is how a person is cut off.
+// (passphrase, recovery, keyfile, recipient, fido2). With keepRecipients,
+// every recipient slot of the current epoch (a device, a person) is
+// carried over too, unless drop says otherwise: that is how a person is
+// cut off. Nothing else is carried over: a keyfile or a security key opens
+// the new key only if it is among slots, since a security key has to be
+// touched to seal anything for it.
 func (v *Vault) Rotate(slots []NewSlot, keepRecipients bool, drop func(SlotInfo) bool) ([]SlotInfo, error) {
+	// Security keys are enrolled before anything is locked or written:
+	// each takes the person's touch.
+	slots = append([]NewSlot(nil), slots...)
+	for i := range slots {
+		if slots[i].Type != svformat.SlotFIDO2 {
+			continue
+		}
+		if v.Locked() {
+			return nil, ErrLocked
+		}
+		if err := v.enroll(&slots[i], false); err != nil {
+			return nil, err
+		}
+		defer slots[i].enrolled.wipe()
+	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if v.masters == nil {

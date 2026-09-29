@@ -131,7 +131,35 @@ const (
 	SlotRecovery   = "recovery"   // a printed 256-bit recovery key
 	SlotKeyfile    = "keyfile"    // the contents of a file
 	SlotRecipient  = "recipient"  // an HPKE identity: a device, a person, a server
+	SlotFIDO2      = "fido2"      // a FIDO2 security key's hmac-secret
 )
+
+// FIDO2RPID is the relying party new fido2 keyslots' credentials are made
+// for. With the colon it is no domain, so no web origin can ever claim it:
+// a browser will not let a website ask a key for these credentials.
+const FIDO2RPID = "secretvault:"
+
+// FIDO2 is what a fido2 keyslot records about its credential. The
+// credential is non-discoverable: the key stores nothing, and Credential
+// (the key's own sealed record of it) is what the key is shown to use it.
+type FIDO2 struct {
+	RPID       string `json:"rp_id"`
+	Credential []byte `json:"credential"` // the credential ID, at most 1023 bytes
+	Salt       []byte `json:"salt"`       // 32 random bytes
+	UV         bool   `json:"uv"`         // evaluated with user verification (the key's PIN)
+	AAGUID     []byte `json:"aaguid"`     // 16 bytes: the key's model, for people
+}
+
+// FIDO2Salt is the salt a key evaluates hmac-secret at for a fido2 slot's
+// salt: SHA-256("WebAuthn PRF" || 0x00 || salt), the transformation of
+// WebAuthn's PRF extension. Platform WebAuthn APIs apply it themselves,
+// so a slot can later be opened through them as well as over CTAP.
+func FIDO2Salt(salt []byte) []byte {
+	h := sha256.New()
+	h.Write([]byte("WebAuthn PRF\x00"))
+	h.Write(salt)
+	return h.Sum(nil)
+}
 
 // GrantContent is the grant every keyslot has today: it opens the vault
 // master key, and so everything. The field exists so that narrower grants
@@ -152,12 +180,15 @@ type Slot struct {
 	Grants    []string            `json:"grants"`
 	KDF       *svcrypto.KDFParams `json:"kdf,omitempty"`       // passphrase
 	Recipient []byte              `json:"recipient,omitempty"` // recipient: the public key
+	FIDO2     *FIDO2              `json:"fido2,omitempty"`     // fido2: the credential
 	Wrapped   []byte              `json:"wrapped"`             // the sealed master key
 }
 
 // AAD is what the wrapped master key is bound to: the vault, the slot, its
-// epoch, type, label and grants. A slot file cannot be relabelled, moved to
-// another vault or given wider grants without failing to open.
+// epoch, type, label and grants, and for a fido2 slot everything about its
+// credential. A slot file cannot be relabelled, moved to another vault or
+// given wider grants, nor a fido2 slot pointed at another credential,
+// salt or setting, without failing to open.
 func (s *Slot) AAD() []byte {
 	var t tlvBuilder
 	t.add(0x01, s.Vault[:])
@@ -166,6 +197,17 @@ func (s *Slot) AAD() []byte {
 	t.add(0x04, []byte(s.Type))
 	t.add(0x05, []byte(s.Label))
 	t.add(0x06, []byte(strings.Join(s.Grants, ",")))
+	if f := s.FIDO2; f != nil {
+		uv := byte(0)
+		if f.UV {
+			uv = 1
+		}
+		t.add(0x07, []byte(f.RPID))
+		t.add(0x08, f.Credential)
+		t.add(0x09, f.Salt)
+		t.add(0x0A, []byte{uv})
+		t.add(0x0B, f.AAGUID)
+	}
 	b, err := t.encode()
 	if err != nil {
 		panic(err) // a label beyond 64 KiB; refused by ParseSlot and NewSlot callers
@@ -194,9 +236,18 @@ func ParseSlot(b []byte) (*Slot, error) {
 		if len(s.Recipient) == 0 {
 			return nil, fmt.Errorf("%w: recipient slot without a public key", ErrSlot)
 		}
+	case SlotFIDO2:
+		f := s.FIDO2
+		if f == nil || f.RPID == "" || len(f.RPID) > 255 || len(f.Credential) == 0 || len(f.Credential) > 1023 ||
+			len(f.Salt) != 32 || len(f.AAGUID) != 16 {
+			return nil, fmt.Errorf("%w: fido2 slot without a complete credential", ErrSlot)
+		}
 	case SlotRecovery, SlotKeyfile:
 	default:
 		return nil, fmt.Errorf("%w: unknown type %q", ErrSlot, s.Type)
+	}
+	if s.FIDO2 != nil && s.Type != SlotFIDO2 {
+		return nil, fmt.Errorf("%w: a %s slot with a security key's credential", ErrSlot, s.Type)
 	}
 	return &s, nil
 }

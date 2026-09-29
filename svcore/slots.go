@@ -18,10 +18,14 @@ type NewSlot struct {
 	Type  string
 	Label string
 
-	Passphrase []byte              // SlotPassphrase
-	KDF        *svcrypto.KDFParams // SlotPassphrase: nil for the suite default
-	Keyfile    []byte              // SlotKeyfile: the file's contents
-	Recipient  []byte              // SlotRecipient: the public key
+	Passphrase   []byte              // SlotPassphrase
+	KDF          *svcrypto.KDFParams // SlotPassphrase: nil for the suite default
+	Keyfile      []byte              // SlotKeyfile: the file's contents
+	Recipient    []byte              // SlotRecipient: the public key
+	SecurityKeys SecurityKeys        // SlotFIDO2: reaches the key to enrol
+	FIDO2UV      *bool               // SlotFIDO2: use the key's PIN; nil: when it has one
+
+	enrolled *enrolled // SlotFIDO2: the credential, once made
 }
 
 // SlotInfo describes a keyslot, without anything secret in it, except
@@ -35,11 +39,23 @@ type SlotInfo struct {
 	Epoch       uint32
 	KDF         *svcrypto.KDFParams
 	Recipient   []byte
+	FIDO2       *svformat.FIDO2
 	RecoveryKey string
 }
 
-// AddSlot adds a keyslot that opens the vault's current master key.
+// AddSlot adds a keyslot that opens the vault's current master key. For
+// a fido2 slot the security key is asked first, which takes the person's
+// touch (twice) and perhaps its PIN; the vault stays usable meanwhile.
 func (v *Vault) AddSlot(ns NewSlot) (SlotInfo, error) {
+	if ns.Type == svformat.SlotFIDO2 {
+		if v.Locked() {
+			return SlotInfo{}, ErrLocked
+		}
+		if err := v.enroll(&ns, true); err != nil {
+			return SlotInfo{}, err
+		}
+		defer ns.enrolled.wipe()
+	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if v.masters == nil {
@@ -100,6 +116,14 @@ func (v *Vault) addSlot(ns NewSlot, epoch uint32, master []byte) (SlotInfo, erro
 		}
 		s.Recipient = append([]byte(nil), ns.Recipient...)
 		s.Wrapped, err = v.suite.SealTo(s.Recipient, master, s.AAD())
+	case svformat.SlotFIDO2:
+		if ns.enrolled == nil {
+			return SlotInfo{}, errors.New("svcore: the security key was not enrolled")
+		}
+		params := ns.enrolled.params
+		s.FIDO2 = &params
+		kek = v.fido2KEK(ns.enrolled.output)
+		s.Wrapped, err = v.suite.Seal(kek, master, s.AAD())
 	default:
 		return SlotInfo{}, fmt.Errorf("svcore: unknown keyslot type %q", ns.Type)
 	}
@@ -120,7 +144,7 @@ func (v *Vault) addSlot(ns NewSlot, epoch uint32, master []byte) (SlotInfo, erro
 }
 
 func slotInfo(s *svformat.Slot) SlotInfo {
-	return SlotInfo{ID: s.ID, Type: s.Type, Label: s.Label, Created: s.Created, Epoch: s.Epoch, KDF: s.KDF, Recipient: s.Recipient}
+	return SlotInfo{ID: s.ID, Type: s.Type, Label: s.Label, Created: s.Created, Epoch: s.Epoch, KDF: s.KDF, Recipient: s.Recipient, FIDO2: s.FIDO2}
 }
 
 // Slots lists the vault's keyslots. It works while locked.

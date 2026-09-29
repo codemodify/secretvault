@@ -134,6 +134,9 @@ func (v *Vault) openChain(k Key) (*opened, error) {
 	epochs, records := v.epochs, v.epochRecs
 	v.mu.Unlock()
 	newest := uint32(len(epochs))
+	if p, ok := k.(slotPicker); ok {
+		return v.openPicked(p, k.slotType(), slots, epochs, records)
+	}
 	removed := false
 	for e := newest; e >= 1; e-- {
 		for _, s := range slots {
@@ -167,6 +170,43 @@ func (v *Vault) openChain(k Key) (*opened, error) {
 		return nil, ErrKeyRemoved
 	}
 	return nil, ErrWrongKey
+}
+
+// openPicked is openChain for a key that answers for one of several
+// slots at once (a security key: asked once, whichever slot it holds).
+// It is offered every slot of its type, newest epoch first, and the slot
+// it opens goes through the same checks as any other.
+func (v *Vault) openPicked(p slotPicker, typ string, slots []*svformat.Slot, epochs []svformat.Epoch, records map[uint32]*svformat.EpochRecord) (*opened, error) {
+	newest := uint32(len(epochs))
+	var mine []*svformat.Slot
+	for e := newest; e >= 1; e-- {
+		for _, s := range slots {
+			if s.Type == typ && s.Epoch == e {
+				mine = append(mine, s)
+			}
+		}
+	}
+	if len(mine) == 0 {
+		return nil, fmt.Errorf("%w: the vault has no %s keyslot", ErrWrongKey, typ)
+	}
+	s, master, err := p.pick(v, mine)
+	if err != nil {
+		return nil, err
+	}
+	e := s.Epoch
+	if subtle.ConstantTimeCompare(svformat.CheckValue(v.desc.ID, master), epochs[e-1].Check) != 1 {
+		clear(master)
+		return nil, ErrWrongKey
+	}
+	masters, ok := v.verifyChain(epochs, records, master, e)
+	if !ok {
+		return nil, ErrWrongKey
+	}
+	if e < newest && svformat.CheckEpochAuth(masters[e], records[e+1]) {
+		clearAll(masters)
+		return nil, ErrKeyRemoved
+	}
+	return &opened{masters: masters, epoch: e, slot: s.ID}, nil
 }
 
 // verifyChain recovers the keys of epochs e-1 down to 1 from epoch e's,
