@@ -76,6 +76,7 @@ func (d *Daemon) consentPrompter(cl *client) Prompter {
 // is true when a person was just asked (and so saw why), own when cl
 // itself took the passphrase.
 func (d *Daemon) ensureUnlocked(ctx context.Context, cl *client, mv *managedVault, why string) (prompted, own bool, err error) {
+	d.fresh(mv)
 	if !mv.v.Locked() {
 		return false, false, nil
 	}

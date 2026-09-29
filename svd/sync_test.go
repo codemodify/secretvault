@@ -292,3 +292,41 @@ func TestJoiningNeedsAnEmptyFolderAndAWorkingInvite(t *testing.T) {
 		t.Fatal("an invite worked twice")
 	}
 }
+
+func TestAVaultInASyncedFolderSeesOtherDevicesWrites(t *testing.T) {
+	a, b := newHarness(t), newHarness(t)
+	folder := filepath.Join(t.TempDir(), "Sync", "personal")
+	ca := a.connect("/usr/bin/secretvault", &scripted{})
+	if _, err := ca.CreateVault(ctx(t), svrpc.VaultCreateParams{Name: "personal", Path: folder, Passphrase: pass}); err != nil {
+		t.Fatal(err)
+	}
+	// The other device sees the same folder, as Syncthing would give it.
+	cb := b.connect("/usr/bin/secretvault", &scripted{})
+	if _, err := cb.AddVault(ctx(t), "personal", folder); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cb.Unlock(ctx(t), "", &svrpc.Key{Type: "passphrase", Secret: pass}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ca.Put(ctx(t), "", login("web/forum", "from-a")); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := getSecret(cb, "", "web/forum"); err != nil || s != "from-a" {
+		t.Fatalf("the other device's write: %q, %v", s, err)
+	}
+
+	// A rotation there locks the vault here; the next request asks for
+	// the new passphrase, on the terminal that made it.
+	newPass := []byte("a new passphrase for everyone")
+	if _, err := ca.Rotate(ctx(t), svrpc.RotateParams{Passphrase: newPass}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1100 * time.Millisecond) // past the once-a-second refresh
+	term := &scripted{}
+	term.script("pass:" + string(newPass))
+	cb2 := b.connect("/usr/bin/secretvault", term)
+	if s, err := getSecret(cb2, "", "web/forum"); err != nil || s != "from-a" {
+		t.Fatalf("after the rotation: %q, %v", s, err)
+	}
+	term.done(t)
+}

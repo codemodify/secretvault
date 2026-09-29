@@ -1,6 +1,7 @@
 package svd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,9 +26,10 @@ type managedVault struct {
 	// together cause one prompt, not ten.
 	prompt sync.Mutex
 
-	mu   sync.Mutex
-	idle *time.Timer
-	sync *vaultSync // when the vault syncs with a server
+	mu        sync.Mutex
+	idle      *time.Timer
+	sync      *vaultSync // when the vault syncs with a server
+	refreshed time.Time  // when fresh last read the folder
 }
 
 func (d *Daemon) openVault(vc VaultConfig) (*managedVault, error) {
@@ -105,6 +107,31 @@ func (d *Daemon) unlockWith(mv *managedVault, k svcore.Key) error {
 	d.touch(mv)
 	d.notify(svrpc.EVaultUnlocked, svrpc.VaultEvent{Vault: mv.cfg.Name})
 	return nil
+}
+
+// fresh reads what other devices wrote into a vault kept in a synced
+// folder (Syncthing, Dropbox, ...), at most once a second, before a
+// request uses it. A vault synced with a server needs none of this: its
+// watcher reads each change in as it arrives (pulled).
+func (d *Daemon) fresh(mv *managedVault) {
+	if mv.syncer() != nil || mv.v.Locked() {
+		return
+	}
+	now := d.opts.Now()
+	mv.mu.Lock()
+	if now.Sub(mv.refreshed) < time.Second && now.After(mv.refreshed) {
+		mv.mu.Unlock()
+		return
+	}
+	mv.refreshed = now
+	mv.mu.Unlock()
+	switch err := mv.v.Refresh(); {
+	case err == nil, errors.Is(err, svcore.ErrLocked):
+	case errors.Is(err, svcore.ErrRotated):
+		d.locked(mv, "its key was rotated on another device")
+	default:
+		d.opts.Log(fmt.Sprintf("reading %s's folder: %v", mv.cfg.Name, err))
+	}
 }
 
 // touch restarts the idle timer after a use of the vault.

@@ -261,7 +261,9 @@ ever added. That gives three sync modes on one format:
 1. **No sync.** One device, with backups.
 2. **Synced folder.** Put the vault folder in Syncthing, Dropbox, iCloud Drive
    or git. Conflicting edits become two revisions that every device resolves
-   the same way.
+   the same way. The daemon reads the folder again (at most once a second)
+   before a request uses the vault, so what other devices wrote shows up,
+   and a rotation made on one of them locks the vault here.
 3. **Your own server.** `secretvault-server` ([`svserver`](../svserver))
    stores and relays the files, and only ever sees ciphertext. It keeps
    each vault's files with a change log that numbers every file created
