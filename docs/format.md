@@ -19,7 +19,9 @@ changed:
 ```
 vault.json                                     descriptor: what the vault is
 slots/<slot id>.json                           one file per keyslot
+epochs/<n>.json                                one file per rotation of the vault key
 objects/<id[0:2]>/<object id>/<rev id>.svr     one file per revision of an item
+blobs/<id[0:2]>/<blob id>.svb                  one file per attached file's contents
 ```
 
 - A random 256-bit **vault master key** (VMK) protects everything.
@@ -356,6 +358,10 @@ The payload is JSON:
     "fields": [
         {"name": "username", "type": "text",      "value": "<bytes>"},
         {"name": "password", "type": "concealed", "value": "<bytes>"}
+    ],
+    "files": [
+        {"name": "recovery.pdf", "type": "application/pdf", "size": 48213,
+         "sha256": "<32 bytes>", "blob": "<blob id>", "key": "<32 bytes>"}
     ]
 }}
 {"type": "item", "deleted": true}                  a tombstone
@@ -395,6 +401,36 @@ The payload is JSON:
   every parent and every revision that writer wrote before (a hybrid logical
   clock). A skewed clock can therefore make an old edit win a conflict, but
   cannot make it older than what it replaced.
+
+### Attachments: blobs/…/<blob id>.svb
+
+An attached file's contents are a blob of their own, written once:
+
+```
+blob   = prefix || stream
+prefix = "SVB1" || suite (1) || 0x00 || header_len (2, BE) || header
+header = TLV(0x01 vault id, 0x02 blob id)
+stream = STREAM(key, contents || zeros up to padme(size), aad = prefix)
+```
+
+- **The key is the item's.** Each blob has a random 256-bit key, held only
+  in the `files` entry of the item it is attached to, with the file's name,
+  media type, size and SHA-256. A blob opens for whoever can read that item,
+  and for no one else.
+- **Checked twice.** The stream authenticates every chunk and its end, and
+  binds the vault and blob IDs (the prefix is the associated data), so a
+  blob cannot be cut short, swapped for another, or moved; the contents
+  must then match the item's SHA-256.
+- **Rotation leaves blobs alone.** Items are written again under the new
+  key, carrying their files' keys with them; a file attached afterwards
+  gets a key that exists only under the new epoch.
+- **Sizes.** At most 64 MiB of contents; padded with Padmé like revisions.
+- **Garbage.** Replacing or removing a file leaves its blob, since earlier
+  revisions refer to it. Pruning (below) will remove blobs no revision
+  refers to.
+- **Writes.** `item.put` never changes an item's `files`: only attaching
+  and removing a file do, so a program that knows nothing of files cannot
+  drop them.
 
 ## Text forms
 

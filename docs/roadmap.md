@@ -71,7 +71,12 @@ The order below is the planned order, and they can overlap.
 - **The managers.** `secretvault-gui` (uitoolkit, with a tray icon) and
   `secretvault-tui` (tview/tcell): vaults, search, items, generator, history,
   conflicts, grants and the audit log.
-- **Built-in TOTP/HOTP authenticator.** Attachments are stream-encrypted.
+- **Built-in TOTP/HOTP authenticator.**
+- **Attachments (done).** Files attached to items, each a blob of its own
+  sealed under a key the item holds; `secretvault attach`, `file ls|get|rm`;
+  they sync, and KeePass attachments import. Files over one message
+  (about 12 MiB) through the protocol, and exporting attachments, come
+  later.
 - **Clipboard.** Copies clear after a timeout and carry "concealed" hints.
 - **Import:**
   - 1Password (1PUX), Bitwarden JSON, KeePass KDBX 4, Proton Pass;

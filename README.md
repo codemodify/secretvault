@@ -102,6 +102,8 @@ hunter2
 $ bin/secretvault set api/token --generate 32   # generate, store, and print a secret
 $ bin/secretvault ls -l
 $ bin/secretvault history web/github.com
+$ bin/secretvault attach bank ~/scans/card.pdf   # files go into the vault too
+$ bin/secretvault file get bank card.pdf -o -    # and come back out
 $ bin/secretvault import auto ~/Downloads/passwords.kdbx --prefix imported/keepass   # or Bitwarden, 1Password, CSV...
 $ bin/secretvault export kdbx backup.kdbx    # asks for the new file's passphrase
 $ bin/secretvault grant list                 # what programs may do

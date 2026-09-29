@@ -353,7 +353,8 @@ rotates the vault master key).
   - login, password, note, card, identity;
   - SSH key, API key, key, KV data;
   - TOTP authenticator entries.
-- **Everyday tools.** A password generator, attachments (stream-encrypted),
+- **Everyday tools.** A password generator, attachments (each a
+  stream-encrypted blob under a key only its item holds),
   history, and a conflict view.
 - **Clipboard.** Copies clear themselves after a timeout and carry the
   "concealed" hints that clipboard managers respect.
