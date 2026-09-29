@@ -101,6 +101,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	d.WatchSession(ctx) // lock on screen lock, sleep and logout
+	if d.SecretServiceEnabled() {
+		if err := d.StartSecretService(ctx); err != nil {
+			log.Printf("the Secret Service: %v", err)
+		}
+	}
 	log.Printf("%s serving %s", secretvault.Version, sock)
 	if err := d.Serve(ctx, ln); err != nil {
 		log.Print(err)

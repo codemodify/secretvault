@@ -61,7 +61,19 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		return svrpc.HelloResult{Daemon: "secretvaultd", Version: secretvault.Version, Caller: cl.display()}, nil
 
 	case svrpc.MStatus:
-		return d.Status(), nil
+		st := d.Status()
+		st.SecretService = d.secretServiceState(ctx)
+		return st, nil
+
+	case svrpc.MKeyringServe:
+		var p svrpc.KeyringServeParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		if !cl.cli {
+			return nil, svrpc.Errorf(svrpc.CodeDenied, "%v", errNotCLI)
+		}
+		return nil, d.setSecretService(ctx, p.Enable)
 
 	case svrpc.MVaultList:
 		return d.vaultInfos(), nil

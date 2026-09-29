@@ -85,7 +85,7 @@ The order below is the planned order, and they can overlap.
 **Done when:** a new user can install, import from each source, and find,
 copy and edit a login without the CLI.
 
-## M3: OS keyring and browser
+## M3: OS keyring and browser (Linux keyring done)
 
 - **Linux.**
   - Our own D-Bus implementation (`svdbus`) and the Secret Service provider
@@ -104,6 +104,22 @@ copy and edit a login without the CLI.
 - `secret-tool`, Chromium, VS Code and a KDE app all store and read through
   secretvault, with prompts.
 - The browser fills a login.
+
+**Where it stands.**
+- **The Secret Service provider is built** and tested against real
+  libsecret clients (`secret-tool`, and Python's libsecret bindings) on a
+  private bus:
+  - Diffie-Hellman sessions;
+  - consent as the protocol's own prompt: to a program, an item it has not
+    been allowed looks locked;
+  - the program that stores an item may read it back;
+  - unlocking a locked vault when a program looks.
+- **The importer** reads everything out of the current keyring, tested
+  against a real gnome-keyring.
+- **Taking over.** `secretvault keyring takeover` (with `--dry-run`) makes
+  the switch in user files only, and `restore` undoes it.
+- **Still to do:** the Flatpak portal backend (it needs a system-wide
+  portal file), CredMan and Keychain bridges, and browser autofill.
 
 ## M4: hardware
 

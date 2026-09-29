@@ -81,6 +81,8 @@ type Daemon struct {
 	clients map[*client]bool
 	agent   *client // a registered secretvault-tui-prompt --agent
 	desktop Prompter
+	ss      *secretService // the Secret Service face, when serving
+	ssStop  func()
 }
 
 // New prepares a daemon: it reads the config and opens (locked) every

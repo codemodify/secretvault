@@ -37,7 +37,14 @@ const (
 	MAuditList = "audit.list" // AuditParams -> []AuditEntry
 
 	MPromptRegister = "prompt.register" // PromptRegisterParams -> nil
+
+	MKeyringServe = "keyring.serve" // KeyringServeParams -> nil
 )
+
+// KeyringServeParams turn the Secret Service face on or off.
+type KeyringServeParams struct {
+	Enable bool `json:"enable"`
+}
 
 // Methods the daemon calls on a client that offered to prompt.
 const (
@@ -75,6 +82,8 @@ type Status struct {
 	Socket  string      `json:"socket"`
 	Vaults  []VaultInfo `json:"vaults"`
 	Prompts string      `json:"prompts"` // how desktop prompts are shown
+	// SecretService says whether the daemon is the desktop's keyring.
+	SecretService string `json:"secret_service"`
 }
 
 // VaultRef names a vault.

@@ -287,9 +287,20 @@ Removing them properly needs a new epoch (VMK rotation), planned for M6.
     The `session` collection is an in-memory vault.
   - **Portal.** The Flatpak portal backend (`org.freedesktop.impl.portal.Secret`)
     gives sandboxed apps their per-app secret.
-  - **Take-over and undo.** An install step takes over from gnome-keyring,
-    ksecretd, KWallet or oo7, and imports what they hold. An uninstall step
-    gives it back.
+  - **Take-over and undo.** `secretvault keyring takeover` imports what the
+    current keyring holds, then changes only user files (recorded for
+    `restore`):
+    - a D-Bus activation file for `org.freedesktop.secrets`;
+    - for gnome-keyring, its "secrets" autostart entry hidden and a systemd
+      drop-in that keeps its pkcs11 component.
+
+    The daemon queues for the bus name and takes it when the old keyring
+    lets go. KWallet, KeePassXC and oo7 get the steps to do by hand.
+  - **Consent in the protocol's terms.** To a program, an item it has not
+    been allowed to read looks locked. Unlocking it returns a prompt object,
+    whose Prompt shows the person the consent question (and the passphrase,
+    if the vault is locked). The program that stores an item may read,
+    change and delete it without asking again.
 - **Windows: bridged.**
   - Credential Manager cannot be replaced. We import from it and can mirror
     chosen items into it (`CredRead`/`CredWrite`).

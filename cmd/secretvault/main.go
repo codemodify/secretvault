@@ -26,6 +26,7 @@
 //	passwd                     change the passphrase
 //	grant list|allow|deny|revoke  decide what programs may do
 //	audit                      show who accessed what
+//	keyring status|import|takeover|restore   be the desktop's keyring (Linux)
 //	identity new|pub           make or show a recipient identity
 //	verify                     re-authenticate every file of the vault
 //	version                    print the version
@@ -135,6 +136,7 @@ func init() {
 		{"passwd", "change the passphrase", (*cli).cmdPasswd},
 		{"grant", "decide what programs may do: list, allow, deny, revoke", (*cli).cmdGrant},
 		{"audit", "show who accessed what", (*cli).cmdAudit},
+		{"keyring", "be the desktop's keyring: status, import, takeover, restore", (*cli).cmdKeyring},
 		{"identity", "make (new) or show (pub) a recipient identity", (*cli).cmdIdentity},
 		{"verify", "re-authenticate every file of the vault", (*cli).cmdVerify},
 		{"version", "print the version", (*cli).cmdVersion},

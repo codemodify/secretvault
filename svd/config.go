@@ -19,6 +19,10 @@ type Config struct {
 	Vaults  []VaultConfig `json:"vaults"`
 	Default string        `json:"default,omitempty"`
 	Prompt  PromptConfig  `json:"prompt,omitempty"`
+
+	// SecretService makes the daemon the desktop's keyring
+	// (org.freedesktop.secrets). `secretvault keyring takeover` turns it on.
+	SecretService bool `json:"secret_service,omitempty"`
 }
 
 // VaultConfig registers one vault.

@@ -321,6 +321,12 @@ func (c *Client) Audit(ctx context.Context, vault string, limit int) (out []svrp
 	return
 }
 
+// ServeKeyring turns the daemon's Secret Service face on or off (only
+// secretvault's own CLI may).
+func (c *Client) ServeKeyring(ctx context.Context, enable bool) error {
+	return c.conn.Call(ctx, svrpc.MKeyringServe, svrpc.KeyringServeParams{Enable: enable}, nil)
+}
+
 // RegisterPrompter makes this connection the session's prompter
 // (secretvault-tui-prompt --agent).
 func (c *Client) RegisterPrompter(ctx context.Context, terminal string) error {
