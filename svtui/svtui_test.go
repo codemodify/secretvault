@@ -427,13 +427,14 @@ func TestAnotherVaultIsOneEnterAway(t *testing.T) {
 	h.key(tcell.KeyEnter)
 	// This terminal has not shown it knows work's passphrase, unless the
 	// CLI proved it from the same terminal session (as when these tests
-	// run in one): then the daemon asks nothing.
+	// run in one): then the daemon asks nothing. Run with no terminal, the
+	// program is what is asked about.
 	deadline := time.Now().Add(10 * time.Second)
 	for s := h.text(); !strings.Contains(s, "work/vpn"); s = h.text() {
-		if strings.Contains(s, "Allow this terminal") {
+		if strings.Contains(s, "has not used vault") {
 			h.typeText(pass)
 			h.key(tcell.KeyEnter)
-			h.waitGone("Allow this terminal")
+			h.waitGone("has not used vault")
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("work's items never showed:\n%s", s)
