@@ -1,0 +1,168 @@
+{
+  "version": { "major": 1, "minor": 0 },
+  "exporterRpId": "exporter.example",
+  "exporterDisplayName": "Example Exporter",
+  "timestamp": 1760000000,
+  "accounts": [
+    {
+      "id": "YWNjb3VudC0x",
+      "username": "ada",
+      "email": "ada@example.org",
+      "fullName": "Ada Lovelace",
+      "collections": [
+        {
+          "id": "Y29sLXdvcms",
+          "title": "Work",
+          "items": [ { "item": "aXRlbS1sb2dpbg" } ],
+          "subCollections": [
+            { "id": "Y29sLXNlcnZlcnM", "title": "Servers", "items": [ { "item": "aXRlbS1zc2g" }, { "item": "aXRlbS1hcGk" } ] }
+          ]
+        },
+        { "id": "Y29sLWhvbWU", "title": "Home", "items": [ { "item": "aXRlbS13aWZp" }, { "item": "aXRlbS1sb2dpbg" } ] }
+      ],
+      "items": [
+        {
+          "id": "aXRlbS1sb2dpbg",
+          "creationAt": 1700000000,
+          "modifiedAt": 1700000001,
+          "title": "Example Login",
+          "subtitle": "ada",
+          "favorite": true,
+          "scope": { "urls": ["https://login.example.com", "https://example.com"], "androidApps": [] },
+          "credentials": [
+            {
+              "type": "basic-auth",
+              "username": { "fieldType": "string", "value": "ada" },
+              "password": { "fieldType": "concealed-string", "value": "ex4mple-p4ss" }
+            },
+            {
+              "type": "totp",
+              "secret": "JBSWY3DPEHPK3PXP",
+              "period": 30,
+              "digits": 6,
+              "username": "ada",
+              "algorithm": "sha256",
+              "issuer": "Example"
+            },
+            {
+              "type": "passkey",
+              "credentialId": "Y3JlZC1pZA",
+              "rpId": "example.com",
+              "username": "ada",
+              "userDisplayName": "Ada",
+              "userHandle": "dXNlcg",
+              "key": "MC4CAQAwBQYDK2VwBCIEIF3C5VoSK-HAlK8JXXAzeP-ABEeD6s1cc1-pW8lwEAJk"
+            },
+            {
+              "type": "custom-fields",
+              "label": "Security",
+              "fields": [
+                { "id": "ZmllbGQtMQ", "fieldType": "concealed-string", "value": "blue", "label": "favourite colour" },
+                { "fieldType": "email", "value": "backup@example.org", "label": "recovery email" },
+                { "fieldType": "number", "value": "42" }
+              ]
+            },
+            { "type": "note", "content": { "fieldType": "string", "value": "created for the demo" } }
+          ],
+          "tags": ["demo", "web"]
+        },
+        {
+          "id": "aXRlbS1jYXJk",
+          "title": "Corporate card",
+          "credentials": [
+            {
+              "type": "credit-card",
+              "number": { "fieldType": "concealed-string", "value": "4111111111111111" },
+              "fullName": { "fieldType": "string", "value": "Ada Lovelace" },
+              "cardType": { "fieldType": "string", "value": "Visa" },
+              "verificationNumber": { "fieldType": "concealed-string", "value": "123" },
+              "pin": { "fieldType": "concealed-string", "value": "9876" },
+              "expiryDate": { "fieldType": "year-month", "value": "2028-04" }
+            }
+          ]
+        },
+        {
+          "id": "aXRlbS1zc2g",
+          "title": "build server key",
+          "credentials": [
+            {
+              "type": "ssh-key",
+              "keyType": "ssh-ed25519",
+              "privateKey": "MC4CAQAwBQYDK2VwBCIEIF3C5VoSK-HAlK8JXXAzeP-ABEeD6s1cc1-pW8lwEAJk",
+              "keyComment": "ada@build",
+              "keyGenerationSource": { "fieldType": "string", "value": "https://git.example/settings/keys" }
+            }
+          ]
+        },
+        {
+          "id": "aXRlbS1hcGk",
+          "title": "Deploy API",
+          "credentials": [
+            {
+              "type": "api-key",
+              "key": { "fieldType": "concealed-string", "value": "sk_live_abc" },
+              "username": { "fieldType": "string", "value": "deployer" },
+              "keyType": { "fieldType": "string", "value": "bearer" },
+              "url": { "fieldType": "string", "value": "https://api.example" }
+            }
+          ]
+        },
+        {
+          "id": "aXRlbS13aWZp",
+          "title": "Home network",
+          "credentials": [
+            {
+              "type": "wifi",
+              "ssid": { "fieldType": "string", "value": "home" },
+              "networkSecurityType": { "fieldType": "wifi-network-security-type", "value": "wpa3-personal" },
+              "passphrase": { "fieldType": "concealed-string", "value": "w1f1" },
+              "hidden": { "fieldType": "boolean", "value": "false" }
+            }
+          ]
+        },
+        {
+          "id": "aXRlbS1pZA",
+          "title": "Me",
+          "credentials": [
+            {
+              "type": "person-name",
+              "title": { "fieldType": "string", "value": "Dr" },
+              "given": { "fieldType": "string", "value": "Ada" },
+              "surnamePrefix": { "fieldType": "string", "value": "van der" },
+              "surname": { "fieldType": "string", "value": "Lovelace" }
+            },
+            {
+              "type": "address",
+              "streetAddress": { "fieldType": "string", "value": "12 St James's Square\nFlat 2" },
+              "postalCode": { "fieldType": "string", "value": "SW1Y 4JH" },
+              "city": { "fieldType": "string", "value": "London" },
+              "country": { "fieldType": "country-code", "value": "GB" }
+            },
+            {
+              "type": "passport",
+              "passportNumber": { "fieldType": "string", "value": "P1234567" },
+              "issuingCountry": { "fieldType": "country-code", "value": "GB" },
+              "expiryDate": { "fieldType": "date", "value": "2030-01-31" }
+            }
+          ]
+        },
+        {
+          "id": "aXRlbS10b3Rw",
+          "title": "Authenticator only",
+          "credentials": [
+            { "type": "totp", "secret": "GEZDGNBVGY3TQOJQ", "period": 60, "digits": 8, "algorithm": "sha1", "issuer": "Bank" }
+          ]
+        },
+        {
+          "id": "aXRlbS1mdXR1cmU",
+          "title": "Future",
+          "credentials": [
+            { "type": "quantum-token", "value": "?" },
+            { "type": "file", "id": "ZmlsZQ", "name": "scan.pdf", "decryptedSize": 10, "integrityHash": "aGFzaA" },
+            { "type": "note", "content": { "fieldType": "string", "value": "holds things from a newer CXF" } }
+          ]
+        }
+      ]
+    }
+  ]
+}

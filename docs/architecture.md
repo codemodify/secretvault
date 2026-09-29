@@ -468,6 +468,7 @@ projects, with `sv` as the prefix:
 | `svdbus` | our D-Bus implementation | M1 |
 | `svsecretservice` | the Secret Service face | M3 |
 | `svwayland`, `svx11`, `svclip` | the clipboard in our own protocol code | M2 |
+| `svimport` | import from other password managers; export to KDBX and CXF | M2 |
 | `svpgp` | OpenPGP, our own | M5 |
 | `svcms`, `svtrust` | S/MIME, the trust store | M5 |
 | `svfido`, `svpcsc`, `svtpm` | hardware tokens and TPM | M4 |

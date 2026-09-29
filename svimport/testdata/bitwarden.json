@@ -1,0 +1,67 @@
+{
+  "encrypted": false,
+  "folders": [
+    { "id": "7a1c6f0e-0000-4000-8000-000000000001", "name": "Personal" },
+    { "id": "7a1c6f0e-0000-4000-8000-000000000002", "name": "Work/Servers" }
+  ],
+  "items": [
+    {
+      "id": "c1", "organizationId": null, "folderId": "7a1c6f0e-0000-4000-8000-000000000001",
+      "type": 1, "reprompt": 0, "name": "GitHub", "notes": "personal account", "favorite": true,
+      "fields": [
+        { "name": "recovery email", "value": "ada@example.org", "type": 0, "linkedId": null },
+        { "name": "API token", "value": "ghp_0123456789", "type": 1, "linkedId": null },
+        { "name": "2FA on", "value": "true", "type": 2, "linkedId": null },
+        { "name": "user alias", "value": null, "type": 3, "linkedId": 100 }
+      ],
+      "login": {
+        "uris": [ { "match": null, "uri": "https://github.com/login" }, { "match": 3, "uri": "https://gist.github.com" } ],
+        "username": "ada", "password": "gh-p4ss", "totp": "otpauth://totp/GitHub:ada?secret=JBSWY3DPEHPK3PXP&issuer=GitHub",
+        "fido2Credentials": [ { "credentialId": "b64", "keyType": "public-key", "rpId": "github.com" } ]
+      },
+      "passwordHistory": [ { "lastUsedDate": "2024-01-01T00:00:00.000Z", "password": "old" } ],
+      "collectionIds": null
+    },
+    {
+      "id": "c2", "folderId": "7a1c6f0e-0000-4000-8000-000000000002", "type": 1, "name": "db1",
+      "notes": null, "login": { "uris": null, "username": "root", "password": "r00t", "totp": "steam://STEAMSTEAMSTEAM2" }
+    },
+    {
+      "id": "c3", "folderId": null, "type": 2, "name": "Wifi", "notes": "SSID home\npassword on the router",
+      "secureNote": { "type": 0 }
+    },
+    {
+      "id": "c4", "folderId": null, "type": 3, "name": "Visa",
+      "card": { "cardholderName": "Ada Lovelace", "brand": "Visa", "number": "4111111111111111",
+                "expMonth": "1", "expYear": "29", "code": "321" }
+    },
+    {
+      "id": "c5", "folderId": null, "type": 4, "name": "Me",
+      "identity": { "title": "Ms", "firstName": "Ada", "middleName": "King", "lastName": "Lovelace",
+                    "address1": "12 St James's Square", "address2": "Flat 2", "address3": null,
+                    "city": "London", "state": null, "postalCode": "SW1Y 4JH", "country": "GB",
+                    "company": "Analytical Engines", "email": "ada@example.org", "phone": "+44 20 0000 0000",
+                    "ssn": "123-45-6789", "username": "ada", "passportNumber": "P1234567", "licenseNumber": null }
+    },
+    {
+      "id": "c6", "folderId": null, "type": 5, "name": "deploy key",
+      "sshKey": {
+        "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACDDJ20gBHBKmgDvl8Fo0kMPXw6nLeNOEbalxuPKPl0y4AAAAIiFNTG7hTUx\nuwAAAAtzc2gtZWQyNTUxOQAAACDDJ20gBHBKmgDvl8Fo0kMPXw6nLeNOEbalxuPKPl0y4A\nAAAEBdwuVaEivhwJSvCV1wM3j/gARHg+rNXHNfqVvJcBACZMMnbSAEcEqaAO+XwWjSQw9f\nDqct404RtqXG48o+XTLgAAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "publicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMMnbSAEcEqaAO+XwWjSQw9fDqct404RtqXG48o+XTLg",
+        "keyFingerprint": "SHA256:placeholder"
+      }
+    },
+    {
+      "id": "c7", "folderId": null, "type": 1, "name": "Old site", "deletedDate": "2025-02-02T00:00:00.000Z",
+      "login": { "username": "x", "password": "y" }
+    },
+    {
+      "id": "c8", "folderId": null, "type": 42, "name": "From the future", "notes": "a newer item type",
+      "fields": [ { "name": "code", "value": "1234", "type": 1 } ]
+    },
+    {
+      "id": "c9", "folderId": "7a1c6f0e-0000-4000-8000-000000000001", "type": 1, "name": "GitHub",
+      "login": { "username": "ada-work", "password": "second" }
+    }
+  ]
+}

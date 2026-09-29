@@ -1,0 +1,103 @@
+{
+  "version": "1.21.2",
+  "userId": "user-id",
+  "encrypted": false,
+  "vaults": {
+    "share-2": {
+      "name": "Work",
+      "description": "",
+      "display": { "color": 0, "icon": 0 },
+      "items": [
+        {
+          "itemId": "i-sshkey", "shareId": "share-2", "state": 1, "aliasEmail": null, "contentFormatVersion": 6,
+          "createTime": 1, "modifyTime": 2, "pinned": false,
+          "data": {
+            "metadata": { "name": "deploy", "note": "", "itemUuid": "u1" },
+            "extraFields": [],
+            "type": "sshKey",
+            "content": {
+              "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\n-----END OPENSSH PRIVATE KEY-----\n",
+              "publicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMMnbSAEcEqaAO+XwWjSQw9fDqct404RtqXG48o+XTLg",
+              "fingerprint": "SHA256:x",
+              "sections": [ { "sectionName": "Server", "sectionFields": [
+                { "fieldName": "host", "type": "text", "data": { "content": "git.example" } } ] } ]
+            }
+          }
+        }
+      ]
+    },
+    "share-1": {
+      "name": "Personal",
+      "description": "Personal vault",
+      "display": { "color": 0, "icon": 0 },
+      "items": [
+        {
+          "itemId": "i-login", "shareId": "share-1", "state": 1, "aliasEmail": null, "contentFormatVersion": 1,
+          "createTime": 1689182868, "modifyTime": 1689182868, "pinned": true,
+          "data": {
+            "metadata": { "name": "Proton", "note": "my account", "itemUuid": "c0b5a2b1" },
+            "extraFields": [
+              { "fieldName": "recovery phrase", "type": "hidden", "data": { "content": "alpha beta gamma" } },
+              { "fieldName": "second factor", "type": "totp", "data": { "totpUri": "otpauth://totp/Other:ada?secret=GEZDGNBVGY3TQOJQ&issuer=Other" } },
+              { "fieldName": "plan", "type": "text", "data": { "content": "unlimited" } },
+              { "fieldName": "renewal", "type": "timestamp", "data": { "timestamp": "1700000000" } }
+            ],
+            "type": "login",
+            "content": {
+              "itemEmail": "ada@proton.me", "itemUsername": "ada", "password": "pr0t0n",
+              "urls": ["https://account.proton.me", "https://mail.proton.me"],
+              "totpUri": "otpauth://totp/Proton:ada?secret=JBSWY3DPEHPK3PXP&issuer=Proton",
+              "passkeys": [ { "keyId": "k", "domain": "proton.me" } ]
+            }
+          }
+        },
+        {
+          "itemId": "i-note", "shareId": "share-1", "state": 1, "aliasEmail": null,
+          "data": { "metadata": { "name": "Door code", "note": "4711#", "itemUuid": "n1" }, "extraFields": [], "type": "note", "content": {} }
+        },
+        {
+          "itemId": "i-card", "shareId": "share-1", "state": 1, "aliasEmail": null,
+          "data": {
+            "metadata": { "name": "Mastercard", "note": "", "itemUuid": "c1" }, "extraFields": [], "type": "creditCard",
+            "content": { "cardholderName": "Ada Lovelace", "cardType": 0, "number": "5555555555554444",
+                         "verificationNumber": "999", "expirationDate": "2027-03", "pin": "0000" }
+          }
+        },
+        {
+          "itemId": "i-identity", "shareId": "share-1", "state": 1, "aliasEmail": null,
+          "data": {
+            "metadata": { "name": "Me", "note": "", "itemUuid": "id1" }, "extraFields": [], "type": "identity",
+            "content": { "fullName": "Ada Lovelace", "email": "ada@proton.me", "phoneNumber": "+44 1",
+                         "firstName": "Ada", "lastName": "Lovelace", "streetAddress": "12 St James's Square",
+                         "city": "London", "zipOrPostalCode": "SW1Y 4JH", "countryOrRegion": "UK",
+                         "socialSecurityNumber": "AB123456C", "xHandle": "@ada",
+                         "extraPersonalDetails": [ { "fieldName": "favourite engine", "type": "text", "data": { "content": "analytical" } } ],
+                         "extraSections": [ { "sectionName": "More", "sectionFields": [
+                           { "fieldName": "locker", "type": "hidden", "data": { "content": "L-12" } } ] } ] }
+          }
+        },
+        {
+          "itemId": "i-alias", "shareId": "share-1", "state": 1, "aliasEmail": "shop.xyz@passmail.net",
+          "data": { "metadata": { "name": "Shop alias", "note": "", "itemUuid": "a1" }, "extraFields": [], "type": "alias", "content": {} }
+        },
+        {
+          "itemId": "i-wifi", "shareId": "share-1", "state": 1, "aliasEmail": null,
+          "data": { "metadata": { "name": "Home wifi", "note": "", "itemUuid": "w1" }, "extraFields": [], "type": "wifi",
+                    "content": { "ssid": "home", "password": "w1f1-p4ss", "security": 2 } }
+        },
+        {
+          "itemId": "i-custom", "shareId": "share-1", "state": 1, "aliasEmail": null,
+          "data": { "metadata": { "name": "Bank account", "note": "", "itemUuid": "b1" }, "extraFields": [
+                      { "fieldName": "IBAN", "type": "text", "data": { "content": "GB00 0000" } } ],
+                    "type": "custom", "content": { "sections": [ { "sectionName": "Online", "sectionFields": [
+                      { "fieldName": "PIN", "type": "hidden", "data": { "content": "2468" } } ] } ] } }
+        },
+        {
+          "itemId": "i-trash", "shareId": "share-1", "state": 2, "aliasEmail": null,
+          "data": { "metadata": { "name": "Trashed", "note": "", "itemUuid": "t1" }, "extraFields": [], "type": "login",
+                    "content": { "itemEmail": "", "itemUsername": "x", "password": "y", "urls": [], "totpUri": "", "passkeys": [] } }
+        }
+      ]
+    }
+  }
+}

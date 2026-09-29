@@ -1,0 +1,107 @@
+{
+  "accounts": [{
+    "attrs": {
+      "accountName": "Ada Lovelace", "name": "Ada Lovelace", "avatar": "profile.png",
+      "email": "ada@example.org", "uuid": "D4RI47B7BJDT25C2LWA7LEJLHZ", "domain": "https://my.1password.com/"
+    },
+    "vaults": [{
+      "attrs": { "uuid": "rr3lr6c2opoggvrete23q72ahi", "desc": "", "avatar": "pic.png", "name": "Personal", "type": "P" },
+      "items": [
+        {
+          "uuid": "fkruyzrldvizuqlnavfj3gltfe", "favIndex": 1, "createdAt": 1614298956, "updatedAt": 1635346445,
+          "state": "active", "categoryUuid": "001",
+          "details": {
+            "loginFields": [
+              { "value": "ada@example.org", "id": "", "name": "email", "fieldType": "E", "designation": "username" },
+              { "value": "most-secure-password-ever!", "id": "", "name": "password", "fieldType": "P", "designation": "password" },
+              { "value": "✓", "id": "", "name": "remember", "fieldType": "C" }
+            ],
+            "notesPlain": "This is a note. *bold*! _italic_!",
+            "sections": [
+              { "title": "Security", "name": "Section_oazxddhvftfknycbbmh5ntwfa4", "fields": [
+                { "title": "PIN", "id": "CCEF647B399604E8F6Q6C8C3W31AFD407", "value": { "concealed": "12345" },
+                  "indexAtSource": 0, "guarded": false, "multiline": false, "dontGenerate": false,
+                  "inputTraits": { "keyboard": "default", "correction": "default", "capitalization": "default" } },
+                { "title": "one-time password", "id": "TOTP_4F8A5B6C", "value": { "totp": "otpauth://totp/Dropbox:ada?secret=JBSWY3DPEHPK3PXP&issuer=Dropbox" } },
+                { "title": "recovery", "id": "r1", "value": { "email": { "email_address": "backup@example.org", "provider": null } } },
+                { "title": "since", "id": "d1", "value": { "date": 1614298956 } },
+                { "title": "empty", "id": "e1", "value": { "string": "" } }
+              ] }
+            ],
+            "passwordHistory": [ { "value": "12345password", "time": 1458322355 } ]
+          },
+          "overview": {
+            "subtitle": "ada@example.org",
+            "urls": [ { "label": "", "url": "https://www.dropbox.com/" }, { "label": "api", "url": "https://api.dropbox.com/" } ],
+            "title": "Dropbox", "url": "https://www.dropbox.com/", "ps": 100, "pbe": 86.13621, "pgrng": true,
+            "tags": ["cloud", "storage"]
+          }
+        },
+        {
+          "uuid": "cc1", "favIndex": 0, "createdAt": 1, "updatedAt": 2, "state": "active", "categoryUuid": "002",
+          "details": { "sections": [ { "title": "", "name": "", "fields": [
+            { "title": "cardholder name", "id": "cardholder", "value": { "string": "Ada Lovelace" } },
+            { "title": "type", "id": "type", "value": { "creditCardType": "visa" } },
+            { "title": "number", "id": "ccnum", "value": { "creditCardNumber": "4111111111111111" } },
+            { "title": "verification number", "id": "cvv", "value": { "concealed": "321" } },
+            { "title": "expiry date", "id": "expiry", "value": { "monthYear": 202612 } }
+          ] } ] },
+          "overview": { "title": "Visa", "subtitle": "" }
+        },
+        {
+          "uuid": "id1", "state": "active", "categoryUuid": "004",
+          "details": { "sections": [ { "title": "Identification", "fields": [
+            { "title": "first name", "id": "firstname", "value": { "string": "Ada" } },
+            { "title": "last name", "id": "lastname", "value": { "string": "Lovelace" } },
+            { "title": "birth date", "id": "birthdate", "value": { "date": 1000000000 } }
+          ] }, { "title": "Address", "fields": [
+            { "title": "address", "id": "address", "value": { "address": { "street": "12 St James's Square", "city": "London",
+              "country": "gb", "zip": "SW1Y 4JH", "state": "" } } },
+            { "title": "email", "id": "email", "value": { "email": { "email_address": "ada@example.org", "provider": null } } }
+          ] } ] },
+          "overview": { "title": "Ada" }
+        },
+        {
+          "uuid": "pw1", "state": "active", "categoryUuid": "005",
+          "details": { "password": "just-a-password", "notesPlain": "" },
+          "overview": { "title": "Router admin" }
+        },
+        {
+          "uuid": "doc1", "state": "active", "categoryUuid": "006",
+          "details": { "documentAttributes": { "fileName": "passport.png", "documentId": "o2xjvw2q5j2yx6rtpxfjdqopom", "decryptedSize": 3605932 } },
+          "overview": { "title": "Passport scan" }
+        },
+        {
+          "uuid": "gone", "state": "trashed", "categoryUuid": "001",
+          "details": { "loginFields": [ { "value": "x", "designation": "username" } ] },
+          "overview": { "title": "Deleted login" }
+        }
+      ]
+    }, {
+      "attrs": { "uuid": "work0000000000000000000000", "desc": "", "name": "Work", "type": "U" },
+      "items": [
+        {
+          "uuid": "ssh1", "state": "archived", "categoryUuid": "114",
+          "details": { "sections": [ { "title": "", "fields": [
+            { "title": "private key", "id": "private_key", "value": { "sshKey": {
+              "privateKey": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIF3C5VoSK+HAlK8JXXAzeP+ABEeD6s1cc1+pW8lwEAJk\n-----END PRIVATE KEY-----\n",
+              "metadata": {
+                "privateKey": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIF3C5VoSK+HAlK8JXXAzeP+ABEeD6s1cc1+pW8lwEAJk\n-----END PRIVATE KEY-----\n",
+                "publicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMMnbSAEcEqaAO+XwWjSQw9fDqct404RtqXG48o+XTLg",
+                "fingerprint": "SHA256:x", "keyType": "ed25519" } } } }
+          ] } ] },
+          "overview": { "title": "deploy" }
+        },
+        {
+          "uuid": "api1", "state": "active", "categoryUuid": "112",
+          "details": { "sections": [ { "title": "", "fields": [
+            { "title": "username", "id": "username", "value": { "string": "svc" } },
+            { "title": "credential", "id": "credential", "value": { "concealed": "tok_123" } },
+            { "title": "hostname", "id": "hostname", "value": { "string": "api.example" } }
+          ] } ] },
+          "overview": { "title": "CI token" }
+        }
+      ]
+    }]
+  }]
+}

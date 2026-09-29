@@ -1,0 +1,56 @@
+{
+    "version": 1,
+    "header": {
+        "slots": null,
+        "params": null
+    },
+    "db": {
+        "version": 2,
+        "entries": [
+            {
+                "type": "totp",
+                "uuid": "01234567-89ab-cdef-0123-456789abcdef",
+                "name": "Bob",
+                "issuer": "Google",
+                "group": "Personal",
+                "note": "Main account",
+                "icon": null,
+                "info": {
+                    "secret": "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567",
+                    "algo": "SHA1",
+                    "digits": 6,
+                    "period": 30
+                }
+            },
+            {
+                "type": "yandex",
+                "uuid": "11234567-89ab-cdef-0123-456789abcdef",
+                "name": "bob",
+                "issuer": "Yandex",
+                "note": "",
+                "icon": null,
+                "info": {
+                    "secret": "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567",
+                    "algo": "SHA256",
+                    "digits": 8,
+                    "period": 30,
+                    "pin": "123456"
+                }
+            },
+            {
+                "type": "totp",
+                "uuid": "21234567-89ab-cdef-0123-456789abcdef",
+                "name": "",
+                "issuer": "Broken",
+                "note": "",
+                "icon": null,
+                "info": {
+                    "secret": "not base32!",
+                    "algo": "SHA1",
+                    "digits": 6,
+                    "period": 30
+                }
+            }
+        ]
+    }
+}
