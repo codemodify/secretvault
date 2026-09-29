@@ -280,6 +280,38 @@ func TestCallingOffTheTouchAsksForThePassphrase(t *testing.T) {
 	}
 }
 
+// A vault whose passphrase slot was removed, leaving the key: nobody is
+// asked for a passphrase that could not open it.
+func TestAVaultWithOnlyAKeyIsNotOpenedByPassphrase(t *testing.T) {
+	h := newHarness(t)
+	cli := h.withTerminal(&scripted{})
+	key := h.keys.plug(t, fidotest.Options{Name: "Solo"})
+	addKey(t, cli, nil)
+	slots, _ := cli.Slots(ctx(t), "")
+	if err := cli.RemoveSlot(ctx(t), "", slots[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	h.keys.unplug(key)
+	h.d.LockAll("test")
+	mail := h.connect("/usr/bin/mail", nil)
+	if _, err := mail.Get(ctx(t), "", "mail/imap"); !errors.Is(err, svrpc.ErrLocked) || !strings.Contains(err.Error(), "plug in its security key") {
+		t.Fatalf("without the key: %v", err)
+	}
+	if h.desk.count() != 0 {
+		t.Fatal("a passphrase was asked for")
+	}
+	h.keys.plug(t, fidotest.Options{Name: "Solo again"}) // someone else's
+	if _, err := mail.Get(ctx(t), "", "mail/imap"); !errors.Is(err, svrpc.ErrLocked) {
+		t.Fatalf("with another key: %v", err)
+	}
+	h.keys.mu.Lock()
+	h.keys.keys = append(h.keys.keys, key)
+	h.keys.mu.Unlock()
+	if _, err := mail.Get(ctx(t), "", "mail/imap"); err != nil {
+		t.Fatalf("with the key: %v", err)
+	}
+}
+
 func TestANewTerminalProvesItselfWithTheKey(t *testing.T) {
 	h := newHarness(t)
 	cli := h.withTerminal(&scripted{})

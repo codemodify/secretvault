@@ -118,6 +118,12 @@ func (d *Daemon) ensureUnlocked(ctx context.Context, cl *client, mv *managedVaul
 		}
 		q.Error = afterToken(err)
 	}
+	if !hasPassphrase(mv) {
+		// Nothing typed here could open it.
+		return false, false, svrpc.Errorf(svrpc.CodeLocked,
+			"vault %q is locked and has no passphrase; plug in its security key, or unlock it with 'secretvault unlock %s' and one of its keys (--fido2, --recovery, --keyfile or --identity)",
+			mv.cfg.Name, mv.cfg.Name)
+	}
 	for range 3 {
 		pass, err := p.Passphrase(ctx, q)
 		if err != nil {
@@ -274,6 +280,11 @@ func (d *Daemon) ask(ctx context.Context, cl *client, mv *managedVault, item, it
 				return err
 			}
 			q.Error = afterToken(err)
+		}
+		if !hasPassphrase(mv) {
+			record("denied", "no passphrase to prove")
+			return svrpc.Errorf(svrpc.CodeDenied,
+				"vault %q has no passphrase to prove this terminal with; plug in its security key, or pass one of its keys (--fido2, --recovery, --keyfile or --identity)", mv.cfg.Name)
 		}
 		for range 3 {
 			pass, err := p.Passphrase(ctx, q)
