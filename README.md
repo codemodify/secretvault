@@ -86,6 +86,15 @@ go build -o bin/ ./cmd/secretvault ./cmd/secretvaultd ./cmd/secretvault-tui ./cm
 bin/secretvaultd install        # optional: start at every login (systemd user unit)
 ```
 
+The desktop programs (`secretvault-gui`, `secretvault-gui-prompt`) are a Go
+module of their own, [`gui/`](gui), so nothing else needs cgo or uitoolkit.
+They build with cgo against [uitoolkit](https://github.com/codemodify/uitoolkit)
+checked out beside this repository:
+
+```bash
+(cd gui && CGO_ENABLED=1 go build -o ../bin/ ./cmd/...)
+```
+
 Or install it for your user, into `~/.local/bin` with the git, docker and
 age helper links, and secretvaultd started at login (run it again to
 update; `--uninstall` removes the programs, never your vaults):

@@ -23,6 +23,7 @@ while [ $# -gt 0 ]; do
 done
 
 programs="secretvault secretvaultd secretvault-tui secretvault-tui-prompt secretvault-server"
+gui_programs="secretvault-gui secretvault-gui-prompt"
 helpers="git-credential-secretvault docker-credential-secretvault age-plugin-secretvault"
 exe=""
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) exe=".exe" ;; esac
@@ -31,7 +32,7 @@ if [ "$action" = uninstall ]; then
 	if [ -x "$prefix/secretvaultd$exe" ]; then
 		"$prefix/secretvaultd$exe" uninstall || true
 	fi
-	for p in $programs; do rm -f "$prefix/$p$exe"; done
+	for p in $programs $gui_programs; do rm -f "$prefix/$p$exe"; done
 	for h in $helpers; do
 		if [ -L "$prefix/$h" ]; then rm -f "$prefix/$h"; fi
 	done
@@ -50,6 +51,14 @@ echo "Building in $root ..."
 (cd "$root" && CGO_ENABLED=0 go build -trimpath -o "$build/" \
 	./cmd/secretvault ./cmd/secretvaultd ./cmd/secretvault-tui \
 	./cmd/secretvault-tui-prompt ./cmd/secretvault-server)
+
+# The desktop programs are a module of their own (gui/), built with cgo
+# against uitoolkit beside this checkout; without either, the rest works.
+if [ -d "$root/../uitoolkit" ] && (cd "$root/gui" && CGO_ENABLED=1 go build -trimpath -o "$build/" ./cmd/...) 2>"$build/gui.log"; then
+	programs="$programs $gui_programs"
+else
+	echo "Skipped the desktop programs ($gui_programs): they need cgo and uitoolkit in $root/../uitoolkit."
+fi
 
 mkdir -p "$prefix"
 for p in $programs; do
