@@ -44,8 +44,14 @@ var (
 // Options configure a vault handle.
 type Options struct {
 	// Device is recorded in every revision this handle writes. Zero means
-	// "not recorded".
+	// "not recorded" (with a Signer: the Signer's key ID).
 	Device svformat.ID
+
+	// Signer signs every revision this handle writes (devices.go). Nil
+	// means they are not signed, which a vault whose policy requires
+	// signatures refuses. Signatures verify, for this handle and every
+	// other, once the key is registered in the vault (RegisterDevice).
+	Signer *DeviceKey
 
 	// Now is the clock (tests replace it). Defaults to time.Now.
 	Now func() time.Time
@@ -151,6 +157,9 @@ func Open(store svstore.Backend, opts Options) (*Vault, error) {
 func (o Options) withDefaults() Options {
 	if o.Now == nil {
 		o.Now = time.Now
+	}
+	if o.Signer != nil && o.Device.IsZero() {
+		o.Device = o.Signer.ID()
 	}
 	return o
 }

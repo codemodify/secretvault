@@ -2,6 +2,7 @@ package svcore
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -27,14 +28,27 @@ import (
 
 // Entry is an item as stored, with where it came from.
 type Entry struct {
-	ID     svformat.ID
-	Rev    svformat.RevID
-	Time   time.Time
+	ID   svformat.ID
+	Rev  svformat.RevID
+	Time time.Time
+
+	// Device is the device the revision's header names, in the clear.
+	// Only Signature says whether that device wrote it.
 	Device svformat.ID
-	Item   Item
+
+	// Signature is who signed the revision, as the vault's registry tells
+	// (devices.go).
+	Signature Signature
+
+	Item Item
 
 	// Deleted is set on a tombstone (only History returns those).
 	Deleted bool
+
+	// Ignored is set on a revision the vault's policy does not count
+	// (only History returns those): it requires signatures, and this
+	// one's is missing or does not verify.
+	Ignored bool
 
 	// Conflicts are the other heads when the object has more than one.
 	Conflicts []svformat.RevID
@@ -57,6 +71,23 @@ type revision struct {
 	deleted bool
 	item    *Item  // decrypted item; kept only while the revision is a head
 	record  []byte // decrypted record body (JSON); kept only while a head
+
+	// forgotten: item and record were dropped (forget), and are read
+	// again should the revision become a head again.
+	forgotten bool
+
+	// signed is what the signature signs (svformat.SignedData), nil when
+	// the revision is not signed; status is what the signature shows, as
+	// last checked (index.check), against the key checkedFor names.
+	signed     []byte
+	status     SigStatus
+	checkedFor string
+
+	// device and policy are the data of a device or policy record,
+	// kept while the revision is in the index: the registry and the
+	// policy are read from every revision, not only heads.
+	device *deviceRecord
+	policy *Policy
 }
 
 // forget wipes and drops what was decrypted.
@@ -67,12 +98,13 @@ func (r *revision) forget() {
 	}
 	clear(r.record)
 	r.record = nil
+	r.forgotten = !r.deleted
 }
 
 type object struct {
 	id    svformat.ID
 	revs  map[svformat.RevID]*revision
-	heads []*revision // winner first
+	heads []*revision // winner first, among the revisions that count
 }
 
 type index struct {
@@ -81,14 +113,24 @@ type index struct {
 	dupes    map[string][]svformat.ID
 	seen     map[string]bool
 	problems []Problem
+
+	// The device registry (devices.go): every registered key, and the
+	// objects that hold device records. regProblems are keys it refused.
+	reg         map[svformat.ID]*deviceEntry
+	deviceObjs  map[svformat.ID]bool
+	regProblems []Problem
+
+	policy Policy
 }
 
 func newIndex() *index {
 	return &index{
-		objects: map[svformat.ID]*object{},
-		byName:  map[string]svformat.ID{},
-		dupes:   map[string][]svformat.ID{},
-		seen:    map[string]bool{},
+		objects:    map[svformat.ID]*object{},
+		byName:     map[string]svformat.ID{},
+		dupes:      map[string][]svformat.ID{},
+		seen:       map[string]bool{},
+		reg:        map[svformat.ID]*deviceEntry{},
+		deviceObjs: map[svformat.ID]bool{},
 	}
 }
 
@@ -110,30 +152,82 @@ func (x *index) object(id svformat.ID) *object {
 	return o
 }
 
-// computeHeads finds the object's heads, winner first, and drops the
-// decrypted items of revisions that are no longer heads.
-func (o *object) computeHeads() {
+// computeHeads finds the object's heads among the revisions that count,
+// winner first, and drops the decrypted items of revisions that are not
+// heads. A head whose contents were dropped before (a revision that
+// counts again, or whose child no longer counts) is read again. Only
+// revisions that count supersede their parents: one the policy refuses
+// cannot hide the revision it names. The caller holds v.mu.
+func (v *Vault) computeHeads(x *index, o *object) {
 	parent := map[svformat.RevID]bool{}
 	for _, r := range o.revs {
-		for _, p := range r.hdr.Parents {
-			parent[p] = true
+		if x.counts(r) {
+			for _, p := range r.hdr.Parents {
+				parent[p] = true
+			}
 		}
 	}
 	o.heads = o.heads[:0]
 	for id, r := range o.revs {
-		if parent[id] {
+		if parent[id] || !x.counts(r) {
 			r.forget()
 			continue
 		}
 		o.heads = append(o.heads, r)
 	}
-	sort.Slice(o.heads, func(i, j int) bool {
-		a, b := o.heads[i], o.heads[j]
-		if a.hdr.Time != b.hdr.Time {
-			return a.hdr.Time > b.hdr.Time
+	sortHeads(o.heads)
+	kept := o.heads[:0]
+	for _, r := range o.heads {
+		if r.forgotten {
+			name := svformat.RevisionName(o.id, r.id)
+			again, err := v.loadRevision(name, o.id, r.id)
+			if err != nil {
+				x.problems = append(x.problems, Problem{name, err})
+				delete(o.revs, r.id)
+				continue
+			}
+			r.item, r.record, r.forgotten = again.item, again.record, false
 		}
-		return bytes.Compare(a.id[:], b.id[:]) > 0
-	})
+		kept = append(kept, r)
+	}
+	o.heads = kept
+}
+
+// evaluate settles what counts once revisions were added to x: the
+// device registry, the signatures, the policy, and the heads (of every
+// object when the registry or policy changed, else of those added to).
+// The caller holds v.mu.
+func (v *Vault) evaluate(x *index, added []*revision, objs map[svformat.ID]bool) {
+	devices := false
+	for id := range objs {
+		if x.deviceObjs[id] {
+			devices = true
+		}
+	}
+	regChanged := devices && x.buildRegistry()
+	if regChanged {
+		for _, o := range x.objects {
+			for _, r := range o.revs {
+				x.check(r)
+			}
+		}
+	} else {
+		for _, r := range added {
+			x.check(r)
+		}
+	}
+	policyChanged := x.readPolicy(v.desc.ID)
+	if regChanged || policyChanged {
+		for _, o := range x.objects {
+			v.computeHeads(x, o)
+		}
+	} else {
+		for id := range objs {
+			v.computeHeads(x, x.objects[id])
+		}
+	}
+	x.settleDevices(v.ownKey())
+	x.rebuildNames()
 }
 
 // live reports whether the object is an item that exists now.
@@ -141,9 +235,10 @@ func (o *object) live() bool {
 	return len(o.heads) > 0 && o.heads[0].kind == payloadItem && !o.heads[0].deleted && o.heads[0].item != nil
 }
 
-func (o *object) entry() Entry {
+func (v *Vault) entry(x *index, o *object) Entry {
 	w := o.heads[0]
-	e := Entry{ID: o.id, Rev: w.id, Time: time.Unix(0, w.hdr.Time).UTC(), Device: w.hdr.Device, Deleted: w.deleted}
+	e := Entry{ID: o.id, Rev: w.id, Time: time.Unix(0, w.hdr.Time).UTC(), Device: w.hdr.Device, Deleted: w.deleted,
+		Signature: x.signature(w, v.ownKey())}
 	if w.item != nil {
 		e.Item = w.item.clone()
 	}
@@ -202,6 +297,7 @@ func (v *Vault) scan(x *index) error {
 		return err
 	}
 	changed := map[svformat.ID]bool{}
+	var added []*revision
 	for _, n := range names {
 		if x.seen[n] {
 			continue
@@ -220,14 +316,22 @@ func (v *Vault) scan(x *index) error {
 			x.problems = append(x.problems, Problem{n, err})
 			continue
 		}
-		x.object(obj).revs[rid] = r
+		x.add(obj, r)
+		added = append(added, r)
 		changed[obj] = true
 	}
-	for id := range changed {
-		x.objects[id].computeHeads()
+	if len(added) > 0 {
+		v.evaluate(x, added, changed)
 	}
-	x.rebuildNames()
 	return nil
+}
+
+// add puts a revision into the index, unsettled (evaluate).
+func (x *index) add(obj svformat.ID, r *revision) {
+	x.object(obj).revs[r.id] = r
+	if r.kind == DeviceKind {
+		x.deviceObjs[obj] = true
+	}
 }
 
 // loadRevision reads, checks, authenticates and decrypts one revision.
@@ -257,21 +361,53 @@ func (v *Vault) loadRevision(name string, obj svformat.ID, rid svformat.RevID) (
 	if err != nil {
 		return nil, err
 	}
+	var signed []byte
+	if hdr.Signature != nil {
+		signed, err = svformat.SignedData(file, dek, plain)
+	}
 	clear(dek)
+	if err != nil {
+		clear(plain)
+		return nil, err
+	}
 	p, err := decodePayload(plain)
 	clear(plain)
 	if err != nil {
 		return nil, err
 	}
-	if p.Type != payloadItem {
-		return &revision{id: rid, hdr: hdr, kind: p.Type, deleted: p.Deleted, record: []byte(p.Record)}, nil
+	return v.newRevision(rid, hdr, p, signed), nil
+}
+
+// newRevision is a revision as the index keeps it. It takes p's item and
+// record.
+func (v *Vault) newRevision(rid svformat.RevID, hdr svformat.RevisionHeader, p payload, signed []byte) *revision {
+	r := &revision{id: rid, hdr: hdr, kind: p.Type, deleted: p.Deleted, signed: signed}
+	if p.Type == payloadItem {
+		r.item = p.Item
+		return r
 	}
-	return &revision{id: rid, hdr: hdr, kind: payloadItem, deleted: p.Deleted, item: p.Item}, nil
+	r.record = []byte(p.Record)
+	if !p.Deleted {
+		switch {
+		case p.Type == DeviceKind:
+			r.device = parseDeviceRecord(p.Record)
+		case p.Type == PolicyKind && hdr.Object == PolicyID(v.desc.ID):
+			var pol Policy
+			if json.Unmarshal(p.Record, &pol) == nil {
+				r.policy = &pol
+			}
+		}
+	}
+	return r
 }
 
 // write seals and stores a new revision of obj with the given parents, and
 // adds it to the index.
 func (v *Vault) write(obj svformat.ID, parents []*revision, p payload) (Entry, error) {
+	signer := v.opts.Signer
+	if v.idx.policy.RequireSignatures && !v.canSign(obj, p) {
+		return Entry{}, fmt.Errorf("%w, and this device is not registered in it", ErrSignatureRequired)
+	}
 	hdr := svformat.RevisionHeader{
 		Suite:  v.suite,
 		Vault:  v.desc.ID,
@@ -289,7 +425,15 @@ func (v *Vault) write(obj svformat.ID, parents []*revision, p payload) (Entry, e
 	}
 	// A fresh content key for every revision.
 	dek := svcrypto.RandomKey()
-	file, err := svformat.SealRevision(hdr, v.wrap().Bytes(), dek, plain)
+	var file, signed []byte
+	if signer != nil {
+		file, err = svformat.SealSignedRevision(hdr, v.wrap().Bytes(), dek, plain, signer.private())
+		if err == nil {
+			signed, err = svformat.SignedData(file, dek, plain)
+		}
+	} else {
+		file, err = svformat.SealRevision(hdr, v.wrap().Bytes(), dek, plain)
+	}
 	clear(dek)
 	clear(plain)
 	if err != nil {
@@ -304,20 +448,38 @@ func (v *Vault) write(obj svformat.ID, parents []*revision, p payload) (Entry, e
 	if err != nil {
 		return Entry{}, err
 	}
-	r := &revision{id: rid, hdr: parsed, kind: p.Type, deleted: p.Deleted}
+	// The index keeps copies of its own.
+	kept := payload{Type: p.Type, Deleted: p.Deleted}
 	if p.Item != nil {
 		it := p.Item.clone()
-		r.item = &it
+		kept.Item = &it
 	}
 	if p.Record != nil {
-		r.record = bytes.Clone(p.Record)
+		kept.Record = bytes.Clone(p.Record)
 	}
+	r := v.newRevision(rid, parsed, kept, signed)
 	v.idx.seen[name] = true
-	o := v.idx.object(obj)
-	o.revs[rid] = r
-	o.computeHeads()
-	v.idx.rebuildNames()
-	return o.entry(), nil
+	v.idx.add(obj, r)
+	v.evaluate(v.idx, []*revision{r}, map[svformat.ID]bool{obj: true})
+	o := v.idx.objects[obj]
+	if len(o.heads) == 0 {
+		return Entry{}, fmt.Errorf("%w: what was just written does not count", ErrSignatureRequired)
+	}
+	return v.entry(v.idx, o), nil
+}
+
+// canSign reports whether a write by this handle would count in a vault
+// that requires signatures: its key is registered, for its device, or
+// the write registers it. The caller holds v.mu.
+func (v *Vault) canSign(obj svformat.ID, p payload) bool {
+	own := v.ownKey()
+	if own.IsZero() {
+		return false
+	}
+	if e := v.idx.reg[own]; e != nil {
+		return e.device == v.opts.Device
+	}
+	return p.Type == DeviceKind && obj == own
 }
 
 // Put stores an item under its name: a new revision of the item already
@@ -405,7 +567,7 @@ func (v *Vault) Get(name string) (Entry, error) {
 	if !ok {
 		return Entry{}, fmt.Errorf("%w: %q", ErrNotFound, name)
 	}
-	return v.idx.objects[id].entry(), nil
+	return v.entry(v.idx, v.idx.objects[id]), nil
 }
 
 // GetID returns the item with the given object ID: the one its name
@@ -421,7 +583,7 @@ func (v *Vault) GetID(id svformat.ID) (Entry, error) {
 	if !ok || !o.live() || v.idx.byName[o.heads[0].item.Name] != id {
 		return Entry{}, fmt.Errorf("%w: item %s", ErrNotFound, id)
 	}
-	return o.entry(), nil
+	return v.entry(v.idx, o), nil
 }
 
 // List returns every item whose name starts with prefix, by name.
@@ -434,7 +596,7 @@ func (v *Vault) List(prefix string) ([]Entry, error) {
 	var out []Entry
 	for name, id := range v.idx.byName {
 		if strings.HasPrefix(name, prefix) {
-			out = append(out, v.idx.objects[id].entry())
+			out = append(out, v.entry(v.idx, v.idx.objects[id]))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Item.Name < out[j].Item.Name })
@@ -469,13 +631,15 @@ func (v *Vault) History(name string) ([]Entry, error) {
 		return nil, fmt.Errorf("%w: %q", ErrNotFound, name)
 	}
 	o := v.idx.objects[id]
+	own := v.ownKey()
 	var out []Entry
-	for rid := range o.revs {
+	for rid, known := range o.revs {
 		r, err := v.loadRevision(svformat.RevisionName(id, rid), id, rid)
 		if err != nil {
 			return nil, err
 		}
-		e := Entry{ID: id, Rev: rid, Time: time.Unix(0, r.hdr.Time).UTC(), Device: r.hdr.Device, Deleted: r.deleted}
+		e := Entry{ID: id, Rev: rid, Time: time.Unix(0, r.hdr.Time).UTC(), Device: r.hdr.Device, Deleted: r.deleted,
+			Signature: v.idx.signature(known, own), Ignored: !v.idx.counts(known)}
 		if r.item != nil {
 			e.Item = *r.item
 		}
@@ -525,14 +689,34 @@ func (v *Vault) Verify() (Report, error) {
 		return Report{}, err
 	}
 	rep := Report{Objects: len(x.objects), Problems: append(slices.Clone(v.epochProblems), x.problems...), Duplicates: x.dupes}
+	rep.Problems = append(rep.Problems, x.regProblems...)
 	for _, o := range x.objects {
 		rep.Revisions += len(o.revs)
+		for _, r := range o.revs {
+			var err error
+			switch {
+			case r.status == SigBad:
+				err = ErrBadSignature
+			case r.status == SigUnverified:
+				err = ErrUnknownSigner
+			case !x.counts(r):
+				err = fmt.Errorf("%w; this one is not signed, and is ignored", ErrSignatureRequired)
+			case r.kind == DeviceKind && x.reg[o.id] == nil:
+				err = errors.New("svcore: a device record its key never signed; ignored")
+			}
+			if err != nil {
+				if r.status != SigVerified && r.status != SigUnsigned && !x.counts(r) {
+					err = fmt.Errorf("%w; the vault requires signatures, so it is ignored", err)
+				}
+				rep.Problems = append(rep.Problems, Problem{svformat.RevisionName(o.id, r.id), err})
+			}
+		}
 		if !o.live() {
 			continue
 		}
 		rep.Live++
 		if len(o.heads) > 1 {
-			rep.Conflicts = append(rep.Conflicts, o.entry())
+			rep.Conflicts = append(rep.Conflicts, v.entry(x, o))
 		}
 		if h := o.heads[0]; h.item != nil {
 			for _, f := range h.item.Files {

@@ -22,9 +22,12 @@ type Record struct {
 	ID     svformat.ID
 	Rev    svformat.RevID
 	Time   time.Time
-	Device svformat.ID
+	Device svformat.ID // as the header names it, in the clear
 	Kind   string
 	Data   json.RawMessage // the caller's own JSON; wipe it when done if sensitive
+
+	// Signature is who signed the current revision (devices.go).
+	Signature Signature
 
 	// Conflicts hold the data of the record's other heads, when devices
 	// changed it at once without seeing each other's change (a deleted
@@ -43,10 +46,14 @@ func checkKind(kind string) error {
 }
 
 // PutRecord stores a record of the given kind: a new one when id is zero
-// (its ID is returned), else a new revision of record id.
+// (its ID is returned), else a new revision of record id. Device and
+// policy records are the engine's own (devices.go).
 func (v *Vault) PutRecord(kind string, id svformat.ID, data any) (Record, error) {
 	if err := checkKind(kind); err != nil {
 		return Record{}, err
+	}
+	if kind == DeviceKind || kind == PolicyKind {
+		return Record{}, fmt.Errorf("svcore: %s records are written through the vault's own methods", kind)
 	}
 	raw, err := json.Marshal(data)
 	if err != nil {
@@ -71,7 +78,7 @@ func (v *Vault) PutRecord(kind string, id svformat.ID, data any) (Record, error)
 	if _, err := v.write(id, parents, payload{Type: kind, Record: raw}); err != nil {
 		return Record{}, err
 	}
-	return v.idx.objects[id].record(), nil
+	return v.record(v.idx.objects[id]), nil
 }
 
 // DeleteRecord removes a record by writing a tombstone.
@@ -84,6 +91,9 @@ func (v *Vault) DeleteRecord(id svformat.ID) error {
 	o, ok := v.idx.objects[id]
 	if !ok || len(o.heads) == 0 || o.heads[0].kind == payloadItem || o.heads[0].deleted {
 		return fmt.Errorf("%w: record %s", ErrNotFound, id)
+	}
+	if k := o.heads[0].kind; k == DeviceKind || k == PolicyKind {
+		return fmt.Errorf("svcore: %s records are removed through the vault's own methods", k)
 	}
 	_, err := v.write(id, o.heads, payload{Type: o.heads[0].kind, Deleted: true})
 	return err
@@ -105,7 +115,7 @@ func (v *Vault) Records(kind string) ([]Record, error) {
 			continue
 		}
 		if h := o.heads[0]; h.kind == kind && !h.deleted && h.record != nil {
-			out = append(out, o.record())
+			out = append(out, v.record(o))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -117,11 +127,11 @@ func (v *Vault) Records(kind string) ([]Record, error) {
 	return out, nil
 }
 
-func (o *object) record() Record {
+func (v *Vault) record(o *object) Record {
 	h := o.heads[0]
 	r := Record{
 		ID: o.id, Rev: h.id, Time: time.Unix(0, h.hdr.Time).UTC(), Device: h.hdr.Device,
-		Kind: h.kind, Data: append(json.RawMessage(nil), h.record...),
+		Signature: v.idx.signature(h, v.ownKey()), Kind: h.kind, Data: append(json.RawMessage(nil), h.record...),
 	}
 	for _, other := range o.heads[1:] {
 		if other.kind == h.kind && !other.deleted && other.record != nil {
