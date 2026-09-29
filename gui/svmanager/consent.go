@@ -82,7 +82,7 @@ func (m *Manager) drawVaultPage(tab int) {
 		{Title: "Program"},
 		{Title: "Item", Width: 130},
 		{Title: "May", Width: 90},
-		{Title: "Since", Width: 120},
+		{Title: "Since", Width: 140},
 	}, len(p.grants), func(row, col int) string {
 		if row < 0 || row >= len(p.grants) {
 			return ""

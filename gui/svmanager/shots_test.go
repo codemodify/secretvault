@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/uitoolkit"
 	"github.com/codemodify/uitoolkit/app"
 	"github.com/codemodify/uitoolkit/platform"
@@ -81,6 +82,16 @@ func TestScreenshots(t *testing.T) {
 		h.win().Press(platform.KeyEscape)
 		h.win().Press(platform.KeyEscape)
 
+		// Two remembered decisions, as a person might have made them.
+		h.prove()
+		for _, g := range []svrpc.GrantAddParams{
+			{Program: "/usr/bin/git", Item: "web/github.com", Decision: "allow-always"},
+			{Program: "/usr/bin/curl", Decision: "deny-always"},
+		} {
+			if _, err := h.admin.Grant(h.ctx(), g); err != nil {
+				t.Logf("grant %s: %v", g.Program, err)
+			}
+		}
 		h.win().Press(platform.KeyG, platform.ModCtrl|platform.ModShift)
 		h.waitFor("the vault page", h.m.showingVaultPage)
 		h.idle()
