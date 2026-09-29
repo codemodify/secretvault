@@ -155,9 +155,10 @@ func DecodePKCS12(data, password []byte, lim *Limits) (*PKCS12, error) {
 			}
 			err = r.safeContents(plain, 0)
 			clear(plain)
-			if errors.Is(err, ErrMalformed) {
-				// Content that decrypted but does not parse: with no MAC
-				// to check the password first, a wrong password.
+			if err != nil && !r.macOK && !errors.Is(err, ErrPassword) {
+				// Content that decrypted but does not read (malformed,
+				// or garbage that looks too big or unsupported): with no
+				// MAC to check the password first, a wrong password.
 				return nil, ErrPassword
 			}
 			if err != nil {

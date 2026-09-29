@@ -291,8 +291,15 @@ func TestEncryptDecrypt(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := ed2.Decrypt(d); !errors.Is(err, ErrDecryption) {
-					t.Fatalf("tampered: %v", err)
+				pt2, err := ed2.Decrypt(d)
+				switch {
+				case errors.Is(err, ErrDecryption):
+				case !legacy:
+					t.Fatalf("tampered GCM: %v", err)
+				case err != nil || bytes.Equal(pt2.Content, content):
+					// CBC: one time in about 256 the garbled last block
+					// still has valid padding, and garbage comes back.
+					t.Fatalf("tampered CBC: %v", err)
 				}
 			})
 		}
