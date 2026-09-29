@@ -235,17 +235,23 @@ func (c *Client) Value(ctx context.Context, vault, item, field string) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
-	if field != "" {
+	return s.Bytes()
+}
+
+// Bytes is the value of the field asked for, or of the item's secret
+// field when none was.
+func (s *Secret) Bytes() ([]byte, error) {
+	if s.Field != "" {
 		switch {
 		case s.Value != nil:
 			return []byte(*s.Value), nil
 		case s.ValueBase64 != nil:
 			return base64.StdEncoding.DecodeString(*s.ValueBase64)
 		}
-		return nil, fmt.Errorf("the server sent no value for %s/%s#%s", vault, item, field)
+		return nil, fmt.Errorf("the server sent no value for %s/%s#%s", s.Vault, s.Item, s.Field)
 	}
 	if s.SecretField == "" {
-		return nil, fmt.Errorf("%s/%s has no secret field: name one", vault, item)
+		return nil, fmt.Errorf("%s/%s has no secret field: name one", s.Vault, s.Item)
 	}
 	if v, ok := s.Fields[s.SecretField]; ok {
 		return []byte(v), nil
@@ -253,7 +259,7 @@ func (c *Client) Value(ctx context.Context, vault, item, field string) ([]byte, 
 	if v, ok := s.FieldsBase64[s.SecretField]; ok {
 		return base64.StdEncoding.DecodeString(v)
 	}
-	return nil, fmt.Errorf("the server sent no value for %s/%s", vault, item)
+	return nil, fmt.Errorf("the server sent no value for %s/%s", s.Vault, s.Item)
 }
 
 // List returns the names under prefix the caller may list.
