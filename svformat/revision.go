@@ -2,6 +2,7 @@ package svformat
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 //	    0x05 parents (32 each)         sorted revision IDs; absent for the first
 //	    0x06 wrapped object key        Seal(wrap key, object key, dek_aad)
 //	    0x81 device ID (16)            optional: which device wrote it
+//	    0x82 signature                 optional: that device's (signature.go)
 //	}
 //	body     = Seal(object key, padded payload, aad = prefix)
 //	dek_aad  = "secretvault sv1 dek" || vault ID || object ID || epoch(4)
@@ -35,13 +37,14 @@ import (
 const revisionMagic = "SVR1"
 
 const (
-	tagVault   = 0x01
-	tagObject  = 0x02
-	tagEpoch   = 0x03
-	tagTime    = 0x04
-	tagParents = 0x05
-	tagWrapped = 0x06
-	tagDevice  = 0x81
+	tagVault     = 0x01
+	tagObject    = 0x02
+	tagEpoch     = 0x03
+	tagTime      = 0x04
+	tagParents   = 0x05
+	tagWrapped   = 0x06
+	tagDevice    = 0x81
+	tagSignature = 0x82
 )
 
 // ErrRevision is a revision file that is malformed or of an unsupported
@@ -59,12 +62,21 @@ type RevisionHeader struct {
 	Parents []RevID
 	Device  ID // zero when not recorded
 
+	// Signature is the writing device's signature, nil when the revision
+	// is not signed. Sealing ignores it: SealSignedRevision makes one.
+	Signature *RevisionSignature
+
 	wrapped []byte
 }
 
 // SealRevision writes a revision: payload sealed under the object key dek,
 // dek wrapped under wrapKey. Parents are sorted into canonical order.
 func SealRevision(h RevisionHeader, wrapKey, dek, payload []byte) ([]byte, error) {
+	return sealRevision(h, wrapKey, dek, payload, nil)
+}
+
+// sealRevision seals a revision, signed with key unless it is nil.
+func sealRevision(h RevisionHeader, wrapKey, dek, payload []byte, key ed25519.PrivateKey) ([]byte, error) {
 	if !h.Suite.Valid() || h.Epoch == 0 || h.Time < 0 || h.Vault.IsZero() || h.Object.IsZero() {
 		return nil, fmt.Errorf("%w: incomplete header", ErrRevision)
 	}
@@ -95,6 +107,15 @@ func SealRevision(h RevisionHeader, wrapKey, dek, payload []byte) ([]byte, error
 	hdr, err := t.encode()
 	if err != nil {
 		return nil, err
+	}
+	if key != nil {
+		fields, err := sign(h.Suite, t.fields, h.Vault, dek, payload, key)
+		if err != nil {
+			return nil, err
+		}
+		if hdr, err = EncodeTLV(fields); err != nil {
+			return nil, err
+		}
 	}
 	if len(hdr) > 0xFFFF {
 		return nil, fmt.Errorf("%w: header is %d bytes", ErrRevision, len(hdr))
@@ -210,6 +231,12 @@ func parseRevision(file []byte) (h RevisionHeader, prefix, body []byte, err erro
 			}
 		case tagWrapped:
 			h.wrapped = f.Value
+		case tagSignature:
+			sig, err := parseSignature(f.Value)
+			if err != nil {
+				return RevisionHeader{}, nil, nil, err
+			}
+			h.Signature = sig
 		default:
 			if Critical(f.Tag) {
 				return bad(fmt.Sprintf("unknown critical tag 0x%02x", f.Tag))
@@ -223,6 +250,9 @@ func parseRevision(file []byte) (h RevisionHeader, prefix, body []byte, err erro
 	}
 	if h.Epoch == 0 {
 		return bad("epoch 0")
+	}
+	if h.Signature != nil && h.Device.IsZero() {
+		return bad("a signed revision names no device")
 	}
 	return h, prefix, body, nil
 }
