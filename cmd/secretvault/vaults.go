@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/codemodify/secretvault"
@@ -160,6 +161,13 @@ func (c *cli) cmdStatus(args []string) error {
 	fmt.Fprintf(c.stdout, "keyring: %s\n", st.SecretService)
 	if st.SSHAgent != "" {
 		fmt.Fprintf(c.stdout, "ssh:     %s (export SSH_AUTH_SOCK=%s)\n", st.SSHAgent, st.SSHAgent)
+	}
+	if st.GPGAgent != "" {
+		homes := "no GnuPG home pointed at it yet: 'secretvault pgp gpg-setup'"
+		if len(st.GnuPGHomes) > 0 {
+			homes = "for " + strings.Join(st.GnuPGHomes, ", ")
+		}
+		fmt.Fprintf(c.stdout, "gpg:     %s (%s)\n", st.GPGAgent, homes)
 	}
 	fmt.Fprintln(c.stdout)
 	if len(st.Emergency) > 0 {

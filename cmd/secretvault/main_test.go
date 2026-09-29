@@ -32,6 +32,7 @@ type harness struct {
 	passFile string
 	answers  []string  // what the terminal "types", in order
 	desk     *fakeDesk // the desktop prompt, for programs other than the CLI
+	d        *svd.Daemon
 
 	keysMu sync.Mutex
 	keys   []*fidotest.Authenticator // software security keys plugged in
@@ -129,6 +130,7 @@ func newHarness(t *testing.T, tweaks ...func(*svd.Options)) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	h.d = d
 	ln, cleanup, err := svd.Listen(h.sock)
 	if err != nil {
 		t.Fatal(err)

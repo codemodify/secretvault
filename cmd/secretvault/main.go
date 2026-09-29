@@ -45,7 +45,7 @@
 //	identity new|pub           make or show a recipient identity
 //	contact ls|show|add|import|rm|verify|lookup|qr|vault   people, their keys, and how you verified them
 //	trust check|seen           the verdict on a message's signer; record a key seen in mail
-//	pgp ls|new|import|export|pub|sign|decrypt|verify       your OpenPGP keys, used inside the daemon
+//	pgp ls|new|import|export|pub|sign|decrypt|verify|gpg-setup   your OpenPGP keys, used inside the daemon (and by gpg)
 //	verify                     re-authenticate every file of the vault
 //	host init|allow|deny|ls|status|audit    set up the host daemon (as root)
 //	version                    print the version
@@ -54,7 +54,9 @@
 // (symlinks to this program), it is git's or docker's credential helper;
 // as age-plugin-secretvault, the age plugin for identities kept in vaults;
 // as secretvault-browser (or when a browser starts it by its manifest),
-// the native-messaging host KeePassXC-Browser talks to.
+// the native-messaging host KeePassXC-Browser talks to. gpg starts it as
+// its agent-program in a GnuPG home 'pgp gpg-setup' pointed at the
+// daemon, to start the daemon and link the agent socket again.
 //
 // Commands that use a vault also take --passphrase-file FILE, --keyfile
 // FILE, --identity FILE, --recovery, --shares or --fido2, to unlock (and
@@ -93,6 +95,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -246,6 +249,9 @@ func init() {
 var errUsage = errors.New("usage")
 
 func (c *cli) run(args []string) int {
+	if slices.Contains(args, gpgAgentProgramFlag) {
+		return c.gpgAgentStart(args) // gpg starting its agent (pgp_gnupg.go)
+	}
 	global := flag.NewFlagSet("secretvault", flag.ContinueOnError)
 	global.SetOutput(c.stderr)
 	global.StringVar(&c.vault, "vault", os.Getenv(EnvVault), "the vault to use (default: the default vault)")

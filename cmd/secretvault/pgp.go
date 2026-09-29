@@ -25,6 +25,7 @@ import (
 //	secretvault pgp sign [--key KEY] [--inline|--clear] [-a] [--text] [-o OUT] [IN]
 //	secretvault pgp decrypt [--key KEY] [--verify] [--from ADDRESS] [-o OUT] [IN]
 //	secretvault pgp verify [--signature FILE] [--from ADDRESS] [IN]
+//	secretvault pgp gpg-setup [--gnupghome DIR] [--dry-run] [--remove] [--gpg PATH]
 //
 // KEY is the item's name, the key's fingerprint or key ID, or one of its
 // addresses; it may be left out when the vault holds one key. new makes
@@ -32,10 +33,12 @@ import (
 // not read; --v4 for one it does). sign and decrypt happen in the daemon
 // too: the secret key never reaches this program. export --secret does
 // take it out, protected with a new passphrase unless --unprotected.
+// gpg-setup points a GnuPG home at the daemon's gpg-agent face, so that
+// gpg itself signs and decrypts with the vault's keys (pgp_gnupg.go).
 
 func (c *cli) cmdPGP(args []string) error {
 	usage := func() error {
-		fmt.Fprintln(c.stderr, "usage: secretvault pgp ls|new|import|export|pub|sign|decrypt|verify [flags] [args]")
+		fmt.Fprintln(c.stderr, "usage: secretvault pgp ls|new|import|export|pub|sign|decrypt|verify|gpg-setup [flags] [args]")
 		fmt.Fprintln(c.stderr)
 		fmt.Fprintln(c.stderr, "  ls                                    list your OpenPGP keys")
 		fmt.Fprintln(c.stderr, "  new --name N --email E [--v4]         make a key (version 6, or 4 for GnuPG 2.4)")
@@ -45,6 +48,7 @@ func (c *cli) cmdPGP(args []string) error {
 		fmt.Fprintln(c.stderr, "  sign [--key KEY] [--inline|--clear] [-a] [-o OUT] [IN]")
 		fmt.Fprintln(c.stderr, "  decrypt [--key KEY] [--verify --from ADDRESS] [-o OUT] [IN]")
 		fmt.Fprintln(c.stderr, "  verify [--signature FILE] [--from ADDRESS] [IN]   check a signature against your contacts")
+		fmt.Fprintln(c.stderr, "  gpg-setup [--gnupghome DIR] [--dry-run] [--remove]  let gpg itself use the vault's keys")
 		fmt.Fprintln(c.stderr)
 		fmt.Fprintln(c.stderr, "KEY is an item name, a fingerprint or key ID, or an address; optional with one key.")
 		return errUsage
@@ -69,6 +73,8 @@ func (c *cli) cmdPGP(args []string) error {
 		return c.pgpDecrypt(args[1:])
 	case "verify":
 		return c.pgpVerify(args[1:])
+	case "gpg-setup":
+		return c.pgpGnuPGSetup(args[1:])
 	case "-h", "--help", "help":
 		usage()
 		return nil
