@@ -1,0 +1,28 @@
+// The module generate.go.txt was run in, outside this repository:
+//
+//	go run . gen DIR    write the reference-made files here
+//	go run . check      encrypt with each side and decrypt with the other
+//
+// with a clone of filippo.io/age at v1.3.2 in ../age and this repository
+// in ../secretvault.
+module interop
+
+go 1.26.0
+
+require (
+	filippo.io/age v1.3.2
+	github.com/codemodify/secretvault v0.0.0
+	golang.org/x/crypto v0.57.0
+)
+
+require (
+	filippo.io/edwards25519 v1.2.0 // indirect
+	filippo.io/hpke v0.4.0 // indirect
+	filippo.io/nistec v0.0.4 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/term v0.46.0 // indirect
+)
+
+replace filippo.io/age => ../age
+
+replace github.com/codemodify/secretvault => ../secretvault

@@ -1,0 +1,392 @@
+// Command interop checks svage against the reference age implementation
+// (filippo.io/age v1.3.2) in both directions, and writes reference-made
+// files for svage's tests.
+package main
+
+import (
+	"bytes"
+	"crypto/ecdh"
+	"crypto/hpke"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+
+	"filippo.io/age"
+	"filippo.io/age/agessh"
+	"filippo.io/age/armor"
+	"filippo.io/age/plugin"
+	"filippo.io/age/tag"
+	"golang.org/x/crypto/ssh"
+
+	"github.com/codemodify/secretvault/svage"
+)
+
+var plaintext = bytes.Repeat([]byte("secretvault and age agree.\n"), 40)
+
+const ed25519Key = `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACB/aTuac9tiWRGrKEtixFlryYlGCPTOpdbmXN9RRmDF2gAAAKDgV/GC4Ffx
+ggAAAAtzc2gtZWQyNTUxOQAAACB/aTuac9tiWRGrKEtixFlryYlGCPTOpdbmXN9RRmDF2g
+AAAECvFoQXQzXgJLQ+Gz4PfEcfyZwC2gUjOiWTD//mTPyD8H9pO5pz22JZEasoS2LEWWvJ
+iUYI9M6l1uZc31FGYMXaAAAAG2ZpbGlwcG9AQmlzdHJvbWF0aC1NMS5sb2NhbAEC
+-----END OPENSSH PRIVATE KEY-----
+`
+
+const (
+	tagSeed   = "svage interop p256tag"
+	tagPQSeed = "svage interop mlkem768p256tag"
+)
+
+func main() {
+	switch os.Args[1] {
+	case "gen":
+		must(gen(os.Args[2]))
+	case "check":
+		must(check())
+	}
+}
+
+func must(err error) {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "FAIL:", err)
+		os.Exit(1)
+	}
+}
+
+func refEncrypt(path string, armored bool, rs ...age.Recipient) error {
+	var buf bytes.Buffer
+	var dst io.Writer = &buf
+	var aw io.WriteCloser
+	if armored {
+		aw = armor.NewWriter(&buf)
+		dst = aw
+	}
+	w, err := age.Encrypt(dst, rs...)
+	if err != nil {
+		return err
+	}
+	w.Write(plaintext)
+	if err := w.Close(); err != nil {
+		return err
+	}
+	if aw != nil {
+		aw.Close()
+	}
+	return os.WriteFile(path, buf.Bytes(), 0o644)
+}
+
+func tagIdentity(pq bool) (hpke.PrivateKey, *tag.Recipient) {
+	if pq {
+		k, _ := hpke.MLKEM768P256().DeriveKeyPair([]byte(tagPQSeed))
+		r, err := tag.NewHybridRecipient(k.PublicKey().Bytes())
+		if err != nil {
+			panic(err)
+		}
+		return k, r
+	}
+	k, _ := hpke.DHKEM(ecdh.P256()).DeriveKeyPair([]byte(tagSeed))
+	pub, _ := ecdh.P256().NewPublicKey(k.PublicKey().Bytes())
+	_ = pub
+	// Compress the point: 0x02|0x03 by y's parity, then x.
+	u := k.PublicKey().Bytes()
+	c := append([]byte{2 | u[64]&1}, u[1:33]...)
+	r, err := tag.NewClassicRecipient(c)
+	if err != nil {
+		panic(err)
+	}
+	return k, r
+}
+
+func gen(dir string) error {
+	os.MkdirAll(dir, 0o755)
+	if err := os.WriteFile(filepath.Join(dir, "ssh-ed25519.key"), []byte(ed25519Key), 0o600); err != nil {
+		return err
+	}
+	edID, err := agessh.ParseIdentity([]byte(ed25519Key))
+	if err != nil {
+		return err
+	}
+	if err := refEncrypt(filepath.Join(dir, "ssh-ed25519.age"), false, edID.(*agessh.Ed25519Identity).Recipient()); err != nil {
+		return err
+	}
+	if err := refEncrypt(filepath.Join(dir, "ssh-ed25519-armored.age"), true, edID.(*agessh.Ed25519Identity).Recipient()); err != nil {
+		return err
+	}
+	rk, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return err
+	}
+	blk, err := ssh.MarshalPrivateKey(rk, "svage interop")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ssh-rsa.key"), pem.EncodeToMemory(blk), 0o600); err != nil {
+		return err
+	}
+	rsaID, _ := agessh.NewRSAIdentity(rk)
+	if err := refEncrypt(filepath.Join(dir, "ssh-rsa.age"), false, rsaID.Recipient()); err != nil {
+		return err
+	}
+	_, tr := tagIdentity(false)
+	if err := refEncrypt(filepath.Join(dir, "p256tag.age"), false, tr); err != nil {
+		return err
+	}
+	_, tpq := tagIdentity(true)
+	if err := refEncrypt(filepath.Join(dir, "mlkem768p256tag.age"), false, tpq); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "recipients.txt"), []byte(fmt.Sprintf(
+		"# The tag recipients the reference encrypted to: HPKE DeriveKeyPair of %q and %q.\n%s\n%s\n",
+		tagSeed, tagPQSeed, tr, tpq)), 0o644)
+}
+
+// refTagIdentity opens tagged stanzas the way age's own test identity does,
+// using the reference's tag computation.
+type refTagIdentity struct {
+	k  hpke.PrivateKey
+	r  *tag.Recipient
+	pq bool
+}
+
+func (i *refTagIdentity) Unwrap(ss []*age.Stanza) ([]byte, error) {
+	typ, label := "p256tag", "age-encryption.org/p256tag"
+	if i.pq {
+		typ, label = "mlkem768p256tag", "age-encryption.org/mlkem768p256tag"
+	}
+	for _, s := range ss {
+		if s.Type != typ || len(s.Args) != 2 {
+			continue
+		}
+		tg, _ := svDecode(s.Args[0])
+		enc, _ := svDecode(s.Args[1])
+		want, err := i.r.Tag(enc)
+		if err != nil {
+			return nil, err
+		}
+		if subtle.ConstantTimeCompare(tg, want[:4]) != 1 {
+			return nil, errors.New("tag mismatch")
+		}
+		rc, err := hpke.NewRecipient(enc, i.k, hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), []byte(label))
+		if err != nil {
+			return nil, err
+		}
+		return rc.Open(nil, s.Body)
+	}
+	return nil, age.ErrIncorrectIdentity
+}
+
+var base64Raw = base64.RawStdEncoding.Strict()
+
+func svDecode(s string) ([]byte, error) {
+	b, err := base64Raw.DecodeString(s)
+	return b, err
+}
+
+func svEncrypt(armored bool, rs ...svage.Recipient) ([]byte, error) {
+	var buf bytes.Buffer
+	var dst io.Writer = &buf
+	var aw io.WriteCloser
+	if armored {
+		aw = svage.NewArmorWriter(&buf)
+		dst = aw
+	}
+	w, err := svage.Encrypt(dst, rs...)
+	if err != nil {
+		return nil, err
+	}
+	w.Write(plaintext)
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	if aw != nil {
+		aw.Close()
+	}
+	return buf.Bytes(), nil
+}
+
+func refDecrypt(name string, file []byte, armored bool, ids ...age.Identity) error {
+	var in io.Reader = bytes.NewReader(file)
+	if armored {
+		in = armor.NewReader(in)
+	}
+	r, err := age.Decrypt(in, ids...)
+	if err != nil {
+		return fmt.Errorf("%s: reference Decrypt: %v", name, err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil || !bytes.Equal(out, plaintext) {
+		return fmt.Errorf("%s: reference read: %v", name, err)
+	}
+	fmt.Println("ok  svage -> age ", name)
+	return nil
+}
+
+func svDecrypt(name string, file []byte, armored bool, ids ...svage.Identity) error {
+	var in io.Reader = bytes.NewReader(file)
+	if armored {
+		in = svage.NewArmorReader(in)
+	}
+	r, err := svage.Decrypt(in, ids...)
+	if err != nil {
+		return fmt.Errorf("%s: svage Decrypt: %v", name, err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil || !bytes.Equal(out, plaintext) {
+		return fmt.Errorf("%s: svage read: %v", name, err)
+	}
+	fmt.Println("ok  age -> svage ", name)
+	return nil
+}
+
+func check() error {
+	// X25519, both ways, and key encodings both ways.
+	rx, _ := age.GenerateX25519Identity()
+	sx, err := svage.ParseX25519Identity(rx.String())
+	if err != nil || sx.String() != rx.String() || sx.Recipient().String() != rx.Recipient().String() {
+		return fmt.Errorf("X25519 encodings differ: %v", err)
+	}
+	sr, _ := svage.ParseRecipient(rx.Recipient().String())
+	f, err := svEncrypt(false, sr)
+	if err != nil {
+		return err
+	}
+	if err := refDecrypt("X25519", f, false, rx); err != nil {
+		return err
+	}
+	var rf bytes.Buffer
+	w, _ := age.Encrypt(&rf, rx.Recipient())
+	w.Write(plaintext)
+	w.Close()
+	if err := svDecrypt("X25519", rf.Bytes(), false, sx); err != nil {
+		return err
+	}
+
+	// Hybrid.
+	rh, _ := age.GenerateHybridIdentity()
+	sh, err := svage.ParseHybridIdentity(rh.String())
+	if err != nil || sh.String() != rh.String() || sh.Recipient().String() != rh.Recipient().String() {
+		return fmt.Errorf("hybrid encodings differ: %v", err)
+	}
+	gh, _ := svage.GenerateHybridIdentity()
+	if _, err := age.ParseHybridIdentity(gh.String()); err != nil {
+		return fmt.Errorf("the reference cannot parse an svage hybrid identity: %v", err)
+	}
+	if f, err = svEncrypt(true, sh.Recipient()); err != nil {
+		return err
+	}
+	if err := refDecrypt("hybrid, armored", f, true, rh); err != nil {
+		return err
+	}
+	rf.Reset()
+	w, _ = age.Encrypt(&rf, rh.Recipient())
+	w.Write(plaintext)
+	w.Close()
+	if err := svDecrypt("hybrid", rf.Bytes(), false, sh); err != nil {
+		return err
+	}
+
+	// scrypt.
+	sp, _ := svage.NewScryptRecipient([]byte("correct horse"))
+	sp.SetWorkFactor(12)
+	if f, err = svEncrypt(false, sp); err != nil {
+		return err
+	}
+	rp, _ := age.NewScryptIdentity("correct horse")
+	if err := refDecrypt("scrypt", f, false, rp); err != nil {
+		return err
+	}
+	rf.Reset()
+	rrp, _ := age.NewScryptRecipient("correct horse")
+	rrp.SetWorkFactor(12)
+	w, _ = age.Encrypt(&rf, rrp)
+	w.Write(plaintext)
+	w.Close()
+	sip, _ := svage.NewScryptIdentity([]byte("correct horse"))
+	if err := svDecrypt("scrypt", rf.Bytes(), false, sip); err != nil {
+		return err
+	}
+
+	// SSH keys: svage encrypts, the reference decrypts, and back.
+	signer, err := ssh.ParsePrivateKey([]byte(ed25519Key))
+	if err != nil {
+		return err
+	}
+	edRcpt, err := svage.ParseSSHRecipient(string(ssh.MarshalAuthorizedKey(signer.PublicKey())))
+	if err != nil {
+		return err
+	}
+	edRef, _ := agessh.ParseIdentity([]byte(ed25519Key))
+	if f, err = svEncrypt(false, edRcpt); err != nil {
+		return err
+	}
+	if err := refDecrypt("ssh-ed25519", f, false, edRef); err != nil {
+		return err
+	}
+	edSv, err := svage.ParseSSHIdentity([]byte(ed25519Key), nil)
+	if err != nil {
+		return err
+	}
+	rf.Reset()
+	w, _ = age.Encrypt(&rf, edRef.(*agessh.Ed25519Identity).Recipient())
+	w.Write(plaintext)
+	w.Close()
+	if err := svDecrypt("ssh-ed25519", rf.Bytes(), false, edSv); err != nil {
+		return err
+	}
+
+	rk, _ := rsa.GenerateKey(rand.Reader, 2048)
+	rsaRef, _ := agessh.NewRSAIdentity(rk)
+	rsaPub, _ := ssh.NewPublicKey(&rk.PublicKey)
+	rsaRcpt, err := svage.ParseSSHRecipient(string(ssh.MarshalAuthorizedKey(rsaPub)))
+	if err != nil {
+		return err
+	}
+	if f, err = svEncrypt(false, rsaRcpt); err != nil {
+		return err
+	}
+	if err := refDecrypt("ssh-rsa", f, false, rsaRef); err != nil {
+		return err
+	}
+
+	// Tags: svage encrypts, a reference-computed tag must match.
+	for _, pq := range []bool{false, true} {
+		k, r := tagIdentity(pq)
+		str, err := svage.ParseTagRecipient(r.String())
+		if err != nil {
+			return err
+		}
+		if str.String() != r.String() {
+			return fmt.Errorf("tag recipient encodings differ")
+		}
+		if f, err = svEncrypt(false, str); err != nil {
+			return err
+		}
+		if err := refDecrypt(fmt.Sprintf("tag (post-quantum: %v)", pq), f, false, &refTagIdentity{k: k, r: r, pq: pq}); err != nil {
+			return err
+		}
+	}
+
+	// Mixing: the reference refuses what svage refuses.
+	if _, err := svage.Encrypt(io.Discard, sh.Recipient(), sx.Recipient()); err == nil {
+		return errors.New("svage mixed post-quantum and classical recipients")
+	}
+
+	// Plugin identity encoding.
+	enc, err := svage.EncodePluginIdentity("secretvault", []byte("default/age/laptop"))
+	if err != nil {
+		return err
+	}
+	name, data, err := plugin.ParseIdentity(enc)
+	if err != nil || name != "secretvault" || string(data) != "default/age/laptop" {
+		return fmt.Errorf("the reference reads the plugin identity as %q %q: %v", name, data, err)
+	}
+	fmt.Println("ok  plugin identity encoding", enc)
+	return nil
+}
