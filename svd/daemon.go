@@ -68,6 +68,11 @@ type Options struct {
 	// tests stand in fake programs).
 	Peer func(net.Conn) (*svpeer.Process, error)
 
+	// Launcher identifies the program that started a browser relay: the
+	// browser, which consent and the audit log then name (svpeer.Parent
+	// of the relay when nil; tests stand in a browser).
+	Launcher func(relay *svpeer.Process) (*svpeer.Process, error)
+
 	// IdleUnit is what AutoLock.IdleMinutes counts (time.Minute when 0;
 	// tests shorten it).
 	IdleUnit time.Duration
@@ -118,6 +123,9 @@ func New(opts Options) (*Daemon, error) {
 	}
 	if opts.Peer == nil {
 		opts.Peer = svpeer.FromConn
+	}
+	if opts.Launcher == nil {
+		opts.Launcher = func(relay *svpeer.Process) (*svpeer.Process, error) { return svpeer.Parent(relay.PID) }
 	}
 	if opts.IdleUnit == 0 {
 		opts.IdleUnit = time.Minute
@@ -218,6 +226,14 @@ type client struct {
 	cli       bool // secretvault's own CLI
 	name      string
 	canPrompt bool
+
+	// A face that takes a connection over (the browser relay, browser.go)
+	// sets these, under Daemon.mu: face is its state, events receives the
+	// daemon's notifications in the connection's place, and closed runs
+	// when the connection is gone.
+	face   any
+	events func(method string, ev svrpc.VaultEvent)
+	closed func()
 }
 
 // identity is the key decisions about this client are stored under. The
@@ -262,20 +278,32 @@ func (d *Daemon) serveConn(nc net.Conn) {
 	if d.agent == cl {
 		d.agent = nil
 	}
+	closed := cl.closed
 	d.mu.Unlock()
 	d.broker.DropConn(cl)
+	if closed != nil {
+		closed()
+	}
 }
 
 // notify sends an event to every client.
 func (d *Daemon) notify(method string, ev svrpc.VaultEvent) {
 	d.mu.Lock()
 	var all []*client
+	var faces []func(string, svrpc.VaultEvent)
 	for c := range d.clients {
-		all = append(all, c)
+		if c.events != nil {
+			faces = append(faces, c.events)
+		} else {
+			all = append(all, c)
+		}
 	}
 	d.mu.Unlock()
 	for _, c := range all {
 		go c.conn.Notify(method, ev)
+	}
+	for _, f := range faces {
+		go f(method, ev)
 	}
 }
 

@@ -50,6 +50,10 @@ type Options struct {
 
 	// OnEvent receives the daemon's notifications (vault.locked, ...).
 	OnEvent func(method string, ev svrpc.VaultEvent)
+
+	// OnNotify receives any other notification, as sent (the browser
+	// relay's browser.frame).
+	OnNotify func(method string, params json.RawMessage)
 }
 
 // ErrNoDaemon is a daemon that is not running and could not be started.
@@ -129,6 +133,10 @@ func (c *Client) serve(ctx context.Context, _ *svrpc.Conn, method string, params
 			json.Unmarshal(params, &ev)
 			c.opts.OnEvent(method, ev)
 		}
+		return nil, nil
+	}
+	if c.opts.OnNotify != nil {
+		c.opts.OnNotify(method, params)
 		return nil, nil
 	}
 	return nil, svrpc.Errorf(svrpc.CodeMethodNotFound, "no method %q", method)
@@ -331,6 +339,18 @@ func (c *Client) Audit(ctx context.Context, vault string, limit int) (out []svrp
 // secretvault's own CLI may).
 func (c *Client) ServeKeyring(ctx context.Context, enable bool) error {
 	return c.conn.Call(ctx, svrpc.MKeyringServe, svrpc.KeyringServeParams{Enable: enable}, nil)
+}
+
+// BrowserAssociations lists the browser extensions connected to a vault
+// on this device.
+func (c *Client) BrowserAssociations(ctx context.Context, vault string) (out []svrpc.BrowserAssociation, err error) {
+	err = c.conn.Call(ctx, svrpc.MBrowserList, svrpc.VaultRef{Vault: vault}, &out)
+	return
+}
+
+// RemoveBrowserAssociation disconnects a browser extension.
+func (c *Client) RemoveBrowserAssociation(ctx context.Context, vault, name string) error {
+	return c.conn.Call(ctx, svrpc.MBrowserRemove, svrpc.BrowserRemoveParams{Vault: vault, Name: name}, nil)
 }
 
 // RegisterPrompter makes this connection the session's prompter
