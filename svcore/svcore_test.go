@@ -590,3 +590,39 @@ func TestCheckingAKeyLeavesTheVaultAsItWas(t *testing.T) {
 		t.Fatalf("a wrong key: %v", err)
 	}
 }
+
+func TestConflictingRecordsCarryTheOtherHeads(t *testing.T) {
+	cheapKDF(t)
+	store, _ := svstore.OpenDir(filepath.Join(t.TempDir(), "v"))
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	a, _, err := Create(store, 0, NewSlot{Type: svformat.SlotPassphrase, Passphrase: pass},
+		Options{Device: svformat.ID{0xA}, Now: func() time.Time { return base }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := a.PutRecord("contact", svformat.ID{}, "original")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := Open(store, Options{Device: svformat.ID{0xB}, Now: func() time.Time { return base.Add(time.Hour) }})
+	if err := b.Unlock(Passphrase(pass)); err != nil {
+		t.Fatal(err)
+	}
+	a.PutRecord("contact", r.ID, "from A")
+	b.PutRecord("contact", r.ID, "from B") // later clock: B wins
+	a.Refresh()
+
+	recs, err := a.Records("contact")
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("Records = %v, %v", recs, err)
+	}
+	if string(recs[0].Data) != `"from B"` || len(recs[0].Conflicts) != 1 || string(recs[0].Conflicts[0]) != `"from A"` {
+		t.Fatalf("record %s with conflicts %s", recs[0].Data, recs[0].Conflicts)
+	}
+	if _, err := a.PutRecord("contact", r.ID, "merged"); err != nil {
+		t.Fatal(err)
+	}
+	if recs, _ := a.Records("contact"); string(recs[0].Data) != `"merged"` || len(recs[0].Conflicts) != 0 {
+		t.Fatalf("the next write did not merge: %s %s", recs[0].Data, recs[0].Conflicts)
+	}
+}

@@ -25,6 +25,12 @@ type Record struct {
 	Device svformat.ID
 	Kind   string
 	Data   json.RawMessage // the caller's own JSON; wipe it when done if sensitive
+
+	// Conflicts hold the data of the record's other heads, when devices
+	// changed it at once without seeing each other's change (a deleted
+	// head holds none). The next PutRecord replaces them all, so a caller
+	// that can merge them should, and write the result.
+	Conflicts []json.RawMessage
 }
 
 var kindPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
@@ -113,8 +119,14 @@ func (v *Vault) Records(kind string) ([]Record, error) {
 
 func (o *object) record() Record {
 	h := o.heads[0]
-	return Record{
+	r := Record{
 		ID: o.id, Rev: h.id, Time: time.Unix(0, h.hdr.Time).UTC(), Device: h.hdr.Device,
 		Kind: h.kind, Data: append(json.RawMessage(nil), h.record...),
 	}
+	for _, other := range o.heads[1:] {
+		if other.kind == h.kind && !other.deleted && other.record != nil {
+			r.Conflicts = append(r.Conflicts, append(json.RawMessage(nil), other.record...))
+		}
+	}
+	return r
 }
