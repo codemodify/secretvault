@@ -104,6 +104,10 @@ type VaultInfo struct {
 	Locked   bool      `json:"locked"`
 	Created  time.Time `json:"created"`
 	AutoLock AutoLock  `json:"auto_lock"`
+
+	// LoginUnlock is a vault the daemon opens when the person logs in,
+	// with a key the OS keeps for them (vault.login).
+	LoginUnlock bool `json:"login_unlock,omitempty"`
 }
 
 // AutoLock is when a vault locks itself.
@@ -371,4 +375,13 @@ type PromptAnswer struct {
 type VaultEvent struct {
 	Vault string `json:"vault"`
 	Item  string `json:"item,omitempty"`
+}
+
+// MVaultLogin sets a vault to open at login, or not.
+const MVaultLogin = "vault.login" // VaultLoginParams -> VaultInfo
+
+// VaultLoginParams turn opening a vault at login on or off.
+type VaultLoginParams struct {
+	Vault string `json:"vault,omitempty"`
+	On    bool   `json:"on"`
 }

@@ -84,6 +84,17 @@ This is the hard case, and it is worth being plain about it.
   stolen.
 - Sandboxed apps.
 
+### Opening at login
+
+A vault set to open at login (`vault login on`) has a keyfile slot whose
+key the OS seals to the user on this machine. The key opens for any program
+running as the user while they are logged in, which is the point; the
+consent broker still stands between those programs and the items. Against a
+stolen disk it holds on Windows (DPAPI) and macOS (the keychain), and on
+Linux with a TPM2. Without a TPM2, systemd's host key lies on the same disk
+as the sealed key, so only full-disk encryption protects it: use login
+unlock on such machines only with full-disk encryption.
+
 ### Someone who once held a key
 
 - **Removing a keyslot alone is not revocation.** It stops that key opening

@@ -25,6 +25,7 @@ import (
 	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svrpc"
+	"github.com/codemodify/secretvault/svseal"
 	"github.com/codemodify/secretvault/svsync"
 )
 
@@ -55,6 +56,10 @@ type Options struct {
 	// Nil means: a program named xdg-desktop-portal that the
 	// administrator installed.
 	IsPortal func(*svpeer.Process) bool
+
+	// Sealer keeps the keys of vaults opened at login (svseal.Default when
+	// nil; tests stand in their own).
+	Sealer svseal.Sealer
 
 	// Desktop, when set, replaces the desktop prompter (tests).
 	Desktop Prompter
@@ -123,6 +128,9 @@ func New(opts Options) (*Daemon, error) {
 	}
 	if opts.IsPromptAgent == nil {
 		opts.IsPromptAgent = sibling("secretvault-tui-prompt")
+	}
+	if opts.Sealer == nil {
+		opts.Sealer = svseal.Default()
 	}
 	if opts.IsPortal == nil {
 		opts.IsPortal = func(p *svpeer.Process) bool {

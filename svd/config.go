@@ -39,6 +39,9 @@ type VaultConfig struct {
 	// Sync is the server the vault is kept in step with, if any
 	// (`secretvault sync setup` or `sync join`).
 	Sync *svsync.Remote `json:"sync,omitempty"`
+
+	// LoginUnlock opens the vault when the daemon starts at login (login.go).
+	LoginUnlock bool `json:"login_unlock,omitempty"`
 }
 
 // PromptConfig says how desktop prompts are shown.
@@ -51,6 +54,10 @@ type PromptConfig struct {
 // DefaultAutoLock is how a vault unlocked by passphrase locks itself:
 // after 15 idle minutes, on screen lock and on sleep.
 var DefaultAutoLock = svrpc.AutoLock{IdleMinutes: 15, OnScreenLock: true, OnSleep: true}
+
+// LoginAutoLock is how a vault opened at login locks itself: when the
+// session ends, with the daemon, as a login keyring does.
+var LoginAutoLock = svrpc.AutoLock{}
 
 var namePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 

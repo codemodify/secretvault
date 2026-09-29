@@ -74,7 +74,7 @@ func (d *Daemon) vaultInfos() []svrpc.VaultInfo {
 	defer d.mu.Unlock()
 	var out []svrpc.VaultInfo
 	for name, mv := range d.vaults {
-		info := svrpc.VaultInfo{Name: name, Path: mv.cfg.Path, Default: name == d.cfg.Default, Locked: true, AutoLock: mv.cfg.AutoLock}
+		info := svrpc.VaultInfo{Name: name, Path: mv.cfg.Path, Default: name == d.cfg.Default, Locked: true, AutoLock: mv.cfg.AutoLock, LoginUnlock: mv.cfg.LoginUnlock}
 		if mv.v != nil {
 			info.ID = mv.v.ID().String()
 			info.Suite = mv.v.Suite().String()

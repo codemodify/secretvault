@@ -123,7 +123,10 @@ func (c *cli) printVaults(vaults []svrpc.VaultInfo) error {
 			name += " *"
 		}
 		lock := "never"
-		if v.AutoLock.IdleMinutes > 0 {
+		switch {
+		case v.LoginUnlock:
+			lock = "at logout"
+		case v.AutoLock.IdleMinutes > 0:
 			lock = fmt.Sprintf("%d min idle", v.AutoLock.IdleMinutes)
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", name, state, lock, v.Path)
@@ -214,8 +217,33 @@ func (c *cli) cmdVault(args []string) error {
 		return cl.SetDefault(ctx, pos[0])
 	case "rotate":
 		return c.rotate(args[1:], nil)
+	case "login":
+		fs := c.flags("vault login")
+		var u unlockFlags
+		u.register(fs)
+		pos, err := parse(fs, args[1:], 1, 1, "on|off   (open the vault when you log in, with a key the system keeps for you)")
+		if err != nil {
+			return err
+		}
+		if pos[0] != "on" && pos[0] != "off" {
+			return fmt.Errorf("vault login: %q is neither on nor off", pos[0])
+		}
+		cl, err := c.open(&u)
+		if err != nil {
+			return err
+		}
+		v, err := cl.SetLoginUnlock(ctx, c.vault, pos[0] == "on")
+		if err != nil {
+			return err
+		}
+		if v.LoginUnlock {
+			fmt.Fprintf(c.stdout, "Vault %q opens when you log in, and locks when you log out. Programs still ask before they read it.\n", v.Name)
+		} else {
+			fmt.Fprintf(c.stdout, "Vault %q no longer opens at login; it locks after %d idle minutes, on screen lock and on sleep.\n", v.Name, v.AutoLock.IdleMinutes)
+		}
+		return nil
 	}
-	fmt.Fprintf(c.stderr, "secretvault vault: unknown subcommand %q (list, add, forget, default, rotate)\n", args[0])
+	fmt.Fprintf(c.stderr, "secretvault vault: unknown subcommand %q (list, add, forget, default, rotate, login)\n", args[0])
 	return errUsage
 }
 

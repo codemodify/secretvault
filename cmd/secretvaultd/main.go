@@ -106,6 +106,7 @@ func main() {
 	defer stop()
 	d.WatchSession(ctx) // lock on screen lock, sleep and logout
 	d.StartSync(ctx)    // keep synced vaults in step with their servers
+	d.UnlockAtLogin()   // open the vaults set to open at login
 	if d.SSHAgentEnabled() {
 		agentSock := svrpc.SSHAgentSocket()
 		if aln, acleanup, err := svd.Listen(agentSock); err != nil {

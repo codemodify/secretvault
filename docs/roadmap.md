@@ -219,6 +219,9 @@ correctly across all four verification levels.
   a planted one is ignored instead of locking everyone out, and each lists
   the revisions that existed when it was made, so someone cut off cannot
   go on writing with the old key.
+- **Opening at login (done).** `secretvault vault login on`: a keyfile slot
+  sealed by the OS (systemd-creds, DPAPI, the keychain), opened as the
+  daemon starts with the session; the vault locks at logout.
 - **Recovery.** Shamir recovery shares (done: `slot add recovery --split N
   --threshold K`, `unlock --shares`), and emergency access (to come).
 

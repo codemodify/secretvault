@@ -235,12 +235,19 @@ signing make the program identity sturdier, not perfect.
   has its own keys, sync and sharing. Folders are just path prefixes in item
   names, and tags are free.
 - **Unlock method, chosen at setup:**
-  - **OS login.** Your login unlocks the default vault, as GNOME Keyring and
-    the login Keychain do:
-    - Linux: a PAM hook (`pam_exec` with `expose_authtok`, or a small PAM
-      module);
-    - Windows: a DPAPI-bound keyslot;
-    - macOS: a login-Keychain item.
+  - **OS login** (`secretvault vault login on`). The vault opens when you
+    log in, as GNOME Keyring and the login Keychain do. It gets a keyfile
+    slot labelled `login`, whose key the OS seals to you on this machine
+    ([`svseal`](../svseal)), kept in the data directory; secretvaultd has
+    the OS open it as it starts with your session:
+    - Linux: `systemd-creds --user` (systemd 256 and later), under the
+      host key and the TPM2 when there is one;
+    - Windows: DPAPI, under your logon credentials;
+    - macOS: an item in the login keychain.
+
+    Programs still ask before they read anything; login unlock spares the
+    passphrase, not the consent. (A PAM hook, which would take the key
+    from the login password itself, may come later.)
   - **Separate passphrase.** Unlock independently of the OS login.
 
   Either way, quick unlock (fingerprint, Windows Hello, Touch ID, YubiKey,

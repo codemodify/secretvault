@@ -54,6 +54,7 @@ decision. If there is none, it asks you.
 | [`svcore`](svcore) | The vault engine: keyslots, items, revisions, conflicts |
 | [`svserver`](svserver) | The sync server: stores and relays vaults' files, and sees only ciphertext |
 | [`svsync`](svsync) | Syncing a vault folder with the server: device keys, enrolment, Sync, Clone, Watch |
+| [`svseal`](svseal) | Sealing a key to the user by the OS (systemd-creds, DPAPI, the keychain), to open vaults at login |
 | [`svrpc`](svrpc) | The daemon protocol (JSON-RPC over a local socket) |
 | [`svd`](svd) | The daemon, as a library |
 | [`svpeer`](svpeer) | Who is on the other end of a connection |
@@ -117,6 +118,7 @@ $ bin/secretvault import auto ~/Downloads/passwords.kdbx --prefix imported/keepa
 $ bin/secretvault export kdbx backup.kdbx    # asks for the new file's passphrase
 $ bin/secretvault grant list                 # what programs may do
 $ bin/secretvault audit                      # who accessed what
+$ bin/secretvault vault login on            # open it when you log in, like a login keyring
 $ bin/secretvault lock --all
 $ bin/secretvault status
 $ bin/secretvault-tui                        # the same, full-screen: ? lists the keys

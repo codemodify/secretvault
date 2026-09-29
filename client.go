@@ -338,3 +338,9 @@ func (c *Client) ServeKeyring(ctx context.Context, enable bool) error {
 func (c *Client) RegisterPrompter(ctx context.Context, terminal string) error {
 	return c.conn.Call(ctx, svrpc.MPromptRegister, svrpc.PromptRegisterParams{Terminal: terminal}, nil)
 }
+
+// SetLoginUnlock sets a vault to open when the person logs in, or not.
+func (c *Client) SetLoginUnlock(ctx context.Context, vault string, on bool) (out svrpc.VaultInfo, err error) {
+	err = c.conn.Call(ctx, svrpc.MVaultLogin, svrpc.VaultLoginParams{Vault: vault, On: on}, &out)
+	return
+}
