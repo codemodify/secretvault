@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -133,10 +135,25 @@ func (p pinentryPrompter) Notice(ctx context.Context, q svrpc.PromptAsk, cancel 
 
 func (p pinentryPrompter) Describe() string { return "desktop (" + p.p.Program + ")" }
 
-// desktopPrompter picks the pinentry for desktop prompts. secretvault's
-// own GUI prompt is not built yet (see uitoolkit-gaps.md), so the system's
-// pinentry stands in: the one that fits the desktop, from the system's own
-// program directories only, never from PATH.
+// The seams desktopPrompter and sibling look at the machine through; the
+// tests replace them, so they neither depend on what is installed nor
+// start anything.
+var (
+	// executable is the running daemon's own path.
+	executable = os.Executable
+	// goos is the platform the rules are for.
+	goos = runtime.GOOS
+	// systemBinDirs are the only places a system pinentry is taken from.
+	systemBinDirs = []string{"/usr/bin", "/usr/local/bin", "/bin"}
+)
+
+// desktopPrompter picks the pinentry for desktop prompts, in this order:
+//
+//  1. the program the config names ("none" turns desktop prompts off);
+//  2. secretvault-gui-prompt beside the daemon, when there is a desktop to
+//     show it on;
+//  3. the system's pinentry that fits the desktop, from the system's own
+//     program directories only, never from PATH.
 func desktopPrompter(cfg PromptConfig) Prompter {
 	if cfg.Program == "none" {
 		return nil
@@ -144,6 +161,11 @@ func desktopPrompter(cfg PromptConfig) Prompter {
 	env := os.Environ()
 	if cfg.Program != "" {
 		return pinentryPrompter{&svprompt.Pinentry{Program: cfg.Program, Env: env}}
+	}
+	if hasDisplay() {
+		if p, ok := ownProgram("secretvault-gui-prompt"); ok && isProgram(p) {
+			return pinentryPrompter{&svprompt.Pinentry{Program: p, Env: env}}
+		}
 	}
 	if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
 		return nil
@@ -155,12 +177,49 @@ func desktopPrompter(cfg PromptConfig) Prompter {
 		order = []string{"pinentry-gnome3", "pinentry-gtk", "pinentry-gtk-2", "pinentry-qt"}
 	}
 	for _, name := range order {
-		for _, dir := range []string{"/usr/bin", "/usr/local/bin", "/bin"} {
+		for _, dir := range systemBinDirs {
 			p := dir + "/" + name
-			if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() && st.Mode()&0o111 != 0 {
+			if isProgram(p) {
 				return pinentryPrompter{&svprompt.Pinentry{Program: p, Env: env}}
 			}
 		}
 	}
 	return nil
+}
+
+// hasDisplay reports whether there is a desktop to open a window on: a
+// Wayland or X11 display in the environment on Linux and the BSDs, and
+// always on Windows and macOS, where a process that can run at all can
+// make a window.
+func hasDisplay() bool {
+	if goos == "windows" || goos == "darwin" {
+		return true
+	}
+	return os.Getenv("WAYLAND_DISPLAY") != "" || os.Getenv("DISPLAY") != ""
+}
+
+// ownProgram is where the named secretvault program is when it is
+// installed beside the running daemon.
+func ownProgram(name string) (string, bool) {
+	if goos == "windows" {
+		name += ".exe"
+	}
+	exe, err := executable()
+	if err != nil {
+		return "", false
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	return filepath.Join(filepath.Dir(exe), name), true
+}
+
+// isProgram reports whether p is a file that can be run. Windows keeps no
+// execute bit, so a regular file is enough there.
+func isProgram(p string) bool {
+	st, err := os.Stat(p)
+	if err != nil || !st.Mode().IsRegular() {
+		return false
+	}
+	return goos == "windows" || st.Mode()&0o111 != 0
 }

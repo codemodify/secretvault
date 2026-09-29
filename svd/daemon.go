@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"time"
 
@@ -244,18 +243,9 @@ func (d *Daemon) defaultAutoLock() svrpc.AutoLock {
 // sibling matches the named secretvault program installed beside the
 // running daemon: the default IsCLI and IsPromptAgent.
 func sibling(name string) func(*svpeer.Process) bool {
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
 	return func(p *svpeer.Process) bool {
-		exe, err := os.Executable()
-		if err != nil {
-			return false
-		}
-		if real, err := filepath.EvalSymlinks(exe); err == nil {
-			exe = real
-		}
-		return p.Exe == filepath.Join(filepath.Dir(exe), name)
+		path, ok := ownProgram(name)
+		return ok && p.Exe == path
 	}
 }
 
