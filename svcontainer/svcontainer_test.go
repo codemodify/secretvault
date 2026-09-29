@@ -96,14 +96,14 @@ func TestPassphraseSlots(t *testing.T) {
 	if err != nil || slot != 1 {
 		t.Fatalf("add: %d %v", slot, err)
 	}
-	if n, err := Check(path, first); err != nil || n != 1 {
+	if n, err := CheckPassphrase(path, first); err != nil || n != 1 {
 		t.Fatalf("the passphrase: %d %v", n, err)
 	}
 	second := []byte("second passphrase")
 	if n, err := SetPassphrase(path, key, second, slot); err != nil || n != slot {
 		t.Fatalf("change: %d %v", n, err)
 	}
-	if _, err := Check(path, first); err == nil {
+	if _, err := CheckPassphrase(path, first); err == nil {
 		t.Fatal("the old passphrase still opens")
 	}
 	if _, err := SetPassphrase(path, key, second, 0); err == nil {
@@ -115,7 +115,7 @@ func TestPassphraseSlots(t *testing.T) {
 	if err := RemoveKeyslot(path, key, slot); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Check(path, second); err == nil {
+	if _, err := CheckPassphrase(path, second); err == nil {
 		t.Fatal("a removed passphrase still opens")
 	}
 	if _, err := SetPassphrase(path, NewKey(), second, -1); err == nil {

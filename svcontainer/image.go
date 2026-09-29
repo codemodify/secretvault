@@ -126,13 +126,40 @@ func CreateImage(path string, key []byte, o CreateOptions) (img Image, err error
 	return img, f.Sync()
 }
 
+// openImage opens an image file, refusing anything but a regular file: a
+// FIFO named as an image would keep whoever opens it waiting for ever, and
+// a device is not a container.
+func openImage(path string, write bool) (*os.File, error) {
+	flag := os.O_RDONLY
+	if write {
+		flag = os.O_RDWR
+	}
+	f, err := os.OpenFile(path, flag|nonBlocking, 0)
+	if err != nil {
+		return nil, err
+	}
+	st, err := f.Stat()
+	if err == nil && !st.Mode().IsRegular() {
+		err = fmt.Errorf("%s is not a regular file, so not a container", path)
+	}
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
 // Inspect reads an image's header.
 func Inspect(path string) (*svluks.Header, error) {
-	f, err := os.Open(path)
+	f, err := openImage(path, false)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+	return readHeader(f, path)
+}
+
+func readHeader(f *os.File, path string) (*svluks.Header, error) {
 	h, err := svluks.Read(f)
 	if errors.Is(err, svluks.ErrNotLUKS) {
 		return nil, fmt.Errorf("%s is not a container (it has no LUKS header)", path)
@@ -140,29 +167,71 @@ func Inspect(path string) (*svluks.Header, error) {
 	return h, err
 }
 
-// Check opens the image's header with key and returns the keyslot it
-// opens. It also refuses an image whose data is not aes-xts-plain64: a
-// header planted with cipher_null would have the kernel store the
-// container's files in the clear.
+// maxKeyIterations bounds the keyslots a container key is tried on. The
+// key only ever goes in a PBKDF2 keyslot at svluks.KeyKDF's cost; trying
+// it on others would let a planted image make the daemon run Argon2 over
+// gigabytes.
+const maxKeyIterations = 100_000
+
+// unlockKey opens the header with a container key, trying only keyslots
+// that could hold one.
+func unlockKey(f *os.File, h *svluks.Header, path string, key []byte) (*svluks.Key, int, error) {
+	for _, k := range h.Keyslots() {
+		if !k.Bound || k.KDF.Type != svluks.KDFPBKDF2 || k.KDF.Iterations > maxKeyIterations {
+			continue
+		}
+		vk, err := h.UnlockSlot(f, k.ID, key)
+		if err == nil {
+			return vk, k.ID, nil
+		}
+		if !errors.Is(err, svluks.ErrWrongKey) && !errors.Is(err, svluks.ErrUnsupported) {
+			return nil, -1, err
+		}
+	}
+	return nil, -1, fmt.Errorf("the key does not open %s", path)
+}
+
+// Check opens the image's header with a container key and returns the
+// keyslot it opens. It also refuses an image whose data is not
+// aes-xts-plain64: a header planted with cipher_null would have the kernel
+// store the container's files in the clear.
 func Check(path string, key []byte) (int, error) {
-	f, err := os.Open(path)
+	f, err := openImage(path, false)
 	if err != nil {
 		return -1, err
 	}
 	defer f.Close()
-	h, err := svluks.Read(f)
+	h, err := readHeader(f, path)
 	if err != nil {
 		return -1, err
 	}
 	if c := h.Cipher(); c != "aes-xts-plain64" {
 		return -1, fmt.Errorf("%s encrypts its data with %q; secretvault opens only aes-xts-plain64 containers", path, c)
 	}
-	vk, slot, err := h.Unlock(f, key)
+	vk, slot, err := unlockKey(f, h, path, key)
 	if err != nil {
-		if errors.Is(err, svluks.ErrWrongKey) {
-			return -1, fmt.Errorf("the key does not open %s", path)
-		}
 		return -1, err
+	}
+	vk.Destroy()
+	return slot, nil
+}
+
+// CheckPassphrase returns the keyslot a passphrase opens, trying every
+// keyslot at whatever cost it records (bounded by svluks). It is for
+// images one trusts to be what they say.
+func CheckPassphrase(path string, pass []byte) (int, error) {
+	f, err := openImage(path, false)
+	if err != nil {
+		return -1, err
+	}
+	defer f.Close()
+	h, err := readHeader(f, path)
+	if err != nil {
+		return -1, err
+	}
+	vk, slot, err := h.Unlock(f, pass)
+	if err != nil {
+		return -1, fmt.Errorf("the passphrase does not open %s", path)
 	}
 	vk.Destroy()
 	return slot, nil
@@ -197,19 +266,16 @@ func RemoveKeyslot(path string, key []byte, slot int) error {
 }
 
 func withKey(path string, key []byte, do func(*os.File, *svluks.Header, *svluks.Key, int) (int, error)) (int, error) {
-	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	f, err := openImage(path, true)
 	if err != nil {
 		return -1, err
 	}
 	defer f.Close()
-	h, err := svluks.Read(f)
+	h, err := readHeader(f, path)
 	if err != nil {
 		return -1, err
 	}
-	vk, slot, err := h.Unlock(f, key)
-	if errors.Is(err, svluks.ErrWrongKey) {
-		return -1, fmt.Errorf("the key does not open %s", path)
-	}
+	vk, slot, err := unlockKey(f, h, path, key)
 	if err != nil {
 		return -1, err
 	}
@@ -226,7 +292,7 @@ func withKey(path string, key []byte, do func(*os.File, *svluks.Header, *svluks.
 // passphrase that opened the image then can open it later, even after
 // that keyslot is removed: keep it as safe as the passphrase.
 func BackupHeader(path, out string) (err error) {
-	f, err := os.Open(path)
+	f, err := openImage(path, false)
 	if err != nil {
 		return err
 	}

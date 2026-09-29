@@ -127,6 +127,8 @@ func (d *Disks) Status(ctx context.Context, path string) (Status, error) {
 // type fstype on it and mounts it. take-ownership makes the person the
 // owner of the new filesystem's root, where the filesystem has owners.
 func (d *Disks) Format(ctx context.Context, path string, key []byte, fstype, label, mountOptions string) (Status, error) {
+	ctx, cancel := patient(ctx)
+	defer cancel()
 	if err := CheckFormat(fstype, label); err != nil {
 		return Status{}, err
 	}
@@ -149,6 +151,8 @@ func (d *Disks) Format(ctx context.Context, path string, key []byte, fstype, lab
 // Mount attaches the image, unlocks it with key and mounts its filesystem,
 // taking up from wherever it is: an image already mounted is left as it is.
 func (d *Disks) Mount(ctx context.Context, path string, key []byte, mountOptions string) (Status, error) {
+	ctx, cancel := patient(ctx)
+	defer cancel()
 	s, err := d.Status(ctx, path)
 	if err != nil {
 		return s, err
@@ -183,7 +187,7 @@ func (d *Disks) Mount(ctx context.Context, path string, key []byte, mountOptions
 // attach attaches and unlocks an image; undo takes both back.
 func (d *Disks) attach(ctx context.Context, path string, key []byte) (Status, func(), error) {
 	s := Status{Image: Canonical(path)}
-	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	f, err := openImage(path, true)
 	if err != nil {
 		return s, nil, err
 	}
@@ -226,6 +230,8 @@ func (d *Disks) refresh(ctx context.Context, s Status) Status {
 // Unmount unmounts, locks and detaches an image named by its path or its
 // mount point. Only images this user attached are touched.
 func (d *Disks) Unmount(ctx context.Context, target string) (Status, error) {
+	ctx, cancel := patient(ctx)
+	defer cancel()
 	all, err := d.All(ctx)
 	if err != nil {
 		return Status{}, err
@@ -255,6 +261,16 @@ func (d *Disks) Unmount(ctx context.Context, target string) (Status, error) {
 	}
 	s.Attached = false
 	return s, nil
+}
+
+// patient gives calls to UDisks2 room for a polkit password prompt, or
+// for making a large filesystem: a context with no deadline would get
+// svdbus's default of 25 seconds a call.
+func patient(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, 5*time.Minute)
 }
 
 // teardown undoes a half-made attachment, on its own deadline: the

@@ -86,10 +86,10 @@ func TestContainerCommands(t *testing.T) {
 	// A new passphrase replaces the old; header-backup writes a new file.
 	newPass := h.write("newpass", "a brand new passphrase\n")
 	h.ok("", h.with("container", "passwd", img, "--new-passphrase-file", newPass)...)
-	if _, err := svcontainer.Check(img, []byte("recover me without secretvault")); err == nil {
+	if _, err := svcontainer.CheckPassphrase(img, []byte("recover me without secretvault")); err == nil {
 		t.Fatal("the old passphrase still opens")
 	}
-	if _, err := svcontainer.Check(img, []byte("a brand new passphrase")); err != nil {
+	if _, err := svcontainer.CheckPassphrase(img, []byte("a brand new passphrase")); err != nil {
 		t.Fatal(err)
 	}
 	backup := filepath.Join(h.dir, "work.header")

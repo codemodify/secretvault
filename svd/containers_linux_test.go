@@ -217,22 +217,22 @@ func TestContainerPasswd(t *testing.T) {
 	if info, err := cli.ContainerPasswd(ctx(t), svrpc.ContainerPasswdParams{Path: path, Passphrase: first}); err != nil || !info.Passphrase {
 		t.Fatalf("add: %+v %v", info, err)
 	}
-	if n, err := svcontainer.Check(path, first); err != nil || n != 1 {
+	if n, err := svcontainer.CheckPassphrase(path, first); err != nil || n != 1 {
 		t.Fatalf("the passphrase: %d %v", n, err)
 	}
 	if _, err := cli.ContainerPasswd(ctx(t), svrpc.ContainerPasswdParams{Item: "c", Passphrase: second}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svcontainer.Check(path, first); err == nil {
+	if _, err := svcontainer.CheckPassphrase(path, first); err == nil {
 		t.Fatal("the old passphrase still opens")
 	}
-	if n, err := svcontainer.Check(path, second); err != nil || n != 1 {
+	if n, err := svcontainer.CheckPassphrase(path, second); err != nil || n != 1 {
 		t.Fatalf("the new passphrase: %d %v", n, err)
 	}
 	if _, err := cli.ContainerPasswd(ctx(t), svrpc.ContainerPasswdParams{Path: path, Remove: true}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svcontainer.Check(path, second); err == nil {
+	if _, err := svcontainer.CheckPassphrase(path, second); err == nil {
 		t.Fatal("a removed passphrase still opens")
 	}
 	if e, _ := containerKey(t, cli, "c"); e.Item.Attrs["passphrase_slot"] != "" {
