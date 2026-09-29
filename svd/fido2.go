@@ -177,14 +177,16 @@ func afterToken(err error) string {
 	return "The security key did not open the vault (" + msg + "). Enter the passphrase instead."
 }
 
-// hasPassphrase reports whether mv opens with a passphrase at all.
+// hasPassphrase reports whether mv opens with a passphrase at all: a
+// passphrase slot of the key this handle knows, or of a newer one (a
+// rotation made elsewhere, which the handle learns of as it unlocks).
 func hasPassphrase(mv *managedVault) bool {
 	slots, err := mv.v.Slots()
 	if err != nil {
 		return true // let the passphrase prompt find out
 	}
 	for _, s := range slots {
-		if s.Type == svformat.SlotPassphrase && s.Epoch == mv.v.Epoch() {
+		if s.Type == svformat.SlotPassphrase && s.Epoch >= mv.v.Epoch() {
 			return true
 		}
 	}

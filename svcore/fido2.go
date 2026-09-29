@@ -110,8 +110,10 @@ func (v *Vault) fido2KEK(output []byte) []byte {
 }
 
 // FIDO2Credentials lists the credentials of the vault's fido2 keyslots
-// for the current key, as a key is asked about them. It works while
-// locked, so a caller can look for a key before asking anyone anything.
+// for the current key, or a newer one (a rotation made elsewhere, which a
+// locked handle learns of only as it unlocks), as a key is asked about
+// them. It works while locked, so a caller can look for a key before
+// asking anyone anything.
 func (v *Vault) FIDO2Credentials() ([]FIDO2Credential, error) {
 	slots, err := v.slots()
 	if err != nil {
@@ -120,7 +122,7 @@ func (v *Vault) FIDO2Credentials() ([]FIDO2Credential, error) {
 	epoch := v.Epoch()
 	var out []FIDO2Credential
 	for _, s := range slots {
-		if s.Type == svformat.SlotFIDO2 && s.Epoch == epoch {
+		if s.Type == svformat.SlotFIDO2 && s.Epoch >= epoch {
 			out = append(out, credentialOf(s))
 		}
 	}

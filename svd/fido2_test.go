@@ -3,6 +3,7 @@ package svd
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -309,6 +310,42 @@ func TestAVaultWithOnlyAKeyIsNotOpenedByPassphrase(t *testing.T) {
 	h.keys.mu.Unlock()
 	if _, err := mail.Get(ctx(t), "", "mail/imap"); err != nil {
 		t.Fatalf("with the key: %v", err)
+	}
+}
+
+// A key enrolled on another device after it rotated the vault key opens
+// the vault here too, though this device has not heard of the rotation
+// until it unlocks.
+func TestAKeyEnrolledAfterARotationElsewhereIsOffered(t *testing.T) {
+	a, b := newHarness(t), newHarness(t)
+	folder := filepath.Join(t.TempDir(), "Sync", "personal")
+	ca := a.connect("/usr/bin/secretvault", &scripted{})
+	if _, err := ca.CreateVault(ctx(t), svrpc.VaultCreateParams{Name: "personal", Path: folder, Passphrase: pass}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ca.Put(ctx(t), "", login("mail/imap", "hunter2")); err != nil {
+		t.Fatal(err)
+	}
+	cb := b.connect("/usr/bin/secretvault", &scripted{})
+	if _, err := cb.AddVault(ctx(t), "personal", folder); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ca.Rotate(ctx(t), svrpc.RotateParams{Passphrase: pass}); err != nil {
+		t.Fatal(err)
+	}
+	key := a.keys.plug(t, fidotest.Options{Name: "Solo"})
+	addKey(t, ca, nil)
+	b.keys.mu.Lock()
+	b.keys.keys = append(b.keys.keys, key) // plugged into the other machine
+	b.keys.mu.Unlock()
+
+	term := &scripted{}
+	cb2 := b.connect("/usr/bin/secretvault", term)
+	if e, err := cb2.Get(ctx(t), "", "mail/imap"); err != nil || secretOf(e) != "hunter2" {
+		t.Fatalf("Get on the other device: %v", err)
+	}
+	if len(term.questions()) != 0 || len(term.told()) != 1 {
+		t.Fatalf("asked %+v, told %+v", term.questions(), term.told())
 	}
 }
 
