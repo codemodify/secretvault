@@ -122,3 +122,53 @@ func TestTheDialogsFollowADarkDesktop(t *testing.T) {
 		t.Fatal("a saved light look was overridden")
 	}
 }
+
+// A program that stays up, with no look chosen, follows the desktop's
+// light or dark mode as it changes; a look chosen in uitoolkit's Settings,
+// or UITK_THEME, is kept.
+func TestAProgramThatStaysUpFollowsTheDesktop(t *testing.T) {
+	t.Cleanup(func() { style.SetDesktopColorScheme(style.SchemeNoPreference) })
+	for _, scheme := range []string{"dark", "light"} {
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		t.Setenv("UITK_COLOR_SCHEME", scheme)
+		a := headless(nil)
+		FollowDesktop(a)
+		if !a.Appearance().FollowDesktop || dark(a) != (scheme == "dark") {
+			t.Errorf("in a %s desktop: following %v, dark %v", scheme, a.Appearance().FollowDesktop, dark(a))
+		}
+	}
+
+	t.Setenv("UITK_THEME", "light")
+	a := headless(nil)
+	FollowDesktop(a)
+	if a.Appearance().FollowDesktop {
+		t.Error("UITK_THEME was overridden")
+	}
+	t.Setenv("UITK_THEME", "")
+
+	if err := uitoolkit.SaveAppearance(style.Appearance{Name: "light"}); err != nil {
+		t.Fatal(err)
+	}
+	a = headless(nil)
+	FollowDesktop(a)
+	if a.Appearance().FollowDesktop {
+		t.Error("a look chosen in Settings was overridden")
+	}
+}
+
+// The icon is the header's padlock on the header's colour.
+func TestTheIcon(t *testing.T) {
+	img := Icon(32)
+	if img.Width != 32 || img.Height != 32 {
+		t.Fatalf("%dx%d", img.Width, img.Height)
+	}
+	opaque := 0
+	for i := 3; i < len(img.Pix); i += 4 {
+		if img.Pix[i] == 255 {
+			opaque++
+		}
+	}
+	if opaque < 32*32/2 {
+		t.Fatalf("only %d of its pixels are painted", opaque)
+	}
+}

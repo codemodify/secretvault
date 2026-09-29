@@ -91,6 +91,18 @@ func (h *Header) Paint(ctx *paintengine2d.Context) {
 	}
 }
 
+// Icon is secretvault's icon, side pixels square: the header's padlock on
+// a tile of the header's colour. It is what a secretvault window and its
+// tray icon show.
+func Icon(side int) *paintengine2d.Image {
+	img := paintengine2d.NewImage(side, side)
+	ctx := paintengine2d.NewContext(img)
+	s := float32(side)
+	ctx.DrawRoundRect(paintengine2d.XYWH(0, 0, s, s), s*0.22, s*0.22, paintengine2d.Fill(Brand))
+	paintLock(ctx, paintengine2d.XYWH(s*0.18, s*0.14, s*0.64, s*0.64))
+	return img
+}
+
 // paintLock draws the padlock in box: a shackle over a body with a
 // keyhole cut out of it.
 func paintLock(ctx *paintengine2d.Context, box paintengine2d.Rect) {

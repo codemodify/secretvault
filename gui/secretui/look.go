@@ -20,13 +20,7 @@ import (
 // uitoolkit's plain dark pack where it has none. The display scale needs
 // nothing from here: uitoolkit reads the desktop's for each window.
 func MatchDesktop(a *uitoolkit.Application) {
-	if a == nil || a.DesktopColorScheme() != uitoolkit.SchemeDark {
-		return
-	}
-	if strings.TrimSpace(os.Getenv(style.ThemeEnv)) != "" {
-		return
-	}
-	if _, err := os.Stat(uitoolkit.AppearancePath()); err == nil {
+	if a == nil || a.DesktopColorScheme() != uitoolkit.SchemeDark || chosen() {
 		return
 	}
 	ap := a.Appearance()
@@ -41,6 +35,38 @@ func MatchDesktop(a *uitoolkit.Application) {
 	}
 	ap.Name, ap.Theme = p.Name, p.Palette
 	a.ApplyAppearance(ap)
+}
+
+// FollowDesktop is MatchDesktop for a program that stays up, as
+// secretvault-gui does: a follows the desktop from light to dark and back
+// while it runs, not only as the desktop was when it started. The same
+// choices are left alone (look.json, UITK_THEME). Call it once, after
+// uitoolkit.New and before the first window.
+//
+// uitoolkit follows the desktop only when the appearance says so, and it
+// follows by the pack's own light and dark siblings. The default pack of
+// the default build has no dark sibling, so then a wears the light and
+// dark pair every build carries.
+func FollowDesktop(a *uitoolkit.Application) {
+	if a == nil || chosen() {
+		return
+	}
+	ap := a.Appearance()
+	ap.FollowDesktop = true
+	if uitoolkit.SchemeVariant(ap.Name, uitoolkit.SchemeDark) == uitoolkit.SchemeVariant(ap.Name, uitoolkit.SchemeLight) {
+		ap.Name, ap.Theme = "light", style.ThemeLight
+	}
+	a.ApplyAppearance(ap)
+}
+
+// chosen reports whether the person has chosen a look for uitoolkit's
+// programs: UITK_THEME, or a look.json saved by uitoolkit's Settings.
+func chosen() bool {
+	if strings.TrimSpace(os.Getenv(style.ThemeEnv)) != "" {
+		return true
+	}
+	_, err := os.Stat(uitoolkit.AppearancePath())
+	return err == nil
 }
 
 func isDark(t style.ThemeName) bool { return style.ParseTheme(string(t)) == style.ThemeDark }
