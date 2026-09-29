@@ -303,7 +303,24 @@ flight.
 
 ## M8: secret delivery for services
 
-- **Host mode.** TPM unlock, and a systemd `LoadCredential=` socket.
+- **Host mode (built on Linux).** `secretvaultd --host`, a switch in the
+  one daemon:
+  - systemd's `LoadCredential=` on `/run/secretvault/credentials.sock`,
+    answered from the policy in `/var/lib/secretvault/host.json` (units by
+    name or glob) to systemd alone, with a socket unit so units never wait
+    on the daemon's start;
+  - local services that are not units, by uid and program, read-only, on
+    `secretvaultd.sock` (`secretvault --host read | run | inject`);
+  - `secretvault host init | allow | deny | ls | status | audit`, and
+    `secretvaultd install --host` (a hardened system unit);
+  - vaults opened at boot by the host identity, which systemd passes as a
+    credential sealed to the TPM2 by `systemd-creds` (or a root-only
+    file); every delivery and refusal in the host's log.
+
+  Tested by playing systemd's side on temporary sockets. **Still to do:**
+  TPM unlock in our own code (`svtpm`, with a measured-boot policy),
+  container unlock at boot (with M7), and a check on a real systemd host
+  in CI.
 - **References (done).** `secretvault read`, `run` and `inject` with
   `sv://VAULT/ITEM#FIELD` references (`-` for the default vault).
 - **Server mode: our own HTTPS API.**

@@ -87,8 +87,14 @@ browser starts a host with).
 | Mode | Runs as | Unlocked by | Serves |
 | --- | --- | --- | --- |
 | `user` (default) | the logged-in user, per session | the person: login, passphrase, fingerprint, YubiKey | every desktop face |
-| `host` | a system service | TPM or a host key | systemd credentials, container unlock at boot, local services |
+| `host` (`--host`, Linux) | a system service, as root | the host identity: a systemd credential sealed to the TPM2 or the host key, or a root-only file | systemd credentials and local services, by policy; container unlock at boot later |
 | `server` | a service on a server | Shamir key shares (k of n operators) or TPM | the HTTPS API: sync hub (ciphertext only) and secret delivery to services and CI |
+
+The modes are one daemon with a switch (`svd.Options.Mode`), not forks.
+The host daemon never prompts, and does not serve the Secret Service, the
+SSH agent or the prompt protocol; its vaults do not lock on idle unless
+their `auto_lock` says so. It is described under
+[Secret delivery](#secret-delivery).
 
 ## Talking to the daemon
 
@@ -107,6 +113,7 @@ comms-chat-lan do ([`svrpc`](../svrpc)). Methods are `noun.verb`, for example
 | Linux, BSD | Unix socket `$XDG_RUNTIME_DIR/secretvault/secretvaultd.sock`, 0600 in a 0700 directory, with a lock file | same uid, checked with `SO_PEERCRED` |
 | macOS | Unix socket `$TMPDIR/secretvault-<uid>/secretvaultd.sock`, 0600 | same uid, checked with `LOCAL_PEERCRED` and `LOCAL_PEERPID` |
 | Windows | AF_UNIX socket `%LOCALAPPDATA%\secretvault\run\secretvaultd.sock`, with a lock file held by `LockFileEx` | same user SID, checked through `SIO_AF_UNIX_GETPEERPID` and the peer's token |
+| Linux, host mode | three Unix sockets in `/run/secretvault` (0755): `admin.sock` 0600, `credentials.sock` 0600, `secretvaultd.sock` 0666 | root on the first; systemd (PID 1 or uid 0) on the second; any local service on the third, which gets only what the host policy lists for its uid and program |
 
 `SECRETVAULT_SOCK` overrides the path. A client that finds no daemon starts
 the `secretvaultd` installed beside it, which logs to `secretvaultd.log`
@@ -538,12 +545,81 @@ rotates the vault master key).
 
 ### Secret delivery
 
-- **Hosts.**
-  - Host mode serves systemd's `LoadCredential=` over an AF_UNIX socket:
-    systemd connects when the unit starts and reads the secret. The daemon is
-    unlocked by TPM.
-  - `secretvault run -- cmd` and `inject` resolve `sv://vault/item/field`
-    references into environment variables or files.
+- **References.** `secretvault read`, `run -- cmd` and `inject` resolve
+  `sv://VAULT/ITEM[#FIELD]` references (`-` for the default vault; no
+  field means the item's secret) into output, environment variables or
+  files.
+- **Hosts** (`secretvaultd --host`, [`svd/host.go`](../svd/host.go)).
+  - **systemd's `LoadCredential=`.** A unit says
+    `LoadCredential=db-password:/run/secretvault/credentials.sock`. What we
+    rely on, from systemd.exec(5): each time the unit starts, systemd
+    connects to that stream socket once, from an abstract address
+    `\0RANDOM/unit/UNIT/ID`, and reads until the connection ends; the
+    process that connects is the one systemd forks to start the unit,
+    still root (so the check is PID 1 or uid 0, by `SO_PEERCRED`); the
+    data lands in `$CREDENTIALS_DIRECTORY/ID`, readable by the unit's user
+    only, and a unit's credentials may total 1 MB. The daemon reads the
+    address with `getpeername`, looks the unit and credential up in the
+    policy, writes the value and closes. Anything else is closed with
+    nothing written, which the unit sees as an empty credential: systemd
+    cannot tell a refusal from an empty secret, so a service that must
+    not start without one should check.
+  - **Socket activation.** `secretvaultd install --host` writes
+    `secretvaultd-host.socket`, which holds `credentials.sock` from early
+    boot, and `secretvaultd-host.service`, which takes it
+    (`LISTEN_FDS`). A unit that starts before the daemon waits for its
+    credential instead of failing, so no unit orders itself after the
+    daemon; a unit that runs before `basic.target` cannot use it.
+  - **The policy**, `/var/lib/secretvault/host.json`, root's and 0600,
+    lists everything served; anything it does not list is refused. It is
+    read again when it changes (so it can be written by hand or by
+    configuration management), and a file that does not parse, has an
+    unknown field, or that anyone but root could have written refuses
+    everything until it is fixed:
+
+    ```json
+    {
+      "credentials": [
+        {"unit": "postgresql.service", "credential": "db-password", "ref": "sv://prod/db/postgres#password"},
+        {"unit": "app@*.service", "credential": "api-token", "ref": "sv://prod/app/token"}
+      ],
+      "clients": [
+        {"user": "backup", "program": "/usr/local/bin/backup", "refs": ["sv://prod/backup/*"]}
+      ]
+    }
+    ```
+
+    A unit is named exactly or by a glob; the exact name wins, then the
+    first glob. `secretvault host allow`, `deny` and `ls` edit and show it.
+  - **Local services that are not units** (cron jobs, scripts run as a
+    service user) use the client API on `/run/secretvault/secretvaultd.sock`
+    (`secretvault --host read`, `run`, `inject`). They may call
+    `host.resolve` and nothing else, and get the one value a reference
+    names, if a `clients` entry lists it for their uid (a name or a
+    number) and program (the executable, or the script an interpreter
+    runs; any, when left out). Globs work in the item and the field.
+  - **root** administers it on `/run/secretvault/admin.sock`: `secretvault
+    host status | allow | deny | ls | audit`, and every other command with
+    `--host` (`vault add`, `sync join`, `share`, `unlock`...).
+  - **Unlocking at boot.** A vault for the host is made on an admin's
+    machine, shared to the host's recipient (`secretvault share`), and
+    copied or synced to `/var/lib/secretvault/vaults/`. The host identity
+    that opens it is made by `secretvault host init --seal`, which hands
+    it to `systemd-creds encrypt` on its standard input (sealed to the
+    TPM2 and the host key where there is a TPM2, else to the host key)
+    without writing it in the clear; the service loads it with
+    `LoadCredentialEncrypted=` (systemd 250 and later), and the daemon
+    reads it from `$CREDENTIALS_DIRECTORY` at start and opens every vault
+    it can. Without systemd-creds, `host init` writes a root-only
+    `/var/lib/secretvault/host.identity`, and `install --host
+    --plain-identity` leaves the credential out. A vault that locks (by
+    request, idle, or a rotation elsewhere) is opened again with the
+    identity on its next use; one it does not open stays locked, and root
+    can unlock it with a key.
+  - **The log.** Every delivery and refusal goes to
+    `/var/lib/secretvault/host.log` (one JSON object per line, moved
+    aside at 8 MiB) and the journal; every read also goes to the vault's
+    own audit log. `secretvault host audit` shows it.
 - **Server API.** Our own HTTPS API only; there are no Vault or cloud
   compatibility layers.
   - Machine authentication:

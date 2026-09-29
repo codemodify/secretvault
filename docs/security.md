@@ -239,6 +239,69 @@ format is in [format.md](format.md#fido2-slots).
   own prompts (the CLI's terminal, the terminal agent, or the desktop's
   pinentry) and sent to the key encrypted, never stored.
 
+## The host daemon
+
+`secretvaultd --host` holds the keys of the vaults shared to its machine
+for as long as it runs, and hands their values to the machine's services
+by a policy only root can change. Nobody is asked: the policy is the
+consent. How well it protects the vaults depends on where the host
+identity lives.
+
+| Who | Identity sealed to TPM2 and host key | Sealed to the host key alone | Plain root-only file |
+| --- | --- | --- | --- |
+| root on the running machine | everything | everything | everything |
+| the disk alone (stolen, a backup, a snapshot) | nothing | everything | everything |
+| the disk and the TPM2 (the machine, switched off) | see below | — | — |
+
+- **root on the running machine** gets everything the host can open. It
+  can use the admin socket, read the unit's `$CREDENTIALS_DIRECTORY`, have
+  the TPM2 unseal the credential again (it does so for this machine's
+  root), or read the daemon's memory. root owns the machine.
+- **The disk alone.** With a TPM2, `systemd-creds` seals to both the TPM2
+  and the host key (`/var/lib/systemd/credential.secret`) by default, so
+  the disk opens nothing: the vault folders are ciphertext, and the
+  credential needs this machine's TPM2. Without a TPM2 the host key is on
+  the same disk, and so is everything needed; sealing then only helps
+  against a copy of `/etc/credstore.encrypted` without
+  `/var/lib/systemd`. A plain identity file is as good as the disk's own
+  encryption: keep it out of backups.
+- **The disk and the TPM2.** `systemd-creds` binds to no PCRs unless
+  told, so anything booted on the machine (a live USB) can have the TPM2
+  unseal the credential, and read the host key off the disk.
+  `secretvault host init --seal --tpm2-pcrs 7` binds it to the Secure Boot
+  state, which stops a boot with Secure Boot off or with other keys, but
+  not another system signed by the same keys. More PCRs, or a signed PCR
+  policy, bind it tighter, at the price of sealing again after firmware or
+  kernel updates. Full-disk encryption bound to the same TPM2 is the other
+  half of the answer.
+- **Local users and services.** `credentials.sock` and `admin.sock` are
+  root's alone (0600, and the kernel's word on the peer). Anyone may
+  connect to `secretvaultd.sock`, and may only resolve the references the
+  policy lists for their uid, which the kernel vouches for, and program.
+  The program narrows a uid and is no boundary: anything running as that
+  uid can pose as its programs, as in user mode. A service is sent the one
+  value a reference names, never the rest of the item, and hears nothing
+  of other vaults or items.
+- **Units.** A unit's credential is readable by the unit's user, and by
+  root. A glob (`app@*.service`) serves every unit whose name matches;
+  only root can make units, but a glob is still wider than a name. A
+  refused unit gets an empty credential and starts anyway (systemd cannot
+  tell a refusal from an empty value), so a service should refuse to run
+  on an empty secret.
+- **In memory.** The identity stays in the daemon's memory while it runs,
+  as a `crypto/hpke` key, which cannot be wiped, so that it can open a
+  vault again after it locks; the vaults themselves stay unlocked (no idle
+  lock) unless their `auto_lock` says otherwise. The process is
+  undumpable and has no core dumps.
+- **On disk, in the clear.** The policy (`host.json`) and the log
+  (`host.log`) name units, programs, vaults and items, which the vault
+  folders keep encrypted. Both are root's alone.
+- **The unit** runs as root, which it needs to identify other users'
+  programs and to serve them, with `ProtectSystem=strict` (only
+  `/var/lib/secretvault` and `/run/secretvault` writable), `ProtectHome`,
+  `PrivateTmp`, `PrivateDevices`, `NoNewPrivileges`, the kernel
+  protections, and `RestrictAddressFamilies` to Unix and IP sockets.
+
 ## Keys in memory
 
 secretvault is written in Go, which moves and copies memory on its own.
@@ -379,6 +442,9 @@ What it rests on:
 | S/MIME (CMS) signatures are not verified by secretvault | `svcms` |
 | Security keys work on Linux only, and have been tested against a software authenticator, not yet against real keys | webauthn.dll on Windows, IOKit on macOS; hardware testing |
 | A security key's built-in verification (a fingerprint) is not used; its PIN is | getPinUvAuthTokenUsingUvWithPermissions |
+| Host mode's TPM binding goes through `systemd-creds`, and binds to no PCRs unless asked | TPM code of our own (`svtpm`, M4), with a measured-boot policy |
+| A unit refused a credential starts with an empty one | nothing within `LoadCredential=`; services should check |
+| The host identity cannot be wiped from the daemon's memory (`crypto/hpke`) | an identity type of our own in locked memory |
 
 ## Reporting a vulnerability
 

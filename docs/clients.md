@@ -144,3 +144,22 @@ instead of an item:
 ```console
 $ secretvault grant allow /usr/bin/comms-mail --contacts --ops read,write
 ```
+
+## Services on a server
+
+On a machine that runs `secretvaultd --host`, a service that is not a
+systemd unit (a unit uses `LoadCredential=`) asks the host daemon, which
+answers what root's policy lists for the service's user and program
+(`secretvault host allow --user USER [--program PATH] sv://...`), and
+never asks anyone:
+
+```go
+c, err := secretvault.Connect(secretvault.Options{Socket: svrpc.HostSocket(), NoStart: true})
+...
+v, err := c.HostResolve(ctx, "sv://prod/backup/s3#secret")
+defer clear(v)
+```
+
+Only `host.resolve` is served on that socket, and it sends the one value
+the reference names. From a script, `secretvault --host read sv://...` or
+`secretvault --host run -- CMD` does the same.

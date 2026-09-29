@@ -16,12 +16,13 @@ already sync, or nothing.
 > **Status: pre-release.** On Linux, the vault engine, the daemon with its
 > consent prompts, the CLI and the terminal manager work, and so do the
 > desktop keyring (Secret Service), the SSH agent, sync, import, OpenPGP,
-> age, browser autofill and the trust store; Windows and macOS builds
-> compile but are not yet exercised. Unlocking with a FIDO2 security key
-> works on Linux, tested against a software key but not yet against real
-> ones. What remains is in [docs/roadmap.md](docs/roadmap.md). The format
-> may still change, and nothing has been audited: do not keep anything
-> here that exists nowhere else yet.
+> age, browser autofill, the trust store, and host mode for a server's
+> systemd units; Windows and macOS builds compile but are not yet
+> exercised. Unlocking with a FIDO2 security key works on Linux, tested
+> against a software key but not yet against real ones. What remains is in
+> [docs/roadmap.md](docs/roadmap.md). The format may still change, and
+> nothing has been audited: do not keep anything here that exists nowhere
+> else yet.
 
 ## How it fits together
 
@@ -40,7 +41,7 @@ decision. If there is none, it asks you.
 
 | Binary | What it does |
 | --- | --- |
-| **`secretvaultd`** | The daemon: holds the keys, opens the vaults, brokers every access, keeps the audit log. It links no UI code. |
+| **`secretvaultd`** | The daemon: holds the keys, opens the vaults, brokers every access, keeps the audit log. It links no UI code. With `--host`, the machine's system service that hands its services their secrets. |
 | **`secretvault`** | The CLI, a client of the daemon (which it starts when needed). |
 | **`secretvault-gui`** | The desktop manager, on [uitoolkit](https://github.com/codemodify/uitoolkit), with a tray icon. *(stub)* |
 | **`secretvault-tui`** | The terminal manager: vaults, items, one-time codes, the generator, history, grants and the audit log, full-screen. |
@@ -218,6 +219,36 @@ $ bin/secretvault age decrypt -i sv://-/age/sops file.age      # or no age at al
   `SOPS_AGE_KEY_FILE`, `SOPS_AGE_KEY` or its keys file. Encrypting to
   `age1pq1...` needs a SOPS built with age 1.3 or later; decrypting works
   with any, since the plugin unwraps post-quantum stanzas itself.
+
+For a server's own services (Linux, systemd), `secretvaultd --host` runs
+as a system service and hands each unit the credentials a policy lists
+for it, with nobody to ask. As root:
+
+```console
+# secretvault host init --seal       # the host identity, sealed to the TPM2 (or host key) by systemd-creds
+# secretvaultd install --host        # secretvaultd-host.service and .socket
+    ... where the vault lives: secretvault --vault prod share sv-recipient-1-... --label web1
+    ... and bring it here: copy it to /var/lib/secretvault/vaults/prod, or 'sync join'
+# secretvault --host vault add prod /var/lib/secretvault/vaults/prod
+# secretvault host allow postgresql.service db-password 'sv://prod/db/postgres#password'
+# secretvault host status
+```
+
+and in the unit, `LoadCredential=db-password:/run/secretvault/credentials.sock`
+puts the password in `$CREDENTIALS_DIRECTORY/db-password` when it starts.
+
+- **Only what the policy lists is served.** A unit is named exactly or by
+  a glob (`app@*.service`); anything else is refused, and `host audit`
+  shows every delivery and refusal.
+- **Services that are not units** (cron jobs, scripts) are allowed by
+  user and program: `host allow --user backup --program
+  /usr/local/bin/backup 'sv://prod/backup/*'`, then `secretvault --host
+  read` or `run` as that user.
+- **The host identity** reaches the daemon as a systemd credential, so a
+  stolen disk alone opens nothing where there is a TPM2. Without
+  systemd-creds, a root-only file does (`--plain-identity`).
+  [docs/security.md](docs/security.md#the-host-daemon) says what each
+  choice protects.
 
 - **The daemon owns the vaults.** Vaults live under
   `~/.local/share/secretvault/vaults/` (macOS: `~/Library/Application
