@@ -34,8 +34,9 @@ type Device struct {
 	Vouches []string `json:"vouches,omitempty"`
 }
 
-// DeviceRef names a device of a vault: its key ID, or the first digits of
-// its key ID or device ID.
+// DeviceRef names a device of a vault by its key ID, or the first digits
+// of it (never by its device ID, which anyone could register a key
+// under).
 type DeviceRef struct {
 	Vault  string `json:"vault,omitempty"`
 	Device string `json:"device"`

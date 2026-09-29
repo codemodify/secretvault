@@ -54,11 +54,14 @@ func (v *Vault) Deleted(prefix string) ([]Deleted, error) {
 }
 
 // lastContents is an object's newest revision that is not a deletion,
-// loaded. The caller forgets it.
+// loaded. The caller forgets it. Only revisions that count, and whose
+// signature is not bad, are candidates: restoring signs what it restores
+// as this device's, which must not adopt a forgery, or a revision the
+// vault's policy ignores, unasked.
 func (v *Vault) lastContents(id svformat.ID, o *object) (*revision, error) {
 	var best *revision
 	for rid, r := range o.revs {
-		if r.deleted {
+		if r.deleted || !v.idx.counts(r) || r.status == SigBad {
 			continue
 		}
 		if best != nil && (r.hdr.Time < best.hdr.Time || r.hdr.Time == best.hdr.Time && bytes.Compare(rid[:], best.id[:]) < 0) {
@@ -98,6 +101,10 @@ func (v *Vault) Restore(name, rev string) (Entry, error) {
 		rid, err := v.revByPrefix(o, rev)
 		if err != nil {
 			return Entry{}, err
+		}
+		if o.revs[rid].status == SigBad {
+			// Restoring signs it as this device's own.
+			return Entry{}, fmt.Errorf("svcore: that revision of %q has a bad signature (%w): it is not restored", name, ErrBadSignature)
 		}
 		if r, err = v.loadRevision(svformat.RevisionName(id, rid), id, rid); err != nil {
 			return Entry{}, err

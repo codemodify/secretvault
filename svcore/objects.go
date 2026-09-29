@@ -85,9 +85,12 @@ type revision struct {
 
 	// device and policy are the data of a device or policy record,
 	// kept while the revision is in the index: the registry and the
-	// policy are read from every revision, not only heads.
+	// policy are read from every revision, not only heads. proof is
+	// whether it registers its key: 0 not yet worked out, 1 it does, -1
+	// it does not (proves).
 	device *deviceRecord
 	policy *Policy
+	proof  int8
 }
 
 // forget wipes and drops what was decrypted.
@@ -484,7 +487,7 @@ func (v *Vault) canSign(obj svformat.ID, p payload) bool {
 		return false
 	}
 	if e := v.idx.reg[own]; e != nil {
-		return e.device == v.opts.Device
+		return e.devices[v.opts.Device]
 	}
 	return p.Type == DeviceKind && obj == own
 }

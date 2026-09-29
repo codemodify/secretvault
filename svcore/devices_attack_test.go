@@ -1,7 +1,10 @@
 package svcore
 
 import (
+	"encoding/binary"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,13 +38,13 @@ func headIDs(v *Vault, obj svformat.ID) []svformat.RevID {
 
 // rawWrite writes a revision as v's device, with the time and parents
 // given rather than the ones a writer would choose.
-func rawWrite(t *testing.T, v *Vault, obj svformat.ID, parents []svformat.RevID, at time.Time, p payload) svformat.RevID {
+func rawWrite(t *testing.T, v *Vault, device, obj svformat.ID, parents []svformat.RevID, at time.Time, p payload) svformat.RevID {
 	t.Helper()
 	plain, err := encodePayload(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	hdr := svformat.RevisionHeader{Suite: v.suite, Vault: v.desc.ID, Object: obj, Epoch: v.epoch(), Time: at.UnixNano(), Parents: parents, Device: v.opts.Device}
+	hdr := svformat.RevisionHeader{Suite: v.suite, Vault: v.desc.ID, Object: obj, Epoch: v.epoch(), Time: at.UnixNano(), Parents: parents, Device: device}
 	file, err := svformat.SealSignedRevision(hdr, v.wrap().Bytes(), svcrypto.RandomKey(), plain, v.opts.Signer.private())
 	if err != nil {
 		t.Fatal(err)
@@ -142,7 +145,7 @@ func TestTheNewestRecordIsByDescentNotByClock(t *testing.T) {
 		t.Fatal(err)
 	}
 	pid := PolicyID(m.ID())
-	rawWrite(t, m, pid, headIDs(m, pid), time.Now(), payload{Type: "grant", Record: []byte(`{}`)})
+	rawWrite(t, m, m.opts.Device, pid, headIDs(m, pid), time.Now(), payload{Type: "grant", Record: []byte(`{}`)})
 	mustGetVault(t, a)
 	if err := a.SetPolicy(Policy{}); err != nil {
 		t.Fatalf("turning a far-future policy off: %v", err)
@@ -155,14 +158,15 @@ func TestTheNewestRecordIsByDescentNotByClock(t *testing.T) {
 	// Mallory after it, then a record of Mallory's after that with an
 	// early time: the laptop withdrawing, after a restart, still wins.
 	aDev := a.opts.Device
-	f := rawWrite(t, m, ka, headIDs(mustGetVault(t, m), ka), time.Now().Add(1000*time.Hour),
+	f := rawWrite(t, m, m.opts.Device, ka, headIDs(mustGetVault(t, m), ka), time.Now().Add(1000*time.Hour),
 		deviceRec(t, deviceRecord{Key: a.opts.Signer.Public(), Device: aDev, Label: "laptop"}))
 	mustGetVault(t, a)
 	if _, err := a.VouchDevice(km, true); err != nil {
 		t.Fatal(err)
 	}
+	vouch := a.idx.objects[ka].heads[0].id
 	mustGetVault(t, m)
-	rawWrite(t, m, ka, headIDs(m, ka), time.Now(), deviceRec(t, deviceRecord{Key: a.opts.Signer.Public(), Device: aDev, Label: "laptop"}))
+	rawWrite(t, m, m.opts.Device, ka, headIDs(m, ka), time.Now(), deviceRec(t, deviceRecord{Key: a.opts.Signer.Public(), Device: aDev, Label: "laptop"}))
 	restarted, _ := Open(store, Options{Device: aDev, Signer: a.opts.Signer})
 	if err := restarted.Unlock(Passphrase(pass)); err != nil {
 		t.Fatal(err)
@@ -176,30 +180,170 @@ func TestTheNewestRecordIsByDescentNotByClock(t *testing.T) {
 	if vouchedFor(t, restarted, km) || vouchedFor(t, a, km) {
 		t.Fatal("a withdrawn vouch still counts")
 	}
+	// A copy of the vouch, sealed again under its content key: the same
+	// signature, another ID, the same far-future time. It is superseded
+	// with what it copies.
+	forge(t, a, store, revisionFile(t, store, ka, vouch), nil, nil)
+	if vouchedFor(t, restarted, km) || vouchedFor(t, a, km) {
+		t.Fatal("a replayed vouch counts again")
+	}
 	_ = f
 }
 
-func TestADeviceIsFoundByItsKeyFirst(t *testing.T) {
+// A copy of a signed revision is superseded wherever the revision is: it
+// shows as no conflict.
+func TestAReplayedRevisionIsSupersededWithWhatItCopies(t *testing.T) {
+	store := svstore.NewMem()
+	a := signedVault(t, store, "laptop")
+	e1, _ := a.Put(login("site", "one"))
+	e2, _ := a.Put(login("site", "two"))
+	forge(t, a, store, revisionFile(t, store, e1.ID, e1.Rev), nil, nil)
+	if e := mustGet(t, a, "site"); e.Rev != e2.Rev || len(e.Conflicts) != 0 {
+		t.Fatalf("after a replay of an older revision: %s, conflicts %v", e.Rev.Short(), e.Conflicts)
+	}
+	if n := len(historyOf(t, a, "site")); n != 3 {
+		t.Fatalf("the copy is not in the history: %d revisions", n)
+	}
+}
+
+func TestRotationDoesNotAdoptAForgery(t *testing.T) {
+	store := svstore.NewMem()
+	a := signedVault(t, store, "laptop")
+	e, _ := a.Put(login("site", "honest"))
+	forged := forge(t, a, store, revisionFile(t, store, e.ID, e.Rev),
+		[]byte(`{"type":"item","item":{"kind":"login","name":"site","fields":[{"name":"password","type":"concealed","value":"Zm9yZ2Vk"}]}}`),
+		func(fs []svformat.Field) []svformat.Field {
+			return withField(fs, 0x04, binary.BigEndian.AppendUint64(nil, uint64(e.Time.UnixNano()+1e9)))
+		})
+	if w := mustGet(t, a, "site"); w.Rev != forged {
+		t.Fatalf("the forgery does not win: %s", w.Rev.Short())
+	}
+	if _, err := a.Rotate([]NewSlot{{Type: svformat.SlotPassphrase, Passphrase: []byte("the next passphrase")}}, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if w, _ := a.Get("site"); w.Rev != forged || w.Signature.Status != SigBad || w.Signature.Mine {
+		t.Fatalf("after the rotation: %s %+v", w.Rev.Short(), w.Signature)
+	}
+}
+
+func TestOnlyADeviceRegisteredAsItselfSetsThePolicy(t *testing.T) {
+	store := svstore.NewMem()
+	a := signedVault(t, store, "laptop")
+	// The laptop's key, on a device it has not registered for.
+	other, _ := Open(store, Options{Device: svformat.NewID(), Signer: a.opts.Signer})
+	if err := other.Unlock(Passphrase(pass)); err != nil {
+		t.Fatal(err)
+	}
+	if err := other.SetPolicy(Policy{RequireSignatures: true}); !errors.Is(err, ErrSignatureRequired) {
+		t.Fatalf("SetPolicy from a device the key is not registered for: %v", err)
+	}
+}
+
+// A revision that counts supersedes all it descends from, through one
+// that does not: a registered device that built on an ignored revision
+// leaves no conflict behind it.
+func TestARevisionThatCountsSupersedesThroughIgnoredOnes(t *testing.T) {
+	store := svstore.NewMem()
+	a := signedVault(t, store, "laptop")
+	b := device(t, store, "phone")
+	behind := unsignedHandle(t, store)
+	if _, err := a.Put(login("site", "one")); err != nil {
+		t.Fatal(err)
+	}
+	mustGetVault(t, behind)
+	if err := a.SetPolicy(Policy{RequireSignatures: true}); err != nil {
+		t.Fatal(err)
+	}
+	u, err := behind.Put(login("site", "unsigned"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	it := login("site", "three")
+	c := rawWrite(t, mustGetVault(t, b), b.opts.Device, u.ID, []svformat.RevID{u.Rev}, time.Now(), payload{Type: payloadItem, Item: &it})
+	if e := mustGet(t, a, "site"); e.Rev != c || len(e.Conflicts) != 0 || secretOf(t, e) != "three" {
+		t.Fatalf("after a signed write on top of an ignored one: %s %q, conflicts %v", e.Rev.Short(), secretOf(t, e), e.Conflicts)
+	}
+}
+
+// A head whose contents were dropped, and whose file is gone when it
+// counts again, leaves the index until its file is back.
+func TestAHeadThatCannotBeReadAgainIsReadWhenItIsBack(t *testing.T) {
+	store := svstore.NewMem()
+	a := signedVault(t, store, "laptop")
+	b := device(t, store, "phone")
+	behind := unsignedHandle(t, store)
+	e1, _ := a.Put(login("site", "one"))
+	mustGetVault(t, behind)
+	if _, err := behind.Put(login("site", "unsigned")); err != nil {
+		t.Fatal(err)
+	}
+	if e := mustGet(t, a, "site"); secretOf(t, e) != "unsigned" {
+		t.Fatalf("before the policy: %q", secretOf(t, e))
+	}
+	name := svformat.RevisionName(e1.ID, e1.Rev)
+	saved, _ := store.Read(name)
+	store.Remove(name)
+	// The phone requires signatures, without writing anything else.
+	pid := PolicyID(b.ID())
+	rawWrite(t, mustGetVault(t, b), b.opts.Device, pid, headIDs(b, pid), time.Now(), payload{Type: PolicyKind, Record: []byte(`{"require_signatures":true}`)})
+	if err := a.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Get("site"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("with its only counting revision gone: %v", err)
+	}
+	store.Create(name, saved)
+	if e := mustGet(t, a, "site"); e.Rev != e1.Rev || secretOf(t, e) != "one" {
+		t.Fatalf("once the file is back: %s %q", e.Rev.Short(), secretOf(t, e))
+	}
+}
+
+func TestRestoringNeverAdoptsAForgery(t *testing.T) {
+	store := svstore.NewMem()
+	a := signedVault(t, store, "laptop")
+	e, _ := a.Put(login("site", "honest"))
+	forged := forge(t, a, store, revisionFile(t, store, e.ID, e.Rev),
+		[]byte(`{"type":"item","item":{"kind":"login","name":"site","fields":[{"name":"password","type":"concealed","value":"Zm9yZ2Vk"}]}}`),
+		func(fs []svformat.Field) []svformat.Field {
+			return withField(fs, 0x04, binary.BigEndian.AppendUint64(nil, uint64(e.Time.UnixNano()+1e9)))
+		})
+	mustGetVault(t, a)
+	if _, err := a.Restore("site", forged.String()[:12]); !errors.Is(err, ErrBadSignature) {
+		t.Fatalf("restoring a forgery: %v", err)
+	}
+	if err := a.Delete("site"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := a.Restore("site", "")
+	if err != nil || secretOf(t, r) != "honest" || !r.Signature.Mine {
+		t.Fatalf("restoring the deleted item: %q %+v, %v", secretOf(t, r), r.Signature, err)
+	}
+}
+
+// Devices are named by their keys alone: a device ID is anyone's to take.
+func TestADeviceIsFoundByItsKeyOnly(t *testing.T) {
 	store := svstore.NewMem()
 	a := signedVault(t, store, "laptop")
 	ka := a.opts.Signer.ID()
-	// Mallory registers a device whose ID is the laptop's key ID.
-	m, _ := Open(store, Options{Device: ka, Signer: NewDeviceKey()})
-	if err := m.Unlock(Passphrase(pass)); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := m.RegisterDevice("mallory"); err != nil {
-		t.Fatal(err)
+	// Mallory registers a device whose ID is the laptop's key ID, and
+	// one whose ID is the laptop's device ID.
+	for _, dev := range []svformat.ID{ka, a.opts.Device} {
+		m, _ := Open(store, Options{Device: dev, Signer: NewDeviceKey()})
+		if err := m.Unlock(Passphrase(pass)); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := m.RegisterDevice("laptop"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	mustGetVault(t, a)
-	for _, ref := range []string{ka.String(), ka.String()[:6]} {
+	for _, ref := range []string{ka.String(), ka.String()[:6], strings.ToUpper(ka.String()[:8])} {
 		if d, err := a.Device(ref); err != nil || d.Key != ka {
 			t.Fatalf("Device(%q) = %+v, %v", ref, d, err)
 		}
 	}
-	// A device ID still finds a device when no key starts with it.
-	if d, err := a.Device(a.opts.Device.String()[:12]); err != nil || d.Key != ka {
-		t.Fatalf("by device ID: %+v, %v", d, err)
+	if _, err := a.Device(a.opts.Device.String()); !errors.Is(err, ErrNoDevice) {
+		t.Fatalf("a device ID found a device: %v", err)
 	}
 }
 
@@ -229,37 +373,50 @@ func TestARemovalHoldsUntilARecordThatSawItSaysOtherwise(t *testing.T) {
 	}
 }
 
-func TestAKeyStaysRegisteredForItsFirstDevice(t *testing.T) {
+// A key registers itself for each device it signs as (a key file copied
+// to another device, a device ID made again): none undoes another, so no
+// registration, however dated, turns what the key signed before bad.
+func TestAKeyRegistersItselfForEachDeviceItSignsAs(t *testing.T) {
 	store := svstore.NewMem()
 	a := signedVault(t, store, "laptop")
-	e, _ := a.Put(login("site", "x"))
 	ka := a.opts.Signer.ID()
-	// The same key on a device with another ID (a copied key file, say).
+	a.Put(login("site", "x"))
 	other, _ := Open(store, Options{Device: svformat.NewID(), Signer: a.opts.Signer})
 	if err := other.Unlock(Passphrase(pass)); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := other.RegisterDevice("copy"); err == nil {
-		t.Fatal("a key registered for one device registered again for another")
+	// Before it registers for its device, what it signs does not verify.
+	early, _ := other.Put(login("early", "y"))
+	if early.Signature.Status != SigBad {
+		t.Fatalf("a write as a device the key is not registered for: %+v", early.Signature)
 	}
-	second, err := other.write(ka, other.idx.objects[ka].heads, deviceRec(t, deviceRecord{Key: a.opts.Signer.Public(), Device: other.opts.Device, Label: "copy"}))
-	if err != nil {
-		t.Fatal(err)
+	// Registering keeps the key's label.
+	if d, fresh, err := other.RegisterDevice("copy"); err != nil || !fresh || d.Label != "laptop" {
+		t.Fatalf("RegisterDevice for a second device = %+v, %v, %v", d, fresh, err)
 	}
-	e2, _ := other.Put(login("site2", "y"))
-	wantSigned(t, "the first device's write", mustGet(t, a, "site").Signature, SigVerified, "laptop")
-	if s := mustGet(t, a, "site2").Signature; s.Status != SigBad {
-		t.Fatalf("a write as the second device: %+v", s)
+	if _, fresh, _ := other.RegisterDevice("again"); fresh {
+		t.Fatal("registered twice for one device")
 	}
-	rep, _ := a.Verify()
-	found := false
-	for _, p := range rep.Problems {
-		if _, r, ok := svformat.ParseRevisionName(p.Name); ok && r == second.Rev {
-			found = true
-		}
+	// A registration for yet another device, dated before everything.
+	third := svformat.NewID()
+	rawWrite(t, other, third, ka, nil, time.Unix(1, 0), deviceRec(t, deviceRecord{Key: a.opts.Signer.Public(), Device: third, Label: "backdated"}))
+	for _, name := range []string{"site", "early"} {
+		wantSigned(t, name, mustGet(t, a, name).Signature, SigVerified, "laptop")
 	}
-	if !found || !hasProblem(rep, e2.Rev, ErrBadSignature) {
-		t.Fatalf("Verify: %+v", rep.Problems)
+	if e := mustGet(t, a, "early"); e.Signature.Device != other.opts.Device {
+		t.Fatalf("the signature names device %s, not the one that signed", e.Signature.Device)
 	}
-	_ = e
+	// It only changes which device the key is listed under.
+	if d, _ := a.Device(ka.String()); d.Device != third || d.Registered.Unix() != 1 || d.Label != "laptop" {
+		t.Fatalf("the key's first registration: %+v", d)
+	}
+	// A revision naming a device the key never registered for is bad.
+	e, _ := a.Get("site")
+	forged := forge(t, a, store, revisionFile(t, store, e.ID, e.Rev), nil, func(fs []svformat.Field) []svformat.Field {
+		n := svformat.NewID()
+		return withField(fs, 0x81, n[:])
+	})
+	if s := historyOf(t, mustGetVault(t, a), "site")[forged].Signature; s.Status != SigBad {
+		t.Fatalf("a revision naming a device the key is not registered for: %+v", s)
+	}
 }

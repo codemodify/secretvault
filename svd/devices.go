@@ -20,6 +20,9 @@ import (
 // unless its key is registered there already, or was and has been
 // removed: a device removed elsewhere does not come back by itself.
 func (d *Daemon) registerDevice(mv *managedVault) {
+	if mv.cfg.Emergency != "" {
+		return // someone else's vault, read-only here: this device writes nothing to it
+	}
 	info, fresh, err := mv.v.RegisterDevice(deviceLabel(""))
 	switch {
 	case err != nil:

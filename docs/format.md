@@ -555,22 +555,25 @@ signature       = Ed25519(device key, signed)
   by a rotation) cannot test guesses at a revision's contents against its
   signature, as a plain hash of the payload would let them.
 - **The device is named.** A signed revision must name its device (0x81),
-  which the signature covers, and it must be the device the key is
-  registered for ([Device records](#device-records)).
+  which the signature covers, and it must be a device the key registered
+  itself for ([Device records](#device-records)).
 - **Checking.** A reader opens the revision, computes `signed`, and looks
   the key id up in the vault's registry. A revision is then:
   - *unsigned*: it has no 0x82 field. Its 0x81, if any, is a claim;
   - *unverified*: signed by a key the registry does not hold (not synced
     here yet, or never registered), or with an alg it does not know;
   - *bad*: the registered key does not verify it, or it names a device
-    other than the key's. Someone who can open the vault changed it, or
-    made it posing as that device;
+    the key did not register itself for. Someone who can open the vault
+    changed it, or made it posing as that device;
   - *verified*: a good signature by a registered device.
-- **What it cannot stop.** Anyone who can open the vault can seal a
-  verified revision's payload again under its content key, with a new
-  nonce. The copy has another ID and still verifies, but says only what the
-  device said: the same contents, parents and time. At most it shows as a
-  conflict whose contents that device wrote.
+- **Copies are the revision they copy.** Anyone who can open the vault can
+  seal a signed revision's payload again under its content key, with a new
+  nonce: a copy with another ID and the same signature, which still
+  verifies, and says only what the device said, with the same parents and
+  time. Readers take signed revisions with the same key id and signature
+  as one: wherever one is superseded (it, or a copy, is an ancestor of a
+  revision that counts), so are the others. A copy of a head shows at
+  most as a conflict whose contents are the head's.
 
 Writers: the reference implementation signs every revision a daemon writes
 (`svcore.Options.Signer`). Each device has one key for every vault, kept in
@@ -668,22 +671,26 @@ The vault's registry of devices is records of type `device`:
   of theirs, and so claim that key's revisions.
 - **A registration is never undone.** Every such revision counts, whatever
   came after it, so what a key signed stays checkable whatever its record
-  says now. A key is registered for the device its first registration
-  names (the earliest; on a tie, the least revision ID); a later one for
-  another device is reported, and changes nothing.
+  says now. A key is registered for every device it registered itself for
+  (a key file copied to another device, or a device ID made again, adds
+  one): none undoes another. The earliest registration (on a tie, the
+  least revision ID) is what the key is listed under, and when it
+  registered; the key's holder can backdate one, and so change only that.
 - **Newest, here and for the policy, is by descent.** Of the revisions
   considered, the newest are those none of the others descends from
-  (through any revision of the object), and of those, the one that would
-  win a conflict. The clock alone, which every writer sets, decides only
-  between revisions made apart.
-- **The label** is the newest record's for the key's device, whoever wrote
-  it: any device can rename another, and its signature says which did. A
-  badly signed record never counts.
-- **Removal** holds from any record that says so until one for the same
-  device that descends from it says otherwise, so a device that registers
-  again without having seen its removal stays removed. A removed device's
-  signatures still verify; readers name it as removed. Removal cuts nobody
-  off: that takes a rotation.
+  (through any revision of the object; copies of a signed revision go with
+  it, as above), and of those, the one that would win a conflict. The
+  clock alone, which every writer sets, decides only between revisions
+  made apart.
+- **The label** is the newest record's for the key (one naming a device
+  the key registered for), whoever wrote it: any device can rename
+  another, and its signature says which did. A badly signed record never
+  counts.
+- **Removal** holds from any record that says so until one that descends
+  from it says otherwise, so a device that registers again without having
+  seen its removal stays removed. A removed device's signatures still
+  verify; readers name it as removed. Removal cuts nobody off: that takes
+  a rotation.
 - **Vouches** are read only from the newest record the key itself signed.
   Each reader decides from its own device: a device is *vouched for* when
   the reader's device vouches for it, or a device vouched for does, and so

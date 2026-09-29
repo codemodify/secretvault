@@ -223,8 +223,8 @@ func TestSignedWritesVerifyOnEveryDevice(t *testing.T) {
 	if d, err := a.Device(devs[1].Key.String()[:6]); err != nil || d.Label != "phone" {
 		t.Fatalf("Device by key prefix = %+v, %v", d, err)
 	}
-	if d, err := a.Device(devs[1].Device.String()[:8]); err != nil || d.Key != devs[1].Key {
-		t.Fatalf("Device by device-ID prefix = %+v, %v", d, err)
+	if _, err := a.Device(devs[1].Device.String()); !errors.Is(err, ErrNoDevice) {
+		t.Fatalf("Device by device ID: %v", err)
 	}
 	if rep, err := a.Verify(); err != nil || !rep.OK() {
 		t.Fatalf("Verify = %+v, %v", rep.Problems, err)

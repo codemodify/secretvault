@@ -244,10 +244,12 @@ changed this?" is the device signature ([format.md](format.md#signatures)).
   open the vault can make one: not by editing a revision, not by copying a
   signature onto another, not by registering someone else's key as a
   device of theirs. It is the key that is proven: a device ID, like a
-  label, is only what a key registered under, and two keys can claim the
-  same one (a device whose key was replaced, or an impostor). `history`
-  shows the first 16 digits (64 bits) of each key ID beside the label:
-  too many to make a key that looks like another's; `device ls` shows
+  label, is only what a key registered under; two keys can claim the same
+  one (a device whose key was replaced, or an impostor), and one key
+  several (its file copied to another device). So `secretvault device`
+  takes key IDs, never device IDs, and `history` shows the first 16 digits
+  (64 bits) of each key ID beside the label: too many to make a key that
+  looks like another's; `device ls` shows
   all 32.
 - **What it does not prove: who the device is.** The registry is records
   in the vault, which anyone who can open it can write. It proves only that
@@ -289,7 +291,10 @@ changed this?" is the device signature ([format.md](format.md#signatures)).
 - **Newest is by descent.** A device record, and the policy, are read from
   the revisions nothing later descends from, not from the latest clock:
   a writer can date a revision far in the future, and would otherwise
-  outlast every later change.
+  outlast every later change. A copy of a signed revision (sealed again
+  under its content key, as anyone who can open the vault can) is taken
+  for the revision it copies, so it cannot bring back what was replaced:
+  a withdrawn vouch, an undone removal, an earlier policy.
 - **Removing a device is not revocation.** Its signatures still verify,
   marked as a removed device's, and it can still open the vault and write,
   signed, until the key is rotated without it.
@@ -930,7 +935,7 @@ guess, like `svpgp`:
 | Anyone who can open a vault can register a device of their own under any label, and rename or remove others; a verified signature names a key, not a person | comparing key IDs and vouching (`device vouch`); nothing more within the vault |
 | Signatures are not required by default, and versions before them cannot sign | `vault signatures required`, once every device signs |
 | Rotating the key, or requiring signatures, re-signs the current state as the device doing it; who wrote it before is only in the history | marking such rewrites as copies of what they replace |
-| A signed revision can be sealed again under its content key: a copy with another ID, saying what the device said | none planned |
+| A signed revision can be sealed again under its content key: a copy with another ID, saying what the device said. It is superseded with what it copies, but a copy of a current revision shows as a conflict with the same contents | none planned |
 | Epoch records and keyslots are not signed by a device | device signatures on them, with the rollback checkpoints |
 | On Windows and macOS, screen lock and sleep do not lock vaults yet (idle time and explicit locks do) | session notifications on those platforms |
 | Windows and macOS identify programs by path and hash, not by publisher signature | Authenticode and code-signing checks |

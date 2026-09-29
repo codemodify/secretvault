@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/codemodify/secretvault/svformat"
@@ -172,13 +173,18 @@ func PolicyID(vault svformat.ID) svformat.ID {
 type deviceEntry struct {
 	key        svformat.ID
 	pub        ed25519.PublicKey
-	device     svformat.ID
+	device     svformat.ID          // the device its first registration names
+	devices    map[svformat.ID]bool // every device it registered for
 	registered time.Time
 	label      string
 	removed    bool
 	vouches    []svformat.ID
 	vouched    bool
 }
+
+// tag names what a signature was checked against: a key's devices only
+// ever grow in number.
+func (e *deviceEntry) tag() string { return fmt.Sprintf("%x/%d", e.pub, len(e.devices)) }
 
 // check sets r.status from the registry. A status once settled for a key
 // is kept until the key's registration changes.
@@ -193,13 +199,13 @@ func (x *index) check(r *revision) {
 		r.status, r.checkedFor = SigUnverified, ""
 		return
 	}
-	tag := string(e.pub) + string(e.device[:])
+	tag := e.tag()
 	if r.checkedFor == tag {
 		return
 	}
 	r.checkedFor = tag
 	switch {
-	case r.signed == nil, !s.Verify(e.pub, r.signed), r.hdr.Device != e.device:
+	case r.signed == nil, !e.devices[r.hdr.Device], !s.Verify(e.pub, r.signed):
 		r.status = SigBad
 	default:
 		r.status = SigVerified
@@ -213,17 +219,25 @@ func (x *index) counts(r *revision) bool {
 
 // proves reports whether r registers the key its object is named after:
 // a device record for that key, signed by it, for the device it names.
+// What a revision proves never changes, so it is worked out once.
 func proves(o *object, r *revision) bool {
-	d, s := r.device, r.hdr.Signature
-	return d != nil && d.id == o.id && s != nil && s.Key == o.id && r.hdr.Device == d.Device &&
-		r.signed != nil && s.Verify(d.Key, r.signed)
+	if r.proof == 0 {
+		d, s := r.device, r.hdr.Signature
+		r.proof = -1
+		if d != nil && d.id == o.id && s != nil && s.Key == o.id && r.hdr.Device == d.Device &&
+			r.signed != nil && s.Verify(d.Key, r.signed) {
+			r.proof = 1
+		}
+	}
+	return r.proof > 0
 }
 
 // buildRegistry finds every registered key, and reports whether the set
-// of keys (or a key's device) changed. A key is registered for the device
-// its first registration names (the earliest; on a tie, the least
-// revision ID): only the key could have made any of them, and a later one
-// for another device must not undo what the key signed before.
+// of keys (or a key's devices) changed. A key is registered for every
+// device it registered itself for: only the key could have made any of
+// those registrations, and none undoes another (a key file copied to a
+// second device registers it for both). Its first registration names
+// the device it is shown as, and when it registered.
 func (x *index) buildRegistry() bool {
 	reg := map[svformat.ID]*deviceEntry{}
 	x.regProblems = x.regProblems[:0]
@@ -246,17 +260,16 @@ func (x *index) buildRegistry() bool {
 			return bytes.Compare(a.id[:], b.id[:]) < 0
 		})
 		first := proofs[0]
-		reg[id] = &deviceEntry{key: o.id, pub: first.device.Key, device: first.device.Device, registered: time.Unix(0, first.hdr.Time).UTC()}
-		for _, r := range proofs[1:] {
-			if r.device.Device != first.device.Device {
-				x.regProblems = append(x.regProblems, Problem{svformat.RevisionName(o.id, r.id),
-					fmt.Errorf("svcore: device key %s registered itself again, for another device; it stays registered for the first", o.id)})
-			}
+		e := &deviceEntry{key: o.id, pub: first.device.Key, device: first.device.Device, devices: map[svformat.ID]bool{},
+			registered: time.Unix(0, first.hdr.Time).UTC()}
+		for _, r := range proofs {
+			e.devices[r.device.Device] = true
 		}
+		reg[id] = e
 	}
 	changed := len(reg) != len(x.reg)
 	for id, e := range reg {
-		if old := x.reg[id]; old == nil || !bytes.Equal(old.pub, e.pub) || old.device != e.device {
+		if old := x.reg[id]; old == nil || old.tag() != e.tag() || old.device != e.device {
 			changed = true
 		}
 	}
@@ -269,7 +282,14 @@ func (x *index) buildRegistry() bool {
 // revision's parents are part of what its ID (and its signature) cover,
 // so a revision that counts supersedes all it descends from, whoever
 // wrote what lies between.
+//
+// Signed revisions with the same signature are one revision: anyone who
+// can open the vault can seal a signed revision's payload again, under
+// the same content key and so the same signature, as a copy with another
+// ID. Such a copy is superseded wherever what it copies is, so it cannot
+// bring back a record or a policy that something later replaced.
 func ancestors(o *object, from ...*revision) map[svformat.RevID]bool {
+	var twins map[string][]svformat.RevID
 	seen := map[svformat.RevID]bool{}
 	var stack []svformat.RevID
 	for _, r := range from {
@@ -282,8 +302,22 @@ func ancestors(o *object, from ...*revision) map[svformat.RevID]bool {
 			continue
 		}
 		seen[id] = true
-		if p := o.revs[id]; p != nil {
-			stack = append(stack, p.hdr.Parents...)
+		p := o.revs[id]
+		if p == nil {
+			continue
+		}
+		stack = append(stack, p.hdr.Parents...)
+		if s := p.hdr.Signature; s != nil {
+			if twins == nil {
+				twins = map[string][]svformat.RevID{}
+				for tid, t := range o.revs {
+					if ts := t.hdr.Signature; ts != nil {
+						k := string(ts.Key[:]) + string(ts.Sig)
+						twins[k] = append(twins[k], tid)
+					}
+				}
+			}
+			stack = append(stack, twins[string(s.Key[:])+string(s.Sig)]...)
 		}
 	}
 	return seen
@@ -320,7 +354,7 @@ func (x *index) readPolicy(vault svformat.ID) bool {
 	if o := x.objects[PolicyID(vault)]; o != nil {
 		var signed []*revision
 		for _, r := range o.revs {
-			if r.kind == PolicyKind && r.status == SigVerified {
+			if r.policy != nil && r.status == SigVerified {
 				signed = append(signed, r)
 			}
 		}
@@ -343,16 +377,18 @@ func (x *index) readPolicy(vault svformat.ID) bool {
 func (x *index) settleDevices(own svformat.ID) {
 	for id, e := range x.reg {
 		o := x.objects[id]
-		var state, self, removals []*revision
+		var state, self, removals, kept []*revision
 		for _, r := range o.revs {
 			// A badly signed revision is someone's forgery: whatever the
 			// policy, it says nothing about a device.
-			if r.device == nil || r.device.id != id || r.device.Device != e.device || !x.counts(r) || r.status == SigBad {
+			if r.device == nil || r.device.id != id || !e.devices[r.device.Device] || !x.counts(r) || r.status == SigBad {
 				continue
 			}
 			state = append(state, r)
 			if r.device.Removed {
 				removals = append(removals, r)
+			} else {
+				kept = append(kept, r)
 			}
 			if proves(o, r) {
 				self = append(self, r)
@@ -362,17 +398,13 @@ func (x *index) settleDevices(own svformat.ID) {
 		if heads := headsOf(o, state); len(heads) > 0 {
 			e.label = heads[0].device.Label
 		}
-		for _, r := range removals {
-			undone := false
-			for _, s := range state {
-				if !s.device.Removed && ancestors(o, s)[r.id] {
-					undone = true
+		if len(removals) > 0 {
+			undone := ancestors(o, kept...)
+			for _, r := range removals {
+				if !undone[r.id] {
+					e.removed = true
 					break
 				}
-			}
-			if !undone {
-				e.removed = true
-				break
 			}
 		}
 		if heads := headsOf(o, self); len(heads) > 0 {
@@ -411,9 +443,9 @@ func (x *index) signature(r *revision, own svformat.ID) Signature {
 	case e == nil || r.status == SigUnverified:
 	case r.status == SigBad:
 		// Whom it poses as, and nothing more.
-		s.Device, s.Label = e.device, e.label
+		s.Device, s.Label = r.hdr.Device, e.label
 	default:
-		s.Device, s.Label, s.Removed, s.Vouched = e.device, e.label, e.removed, e.vouched
+		s.Device, s.Label, s.Removed, s.Vouched = r.hdr.Device, e.label, e.removed, e.vouched
 		s.Mine = s.Key == own && !own.IsZero()
 	}
 	return s
@@ -455,28 +487,21 @@ func (v *Vault) Devices() ([]DeviceInfo, error) {
 }
 
 // Device finds a registered device by its key ID, or by the first digits
-// of its key ID, as people type them; failing those, by the first digits
-// of its device ID. Keys come first: a device ID is only what a key
-// registered under, and anyone could register one that looks like
-// another device's key ID, to make it ambiguous.
+// of it, as people type them. Only keys: a device ID is only what a key
+// registered under, and anyone can register a key whose ID starts as
+// another device's ID does, or a device whose ID starts as another's key
+// ID does.
 func (v *Vault) Device(ref string) (DeviceInfo, error) {
 	devs, err := v.Devices()
 	if err != nil {
 		return DeviceInfo{}, err
 	}
-	match := func(of func(DeviceInfo) svformat.ID) []DeviceInfo {
-		var found []DeviceInfo
-		for _, d := range devs {
-			s := of(d).String()
-			if ref != "" && len(ref) <= len(s) && s[:len(ref)] == ref {
-				found = append(found, d)
-			}
+	ref = strings.ToLower(ref)
+	var found []DeviceInfo
+	for _, d := range devs {
+		if ref != "" && strings.HasPrefix(d.Key.String(), ref) {
+			found = append(found, d)
 		}
-		return found
-	}
-	found := match(func(d DeviceInfo) svformat.ID { return d.Key })
-	if len(found) == 0 {
-		found = match(func(d DeviceInfo) svformat.ID { return d.Device })
 	}
 	switch len(found) {
 	case 0:
@@ -488,9 +513,11 @@ func (v *Vault) Device(ref string) (DeviceInfo, error) {
 }
 
 // RegisterDevice registers this handle's device key in the vault's
-// registry, under label. A key already registered, even one since
-// removed, is left as it is (registered reports false): a device removed
-// from elsewhere does not come back by itself.
+// registry, for its device, under label. A key already registered for
+// this device, even one since removed, is left as it is (registered
+// reports false): a device removed from elsewhere does not come back by
+// itself. A key registered for another device (its key file copied here)
+// is registered for this one too, keeping its label and standing.
 func (v *Vault) RegisterDevice(label string) (info DeviceInfo, registered bool, err error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -501,13 +528,13 @@ func (v *Vault) RegisterDevice(label string) (info DeviceInfo, registered bool, 
 		return DeviceInfo{}, false, ErrNoDeviceKey
 	}
 	own := v.ownKey()
-	if e := v.idx.reg[own]; e != nil {
-		if e.device != v.opts.Device {
-			return e.info(own), false, fmt.Errorf("svcore: this device key is registered for device %s, not %s: what it signs as %s will not verify", e.device, v.opts.Device, v.opts.Device)
-		}
-		return e.info(own), false, nil
-	}
 	rec := deviceRecord{Alg: "ed25519", Key: v.opts.Signer.Public(), Device: v.opts.Device, Label: label}
+	if e := v.idx.reg[own]; e != nil {
+		if e.devices[v.opts.Device] {
+			return e.info(own), false, nil
+		}
+		rec.Label, rec.Removed, rec.Vouches = e.label, e.removed, slices.Clone(e.vouches)
+	}
 	if err := v.writeDevice(own, rec); err != nil {
 		return DeviceInfo{}, false, err
 	}
@@ -593,8 +620,10 @@ func (v *Vault) changeDevice(key svformat.ID, change func(d *deviceRecord, own b
 	own := v.ownKey()
 	rec := deviceRecord{Alg: "ed25519", Key: e.pub, Device: e.device, Label: e.label, Removed: e.removed}
 	if key == own {
-		// Only a device's own revisions say whom it vouches for.
+		// Only a device's own revisions say whom it vouches for; and
+		// what it signs for its own device registers the key for it.
 		rec.Vouches = slices.Clone(e.vouches)
+		rec.Device = v.opts.Device
 	}
 	change(&rec, key == own)
 	if len(rec.Label) > 256 {

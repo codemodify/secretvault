@@ -29,7 +29,10 @@ import (
 //     revision there is, since from then on no other revision sealed under
 //     an older key counts, and it is authenticated under the current key;
 //  3. the old epoch's keyslots are removed;
-//  4. every live item and record is written again under the new key.
+//  4. every live item and record is written again under the new key,
+//     signed by this handle's device if it signs; device and policy
+//     records, and a winner whose signature is bad or unverified, are
+//     left as they are (writeAgain, devices.go).
 //
 // A crash before 2 leaves stray keyslots nothing reads; after 2, an
 // unfinished step 3 or 4 is finished by rotating again or by the next
