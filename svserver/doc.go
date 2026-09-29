@@ -15,7 +15,8 @@
 // Under the root directory, one directory per vault:
 //
 //	vaults/<vault>/devices.json   the enrolled device keys
-//	vaults/<vault>/changes.log    every file created or removed, numbered
+//	vaults/<vault>/changes.log    every file created or removed, and events, numbered
+//	vaults/<vault>/emergency.json the vault's emergency grants, if it has any
 //	vaults/<vault>/files/...      the vault's files, as the devices have them
 //
 // The change log is appended to and synced line by line; after a crash
@@ -42,6 +43,30 @@
 //	POST   /v1/vaults/{vault}/devices         join with a code: body JoinRequest, signed by the new key.
 //	GET    /v1/vaults/{vault}/devices         the enrolled devices ([]Device).
 //	DELETE /v1/vaults/{vault}/devices/{key}   remove a device (any device may; not the last one).
+//
+// Emergency access (emergency.go): a grant lets one person, the trustee,
+// have the vault's escrowed release key after a wait that any device can
+// cut short by denying.
+//
+//	POST   /v1/vaults/{vault}/emergency                   make a grant: body EmergencyCreate. 201, or 200 for
+//	                                                      the same again; 409 for another under its ID.
+//	GET    /v1/vaults/{vault}/emergency                   the grants ([]EmergencyGrant).
+//	GET    /v1/vaults/{vault}/emergency/{grant}           one grant (EmergencyGrant): a device, or its trustee.
+//	DELETE /v1/vaults/{vault}/emergency/{grant}           revoke it: its escrow and its trustee's access go. 204.
+//	POST   /v1/vaults/{vault}/emergency/{grant}/deny      refuse the pending request. 409 if none, or once released.
+//	GET    /v1/vaults/{vault}/emergency/{grant}/challenge the code sealed to the trustee (EmergencyChallenge),
+//	                                                      signed by any key, until the grant is accepted.
+//	POST   /v1/vaults/{vault}/emergency/{grant}/trustee   accept it with the code (EmergencyAccept), signed by
+//	                                                      the trustee's device key, which becomes the grant's.
+//	POST   /v1/vaults/{vault}/emergency/{grant}/request   the trustee asks: the wait starts (asking again changes
+//	                                                      nothing). Answers EmergencyGrant.
+//	POST   /v1/vaults/{vault}/emergency/{grant}/release   the trustee takes the escrow (EmergencyRelease) once the
+//	                                                      wait has passed with no denial; 409 before.
+//
+// Once a grant is released, its trustee's device may also GET the vault's
+// files and changes, and nothing else. Every change to a grant is logged
+// as an event (OpEvent, named "emergency/<grant>"), so the vault's devices
+// hear of a request at once.
 //
 // Vault names are lowercase letters, digits, '-' and '_' (CheckVaultName);
 // a vault's own ID is the natural choice. File names must be ones the
@@ -92,9 +117,16 @@
 //   - which device wrote each revision (the device ID in its header);
 //   - the device keys and labels enrolled in each vault, who enrolled
 //     whom, and when each device was last seen;
-//   - the IP address and timing of every request.
+//   - the IP address and timing of every request;
+//   - each emergency grant: that it exists, its wait, the trustee's device
+//     key and label, and when it was requested, denied and released. Its
+//     escrow is sealed to the trustee, and the keyslot it goes with names
+//     the trustee's public key.
 //
-// It never sees a vault key, a passphrase, an item's name or any field.
+// It never sees a vault key, a passphrase, an item's name or any field,
+// nor an emergency grant's release key. It keeps the waits, and is trusted
+// to: a server that releases an escrow early gives the trustee access
+// early (docs/security.md, "Emergency access").
 // It cannot forge or alter a revision without detection. It can withhold
 // or delete files, which rolls items back to older authentic versions;
 // signed checkpoints (planned) will detect that.

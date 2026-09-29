@@ -107,13 +107,24 @@ func New(cfg Config) (*Server, error) {
 	fileBody := max(cfg.MaxFileSize, svformat.MaxBlobFile)
 	s.route("POST /v1/vaults/{vault}", anyKey, maxJSONBody, s.createVault)
 	s.route("PUT /v1/vaults/{vault}/files/{name...}", member, fileBody, s.putFile)
-	s.route("GET /v1/vaults/{vault}/files/{name...}", member, 0, s.getFile)
+	s.route("GET /v1/vaults/{vault}/files/{name...}", reader, 0, s.getFile)
 	s.route("DELETE /v1/vaults/{vault}/files/{name...}", member, 0, s.deleteFile)
-	s.route("GET /v1/vaults/{vault}/changes", member, 0, s.changes)
+	s.route("GET /v1/vaults/{vault}/changes", reader, 0, s.changes)
 	s.route("POST /v1/vaults/{vault}/enrol", member, maxJSONBody, s.enrol)
 	s.route("POST /v1/vaults/{vault}/devices", anyKey, maxJSONBody, s.join)
 	s.route("GET /v1/vaults/{vault}/devices", member, 0, s.listDevices)
 	s.route("DELETE /v1/vaults/{vault}/devices/{key}", member, 0, s.removeDevice)
+
+	// Emergency access (emergency.go).
+	s.route("POST /v1/vaults/{vault}/emergency", member, maxJSONBody, s.createGrant)
+	s.route("GET /v1/vaults/{vault}/emergency", member, 0, s.listGrants)
+	s.route("GET /v1/vaults/{vault}/emergency/{grant}", memberOrTrustee, 0, s.getGrant)
+	s.route("DELETE /v1/vaults/{vault}/emergency/{grant}", member, 0, s.revokeGrant)
+	s.route("POST /v1/vaults/{vault}/emergency/{grant}/deny", member, 0, s.denyGrant)
+	s.route("GET /v1/vaults/{vault}/emergency/{grant}/challenge", anyKey, 0, s.grantChallenge)
+	s.route("POST /v1/vaults/{vault}/emergency/{grant}/trustee", anyKey, maxJSONBody, s.acceptGrant)
+	s.route("POST /v1/vaults/{vault}/emergency/{grant}/request", trustee, 0, s.requestGrant)
+	s.route("POST /v1/vaults/{vault}/emergency/{grant}/release", trustee, 0, s.releaseGrant)
 	return s, nil
 }
 
@@ -185,15 +196,35 @@ func (s *Server) lookupLocked(name string) (*vault, error) {
 type access int
 
 const (
-	member access = iota // a device enrolled in the vault
-	anyKey               // any key that signs: making a vault, or joining one
+	member          access = iota // a device enrolled in the vault
+	anyKey                        // any key that signs: making a vault, joining one, accepting a grant
+	reader                        // a member, or the trustee of a grant released to it: reading files and changes
+	trustee                       // the trustee of the grant in the path
+	memberOrTrustee               // either
 )
+
+// allows reports whether device may use a route of access acc on v;
+// grant is the grant the path names, if any.
+func (v *vault) allows(acc access, device, grant string) bool {
+	switch acc {
+	case member:
+		return v.hasDevice(device)
+	case reader:
+		return v.hasDevice(device) || v.releasedTo(device)
+	case trustee:
+		return v.isTrustee(grant, device)
+	case memberOrTrustee:
+		return v.hasDevice(device) || v.isTrustee(grant, device)
+	}
+	return false
+}
 
 // request is an authenticated request.
 type request struct {
 	name   string // the vault's name
-	vault  *vault // for member routes
+	vault  *vault // for every route but anyKey's
 	device string // the signing key, encoded
+	grant  string // the emergency grant the path names, if any
 	body   []byte
 	now    time.Time
 }
@@ -218,6 +249,11 @@ func (s *Server) route(pattern string, acc access, maxBody int64, h handler) {
 			fail(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		grant := r.PathValue("grant")
+		if grant != "" && !validGrantID(grant) {
+			fail(w, http.StatusBadRequest, "a grant is named by 32 lowercase hex digits")
+			return
+		}
 		cred, err := parseAuthorization(r.Header.Get("Authorization"))
 		if err != nil {
 			w.Header().Set("WWW-Authenticate", AuthScheme)
@@ -230,17 +266,21 @@ func (s *Server) route(pattern string, acc access, maxBody int64, h handler) {
 				skew, now.UTC().Format(time.RFC3339)))
 			return
 		}
-		req := &request{name: name, device: cred.device, now: now}
+		req := &request{name: name, device: cred.device, grant: grant, now: now}
 		// Membership is checked before the body is read, so strangers
 		// cannot make the server read large bodies.
-		if acc == member {
+		if acc != anyKey {
 			v, err := s.lookup(name)
 			if err != nil && !errors.Is(err, errNoVault) {
 				s.internal(w, err)
 				return
 			}
-			if v == nil || !v.hasDevice(cred.device) {
-				fail(w, http.StatusForbidden, "this device is not enrolled in that vault (or there is no such vault)")
+			if v == nil || !v.allows(acc, cred.device, grant) {
+				msg := "this device is not enrolled in that vault (or there is no such vault)"
+				if acc == trustee || acc == memberOrTrustee {
+					msg = "this device is neither enrolled in that vault nor the trustee of that grant (or there is no such grant)"
+				}
+				fail(w, http.StatusForbidden, msg)
 				return
 			}
 			req.vault = v

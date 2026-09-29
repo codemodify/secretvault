@@ -20,6 +20,7 @@ import (
 //	svlog1 <log id>
 //	<seq> + <name> <size> <sha256>
 //	<seq> - <name>
+//	<seq> ! <name>                    an event (OpEvent)
 //
 // Sequence numbers run 1, 2, 3, ... without a gap. A line cut short by a
 // crash is dropped when the log is next opened; the file it described is
@@ -137,6 +138,8 @@ func parseLogLine(s string) (Change, error) {
 		}
 	case f[1] == "-" && len(f) == 3:
 		c.Op = OpRemove
+	case f[1] == "!" && len(f) == 3:
+		c.Op = OpEvent
 	default:
 		return Change{}, bad
 	}
@@ -144,8 +147,11 @@ func parseLogLine(s string) (Change, error) {
 }
 
 func formatLogLine(c Change) string {
-	if c.Op == OpCreate {
+	switch c.Op {
+	case OpCreate:
 		return fmt.Sprintf("%d + %s %d %s\n", c.Seq, c.Name, c.Size, c.SHA256)
+	case OpEvent:
+		return fmt.Sprintf("%d ! %s\n", c.Seq, c.Name)
 	}
 	return fmt.Sprintf("%d - %s\n", c.Seq, c.Name)
 }

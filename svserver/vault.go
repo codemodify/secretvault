@@ -19,6 +19,7 @@ import (
 //
 //	<root>/vaults/<vault>/devices.json   the enrolled device keys
 //	<root>/vaults/<vault>/changes.log    the change log (log.go)
+//	<root>/vaults/<vault>/emergency.json its emergency grants (emergency.go), if any
 //	<root>/vaults/<vault>/files/...      the vault's files, as a client has them
 //
 // A vault exists once devices.json does. The files are an svstore.Dir, so
@@ -60,6 +61,7 @@ type vault struct {
 	devices []Device
 	seen    map[string]time.Time
 	codes   map[[32]byte]pendingCode // by the SHA-256 of the code
+	grants  []*grantRec              // emergency grants (emergency.go), oldest first
 
 	// notify is closed (and replaced) whenever a change is logged, waking
 	// every long poll.
@@ -97,6 +99,9 @@ func loadVault(name, dir string, logf func(string)) (*vault, error) {
 	} else if !errors.Is(err, svstore.ErrNotExist) {
 		return nil, err
 	}
+	if v.grants, err = loadGrants(meta, dir); err != nil {
+		return nil, err
+	}
 	if v.log, err = openLog(filepath.Join(dir, logFile)); err != nil {
 		return nil, err
 	}
@@ -112,7 +117,10 @@ func loadVault(name, dir string, logf func(string)) (*vault, error) {
 
 // track applies a logged change to what the vault holds now.
 func (v *vault) track(c Change) {
-	if c.Op == OpCreate {
+	switch c.Op {
+	case OpEvent:
+		return // not a file
+	case OpCreate:
 		v.current[c.Name] = fileRec{seq: c.Seq, size: c.Size, sum: c.SHA256}
 		delete(v.removed, c.Name)
 		return
@@ -271,7 +279,9 @@ func (v *vault) findDevice(key string) int {
 
 func (v *vault) sawDevice(key string, now time.Time) {
 	v.mu.Lock()
-	v.seen[key] = now
+	if v.findDevice(key) >= 0 { // not a trustee's
+		v.seen[key] = now
+	}
 	v.mu.Unlock()
 }
 

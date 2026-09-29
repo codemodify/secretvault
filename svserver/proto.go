@@ -20,9 +20,21 @@ import (
 const (
 	OpCreate = "create"
 	OpRemove = "remove"
+
+	// OpEvent is something about the vault that changed on the server and
+	// is not a file: an emergency grant (Name EmergencyEvent + its ID).
+	// It carries no data; a device asks for what changed. Devices that do
+	// not know an event's name skip it, as they skip any name that is not
+	// one of a vault's files.
+	OpEvent = "event"
 )
 
-// Change is one entry of a vault's change log: a file created or removed.
+// EmergencyEvent prefixes the name of an event about an emergency grant:
+// "emergency/<grant id>".
+const EmergencyEvent = "emergency/"
+
+// Change is one entry of a vault's change log: a file created or removed,
+// or an event.
 type Change struct {
 	Seq  uint64 `json:"seq"`
 	Op   string `json:"op"`
