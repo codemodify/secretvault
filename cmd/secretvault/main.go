@@ -38,6 +38,9 @@
 //	inject [-i IN] [-o OUT]                 fill {{ sv://... }} references in a template
 //	age keygen|recipient|identity|encrypt|decrypt   age files with vault-held keys
 //	identity new|pub           make or show a recipient identity
+//	contact ls|show|add|import|rm|verify|lookup|qr|vault   people, their keys, and how you verified them
+//	trust check|seen           the verdict on a message's signer; record a key seen in mail
+//	pgp ls|new|import|export|pub|sign|decrypt|verify       your OpenPGP keys, used inside the daemon
 //	verify                     re-authenticate every file of the vault
 //	version                    print the version
 //
@@ -191,6 +194,9 @@ func init() {
 		{"age", "age files with vault-held keys: keygen, recipient, identity, encrypt, decrypt", (*cli).cmdAge},
 		{"age-plugin", "age's plugin protocol (run as age-plugin-secretvault)", (*cli).cmdAgePlugin},
 		{"identity", "make (new) or show (pub) a recipient identity", (*cli).cmdIdentity},
+		{"contact", "people and their keys: ls, show, add, import, rm, verify, lookup, qr, vault", (*cli).cmdContact},
+		{"trust", "who signed a message, as far as you know: check, seen", (*cli).cmdTrust},
+		{"pgp", "your OpenPGP keys: ls, new, import, export, pub, sign, decrypt, verify", (*cli).cmdPGP},
 		{"verify", "re-authenticate every file of the vault", (*cli).cmdVerify},
 		{"version", "print the version", (*cli).cmdVersion},
 	}
