@@ -115,7 +115,7 @@ JSON over HTTPS, under `/v1/deliver/`; errors are `{"error": "..."}`.
 | `GET /v1/deliver/status` | sealed or not, and the unseal progress. No credential. |
 | `POST /v1/deliver/unseal` | `{"share": "SVUS1-..."}`, one per request; or `{"reset": true}`. No credential. |
 | `POST /v1/deliver/login/oidc` | `{"role", "jwt"}` → `{"token", "expires", "role", "identity"}`: a session, 15 minutes unless the role says. |
-| `GET /v1/deliver/secret/{vault}/{item}` | the item's fields; `?field=NAME` for one, and `&raw=true` for its bare value. |
+| `GET /v1/deliver/secret/{vault}/{item}` | the item's fields; `?field=NAME` for one; `?raw=true` for a bare value: the field's, or the item's secret. |
 | `GET /v1/deliver/list/{vault}/{prefix}` | the item names under the prefix that the caller may list. |
 | `/v1/deliver/admin/...` | tokens, roles, vaults, issuers, the client CA, seal, rekey, the audit log: with the admin token. [`svdeliver`](../svdeliver/doc.go) lists them. |
 

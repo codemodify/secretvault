@@ -291,7 +291,16 @@ func (s *Server) handleSecret(c *call) {
 			out.ValueBase64 = &val
 		}
 	} else {
-		if sf, ok := e.Item.Secret(); ok {
+		sf, ok := e.Item.Secret()
+		if raw(c.r) {
+			if !ok {
+				s.fail(c, &apiError{status: http.StatusNotFound, msg: "that item has no secret field: name one with ?field="})
+				return
+			}
+			s.ok(c, http.StatusOK, rawValue(sf.Value))
+			return
+		}
+		if ok {
 			out.SecretField = sf.Name
 		}
 		for _, f := range e.Item.Fields {
@@ -311,8 +320,8 @@ func (s *Server) handleSecret(c *call) {
 	s.ok(c, http.StatusOK, out)
 }
 
-// raw reports whether the caller asked for a field's bare value
-// (?raw=true), for curl.
+// raw reports whether the caller asked for a bare value (?raw=true), for
+// curl: the field named, or the item's secret.
 func raw(r *http.Request) bool {
 	v, ok := r.URL.Query()["raw"]
 	return ok && (len(v) == 0 || v[0] == "" || v[0] == "1" || v[0] == "true")

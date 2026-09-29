@@ -323,6 +323,9 @@ func TestATokenReadsWhatItsRoleAllowsAndNothingElse(t *testing.T) {
 	if code != http.StatusOK || body != "hunter2" {
 		t.Fatalf("a raw field: %d %q", code, body)
 	}
+	if code, body := f.get("/v1/deliver/secret/main/prod/db/password?raw", tok); code != http.StatusOK || body != "hunter2" {
+		t.Fatalf("the item's secret, raw: %d %q", code, body)
+	}
 	if code, body := f.get("/v1/deliver/secret/main/prod/db/password?field=nope", tok); code != http.StatusNotFound || !strings.Contains(body, "no field") {
 		t.Fatalf("a missing field: %d %s", code, body)
 	}

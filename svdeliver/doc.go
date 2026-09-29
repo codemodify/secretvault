@@ -52,8 +52,9 @@
 //	                                         the new shares.
 //	POST /v1/deliver/login/oidc              {"role", "jwt"}: an ID token for a session
 //	                                         (Session), 15 minutes unless the role says.
-//	GET  /v1/deliver/secret/{vault}/{item}   the item's fields (Secret); ?field=NAME for one,
-//	                                         and &raw=true for its bare value.
+//	GET  /v1/deliver/secret/{vault}/{item}   the item's fields (Secret); ?field=NAME for one;
+//	                                         ?raw=true for a bare value (the field's, or the
+//	                                         item's secret).
 //	GET  /v1/deliver/list/{vault}/{prefix}   the item names under prefix the caller may list.
 //
 // The admin API needs the admin token, and so an unsealed server:
