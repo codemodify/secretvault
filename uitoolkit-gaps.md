@@ -10,19 +10,27 @@ maintainers.
   virtualised tables below. It still works around item 8.
 - Items 12–17 were found while building the prompt, items 18–24 while
   building the manager, 25–29 while moving to v0.22.1 and 30–32 while
-  moving to v0.22.2. uitoolkit v0.22.1 provided 13–17; v0.22.2 provides
-  18–22 and 24–27, and parts of 23, 28 and 29. Both programs use them in
-  place of their own workarounds. None of what is left blocks either
-  program; each open item says what the program does in the meantime.
+  moving to v0.22.2. uitoolkit v0.22.1 provided 13–17; v0.22.2 provided
+  18–22 and 24–27, and parts of 23, 28 and 29; v0.22.3 fixes 29 (through
+  31), 30, 31 and 32. Both programs use them in place of their own
+  workarounds. None of what is left blocks either program; each open item
+  says what the program does in the meantime.
 
 Two voices below. **"After v0.22.x"** paragraphs are secretvault's own
 checks, each pinned by a test in `gui/uitoolkit_test.go`. **"Closed in
-0.22.2"** paragraphs are uitoolkit's maintainers' notes on the same items.
-The maintainers count all of 18–29 closed in 0.22.2; secretvault's checks
-agree except for three, whose entries say why: 23 (with no tray registry
-on the bus at all, `Shown` still says true), 28 (a field does not know the
-Caps Lock state it opens in) and 29 (the readable colour loses its hue:
-item 31).
+0.22.x"** paragraphs are uitoolkit's maintainers' notes on the same items.
+The maintainers count all of 18–32 closed by 0.22.3; secretvault's checks
+of 0.22.3 agree except for:
+
+- 23: with no tray registry on the bus at all, `Shown` still says true;
+- 28: a field does not know the Caps Lock state it opens in;
+- 30: closed, but the note's last sentence is not: `DismissOverlay` from
+  outside closes the *top* dialog only, so the manager keeps
+  `SetOverlay(nil)` at quit, which closes every dialog in the stack. It
+  is the right call rather than a workaround.
+
+29 was the third disagreement after 0.22.2 (the readable colour lost its
+hue, item 31); 0.22.3 settles it.
 
 The GUIs build against uitoolkit v0.22.3 from the module proxy
 (`gui/go.mod`). `gui/uitoolkit_test.go` checks every item from 8 on
@@ -32,7 +40,7 @@ item's test pins the gap, so it fails on the uitoolkit release that closes
 it. (Item 23's other half is pinned in `gui/svmanager/tray_test.go`, on a
 private session bus.)
 
-| # | Item | State in uitoolkit (after v0.22.2) |
+| # | Item | State in uitoolkit (after v0.22.3) |
 | --- | --- | --- |
 | 1 | A secret field that does not leak | **Provided**: `widgets.SecretField` (65463cc) |
 | 2 | A dialog window | **Provided**: `WindowOptions` `Role`, `Center`, `KeepAbove`; `Window.Activate` (3fa3094) |
@@ -41,11 +49,11 @@ private session bus.)
 | 5 | No input method in secret fields | **Provided**: a `SecretField` is not an input-method target, so text input is off while it has the focus (65463cc); it is a `widget.SecretTarget` too (fc42680) |
 | 6 | Headless driving for tests | **Provided**: `Window.Type`, `Press`, `ClickComponent`, `FocusOn` (a0bd1d7) |
 | 7 | A clipboard that can hold a secret | **Provided**: `ClipboardSetSecret`, `ClipboardClear`, `ClipboardGetSecret` (7020c65); `SecretClip.OnCleared` (58140ea). The X11 owner still serves its copy from a string. |
-| 8 | Showing a secret without a string | **Partly provided**: `widgets.SecretLabel` (256978b), unchanged in v0.22.2. Its mask says how long the secret is, and it draws one line; the manager keeps its own. |
+| 8 | Showing a secret without a string | **Partly provided**: `widgets.SecretLabel` (256978b), unchanged through v0.22.3. Its mask says how long the secret is, and it draws one line; the manager keeps its own. |
 | 9 | A tray menu on macOS | **Provided**: `SetMenu` builds an NSMenu (9f360ec) |
 | 10 | Search-as-you-type suggestions | **Provided**: `widget.SetPopupKeysPass` (5285f3e) |
 | 11 | Symbol and emoji fallback | **Declined** for text: no font fallback, by contract (`docs/contracts.md`, 1fa27f0; declined again in v0.22.2). Marks are icons (954da57), which the manager uses. |
-| 12 | Caps Lock state | **Partly provided**: `platform.ModCapsLock`, `Window.LockKeys`, `Window.OnLockKeys` (923fab0). Unchanged in v0.22.2: a focus-in reads as the lock off, and Wayland and macOS cannot tell before the first key. |
+| 12 | Caps Lock state | **Partly provided**: `platform.ModCapsLock`, `Window.LockKeys`, `Window.OnLockKeys` (923fab0). Unchanged through v0.22.3: a focus-in reads as the lock off, and Wayland and macOS cannot tell before the first key. |
 | 13 | A dark desktop with no saved look | **Provided**: `DefaultAppearance` follows the desktop, and Plastik has `plastik-night` (c98f83b) |
 | 14 | Spacing that follows the display scale | **Provided**: `FlexBox` and `Grid` (so `Form`) lengths are 1x, with `RawSpacing` to opt out (201bbd6); `Pad` and `Spacer` too (36685fe, 25) |
 | 15 | A window as tall as its content | **Provided**: `WindowOptions.FitContent`, `Window.FitToContent` (923fab0), centred for the fitted height (58140ea, 27) |
@@ -53,19 +61,19 @@ private session bus.)
 | 17 | A wrapping label measured at its own width | **Provided**: `Font.Wrap` breaks only where `Font.Advance` overflows (256978b) |
 | 18 | Giving a secret field a value | **Provided**: `SecretField.SetBytes` (58140ea), which takes the buffer over rather than copying it |
 | 19 | A secret text area | **Provided**: `widgets.SecretArea` (fc42680) |
-| 20 | Dialogs that stack | **Provided**: `ShowOverlay` pushes, `DismissOverlay` pops (fc42680). Closing from outside every dialog: 30. |
+| 20 | Dialogs that stack | **Provided**: `ShowOverlay` pushes, `DismissOverlay` pops (fc42680); from outside every dialog it closes the top one (6e1d4f9, 30) |
 | 21 | A wrapping label's height in a column | **Provided** for dialogs: `Overlay` settles its card's width before its height, `Grid` measures rows at the widths it uses, `Wrap` flows at whole pixels (91133b2). A column handed a narrower box than it measured is the caller's, by design. |
 | 22 | Clicking something scrolled out of view, in a test | **Provided**: `ClickComponent` and `FocusOn` scroll to the target (5e7a6cc) |
-| 23 | Knowing that the tray icon is shown | **Partly provided**: `StatusItem.Shown`, `SetOnShownChange` (58140ea). With no StatusNotifierWatcher on the bus at all, as on a GNOME without the extension, `Shown` says true. |
-| 24 | A widget taken out of the tree still has its window | **Provided**: `Remove` and `ClearChildren` clear the host (58140ea); `Label.Tone` (fc42680), but see 31 |
+| 23 | Knowing that the tray icon is shown | **Partly provided**: `StatusItem.Shown`, `SetOnShownChange` (58140ea). Unchanged in v0.22.3: with no StatusNotifierWatcher on the bus at all, as on a GNOME without the extension, `Shown` says true. |
+| 24 | A widget taken out of the tree still has its window | **Provided**: `Remove` and `ClearChildren` clear the host (58140ea); `Label.Tone` (fc42680), readable in colour since 6e1d4f9 |
 | 25 | Pad, Spacer and ProgressBar lengths that follow the display scale | **Provided** (36685fe) |
 | 26 | `UITK_FONT` turns following the desktop off | **Provided**: fixed (58140ea) |
 | 27 | A fitted dialog centred for the height it opens at | **Provided**: `recenterIfCentred` (58140ea) |
-| 28 | Caps Lock for more than one listener, and in the field itself | **Partly provided**: `widget.LockKeysWatcher`, `SecretField.CapsHint` (5e7a6cc). A field learns only of changes, so one that opens with Caps Lock on does not know it (and 12). |
-| 29 | Readable status colours in `plastik-night` | **Provided, broken**: `Palette.Ink`, `DangerInk`, `Label.Tone` (36685fe, fc42680) read at 4.5:1, but as white or black (31) |
-| 30 | Closing a dialog from outside every dialog | Open (new; a change that broke the manager until it followed) |
-| 31 | Status ink that keeps its colour | Open (new; a bug) |
-| 32 | A SecretArea in a narrow form | Open (new) |
+| 28 | Caps Lock for more than one listener, and in the field itself | **Partly provided**: `widget.LockKeysWatcher`, `SecretField.CapsHint` (5e7a6cc). Unchanged in v0.22.3: a field learns only of changes, so one that opens with Caps Lock on does not know it (and 12). |
+| 29 | Readable status colours in `plastik-night` | **Provided**: `Palette.Ink`, `DangerInk`, `Label.Tone` (36685fe, fc42680), in colour since 6e1d4f9 (31) |
+| 30 | Closing a dialog from outside every dialog | **Provided**: closes the top one (6e1d4f9). All of them is still `SetOverlay(nil)`. |
+| 31 | Status ink that keeps its colour | **Provided**: `ReadableInk` walks lightness in percent (6e1d4f9) |
+| 32 | A SecretArea in a narrow form | **Provided**: it takes the width offered, 180 when none (6e1d4f9) |
 
 The first findings come from reading uitoolkit's source at v0.20.x (file
 references are to that tree); 12–24 come from building on it after v0.21.0,
@@ -306,6 +314,8 @@ does would close it. `TestItem08SecretLabel` pins all three.
 **After v0.22.2: unchanged.** `widgets/secretlabel.go` is as it was, and
 the manager keeps `secretText`.
 
+**After v0.22.3: unchanged** (6e1d4f9 does not touch it).
+
 ### 9. A tray menu on macOS
 
 `SetMenu` stores the rows but shows nothing
@@ -414,6 +424,9 @@ them (28), through the same path, so the field's own mark has both
 problems as well. `secretui.CapsLock` is a watcher now rather than the
 window's `OnLockKeys`, asks the window once when it is first laid out,
 and still asks the keyboard whenever it is told of a change.
+
+**After v0.22.3: unchanged.** `app/lockkeys.go` and the backends' focus-in
+events are as they were; `TestItem12CapsLock` still passes as a pin.
 
 ### 13. A dark desktop with no saved look
 
@@ -774,6 +787,9 @@ which pins uitoolkit's answer on a private bus with no watcher.
 - **Done when:** on a session bus with no `org.kde.StatusNotifierWatcher`,
   `Shown` is false.
 
+**After v0.22.3: unchanged.** `platform/status_linux.go` is as it was, and
+the tray test's pin on a private bus with no watcher still holds.
+
 **Closed in 0.22.2. `StatusItem.Shown` and `SetOnShownChange`; Linux reads the watcher's `IsStatusNotifierHostRegistered` and follows its host signals. Windows and macOS have an area that is always there, so it follows `Alive`.**
 
 ### 24. A widget taken out of the tree still has its window
@@ -809,6 +825,11 @@ white (31); it now draws them readable itself (29). `TestItem24RemoveKeepsHost`.
 ---
 
 **Closed in 0.22.2. `Remove` and `ClearChildren` clear the host down the subtree. Re-parenting is unaffected: `Add` sets it again straight after.**
+
+**After v0.22.3: provided, and `tonedLabel` is gone.** With 31 fixed,
+`Label.Tone`'s status colours keep their colour, so the manager's labels
+say what they mean with `Label.Tone` and nothing of the manager's own
+keeps them coloured. `TestTonesFollowTheLook`.
 
 ## Found while moving to v0.22.1
 
@@ -930,6 +951,12 @@ out, says so at once. `TestItem28LockKeysWatchers` pins that.
 
 **Closed in 0.22.2. `widget.LockKeysWatcher` gives every component in the window the lock state, the same shape as `FocusWatcher`, and `SecretField.CapsHint` draws the mark with no application code. `Window.OnLockKeys` remains for the window's own code.**
 
+**After v0.22.3: agreed as far as it goes, and unchanged.** The watcher
+and the mark are there, and the mark is amber now rather than white or
+black (31). A field still learns only of changes, so the mark misses a
+Caps Lock that was on when the dialog opened; `TestItem28LockKeysWatchers`
+still pins that, and `secretui.CapsLock` stays beside the field.
+
 ### 29. Readable status colours in `plastik-night`
 
 - **Today** (`style/enginekit_kde3.go`, `kde3Scheme.palette`). Every KDE 3
@@ -958,6 +985,12 @@ light one) until it reads: the prompt's refusal is a lighter red in
 toned labels likewise. `TestItem29DarkStatusColours`, and secretui's
 `TestInkIsReadableAndKeepsItsColour`.
 
+**After v0.22.3: provided.** The inks are readable and still the pack's
+colours (31): `plastik-night`'s danger is `#ff5858`, warning `#c78500`
+and success `#00af00`. `secretui.Ink` is gone: the prompt's refusal, the
+Caps Lock line and the manager's labels use `Label.Tone`, and a
+`SecretField`'s own Caps Lock mark is amber. `TestItem29DarkStatusColours`.
+
 ---
 
 ## Found while moving to v0.22.2
@@ -984,6 +1017,18 @@ toned labels likewise. `TestItem29DarkStatusColours`, and secretui's
 
 **Closed in 0.22.3. `DismissOverlay` from outside every overlay closes the top one again, as it did before overlays stacked. An overlay that *was* on the stack and is no longer still closes nothing — that is the case reached on the way out of every dismissal — and the two are told apart by `widget.ContentRootHost`. The manager can drop its `SetOverlay(nil)` workaround.**
 
+**After v0.22.3: provided; the manager keeps `SetOverlay(nil)`.**
+`DismissOverlay` from outside every dialog closes the top one again
+(`widget/popup.go`, `inHostTree`), which is the done-when. But it closes
+the top one *only*: with a confirmation over a recovery key, quitting that
+way would close the confirmation and leave the key unwiped.
+`Window.SetOverlay(nil)` closes every dialog in the stack, each wiping
+what it holds, which is what quitting needs; it is the right call, not a
+workaround, so it stays. The file chooser is likewise taken down by its
+own overlay (`DismissOverlay(shown)`), so that a dialog shown over it is
+not the one closed. `TestItem30DismissFromOutside` checks both: the top
+one only from outside, all of them with `SetOverlay(nil)`.
+
 ### 31. Status ink that keeps its colour
 
 - **Today** (a bug; `style/statusink.go`, `ReadableInk`). The walk hands
@@ -1005,6 +1050,12 @@ toned labels likewise. `TestItem29DarkStatusColours`, and secretui's
 
 **Closed in 0.22.3, and the diagnosis was exactly right: `ReadableInk` passed lightness as a fraction where `flatFromHSL` takes percent, so every candidate sat within one percent of black. `plastik-night`'s danger is `#ff5858` now and `plastik`'s warning ink `#8f6000`. `secretui.Ink` can go. Two new tests assert the property the old ones missed — a saturated colour comes back saturated, and nothing comes back pure black or white — because the contrast test passed throughout (black on light reads fine) and so did the hue test (hue survives at one percent lightness).**
 
+**After v0.22.3: provided, and `secretui.Ink` is gone.** 6e1d4f9 passes
+the lightness in percent (`style/statusink.go`). In `plastik` and
+`plastik-night` all three inks keep their strongest channel and stay
+saturated; the ones that read already are returned as declared.
+`TestItem31InkKeepsItsColour` checks that now, in place of the pin.
+
 ### 32. A SecretArea in a narrow form
 
 - **Today** (`widgets/secretarea.go`, `Measure`). A `SecretArea` asks to
@@ -1022,6 +1073,17 @@ toned labels likewise. `TestItem29DarkStatusColours`, and secretui's
   `TestItem32SecretAreaInANarrowGrid` pins today's behaviour.
 
 **Closed in 0.22.3. A `SecretArea` takes the width it is offered, as a `TextArea` does, and asks for 180 when it is offered none. The editor's `fixedWidth` wrapper can go.**
+
+**After v0.22.3: provided, and the editor's wrapper is gone.** A
+`SecretArea` measures as the `SecretField` beside it does, so in a grid's
+flexible column the two are always as wide as each other; the editor lays
+a key's area out with no wrapper, and its Remove buttons stay in the pane.
+The done-when above asked for more than this item is about: in a
+360-wide window the grid of the test still runs 11 pixels over, for a
+`SecretField` as much as for a `SecretArea`, because a flexible column
+gives nothing that cannot fold less than it asks for (91133b2, by
+design). `TestItem32SecretAreaInANarrowGrid` checks the area and the field
+at 360, 420 and 600.
 
 ---
 
