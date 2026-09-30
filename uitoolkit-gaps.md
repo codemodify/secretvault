@@ -12,27 +12,43 @@ maintainers.
   building the manager, 25–29 while moving to v0.22.1 and 30–32 while
   moving to v0.22.2. uitoolkit v0.22.1 provided 13–17; v0.22.2 provided
   18–22 and 24–27, and parts of 23, 28 and 29; v0.22.3 fixes 29 (through
-  31), 30, 31 and 32. Both programs use them in place of their own
-  workarounds. None of what is left blocks either program; each open item
-  says what the program does in the meantime.
+  31), 30, 31 and 32; v0.22.4 and v0.22.5 (649af18) answer 8, 23 and 28
+  and give the narrow-form lever. Both programs use them in place of their
+  own workarounds. Items 33 and 34 are new, found moving to v0.22.5. None
+  of what is left blocks either program; each open item says what the
+  program does in the meantime.
 
 Two voices below. **"After v0.22.x"** paragraphs are secretvault's own
 checks, each pinned by a test in `gui/uitoolkit_test.go`. **"Closed in
 0.22.x"** paragraphs are uitoolkit's maintainers' notes on the same items.
-The maintainers count all of 18–32 closed by 0.22.3; secretvault's checks
-of 0.22.3 agree except for:
+The maintainers count all of 18–32 closed by 0.22.3, and 8, 23 and 28
+closed by 0.22.5 (649af18, "the three secretvault said were still open,
+and all three were"). secretvault's checks of 0.22.5 agree on 23. They
+disagree on:
 
-- 23: with no tray registry on the bus at all, `Shown` still says true;
-- 28: a field does not know the Caps Lock state it opens in;
+- 8: the length no longer leaks, but a hidden `SecretLabel` holds a copy
+  of the secret that nothing wipes when it leaves the window (33); the
+  manager keeps its own label, which holds no copy;
+- 12 and 28: a field now asks the window as it takes the focus, but the
+  focus-in that follows, which carries no modifiers on any backend, is now
+  *reported* to every watcher as Caps Lock going off; the field's mark
+  comes and goes, and the window's own state is wrong after it. The
+  manager and the prompt keep their Caps Lock line;
+- the narrow-form floor: `MinWidthOf` does not see through a `Splitter`,
+  a `TextField` has no `PreferredWidth`, and a window's minimum can only be
+  given as the window is made (34).
+
+Still standing from 0.22.3:
+
 - 30: closed, but the note's last sentence is not: `DismissOverlay` from
   outside closes the *top* dialog only, so the manager keeps
   `SetOverlay(nil)` at quit, which closes every dialog in the stack. It
   is the right call rather than a workaround.
 
-29 was the third disagreement after 0.22.2 (the readable colour lost its
-hue, item 31); 0.22.3 settles it.
+After 0.22.2 the checks also disagreed on 29 (the readable colour lost its
+hue, item 31), and after 0.22.3 on 23; 0.22.3 and 0.22.5 settle those.
 
-The GUIs build against uitoolkit v0.22.3 from the module proxy
+The GUIs build against uitoolkit v0.22.5 from the module proxy
 (`gui/go.mod`). `gui/uitoolkit_test.go` checks every item from 8 on
 against it, headless, a test per item (`TestItem12CapsLock` and so on): a
 provided item's test pins what secretvault now relies on, and an open
@@ -49,11 +65,11 @@ private session bus.)
 | 5 | No input method in secret fields | **Provided**: a `SecretField` is not an input-method target, so text input is off while it has the focus (65463cc); it is a `widget.SecretTarget` too (fc42680) |
 | 6 | Headless driving for tests | **Provided**: `Window.Type`, `Press`, `ClickComponent`, `FocusOn` (a0bd1d7) |
 | 7 | A clipboard that can hold a secret | **Provided**: `ClipboardSetSecret`, `ClipboardClear`, `ClipboardGetSecret` (7020c65); `SecretClip.OnCleared` (58140ea). The X11 owner still serves its copy from a string. |
-| 8 | Showing a secret without a string | **Partly provided**: `widgets.SecretLabel` (256978b), unchanged through v0.22.3. Its mask says how long the secret is, and it draws one line; the manager keeps its own. |
+| 8 | Showing a secret without a string | **Provided, not satisfactory**: `SecretLabel.MaskLen`, `Lines`, a `Describe` that says "concealed" (649af18). Hidden, it still copies the secret, and nothing wipes the copy when it leaves the window (33); the manager keeps its own. |
 | 9 | A tray menu on macOS | **Provided**: `SetMenu` builds an NSMenu (9f360ec) |
 | 10 | Search-as-you-type suggestions | **Provided**: `widget.SetPopupKeysPass` (5285f3e) |
 | 11 | Symbol and emoji fallback | **Declined** for text: no font fallback, by contract (`docs/contracts.md`, 1fa27f0; declined again in v0.22.2). Marks are icons (954da57), which the manager uses. |
-| 12 | Caps Lock state | **Partly provided**: `platform.ModCapsLock`, `Window.LockKeys`, `Window.OnLockKeys` (923fab0). Unchanged through v0.22.3: a focus-in reads as the lock off, and Wayland and macOS cannot tell before the first key. |
+| 12 | Caps Lock state | **Partly provided**: `platform.ModCapsLock`, `Window.LockKeys`, `Window.OnLockKeys` (923fab0). Through v0.22.5 a focus-in reads as the lock off, and since 649af18 that is reported to every watcher; Wayland and macOS cannot tell before the first key. |
 | 13 | A dark desktop with no saved look | **Provided**: `DefaultAppearance` follows the desktop, and Plastik has `plastik-night` (c98f83b) |
 | 14 | Spacing that follows the display scale | **Provided**: `FlexBox` and `Grid` (so `Form`) lengths are 1x, with `RawSpacing` to opt out (201bbd6); `Pad` and `Spacer` too (36685fe, 25) |
 | 15 | A window as tall as its content | **Provided**: `WindowOptions.FitContent`, `Window.FitToContent` (923fab0), centred for the fitted height (58140ea, 27) |
@@ -64,21 +80,23 @@ private session bus.)
 | 20 | Dialogs that stack | **Provided**: `ShowOverlay` pushes, `DismissOverlay` pops (fc42680); from outside every dialog it closes the top one (6e1d4f9, 30) |
 | 21 | A wrapping label's height in a column | **Provided** for dialogs: `Overlay` settles its card's width before its height, `Grid` measures rows at the widths it uses, `Wrap` flows at whole pixels (91133b2). A column handed a narrower box than it measured is the caller's, by design. |
 | 22 | Clicking something scrolled out of view, in a test | **Provided**: `ClickComponent` and `FocusOn` scroll to the target (5e7a6cc) |
-| 23 | Knowing that the tray icon is shown | **Partly provided**: `StatusItem.Shown`, `SetOnShownChange` (58140ea). Unchanged in v0.22.3: with no StatusNotifierWatcher on the bus at all, as on a GNOME without the extension, `Shown` says true. |
+| 23 | Knowing that the tray icon is shown | **Provided**: `StatusItem.Shown`, `SetOnShownChange` (58140ea); no watcher on the bus is no tray (649af18). The manager's own query is gone. |
 | 24 | A widget taken out of the tree still has its window | **Provided**: `Remove` and `ClearChildren` clear the host (58140ea); `Label.Tone` (fc42680), readable in colour since 6e1d4f9 |
 | 25 | Pad, Spacer and ProgressBar lengths that follow the display scale | **Provided** (36685fe) |
 | 26 | `UITK_FONT` turns following the desktop off | **Provided**: fixed (58140ea) |
 | 27 | A fitted dialog centred for the height it opens at | **Provided**: `recenterIfCentred` (58140ea) |
-| 28 | Caps Lock for more than one listener, and in the field itself | **Partly provided**: `widget.LockKeysWatcher`, `SecretField.CapsHint` (5e7a6cc). Unchanged in v0.22.3: a field learns only of changes, so one that opens with Caps Lock on does not know it (and 12). |
+| 28 | Caps Lock for more than one listener, and in the field itself | **Provided, not satisfactory**: a field asks as it takes the focus (`widget.LockKeysOf`, 649af18), and the focus-in after it turns the mark off (12). The Caps Lock line stays. |
 | 29 | Readable status colours in `plastik-night` | **Provided**: `Palette.Ink`, `DangerInk`, `Label.Tone` (36685fe, fc42680), in colour since 6e1d4f9 (31) |
 | 30 | Closing a dialog from outside every dialog | **Provided**: closes the top one (6e1d4f9). All of them is still `SetOverlay(nil)`. |
 | 31 | Status ink that keeps its colour | **Provided**: `ReadableInk` walks lightness in percent (6e1d4f9) |
-| 32 | A SecretArea in a narrow form | **Provided**: it takes the width offered, 180 when none (6e1d4f9) |
+| 32 | A SecretArea in a narrow form | **Provided**: it takes the width offered, 180 when none (6e1d4f9); `PreferredWidth`, `widget.MinWidthOf`, splitter floors (0.22.4, 0.22.5), with what is missing in 34 |
+| 33 | A hidden SecretLabel's copy of the secret | Open (new) |
+| 34 | A window's floor from its content | Open (new; the maintainers note the window half themselves) |
 
 The first findings come from reading uitoolkit's source at v0.20.x (file
 references are to that tree); 12–24 come from building on it after v0.21.0,
-25–29 from moving to v0.22.1 and 30–32 from moving to v0.22.2 (references
-to those trees). Each item says where the gap is, proposes an API in
+25–29 from moving to v0.22.1, 30–32 from moving to v0.22.2 and 33–34
+from moving to v0.22.5 (references to those trees). Each item says where the gap is, proposes an API in
 uitoolkit's own style, and gives a "done when" check. The names are
 suggestions; the behaviour is the requirement.
 
@@ -316,6 +334,21 @@ the manager keeps `secretText`.
 
 **After v0.22.3: unchanged** (6e1d4f9 does not touch it).
 
+**After v0.22.5: provided, not satisfactory; the manager keeps
+`secretText`.** 649af18 does what was asked of the label's face: with
+`MaskLen` a hidden label is measured for its mask alone, so the screen no
+longer says the length; `Describe` says "concealed" (or "revealed
+secret", or "empty") and never counts bullets; `Lines` shows a key's lines.
+Nothing in it turns the value into a string: the mask is the only
+string, and revealed text goes through `DrawBytes` and `AdvanceBytes`.
+But a hidden label still calls `Value` on every measure and paint and
+copies the answer into a buffer of its own, though bullets are all it
+draws, and that copy is wiped only by `Hide` or by a shorter value; a
+label that leaves the window keeps it, unwiped, until the collector. The
+manager's `secretText` holds the caller's bytes and no copy, so adopting
+`SecretLabel` would add a copy of every secret on screen. That is 33.
+`TestItem08SecretLabel` now checks what 649af18 fixed.
+
 ### 9. A tray menu on macOS
 
 `SetMenu` stores the rows but shows nothing
@@ -427,6 +460,34 @@ and still asks the keyboard whenever it is told of a change.
 
 **After v0.22.3: unchanged.** `app/lockkeys.go` and the backends' focus-in
 events are as they were; `TestItem12CapsLock` still passes as a pin.
+
+**After v0.22.5: not satisfactory, and worse in one way.** The backends'
+focus-in events still carry no modifiers (`x11_linux.go`,
+`wayland_linux.go`, `win32_windows.go`, `appkit_darwin.go`), and
+`dispatch` still notes the lock keys from them. Before, the first event
+was dropped, so on X11 a focus-in as the first event only made the
+window's own state wrong. Since 649af18 the first event is reported to
+every `LockKeysWatcher`, so the focus-in now tells them all that Caps Lock
+is off. Reading the code paths:
+
+- **X11.** The window maps at its first present, after its first layout,
+  where the field takes the focus and asks the window (`LockKeysOf`);
+  nothing has been noted yet, so the window asks the server
+  (`XkbGetIndicatorState`) and the field is right. The focus-in arrives
+  after the map, with no modifiers: the window notes "off", tells the
+  field, and the mark goes. From then on `LockKeys()` says off, and the
+  server is not asked again. The next key with Caps Lock brings it back.
+- **Windows.** The same, through `GetKeyState`, if the focus-in comes
+  after the first layout; if it comes before, the field asks a window
+  that has already noted "off", and the mark waits for the next key.
+- **Wayland.** The surface cannot be asked; the window answers "off" until
+  a key event carries the xkb state. Before the first key, never.
+
+`secretui.CapsLock` asks the keyboard itself (`LockKeysSurface`) whenever
+it is told of a change, and so stays right on X11 and Windows through the
+focus-in; it stays beside the field's mark. `TestItem12CapsLock` and
+`TestItem28LockKeysWatchers` pin it. The proposal above stands: modifiers
+on a focus-in, or no lock state noted from an event that has none.
 
 ### 13. A dark desktop with no saved look
 
@@ -790,6 +851,18 @@ which pins uitoolkit's answer on a private bus with no watcher.
 **After v0.22.3: unchanged.** `platform/status_linux.go` is as it was, and
 the tray test's pin on a private bus with no watcher still holds.
 
+**After v0.22.5: provided, and the manager's own query is gone.** 649af18
+asks the bus whether the watcher's name has an owner (`NameHasOwner`)
+before its property, and treats a watcher that goes away as no tray. On
+the three states, verified on a private bus in
+`TestHidingInTheTrayNeedsAHostThatShowsIt`: no watcher, `Shown` is false;
+a watcher with no host registered, false; a host registering (the
+watcher's `StatusNotifierHostRegistered` signal), true, and
+`SetOnShownChange` hears it. A watcher that is there and will not answer
+is still read as shown, deliberately; `sniHostRegistered` read it as no
+tray, and that is the one case that differs. The manager hides its window
+only where `Shown` is true, and its D-Bus query is gone.
+
 **Closed in 0.22.2. `StatusItem.Shown` and `SetOnShownChange`; Linux reads the watcher's `IsStatusNotifierHostRegistered` and follows its host signals. Windows and macOS have an area that is always there, so it follows `Alive`.**
 
 ### 24. A widget taken out of the tree still has its window
@@ -957,6 +1030,16 @@ black (31). A field still learns only of changes, so the mark misses a
 Caps Lock that was on when the dialog opened; `TestItem28LockKeysWatchers`
 still pins that, and `secretui.CapsLock` stays beside the field.
 
+**After v0.22.5: provided, not satisfactory.** A `SecretField` asks its
+window for the lock state as it takes the focus (`widget.LockKeysOf`,
+649af18), and watchers hear the first event. In a headless window that is
+enough, and a dialog opened with Caps Lock on marks it in the field at
+once (the prompt's `caps-at-open` screenshot). On a desktop the focus-in
+that follows turns the mark off again (12), so the field is right for a
+moment and wrong from then until the next key; `TestItem28LockKeysWatchers`
+shows it with the focus-in every backend sends. The line beside the
+buttons stays.
+
 ### 29. Readable status colours in `plastik-night`
 
 - **Today** (`style/enginekit_kde3.go`, `kde3Scheme.palette`). Every KDE 3
@@ -1108,6 +1191,83 @@ off by default) scroll content that genuinely has no narrower form.
 
 Still absent: a **window** minimum-size API to hand `MinWidthOf`'s answer
 to. A program can compute its floor but not tell the desktop about it.
+
+**After v0.22.5: the lever helps the manager where it reaches, and it
+does not reach far enough (34).** The manager's editor sits in the
+right-hand pane of two splitters. What it now does:
+
+- its wrappers (`page`, `slot`, the window's root, a dialog's
+  `fixedWidth`) answer `widget.MinWidther`, so a splitter asks the pane
+  for what the page in it holds, and keeps the editor's pane that wide;
+- the lists get floors of their own (`MinA`: 160 for the vaults, 200 for
+  the items), because a `TableView` asks for all its columns and a
+  splitter would otherwise keep it wider than it needs;
+- the window's minimum is 890, where the three floors meet, found and
+  kept by `TestTheEditorFitsTheNarrowestWindow`. It was 760, a guess,
+  and at 760 the editor's Remove buttons were off the window.
+
+What it could not do: `PreferredWidth` buys nothing in the editor, whose
+fields' column is set by the `TextField`s beside the secret ones, at 180,
+with no `PreferredWidth` of their own; `MinWidthOf` of the window's
+content stops at the outer `Splitter`, which does not answer it, so the
+window's floor cannot be worked out from the content; and a window's
+minimum can be given only as it is made (`WindowOptions.MinWidth`),
+before the content that decides it exists. The maintainers say the last
+themselves; it is part of 34 with the other two.
+
+---
+
+## Found while moving to v0.22.5
+
+### 33. A hidden SecretLabel's copy of the secret
+
+- **Today** (`widgets/secretlabel.go`, `refresh`). A `SecretLabel` calls
+  `Value` on every `Measure` and `Paint` and copies the answer into a
+  buffer of its own, whether it is revealed or not. Hidden with `MaskLen`,
+  it draws a fixed row of bullets and needs to know only whether the value
+  is empty, but holds the whole secret anyway. The copy is wiped by `Hide`,
+  or by a shorter value arriving; a label taken out of the window, or a
+  page thrown away without `Hide`, keeps it until the collector, and there
+  is no point at which the toolkit wipes it. So an application that shows
+  a vault item's fields masked holds a second copy of every one of them for
+  as long as the item is open, and must remember to call `Hide` on each
+  label, on every way the item can go.
+- **Workaround.** The manager keeps `secretText`, which holds the caller's
+  bytes and no copy; the caller wipes them and calls `Forget`.
+- **Proposal.** A hidden label asks only for the length (or emptiness) and
+  keeps nothing: copy only while `Reveal` is set, and wipe the copy when
+  `Reveal` goes off. And wipe it when the label leaves its window (its host
+  set to nil, which `Remove` now does).
+- **Done when:** a hidden `SecretLabel` holds no copy after it is painted,
+  and one taken out of the tree has zeroed what it held.
+  `TestItem33HiddenSecretLabelHoldsACopy` pins today's behaviour.
+
+### 34. A window's floor from its content
+
+- **Today.** `widget.MinWidthOf` (0.22.4) is meant to let a program size a
+  window from its content. Three things stop it:
+  - `Splitter` does not implement `MinWidther`, though it has floors of
+    its own (`MinA`, `MinB`, or its panes' `MinWidthOf`), so asking the
+    content of a window made of splitters gets the probe's guess;
+  - `TextField` asks for 180 and has no `PreferredWidth`, unlike
+    `SecretField`, `SecretArea` and `TokenField`, so a form with text
+    fields in it keeps a 180 floor whatever its secret fields ask; a
+    `TextArea` offered nothing asks for 220 device pixels, and a
+    `TableView` for all its columns, though both can be narrower;
+  - a window's minimum is `WindowOptions.MinWidth`, given as the window is
+    made, before the content that decides it exists, and nothing sets it
+    afterwards (the maintainers' own note).
+- **Workaround.** The manager's wrappers answer `MinWidther`, its lists get
+  explicit splitter floors, and its window's minimum is a constant, 890,
+  found by a test that lays the editor out at it.
+- **Proposal.** `Splitter.MinWidth` (its floors, its bar, and for a split
+  in rows the wider floor); `TextField.PreferredWidth`, and `TextArea` and
+  `TableView` answering `MinWidth` with what they can really do with;
+  `Window.SetMinSize(w, h)`, in logical pixels, applied at once (the
+  backends already hold `SizeLimits`).
+- **Done when:** `window.SetMinSize(widget.MinWidthOf(content)/scale, …)`
+  on the manager's window keeps its editor inside it, with no constant.
+  `TestItem34AWindowFloorFromItsContent` pins today's behaviour.
 
 ---
 
