@@ -24,7 +24,7 @@ on the bus at all, `Shown` still says true), 28 (a field does not know the
 Caps Lock state it opens in) and 29 (the readable colour loses its hue:
 item 31).
 
-The GUIs build against uitoolkit v0.22.2 from the module proxy
+The GUIs build against uitoolkit v0.22.3 from the module proxy
 (`gui/go.mod`). `gui/uitoolkit_test.go` checks every item from 8 on
 against it, headless, a test per item (`TestItem12CapsLock` and so on): a
 provided item's test pins what secretvault now relies on, and an open
@@ -982,6 +982,8 @@ toned labels likewise. `TestItem29DarkStatusColours`, and secretui's
   release notes say it does not. `TestItem30DismissFromOutside` pins
   today's behaviour.
 
+**Closed in 0.22.3. `DismissOverlay` from outside every overlay closes the top one again, as it did before overlays stacked. An overlay that *was* on the stack and is no longer still closes nothing — that is the case reached on the way out of every dismissal — and the two are told apart by `widget.ContentRootHost`. The manager can drop its `SetOverlay(nil)` workaround.**
+
 ### 31. Status ink that keeps its colour
 
 - **Today** (a bug; `style/statusink.go`, `ReadableInk`). The walk hands
@@ -1001,6 +1003,8 @@ toned labels likewise. `TestItem29DarkStatusColours`, and secretui's
   4.5:1 on its background, not white. `TestItem31InkKeepsItsColour` pins
   today's values.
 
+**Closed in 0.22.3, and the diagnosis was exactly right: `ReadableInk` passed lightness as a fraction where `flatFromHSL` takes percent, so every candidate sat within one percent of black. `plastik-night`'s danger is `#ff5858` now and `plastik`'s warning ink `#8f6000`. `secretui.Ink` can go. Two new tests assert the property the old ones missed — a saturated colour comes back saturated, and nothing comes back pure black or white — because the contrast test passed throughout (black on light reads fine) and so did the hue test (hue survives at one percent lightness).**
+
 ### 32. A SecretArea in a narrow form
 
 - **Today** (`widgets/secretarea.go`, `Measure`). A `SecretArea` asks to
@@ -1016,6 +1020,8 @@ toned labels likewise. `TestItem29DarkStatusColours`, and secretui's
 - **Done when:** in a 360-wide window, a grid of label, `SecretArea` and
   button keeps the button inside the window.
   `TestItem32SecretAreaInANarrowGrid` pins today's behaviour.
+
+**Closed in 0.22.3. A `SecretArea` takes the width it is offered, as a `TextArea` does, and asks for 180 when it is offered none. The editor's `fixedWidth` wrapper can go.**
 
 ---
 
