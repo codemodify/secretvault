@@ -1085,6 +1085,30 @@ gives nothing that cannot fold less than it asks for (91133b2, by
 design). `TestItem32SecretAreaInANarrowGrid` checks the area and the field
 at 360, 420 and 600.
 
+**On the 11 pixels (0.22.4).** Confirmed and it is the documented floor,
+not a bug: a flexible column never squeezes a child that has no narrower
+form, so a label, a field and a button stop at 27 + 180 + 96 and the row
+runs over below about 323 px. Qt and GTK stop the same way.
+
+What was missing is a lever and an explanation, and both are now there.
+`SecretField.PreferredWidth` and `SecretArea.PreferredWidth` lower what
+the field asks for, matching `TokenField.PreferredWidth`; a field asking
+120 instead of 180 buys 60 px.
+[docs/recipes.md](https://github.com/codemodify/uitoolkit/blob/dev/docs/recipes.md)
+has an entry for a form in a narrow pane with the four things that
+actually help.
+
+Both of the things that were absent are now there.
+`widget.MinWidthOf(c)` is the width below which something starts leaving
+the box — containers answer it themselves, since a container asked to fit
+in one pixel reports the one pixel it was constrained to — so a program
+can size a window from its own content and a test can assert the form
+still fits. And `ScrollView.Horizontal` and `TableView.Horizontal` (both
+off by default) scroll content that genuinely has no narrower form.
+
+Still absent: a **window** minimum-size API to hand `MinWidthOf`'s answer
+to. A program can compute its floor but not tell the desktop about it.
+
 ---
 
 **Closed in 0.22.2, though not as asked. The declared status colours are era-faithful and mostly used as fills, so they are left alone; `Palette.DangerInk`, `WarningInk`, `SuccessInk` and `Ink` are the readable form for text. It was not one pack: 225 of the 405 status pairs across all 135 packs failed 4.5:1, and the worst were *light* packs at 1.6:1, not plastik-night's 2.2. `Label.Tone` is the widget-level way to it, which replaces `tonedLabel`.**
