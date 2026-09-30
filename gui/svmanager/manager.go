@@ -179,7 +179,7 @@ func New(opts Options) (*Manager, error) {
 	}
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	win, err := m.app.NewWindow(platform.WindowOptions{
-		Title: "secretvault", Width: 1120, Height: 700, MinWidth: 760, MinHeight: 440,
+		Title: "secretvault", Width: 1120, Height: 700, MinWidth: minWindowWidth, MinHeight: 440,
 		Headless: opts.Headless,
 	})
 	if err != nil {
@@ -271,6 +271,15 @@ func (m *Manager) quitting() bool {
 		return false
 	}
 }
+
+// minWindowWidth is the narrowest the window may be, in logical pixels:
+// where the sidebar, the item list and the editor beside them are each at
+// their floor (sidebarFloor, listFloor, and what the editor holds). A test
+// lays the editor out at it. uitoolkit can say the floor
+// (widget.MinWidthOf) but not through a splitter, and a window's minimum
+// is set only as it is made, so this is worked out once, by that test,
+// rather than from the content (uitoolkit-gaps.md, 34).
+const minWindowWidth = 890
 
 // post runs fn on the interface's goroutine. Everything from the daemon
 // arrives on other goroutines, and widgets may only be touched from that

@@ -93,6 +93,19 @@ func TestScreenshots(t *testing.T) {
 			d.win.Press(platform.KeyEscape)
 			h.expect(errCanceledLine)
 
+			// Opened with Caps Lock on already: said before the first key.
+			h.do("RESET", "SETTITLE Unlock vault Personal", "SETPROMPT Passphrase:")
+			h.send("GETPIN")
+			d = <-h.k.queue
+			d.asker = h.k.who()
+			if err := d.open(h.app); err != nil {
+				t.Fatal(err)
+			}
+			surface(t, d).SetLockKeys(true, false) // before its first frame
+			shot(h, "caps-at-open-"+scheme, d)
+			d.win.Press(platform.KeyEscape)
+			h.expect(errCanceledLine)
+
 			// On a 2x display: the same dialog, every length doubled.
 			h2 := newHarnessAt(t, nil, 2)
 			h2.do("SETTITLE Allow access to vault Personal?",

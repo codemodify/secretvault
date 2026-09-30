@@ -11,6 +11,7 @@ import (
 	"github.com/codemodify/paintengine2d"
 	"github.com/codemodify/uitoolkit/platform"
 	"github.com/codemodify/uitoolkit/style"
+	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
@@ -643,5 +644,54 @@ func TestTheWindowHidesOnlyInATrayThatIsShown(t *testing.T) {
 	h.pump()
 	if !h.win().Closed() || !h.m.quitting() {
 		t.Fatal("with no tray shown, closing the window did not quit")
+	}
+}
+
+// At the narrowest the window may be, the editor fits beside the lists:
+// the splitters keep the pane at least as wide as the editor needs
+// (widget.MinWidthOf), and every field and its button is inside the
+// window.
+func TestTheEditorFitsTheNarrowestWindow(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{})
+	h.unlock()
+	h.selectItem("web/github.com")
+	h.win().Press(platform.KeyE, platform.ModCtrl)
+	h.waitFor("the editor", func() bool { return h.m.editor != nil })
+	h.idle()
+	for _, w := range []int{1120, minWindowWidth} {
+		h.win().SetSize(w, 700)
+		h.pump()
+		h.pump()
+		pane := h.m.ui.pane
+		if need := widget.MinWidthOf(h.m.editor.page); pane.Bounds().Dx() < need {
+			t.Errorf("%d wide: the pane is %v, the editor needs %v", w, pane.Bounds().Dx(), need)
+		}
+		pw, _ := h.win().PixelSize()
+		for _, fe := range h.m.editor.fields {
+			if right := widget.DeviceOrigin(fe.remove).X + fe.remove.Bounds().Dx(); right > float32(pw) {
+				t.Errorf("%d wide: %s's Remove ends at %v", w, fe.name, right)
+			}
+		}
+	}
+}
+
+// A rename the daemon does not make is said in the rename dialog, which
+// stays up with the name that was typed, rather than after it has gone.
+func TestARefusedRenameIsSaidInTheDialog(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{})
+	h.unlock()
+	h.selectItem("mail/fastmail")
+	h.win().FocusOn(h.m.ui.items)
+	h.win().Press(platform.KeyF2)
+	h.stopDaemon()
+	h.win().Press(platform.KeyA, platform.ModCtrl)
+	h.win().Type("mail/fastmail.com")
+	h.win().Press(platform.KeyReturn)
+	h.waitFor("the refusal", func() bool { return strings.Contains(windowText(h.win()), "secretvaultd is not running") })
+	f := find(h.overlay(), func(*widgets.TextField) bool { return true })
+	if h.overlay() == nil || f == nil || f.Text != "mail/fastmail.com" {
+		t.Fatal("the rename dialog went, or lost what was typed")
 	}
 }

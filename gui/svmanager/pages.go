@@ -160,6 +160,9 @@ func (p *page) Arrange(b paintengine2d.Rect) {
 
 func (p *page) KeyPress(e widget.KeyEvent) bool { return p.onKey != nil && p.onKey(e) }
 
+// MinWidth is the page's floor (widget.MinWidther): what it holds.
+func (p *page) MinWidth() float32 { return widget.MinWidthOf(p.Children()[0]) }
+
 // showing reports whether the pane shows a page of that kind.
 func (m *Manager) showing(kind string) bool {
 	p, ok := m.ui.pane.Page().(*page)

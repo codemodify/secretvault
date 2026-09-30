@@ -77,26 +77,26 @@ func privateBus(t *testing.T) string {
 }
 
 // On Linux the tray is only somewhere to hide the window in when a host
-// shows status items: a session bus alone is not one.
+// shows status items: a session bus alone is not one. uitoolkit's Shown,
+// which the manager relies on, on a bus of the test's own: no watcher, a
+// watcher with no host, and a watcher whose host comes.
 func TestHidingInTheTrayNeedsAHostThatShowsIt(t *testing.T) {
 	addr := privateBus(t)
-	if sniHostRegistered() {
-		t.Fatal("a bus with no StatusNotifierWatcher counts as a tray")
-	}
-	// uitoolkit's own answer on the same bus, which is why the manager
-	// still asks for itself (uitoolkit-gaps.md, 23): with no watcher at
-	// all, as on a GNOME without the AppIndicator extension, its status
-	// item says the icon is shown.
 	t.Setenv("UITK_TRAY", "")
 	item, err := platform.NewStatusItem(platform.StatusItemOptions{ID: "svgui-test", Title: "svgui-test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer item.Close()
-	t.Logf("uitoolkit's status item: %s, shown %v", item.Backend(), item.Shown())
-	if item.Backend() == "sni" && !item.Shown() {
-		t.Fatal("uitoolkit says no tray on a bus with no watcher now: see uitoolkit-gaps.md item 23, and sniHostRegistered")
+	if item.Backend() != "sni" {
+		t.Skipf("no status item on the private bus: %s", item.Backend())
 	}
+	var heard atomic.Int32
+	item.SetOnShownChange(func(bool) { heard.Add(1) })
+	if item.Shown() {
+		t.Fatal("a bus with no StatusNotifierWatcher counts as a tray")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	conn, err := svdbus.ConnectContext(ctx, addr)
@@ -118,11 +118,23 @@ func TestHidingInTheTrayNeedsAHostThatShowsIt(t *testing.T) {
 	if _, err := conn.RequestName(ctx, "org.kde.StatusNotifierWatcher", 0); err != nil {
 		t.Fatal(err)
 	}
-	if sniHostRegistered() {
+	wait := func(what string, cond func() bool) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if cond() {
+				return
+			}
+		}
+		t.Fatal(what)
+	}
+	time.Sleep(100 * time.Millisecond) // the watcher's arrival reaches the item
+	if item.Shown() {
 		t.Fatal("a watcher with no host counts as a tray")
 	}
 	hosted.Store(true)
-	if !sniHostRegistered() {
-		t.Fatal("a watcher with a host does not count as a tray")
+	if err := conn.Emit("/StatusNotifierWatcher", "org.kde.StatusNotifierWatcher", "StatusNotifierHostRegistered"); err != nil {
+		t.Fatal(err)
 	}
+	wait("a watcher with a host does not count as a tray", item.Shown)
+	wait("the host arriving was not told", func() bool { return heard.Load() > 0 })
 }

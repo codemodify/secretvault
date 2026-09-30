@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -68,12 +69,12 @@ func window(t *testing.T, a *uitoolkit.Application, w, h int, content widget.Com
 	return win
 }
 
-// 8. SecretLabel (256978b) is uitoolkit's own label for a secret, and it
-// keeps a revealed value out of the shape cache and the accessibility
-// tree. What it does not do is what secretvault's secretText
-// (svmanager/secret.go) does besides: its mask is a bullet per rune, so
-// the screen and a screen reader both say how long the secret is, and it
-// draws one line, so a private key cannot be shown in it.
+// 8. SecretLabel (256978b; 649af18): a revealed value stays out of the
+// shape cache and the accessibility tree; with MaskLen the hidden label
+// is measured for its mask alone and two secrets of different lengths
+// read identically; Lines shows a key's lines. What it still does not do
+// is 33: hidden, it holds a copy of the secret, and nothing wipes that
+// copy when the label leaves the window.
 func TestItem08SecretLabel(t *testing.T) {
 	a := headless(t, 1)
 	value := []byte("hunter2-github")
@@ -82,28 +83,31 @@ func TestItem08SecretLabel(t *testing.T) {
 	w := window(t, a, 300, 60, widgets.NewColumn(l))
 	for _, k := range style.ShapeCacheKeysForTest(w.Look().MonoFont()) {
 		if strings.Contains(k, "hunter2") {
-			t.Fatal("provided part broke: a revealed SecretLabel reached the shape cache")
+			t.Fatal("a revealed SecretLabel reached the shape cache")
 		}
 	}
 	if strings.Contains(treeText(w), "hunter2") {
-		t.Fatal("provided part broke: a revealed SecretLabel reached the accessibility tree")
+		t.Fatal("a revealed SecretLabel reached the accessibility tree")
 	}
 
-	l.Reveal = false
 	short := []byte("ab")
+	long := widgets.NewSecretLabel(func() []byte { return value })
 	sl := widgets.NewSecretLabel(func() []byte { return short })
-	w2 := window(t, a, 300, 60, widgets.NewColumn(l, sl))
-	long, shrt := l.Measure(layout.Unbounded()).X, sl.Measure(layout.Unbounded()).X
-	if long == shrt {
-		t.Fatal("uitoolkit now masks a SecretLabel at a fixed length: see uitoolkit-gaps.md item 8, and consider SecretLabel for secretText")
+	long.MaskLen, sl.MaskLen = 8, 8
+	w2 := window(t, a, 300, 80, widgets.NewColumn(long, sl))
+	if lw, sw := long.Measure(layout.Unbounded()), sl.Measure(layout.Unbounded()); lw != sw {
+		t.Fatalf("hidden with a fixed mask, 14 and 2 characters measure %v and %v", lw, sw)
 	}
-	if !strings.Contains(treeText(w2), strings.Repeat("•", len(value))) {
-		t.Fatal("uitoolkit no longer tells a screen reader a SecretLabel's length: see uitoolkit-gaps.md item 8")
+	if strings.Contains(treeText(w2), "•") {
+		t.Fatal("a SecretLabel tells a screen reader its bullets")
 	}
-	value = []byte("-----BEGIN KEY-----\nabc\n-----END KEY-----")
-	l.Reveal = true
-	if h, line := l.Measure(layout.Unbounded()).Y, w.Look().MonoFont().Height(); h > 2*line {
-		t.Fatal("uitoolkit's SecretLabel now shows several lines: see uitoolkit-gaps.md item 8")
+
+	key := []byte("-----BEGIN KEY-----\nabc\n-----END KEY-----")
+	kl := widgets.NewSecretLabel(func() []byte { return key })
+	kl.Reveal, kl.Lines = true, true
+	window(t, a, 400, 120, widgets.NewColumn(kl))
+	if h, line := kl.Measure(layout.Unbounded()).Y, w.Look().MonoFont().Height(); h < 3*line {
+		t.Fatalf("a key of three lines is %v tall, a line %v", h, line)
 	}
 }
 
@@ -156,7 +160,7 @@ func TestItem11SymbolFallback(t *testing.T) {
 // 12. The lock keys (923fab0): a window can say Caps Lock is on before
 // the first key where the backend can be asked (X11, Windows), and says
 // when it changes. But a focus-in, which carries no modifiers on any
-// backend, is still taken for the lock keys being off (v0.22.3): a window
+// backend, is still taken for the lock keys being off (v0.22.5): a window
 // that comes back into focus with Caps Lock on says it is off until the
 // next key.
 func TestItem12CapsLock(t *testing.T) {
@@ -553,10 +557,12 @@ func TestItem27FittedAndCentred(t *testing.T) {
 }
 
 // 28. widget.LockKeysWatcher, and a SecretField that marks Caps Lock
-// itself (5e7a6cc): every watcher in a window hears a change. OnLockKeys
-// is still one callback a window, for the window's own code. A field
-// learns only of changes: one that opens with Caps Lock already on does
-// not know it, though its window does.
+// itself (5e7a6cc): every watcher in a window hears a change. Since
+// 649af18 a field asks its window as it takes the focus, so one focused
+// in a window opened with Caps Lock on knows it. But the focus-in that
+// every backend then sends carries no modifiers, and is now reported to
+// the watchers as the lock going off (item 12): the mark goes as the
+// window comes into focus.
 type lockWatcher struct {
 	*widgets.Label
 	heard int
@@ -570,17 +576,25 @@ func TestItem28LockKeysWatchers(t *testing.T) {
 	one.Label.Init(one)
 	two.Label.Init(two)
 	field := widgets.NewSecretField("")
-	w := window(t, a, 300, 120, widgets.NewColumn(field, one, two))
+	before := widgets.NewButton("before", nil)
+	w := window(t, a, 300, 160, widgets.NewColumn(before, field, one, two))
+	w.FocusOn(before)
 	o := w.Surface().(*platform.Offscreen)
 	o.SetLockKeys(true, false)
 	w.FocusOn(field)
-	w.Press(platform.KeyA, platform.ModCapsLock) // the state becoming known: not a change
-	if caps, _ := w.LockKeys(); !caps || field.CapsLockOn() {
-		t.Fatalf("the window says Caps Lock %v, the field %v: the field knows at open now, see uitoolkit-gaps.md item 28", caps, field.CapsLockOn())
+	if !field.CapsLockOn() || !field.CapsHint {
+		t.Fatal("a field focused in a window with Caps Lock on does not know it")
 	}
-	w.Press(platform.KeyA)
+	// The window coming into focus, as X11, Wayland, Windows and AppKit
+	// all send it: with no modifiers.
+	w.Inject(platform.Event{Kind: platform.EventFocusIn})
+	a.PumpOnce()
+	if caps, _ := o.LockKeys(); !caps || field.CapsLockOn() {
+		t.Fatalf("the keyboard says Caps Lock %v, the field %v: a focus-in no longer turns the mark off, see uitoolkit-gaps.md items 12 and 28", caps, field.CapsLockOn())
+	}
 	w.Press(platform.KeyA, platform.ModCapsLock)
-	if one.heard != 2 || two.heard != 2 || !field.CapsLockOn() || !field.CapsHint {
+	w.Press(platform.KeyA)
+	if one.heard < 2 || two.heard < 2 || field.CapsLockOn() {
 		t.Fatalf("watchers heard %d and %d; the field marks Caps Lock %v", one.heard, two.heard, field.CapsLockOn())
 	}
 }
@@ -690,6 +704,55 @@ func TestItem32SecretAreaInANarrowGrid(t *testing.T) {
 		window(t, a, width, 300, widgets.NewColumn(g))
 		if area.Bounds().Dx() != field.Bounds().Dx() {
 			t.Errorf("%d wide: the area is %v, a field beside it %v", width, area.Bounds().Dx(), field.Bounds().Dx())
+		}
+	}
+}
+
+// Found while moving to v0.22.5.
+
+// 33. A hidden SecretLabel holds a copy of the secret: it asks Value on
+// every measure and paint and copies the answer into a buffer of its
+// own, though bullets are all it draws. Nothing wipes that copy when the
+// label leaves the window; only Hide does, which an application has to
+// remember to call.
+func TestItem33HiddenSecretLabelHoldsACopy(t *testing.T) {
+	a := headless(t, 1)
+	value := []byte("hunter2-github")
+	l := widgets.NewSecretLabel(func() []byte { return value })
+	l.MaskLen = 8
+	root := widgets.NewColumn(l)
+	window(t, a, 300, 60, root)
+	held := reflect.ValueOf(l).Elem().FieldByName("buf")
+	if held.Len() != len(value) {
+		t.Fatalf("a hidden label holds %d bytes: it no longer copies what it only masks, see uitoolkit-gaps.md item 33", held.Len())
+	}
+	root.Remove(l)
+	if held = reflect.ValueOf(l).Elem().FieldByName("buf"); held.Len() == 0 || held.Index(0).Uint() == 0 {
+		t.Fatal("a label taken out of the window wipes its copy now: see uitoolkit-gaps.md item 33")
+	}
+	l.Hide()
+}
+
+// 34. A floor for a window, from its content (the maintainers' note on
+// 32, 0.22.4). widget.MinWidthOf answers for a form, but not through a
+// Splitter, which has floors of its own and does not report them; a
+// TextField can be no narrower than the 180 it asks for, with no
+// PreferredWidth to lower it as a SecretField has; and a window's minimum
+// is set only as it is made, with nothing to change it afterwards.
+func TestItem34AWindowFloorFromItsContent(t *testing.T) {
+	a := headless(t, 1)
+	left, right := widgets.NewPad(0, widgets.NewSpacerSize(300, 10)), widgets.NewPad(0, widgets.NewSpacerSize(300, 10))
+	sp := widgets.NewSplitter(widgets.SplitColumns, left, right)
+	window(t, a, 800, 200, widgets.NewColumn(sp))
+	if got, panes := widget.MinWidthOf(sp), widget.MinWidthOf(left)+widget.MinWidthOf(right); got >= panes {
+		t.Fatalf("a splitter says its floor is %v, its panes' %v: see uitoolkit-gaps.md item 34", got, panes)
+	}
+	if _, ok := reflect.TypeOf(widgets.TextField{}).FieldByName("PreferredWidth"); ok {
+		t.Fatal("TextField has PreferredWidth now: see uitoolkit-gaps.md item 34")
+	}
+	for _, m := range []string{"SetMinSize", "SetSizeLimits", "SetMinWidth"} {
+		if _, ok := reflect.TypeOf(&uitoolkit.Window{}).MethodByName(m); ok {
+			t.Fatalf("Window has %s now: see uitoolkit-gaps.md item 34, and the manager's minWindowWidth", m)
 		}
 	}
 }

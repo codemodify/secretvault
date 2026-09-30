@@ -78,6 +78,12 @@ func (f *fixedWidth) Measure(c layout.Constraints) paintengine2d.Point {
 	return c.Constrain(paintengine2d.Pt(w, sz.Y))
 }
 
+// MinWidth is the one width, or the child's floor where that is wider
+// (widget.MinWidther).
+func (f *fixedWidth) MinWidth() float32 {
+	return max(style.Dip(f.Look(), f.w), widget.MinWidthOf(f.Children()[0]))
+}
+
 func (f *fixedWidth) Arrange(r paintengine2d.Rect) {
 	f.SetBounds(r)
 	f.Children()[0].Arrange(paintengine2d.XYWH(0, 0, r.Dx(), r.Dy()))

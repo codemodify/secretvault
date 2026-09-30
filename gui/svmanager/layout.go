@@ -24,6 +24,13 @@ const (
 	pad = 12
 )
 
+// sidebarFloor and listFloor are the least the vaults' sidebar and the
+// item list are given, in 1x pixels, as the window narrows.
+const (
+	sidebarFloor = 160
+	listFloor    = 200
+)
+
 // ui holds the window's widgets.
 type ui struct {
 	column    *widgets.FlexBox
@@ -104,13 +111,20 @@ func (m *Manager) build() {
 	u.pane = newSlot()
 	right := widgets.NewPad(pad, u.pane)
 
+	// The splitters keep each pane at least as wide as what it holds
+	// (uitoolkit's floors): the pane on the right, the page it shows, so
+	// the editor's fields and their buttons stay in it. The lists get
+	// floors of their own, because a table asks for all its columns and
+	// can do with less.
 	u.browse = widgets.NewSplitter(widgets.SplitColumns, middle, right)
 	u.browse.Ratio = 0.42
+	u.browse.MinA = listFloor
 	// The vault's own page (grants, audit log) takes the place of both.
 	u.main = newSlot()
 	u.main.Set(u.browse)
 	outer := widgets.NewSplitter(widgets.SplitColumns, sidebar, u.main)
 	outer.Ratio = 0.21
+	outer.MinA = sidebarFloor
 
 	u.status = widgets.NewStatusBar("", "")
 	u.column = widgets.NewColumn(u.menu, outer, u.status).WithGap(0)
@@ -271,6 +285,10 @@ func (s *slot) Measure(c layout.Constraints) paintengine2d.Point {
 	return c.Constrain(paintengine2d.Pt(c.MaxW, c.MaxH))
 }
 
+// MinWidth is the floor of the page shown (widget.MinWidther), so that a
+// splitter keeps the pane at least that wide.
+func (s *slot) MinWidth() float32 { return widget.MinWidthOf(s.Page()) }
+
 func (s *slot) Arrange(r paintengine2d.Rect) {
 	s.SetBounds(r)
 	for _, c := range s.Children() {
@@ -300,6 +318,9 @@ func (r *shortcutRoot) Arrange(b paintengine2d.Rect) {
 	r.SetBounds(b)
 	r.Children()[0].Arrange(paintengine2d.XYWH(0, 0, b.Dx(), b.Dy()))
 }
+
+// MinWidth is the content's floor (widget.MinWidther).
+func (r *shortcutRoot) MinWidth() float32 { return widget.MinWidthOf(r.Children()[0]) }
 
 func (r *shortcutRoot) KeyPress(e widget.KeyEvent) bool { return r.onKey != nil && r.onKey(e) }
 

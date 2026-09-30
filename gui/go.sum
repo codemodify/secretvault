@@ -1,7 +1,7 @@
 github.com/codemodify/paintengine2d v0.11.0 h1:IEIGp/B+/cqwOoK63tsO4sxKRB8g/AjcYgDIZcY/ONc=
 github.com/codemodify/paintengine2d v0.11.0/go.mod h1:+e0/rlydkknTGd/M0k6uigFBMjFluCXVF2sqmMsO0a4=
-github.com/codemodify/uitoolkit v0.22.3 h1:9oyhplbn1FmNbMT7/n9A0cmY4gnvYNMf14qBAZhY19s=
-github.com/codemodify/uitoolkit v0.22.3/go.mod h1:vgrBZXkdFfZ7sNpD854j6a6sXeGVtbutOdRlcfApQ74=
+github.com/codemodify/uitoolkit v0.22.5 h1:R+fS2aKFLGRJNOGRd083qoYpFhq+hMvFib9HoKex00c=
+github.com/codemodify/uitoolkit v0.22.5/go.mod h1:vgrBZXkdFfZ7sNpD854j6a6sXeGVtbutOdRlcfApQ74=
 github.com/godbus/dbus/v5 v5.1.0 h1:4KLkAxT3aOY8Li4FRJe/KvhoNFFxo0m6fNuFUO8QJUk=
 github.com/godbus/dbus/v5 v5.1.0/go.mod h1:xhWf0FNVPg57R7Z0UbKHbJfkEywrmjJnf7w5xrFpKfA=
 golang.org/x/crypto v0.57.0 h1:3ZVCjf8Ggz7zneR/EHRVx68Ctf+2pmIMP2UFhh9cC6M=

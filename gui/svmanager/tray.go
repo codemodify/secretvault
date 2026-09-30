@@ -1,11 +1,7 @@
 package svmanager
 
 import (
-	"context"
-	"time"
-
 	"github.com/codemodify/secretvault/gui/secretui"
-	"github.com/codemodify/secretvault/svdbus"
 	"github.com/codemodify/uitoolkit/platform"
 )
 
@@ -49,47 +45,12 @@ func (m *Manager) trayMenu() []platform.StatusMenuItem {
 }
 
 // hasTray reports whether there is a tray to hide the window in, and to
-// bring it back from: somebody shows the icon (uitoolkit's Shown).
+// bring it back from: somebody shows the icon. uitoolkit's Shown asks the
+// desktop (on Linux, whether a StatusNotifierWatcher is on the bus and has
+// a host registered: a GNOME without the AppIndicator extension has
+// neither, and hiding the window there would lose it).
 func (m *Manager) hasTray() bool {
-	if m.tray == nil || !m.tray.Alive() || !m.tray.Shown() {
-		return false
-	}
-	switch m.tray.Backend() {
-	case "stub":
-		return false
-	case "sni":
-		// uitoolkit reads the StatusNotifierWatcher's host flag, but
-		// takes a bus with no watcher at all for one that shows the
-		// icon (uitoolkit-gaps.md, 23). A GNOME without the AppIndicator
-		// extension is exactly that bus, and hiding the window there
-		// would lose it; so no watcher is no tray.
-		return sniHostRegistered()
-	}
-	return true
-}
-
-// sniHostRegistered asks the session's StatusNotifierWatcher whether a
-// host that shows status items has registered with it, over secretvault's
-// own D-Bus code. No watcher is no.
-func sniHostRegistered() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	addr, err := svdbus.SessionBusAddress()
-	if err != nil {
-		return false
-	}
-	conn, err := svdbus.ConnectContext(ctx, addr)
-	if err != nil {
-		return false
-	}
-	defer conn.Close()
-	v, err := conn.GetProperty(ctx, "org.kde.StatusNotifierWatcher", "/StatusNotifierWatcher",
-		"org.kde.StatusNotifierWatcher", "IsStatusNotifierHostRegistered")
-	if err != nil {
-		return false
-	}
-	on, _ := v.Value.(bool)
-	return on
+	return m.tray != nil && m.tray.Alive() && m.tray.Backend() != "stub" && m.tray.Shown()
 }
 
 // closeRequested is the window's close button: to the tray if there is

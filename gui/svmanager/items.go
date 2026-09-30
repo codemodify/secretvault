@@ -649,45 +649,46 @@ func (m *Manager) renameItem() {
 	vault := m.vault
 	// uitoolkit's prompt: a name that cannot be used is refused where it
 	// was typed, with what was typed still there, rather than after the
-	// dialog has gone.
+	// dialog has gone. That includes the daemon's refusal: the rename is
+	// the prompt's check (ValidateAsync), so the dialog waits for the
+	// answer and says under the field why a name was not taken.
 	widgets.PromptFor(m.root(), "Rename "+name, "New name:", widgets.MessageBoxInput{
 		Text: name, Required: true, AcceptLabel: "Rename",
-		Validate: func(to string) error {
+		ValidateAsync: func(to string, done func(error)) {
 			to = strings.TrimSpace(to)
-			if to == name {
-				return nil
-			}
-			if err := checkName(to); err != nil {
-				return errors.New(sentence(err.Error()))
-			}
-			if m.entry(to) != nil {
-				return fmt.Errorf("There is an item called %s already.", to)
-			}
-			return nil
-		},
-	}, func(to string, ok bool) {
-		to = strings.TrimSpace(to)
-		if !ok || to == name {
-			return
-		}
-		m.call(func(ctx context.Context, c *secretvault.Client) error {
-			_, err := c.Rename(ctx, vault, name, to)
-			return err
-		}, func(err error) {
-			if err != nil {
-				m.fail(err)
+			switch {
+			case to == name:
+				done(nil)
+				return
+			case checkName(to) != nil:
+				done(errors.New(sentence(checkName(to).Error())))
+				return
+			case m.entry(to) != nil:
+				done(fmt.Errorf("There is an item called %s already.", to))
 				return
 			}
-			m.say("Renamed %s to %s.", name, to)
-			m.cursor = to
-			if m.cur != nil && m.cur.Item.Name == name {
-				m.openItem(to, false)
-			}
-			if vault == m.vault {
-				m.loadItems()
-			}
-		})
-	})
+			m.call(func(ctx context.Context, c *secretvault.Client) error {
+				_, err := c.Rename(ctx, vault, name, to)
+				return err
+			}, func(err error) {
+				if err != nil {
+					done(errors.New(m.describe(err)))
+					return
+				}
+				// Renamed, whether or not the dialog is still up to be
+				// told: the window follows either way.
+				done(nil)
+				m.say("Renamed %s to %s.", name, to)
+				m.cursor = to
+				if m.cur != nil && m.cur.Item.Name == name {
+					m.openItem(to, false)
+				}
+				if vault == m.vault {
+					m.loadItems()
+				}
+			})
+		},
+	}, nil)
 }
 
 // reopen fetches the open item again, keeping what was revealed.

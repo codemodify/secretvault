@@ -177,6 +177,13 @@ func TestScreenshots(t *testing.T) {
 		shoot(h.win(), "24-key-editor"+suffix)
 		h.win().Press(platform.KeyR, platform.ModCtrl)
 		shoot(h.win(), "25-key-editor-shown"+suffix)
+		h.win().Press(platform.KeyR, platform.ModCtrl)
+		// The narrowest the window may be.
+		h.win().SetSize(minWindowWidth, 700)
+		h.pump()
+		shoot(h.win(), "26-key-editor-narrow"+suffix)
+		h.win().SetSize(1120, 700)
+		h.pump()
 		h.win().Press(platform.KeyEscape)
 
 		h.stopDaemon()
