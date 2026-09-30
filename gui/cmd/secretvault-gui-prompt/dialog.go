@@ -127,7 +127,6 @@ func (d *dialog) open(a *uitoolkit.Application) error {
 // build is the dialog's body, the row of buttons at its foot, and what
 // has the keyboard when it opens.
 func (d *dialog) build(a *uitoolkit.Application) (body, actions, first widget.Component) {
-	pal := a.Look().Palette()
 	// Gaps and padding are 1x lengths, which uitoolkit scales to the
 	// display as it scales the widgets.
 	col := widgets.NewColumn().WithGap(10).WithPadding(sidePad, 16, sidePad, 16)
@@ -170,7 +169,7 @@ func (d *dialog) build(a *uitoolkit.Application) (body, actions, first widget.Co
 		d.problem = widgets.NewLabel(d.req.Error)
 		d.problem.Wrap = true
 		d.problem.MinLines = 1
-		d.problem.Color = secretui.Ink(pal.Danger, pal.Background) // readable, in dark looks too
+		d.problem.Tone = widgets.ToneDanger // readable, in dark looks too
 		col.Add(d.problem)
 	}
 

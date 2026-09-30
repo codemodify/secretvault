@@ -249,7 +249,8 @@ func (m *Manager) shutdown() {
 		if m.ui != nil {
 			// Every dialog up, and those under it, wipes what it holds as
 			// it goes (a recovery key, a generated password, a passphrase
-			// being typed).
+			// being typed). SetOverlay(nil) closes them all; DismissOverlay
+			// from outside them would close only the top one.
 			m.win.SetOverlay(nil)
 		}
 		if m.tray != nil {

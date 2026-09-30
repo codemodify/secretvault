@@ -379,7 +379,7 @@ func (m *Manager) newVault() {
 	pass := widgets.NewSecretField("At least 8 characters")
 	again := widgets.NewSecretField("The same again")
 	recovery := widgets.NewCheckbox("Make a recovery key, shown once", true, nil)
-	problem := toned("", toneDanger)
+	problem := toned("", widgets.ToneDanger)
 	problem.Wrap = true
 
 	form := widgets.NewForm()

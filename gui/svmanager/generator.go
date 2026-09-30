@@ -110,7 +110,7 @@ func (m *Manager) showGenerator(use func([]byte)) *dialog {
 	preview.SetReveal(true)
 	preview.SetAccessibleName("Generated password")
 	strength := m.muted("")
-	problem := toned("", toneDanger)
+	problem := toned("", widgets.ToneDanger)
 
 	regenerate := func() {
 		p, err := g.make()

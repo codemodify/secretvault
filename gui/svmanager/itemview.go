@@ -52,7 +52,7 @@ type codeRow struct {
 	buf  []byte
 	text *secretText
 	bar  *widgets.ProgressBar
-	left *tonedLabel
+	left *widgets.Label
 }
 
 func (m *Manager) newItemView(e *svrpc.Entry, mode viewMode, keys map[int]*svotp.Key) *itemView {
@@ -77,12 +77,12 @@ func (m *Manager) newItemView(e *svrpc.Entry, mode viewMode, keys map[int]*svotp
 			text = fmt.Sprintf("%d other versions were saved at the same time as this one, on other devices. "+
 				"This one won (it is the newest); the others are kept, and the history shows them.", n)
 		}
-		warn := toned(text, toneWarning)
+		warn := toned(text, widgets.ToneWarning)
 		warn.Wrap = true
 		col.Add(warn)
 	}
 	if e.Deleted {
-		col.Add(toned("This revision deleted the item.", toneDanger))
+		col.Add(toned("This revision deleted the item.", widgets.ToneDanger))
 	}
 
 	if mode != viewRevision {
@@ -191,7 +191,7 @@ func (v *itemView) fieldGrid() widget.Component {
 				g.Place(m.muted("key"), row, 0)
 				buttons = widgets.NewRow().WithGap(4)
 			} else if v.mode == viewOpen {
-				g.Place(toned("not a usable one-time password key", toneDanger), row, 1)
+				g.Place(toned("not a usable one-time password key", widgets.ToneDanger), row, 1)
 				g.Place(buttons, row, 2)
 				row++
 				g.Place(m.muted("key"), row, 0)

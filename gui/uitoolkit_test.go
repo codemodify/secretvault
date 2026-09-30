@@ -156,7 +156,7 @@ func TestItem11SymbolFallback(t *testing.T) {
 // 12. The lock keys (923fab0): a window can say Caps Lock is on before
 // the first key where the backend can be asked (X11, Windows), and says
 // when it changes. But a focus-in, which carries no modifiers on any
-// backend, is still taken for the lock keys being off (v0.22.2): a window
+// backend, is still taken for the lock keys being off (v0.22.3): a window
 // that comes back into focus with Caps Lock on says it is off until the
 // next key.
 func TestItem12CapsLock(t *testing.T) {
@@ -587,7 +587,8 @@ func TestItem28LockKeysWatchers(t *testing.T) {
 
 // 29. Status colours as ink (36685fe): Palette.DangerInk and friends, and
 // Label.Tone, read at 4.5:1 in plastik-night. The palette's own Danger
-// stays the pack's, at 2.2:1, by design. (How they read is 31.)
+// stays the pack's, at 2.2:1, by design. (That they keep their colour
+// is 31.)
 func TestItem29DarkStatusColours(t *testing.T) {
 	pal := packPalette(t, "plastik-night")
 	if r := style.ContrastRatio(pal.Danger, pal.Background); r >= style.MinInkContrast {
@@ -611,55 +612,84 @@ func packPalette(t *testing.T, name string) style.Palette {
 
 // Found while moving to v0.22.2.
 
-// 30. DismissOverlay from a component in no overlay closes nothing now:
-// it used to close the overlay up, and an application that took down
-// its dialogs that way (the manager, at quit and for its file chooser)
-// silently stopped doing so. Window.SetOverlay(nil) closes them all.
+// 30. DismissOverlay from outside every overlay closes the top one again
+// (6e1d4f9). The top one only: with two up, one is left, which is why the
+// manager quits with Window.SetOverlay(nil), which closes them all.
 func TestItem30DismissFromOutside(t *testing.T) {
 	a := headless(t, 1)
 	root := widgets.NewColumn(widgets.NewLabel("window"))
 	w := window(t, a, 400, 300, root)
-	widget.ShowOverlay(root, widgets.NewOverlay(widgets.NewPanel("up", widgets.NewLabel("x"))))
-	a.PumpOnce()
+	closed := 0
+	for _, name := range []string{"under", "over"} {
+		o := widgets.NewOverlay(widgets.NewPanel(name, widgets.NewLabel(name)))
+		o.OnClose = func() { closed++ }
+		widget.ShowOverlay(root, o)
+		a.PumpOnce()
+	}
 	widget.DismissOverlay(root)
-	if w.Overlay() == nil {
-		t.Fatal("DismissOverlay from outside every overlay closes one again: see uitoolkit-gaps.md item 30")
+	if closed != 1 || len(w.Overlays()) != 1 {
+		t.Fatalf("DismissOverlay from outside closed %d, left %d up; want the top one only", closed, len(w.Overlays()))
 	}
 	w.SetOverlay(nil)
-	if w.Overlay() != nil || len(w.Overlays()) != 0 {
-		t.Fatal("SetOverlay(nil) left a dialog up")
+	if closed != 2 || w.Overlay() != nil || len(w.Overlays()) != 0 {
+		t.Fatal("SetOverlay(nil) left a dialog up, or did not close it")
 	}
 }
 
-// 31. Palette.Ink loses the colour: a status colour that does not read
-// comes back white on a dark pack and all but black on a light one.
-// ReadableInk walks the lightness from 0 to 1 and hands it to flatFromHSL,
-// which takes it in percent, so every candidate is within 1% of black.
+// 31. Palette.Ink keeps the colour (6e1d4f9): a status colour that does
+// not read is moved along its own lightness, not to white or black.
 func TestItem31InkKeepsItsColour(t *testing.T) {
-	white := paintengine2d.RGB(1, 1, 1)
-	if ink := packPalette(t, "plastik-night").DangerInk(); ink != white {
-		t.Fatalf("plastik-night's danger ink is %v, not white, now: see uitoolkit-gaps.md item 31, and secretui.Ink", ink)
-	}
-	if ink := packPalette(t, "plastik").WarningInk(); ink.R > 0.1 {
-		t.Fatalf("plastik's warning ink is %v, not black, now: see uitoolkit-gaps.md item 31, and secretui.Ink", ink)
+	for _, name := range []string{"plastik", "plastik-night"} {
+		pal := packPalette(t, name)
+		for what, c := range map[string][2]paintengine2d.Color{
+			"danger": {pal.Danger, pal.DangerInk()}, "warning": {pal.Warning, pal.WarningInk()}, "success": {pal.Success, pal.SuccessInk()},
+		} {
+			declared, ink := c[0], c[1]
+			if strongest(ink) != strongest(declared) || saturation(ink) < 0.5 {
+				t.Errorf("%s's %s ink is %v, from %v: not the same colour", name, what, ink, declared)
+			}
+		}
 	}
 }
 
-// 32. A SecretArea asks to be 280 wide and cannot fold, so a grid's
-// flexible column gives it 280 where it has less, and the columns after
-// it go off the edge. (A SecretField asks for 180, a TextArea for what
-// it is offered.)
+func strongest(c paintengine2d.Color) int {
+	switch {
+	case c.R >= c.G && c.R >= c.B:
+		return 0
+	case c.G >= c.B:
+		return 1
+	}
+	return 2
+}
+
+func saturation(c paintengine2d.Color) float32 {
+	hi, lo := max(c.R, c.G, c.B), min(c.R, c.G, c.B)
+	if hi == 0 {
+		return 0
+	}
+	return (hi - lo) / hi
+}
+
+// 32. A SecretArea takes the width it is offered and asks for what a
+// SecretField does (6e1d4f9): in a grid's flexible column the two are as
+// wide as each other, at every width. (Neither can fold, so the column
+// still gives neither less than 180; that is Grid's rule for everything
+// that cannot fold.)
 func TestItem32SecretAreaInANarrowGrid(t *testing.T) {
-	a := headless(t, 1)
-	area := widgets.NewSecretArea("")
-	after := widgets.NewButton("Remove", nil)
-	g := widgets.NewGrid()
-	g.Cols = []widgets.Track{widgets.Auto(), widgets.Flex(1), widgets.Auto()}
-	g.Place(widgets.NewLabel("private-key"), 0, 0)
-	g.Place(area, 0, 1)
-	g.Place(after, 0, 2)
-	window(t, a, 360, 200, widgets.NewColumn(g))
-	if right := widget.DeviceOrigin(after).X + after.Bounds().Dx(); right <= 360 {
-		t.Fatalf("the column after a SecretArea ends at %v, inside a 360-wide window, now: see uitoolkit-gaps.md item 32", right)
+	for _, width := range []int{360, 420, 600} {
+		a := headless(t, 1)
+		area := widgets.NewSecretArea("")
+		field := widgets.NewSecretField("")
+		g := widgets.NewGrid()
+		g.Cols = []widgets.Track{widgets.Auto(), widgets.Flex(1), widgets.Auto()}
+		g.Place(widgets.NewLabel("private-key"), 0, 0)
+		g.Place(area, 0, 1)
+		g.Place(widgets.NewButton("Remove", nil), 0, 2)
+		g.Place(widgets.NewLabel("pin"), 1, 0)
+		g.Place(field, 1, 1)
+		window(t, a, width, 300, widgets.NewColumn(g))
+		if area.Bounds().Dx() != field.Bounds().Dx() {
+			t.Errorf("%d wide: the area is %v, a field beside it %v", width, area.Bounds().Dx(), field.Bounds().Dx())
+		}
 	}
 }

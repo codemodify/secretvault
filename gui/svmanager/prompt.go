@@ -33,7 +33,7 @@ type promptDialog struct {
 	win      *app.Window
 	frame    *secretui.Frame
 	fields   []*widgets.SecretField
-	problem  *tonedLabel
+	problem  *widgets.Label
 	caps     *secretui.CapsLock      // beside the buttons while Caps Lock is on
 	answer   chan svrpc.PromptAnswer // buffered: one answer
 	answered bool
@@ -125,7 +125,7 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan svrpc.PromptAnswer) 
 		desc.Wrap = true
 		col.Add(desc)
 	}
-	d.problem = toned(q.Error, toneDanger)
+	d.problem = toned(q.Error, widgets.ToneDanger)
 	d.problem.Wrap = true
 	buttons := widgets.NewButtonBox()
 	var focus widget.Component

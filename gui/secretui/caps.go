@@ -29,6 +29,7 @@ const capsLockText = "Caps Lock is on"
 func NewCapsLock() *CapsLock {
 	c := &CapsLock{Label: widgets.NewLabel("")}
 	c.Label.Init(c)
+	c.Tone = widgets.ToneWarning
 	return c
 }
 
@@ -92,18 +93,5 @@ func (c *CapsLock) Measure(cs layout.Constraints) paintengine2d.Point {
 	if !c.on {
 		return cs.Constrain(paintengine2d.Point{})
 	}
-	c.Color = c.warning()
 	return c.Label.Measure(cs)
-}
-
-func (c *CapsLock) Paint(ctx *paintengine2d.Context) {
-	c.Color = c.warning()
-	c.Label.Paint(ctx)
-}
-
-// warning is the look's warning colour, readable on its background, taken
-// as the line is drawn so it follows the desktop from light to dark.
-func (c *CapsLock) warning() paintengine2d.Color {
-	p := c.Look().Palette()
-	return Ink(p.Warning, p.Background)
 }

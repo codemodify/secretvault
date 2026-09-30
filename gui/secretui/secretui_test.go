@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/codemodify/paintengine2d"
 	"github.com/codemodify/uitoolkit"
 	"github.com/codemodify/uitoolkit/platform"
 	"github.com/codemodify/uitoolkit/style"
@@ -194,40 +193,4 @@ func TestTheIcon(t *testing.T) {
 	if opaque < 32*32/2 {
 		t.Fatalf("only %d of its pixels are painted", opaque)
 	}
-}
-
-// Ink makes a status colour readable as text and keeps it that colour: a
-// red on a dark pack is a lighter red, not white. One that reads already
-// is left alone.
-func TestInkIsReadableAndKeepsItsColour(t *testing.T) {
-	for _, name := range []string{"plastik", "plastik-night"} {
-		p, ok := uitoolkit.LoadTheme(name)
-		if !ok {
-			t.Fatalf("no %s", name)
-		}
-		pal := style.Appearance{Name: p.Name, Theme: p.Palette}.Look().Palette()
-		for what, c := range map[string]paintengine2d.Color{"danger": pal.Danger, "warning": pal.Warning, "success": pal.Success} {
-			ink := Ink(c, pal.Background)
-			if r := style.ContrastRatio(ink, pal.Background); r < style.MinInkContrast {
-				t.Errorf("%s %s ink is %.1f:1", name, what, r)
-			}
-			if style.ContrastRatio(c, pal.Background) >= style.MinInkContrast && ink != c {
-				t.Errorf("%s %s reads already and was changed", name, what)
-			}
-			// The strongest channel is still the strongest: red is red.
-			if strongest(ink) != strongest(c) {
-				t.Errorf("%s %s: %v became %v", name, what, c, ink)
-			}
-		}
-	}
-}
-
-func strongest(c paintengine2d.Color) int {
-	switch {
-	case c.R >= c.G && c.R >= c.B:
-		return 0
-	case c.G >= c.B:
-		return 1
-	}
-	return 2
 }

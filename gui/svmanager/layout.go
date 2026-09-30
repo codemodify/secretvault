@@ -10,8 +10,6 @@ import (
 	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
-
-	"github.com/codemodify/secretvault/gui/secretui"
 )
 
 // The window: a menu bar; the vaults and their folders down the left; the
@@ -34,7 +32,7 @@ type ui struct {
 	folders   *widgets.TreeView
 	search    *searchField
 	items     *widgets.TableView
-	itemsNote *tonedLabel
+	itemsNote *widgets.Label
 	browse    *widgets.Splitter // the items, and the item beside them
 	main      *slot             // shows browse, or a vault's page
 	pane      *slot             // the right-hand pane beside the items
@@ -47,67 +45,18 @@ type ui struct {
 	view *itemView // the item page, when it is up
 }
 
-// A tone is what a label's text means: muted, an error, a success, a
-// warning. Its colour is taken from the look when it is painted, so a
-// label keeps meaning the same thing when the desktop goes from light to
-// dark.
-type tone int
-
-const (
-	toneMuted tone = iota
-	toneDanger
-	toneSuccess
-	toneWarning
-)
-
-// tonedLabel is a label in a tone of the look's palette, read again at
-// every paint. It keeps no list of such labels to recolour when the look
-// changes: a page that is thrown away takes its labels with it.
-//
-// uitoolkit's Label.Tone is the same idea, but in v0.22.2 its status
-// colours come out black or white (uitoolkit-gaps.md, 31); this takes the
-// palette's and makes them readable itself (secretui.Ink).
-type tonedLabel struct {
-	*widgets.Label
-	tone tone
-}
-
-// toned is a label with text in tone t.
-func toned(text string, t tone) *tonedLabel {
-	l := &tonedLabel{Label: widgets.NewLabel(text), tone: t}
-	l.Label.Init(l)
+// toned is a label whose text means something: muted, an error, a
+// warning. uitoolkit colours it from the look as it paints it (Label.Tone),
+// so it keeps meaning the same thing when the desktop goes from light to
+// dark, and a status colour is the palette's made readable as text.
+func toned(text string, t widgets.LabelTone) *widgets.Label {
+	l := widgets.NewLabel(text)
+	l.Tone = t
 	return l
 }
 
-func (l *tonedLabel) Paint(ctx *paintengine2d.Context) {
-	l.Color = toneColor(l.Look(), l.tone)
-	l.Label.Paint(ctx)
-}
-
-func (l *tonedLabel) Measure(c layout.Constraints) paintengine2d.Point {
-	// The colour picks the face (a muted label may be drawn in a lighter
-	// one), so it is settled before measuring too.
-	l.Color = toneColor(l.Look(), l.tone)
-	return l.Label.Measure(c)
-}
-
-// toneColor is tone t in look lk: a status colour readable as text on the
-// look's background, which the palette's own often is not (29).
-func toneColor(lk style.LookAndFeel, t tone) paintengine2d.Color {
-	p := lk.Palette()
-	switch t {
-	case toneDanger:
-		return secretui.Ink(p.Danger, p.Background)
-	case toneSuccess:
-		return secretui.Ink(p.Success, p.Background)
-	case toneWarning:
-		return secretui.Ink(p.Warning, p.Background)
-	}
-	return p.TextMuted
-}
-
 // muted is a label in the look's muted text colour.
-func (m *Manager) muted(text string) *tonedLabel { return toned(text, toneMuted) }
+func (m *Manager) muted(text string) *widgets.Label { return toned(text, widgets.ToneMuted) }
 
 // heading is a section's title.
 func heading(text string) *widgets.Label {

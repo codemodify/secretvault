@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codemodify/uitoolkit/layout"
+	"github.com/codemodify/paintengine2d"
 	"github.com/codemodify/uitoolkit/platform"
 	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widgets"
@@ -561,22 +561,21 @@ func TestAFileSavedOverAnotherIsTheOwnersOnly(t *testing.T) {
 	}
 }
 
-// Coloured labels take their colour from the look they are drawn in, with
-// nothing keeping them (uitoolkit-gaps.md, 24), and readable on it: still
-// red, and at 4.5:1 (29).
+// Coloured labels say what they mean, and uitoolkit colours them from the
+// look they are drawn in, with nothing keeping them (uitoolkit-gaps.md,
+// 24): readable on it, and still red (29, 31).
 func TestTonesFollowTheLook(t *testing.T) {
-	l := toned("Locked", toneDanger)
+	l := toned("Locked", widgets.ToneDanger)
+	if l.Tone != widgets.ToneDanger || l.Color != (paintengine2d.Color{}) {
+		t.Fatalf("tone %v, colour %v: a fixed colour would not follow the look", l.Tone, l.Color)
+	}
 	for _, lk := range []style.LookAndFeel{style.DarkLook(), style.LightLook(), style.Appearance{Name: "plastik-night"}.Look()} {
-		l.SetLook(lk)
-		l.Measure(layout.Loose(400, 100))
 		p := lk.Palette()
-		if l.Color != toneColor(lk, toneDanger) {
-			t.Fatalf("on %v the label is %v", p.Background, l.Color)
-		}
-		if r := style.ContrastRatio(l.Color, p.Background); r < style.MinInkContrast {
+		c := p.DangerInk()
+		if r := style.ContrastRatio(c, p.Background); r < style.MinInkContrast {
 			t.Fatalf("on %v the danger is %.1f:1", p.Background, r)
 		}
-		if c := l.Color; c.R < c.G+0.2 || c.R < c.B+0.2 {
+		if c.R < c.G+0.2 || c.R < c.B+0.2 {
 			t.Fatalf("on %v the danger is %v, not red", p.Background, c)
 		}
 	}

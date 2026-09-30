@@ -249,12 +249,12 @@ func (m *Manager) syncTab(p *vaultPage) widget.Component {
 	}
 	col := widgets.NewColumn(g).WithGap(gap).WithPad(gap)
 	if s.Error != "" {
-		e := toned("The last sync failed: "+s.Error, toneDanger)
+		e := toned("The last sync failed: "+s.Error, widgets.ToneDanger)
 		e.Wrap = true
 		col.Add(e)
 	}
 	if s.Kept > 0 {
-		k := toned(fmt.Sprintf("%d keyslot removals were refused, because they would have left the vault with no key.", s.Kept), toneWarning)
+		k := toned(fmt.Sprintf("%d keyslot removals were refused, because they would have left the vault with no key.", s.Kept), widgets.ToneWarning)
 		k.Wrap = true
 		col.Add(k)
 	}

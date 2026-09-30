@@ -37,7 +37,7 @@ type editor struct {
 	attrs   *widgets.TextArea
 	fields  []*fieldEditor
 	grid    *widgets.Grid
-	problem *tonedLabel
+	problem *widgets.Label
 	reveal  *widgets.Button
 	shown   bool // secrets are revealed
 	touched bool // a field was typed into: a new item keeps its fields when the kind changes
@@ -183,7 +183,7 @@ func (m *Manager) openEditor(e *svrpc.Entry) *editor {
 	}
 	m.closeItem()
 
-	ed.problem = toned("", toneDanger)
+	ed.problem = toned("", widgets.ToneDanger)
 	ed.problem.Wrap = true
 	save := tip(widgets.NewButton("Save", ed.save), "Ctrl+S")
 	save.Primary = true
@@ -317,12 +317,9 @@ func (ed *editor) layoutFields() {
 		var value widget.Component
 		switch {
 		case fe.box != nil && fe.box != widget.Component(fe.secret):
-			// A key: pasted, or read from a file. The area asks to be 280
-			// wide, which the fields' column cannot always give it
-			// (uitoolkit-gaps.md, 32): it asks for what a secret field
-			// does, and is laid out as wide as the column is.
+			// A key: pasted, or read from a file.
 			replace := widgets.NewButton("Replace from file…", func() { ed.replaceFromFile(fe) })
-			value = newFixedWidth(widgets.NewColumn(fe.box, widgets.NewRow(replace)).WithGap(4), 180)
+			value = widgets.NewColumn(fe.box, widgets.NewRow(replace)).WithGap(4)
 		case fe.secret != nil:
 			value = fe.secret
 		case fe.area != nil:
@@ -497,7 +494,7 @@ func (ed *editor) askField() {
 	m := ed.m
 	name := widgets.NewTextField("", "", nil)
 	typ := widgets.NewComboBox(fieldTypes, 0, nil)
-	problem := toned("", toneDanger)
+	problem := toned("", widgets.ToneDanger)
 	form := widgets.NewForm()
 	form.AddRow("Name", name)
 	form.AddRow("Type", typ)
