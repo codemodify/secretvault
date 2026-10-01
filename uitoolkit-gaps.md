@@ -1189,8 +1189,10 @@ can size a window from its own content and a test can assert the form
 still fits. And `ScrollView.Horizontal` and `TableView.Horizontal` (both
 off by default) scroll content that genuinely has no narrower form.
 
-Still absent: a **window** minimum-size API to hand `MinWidthOf`'s answer
-to. A program can compute its floor but not tell the desktop about it.
+And `WindowOptions.MinWidth` / `MinHeight` is where that answer goes —
+it already existed, and the note here that said otherwise was wrong. The
+window system is told on every backend, so a window cannot be dragged
+below what its own content needs.
 
 **After v0.22.5: the lever helps the manager where it reaches, and it
 does not reach far enough (34).** The manager's editor sits in the
