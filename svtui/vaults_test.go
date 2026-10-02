@@ -128,10 +128,7 @@ func TestANewVaultShowsItsRecoveryKeyOnce(t *testing.T) {
 	h.waitFor("This is not shown again")
 	h.typeText("n")
 	h.waitFor("Recovery key of work")
-	h.key(tcell.KeyEscape)
-	h.waitFor("This is not shown again")
-	h.typeText("y")
-	h.waitGone("Recovery key of work")
+	h.closeOnce()
 	if !bytes.Equal(held, make([]byte, len(held))) {
 		t.Fatal("the recovery key is still held after the view closed")
 	}
