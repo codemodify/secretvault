@@ -470,6 +470,8 @@ func (u *UI) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.showVaults()
 	case 'f':
 		u.showFiles()
+	case 'y':
+		u.copyReference()
 	case 'R':
 		u.showDeleted()
 	case 'K':

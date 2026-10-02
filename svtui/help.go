@@ -31,6 +31,8 @@ var helpKeys = strings.TrimSpace(`
                          viewable; R makes one current, k keeps a
                          conflicting version on every device
   f                      its files: attach, save, remove
+  y                      copy its reference (sv://VAULT/ITEM), or the
+                         selected field's, for env files and templates
   g                      the password generator
 
 [::b]Vaults[::-]

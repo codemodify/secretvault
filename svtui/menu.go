@@ -49,6 +49,7 @@ func (u *UI) menu() []menuEntry {
 		{"Edit", "Copy the secret", "c", u.copySecret},
 		{"Edit", "Copy the username", "u", u.copyUsername},
 		{"Edit", "Copy the one-time code", "o", u.copyCode},
+		{"Edit", "Copy the item's reference (sv://…), or the selected field's", "y", u.copyReference},
 		{"Edit", "Reveal or hide the item's secrets", "r", u.toggleReveal},
 		{"Edit", "Filter the items", "/", u.startFilter},
 
@@ -168,6 +169,9 @@ func (u *UI) menu() []menuEntry {
 		{"Contacts", "Check a signer…", "", u.checkSigner},
 		{"Contacts", "Record a key seen in mail…", "", func() { u.keySeen(nil) }},
 		{"Tools", "Password generator", "g", func() { u.showGenerator(nil) }},
+		{"Tools", "Resolve a reference (sv://…)…", "", u.resolveReference},
+		{"Tools", "Check an env file's references…", "", u.checkEnvFile},
+		{"Tools", "Check a template's references, or fill it…", "", u.checkTemplate},
 		{"Tools", "Sign a file (OpenPGP)…", "", u.signFile},
 		{"Tools", "Decrypt a file (OpenPGP)…", "", u.decryptPGPFile},
 		{"Tools", "Check a signature (OpenPGP)…", "", u.verifyPGPFile},
