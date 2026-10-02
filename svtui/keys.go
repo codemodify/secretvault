@@ -359,9 +359,10 @@ func (u *UI) newAgeIdentity(vault string, then func()) {
 			return err.Error()
 		}
 		outPath := filePath(out)
+		postQuantum := pq.IsChecked()
 		var k *svops.AgeKey
 		u.call(func(ctx context.Context, c *secretvault.Client) error {
-			n, err := svops.GenerateAgeIdentity(pq.IsChecked())
+			n, err := svops.GenerateAgeIdentity(postQuantum)
 			if err != nil {
 				return err
 			}

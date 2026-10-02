@@ -542,6 +542,9 @@ func (u *UI) openPage(name string, p, focus tview.Primitive) {
 	}
 	if pn := u.panels[name]; pn != nil && pn.frame != p {
 		delete(u.panels, name) // replaced by something else
+		if pn.onClose != nil {
+			pn.onClose() // the history wipes its revisions
+		}
 	}
 	u.pages.AddPage(name, p, true, true)
 	if u.pages.HasPage(pagePrompt) && name != pagePrompt {
@@ -602,9 +605,18 @@ func (u *UI) fail(err error) {
 
 // describe turns an error from the daemon into something to tell a person.
 func (u *UI) describe(err error) string {
+	if u.gone {
+		return "secretvaultd is not answering."
+	}
+	return describeErr(err)
+}
+
+// describeErr is describe for workers: it reads no state of the
+// interface's.
+func describeErr(err error) string {
 	var e *svrpc.Error
 	switch {
-	case u.gone, errors.Is(err, secretvault.ErrNoDaemon):
+	case errors.Is(err, secretvault.ErrNoDaemon):
 		return "secretvaultd is not answering."
 	case errors.Is(err, svrpc.ErrCanceled):
 		return "Canceled."

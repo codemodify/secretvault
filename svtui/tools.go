@@ -97,7 +97,7 @@ func (u *UI) decryptPGPFile() {
 	f := u.newForm("Decrypt a file (OpenPGP)", "With your OpenPGP key, inside the daemon. The signatures inside are checked against your contacts if asked.")
 	in := f.path("File", "", "")
 	key := f.text("Key", "", "default: the key it is for")
-	verify := f.check("Check the signatures inside", true)
+	verify := f.check("Check the signatures inside", false)
 	from := f.text("From", "", "the address it claims to be from (optional)")
 	out := f.path("Write to", "", "default: the file without .gpg, .pgp or .asc")
 	replace := f.check("Replace the file if it is there", false)
@@ -279,6 +279,7 @@ func (u *UI) encryptAge() {
 		if usePass {
 			secret = pass.value()
 		}
+		armored, mixedPQ := armor.IsChecked(), mixed.IsChecked()
 		u.call(func(ctx context.Context, c *secretvault.Client) error {
 			defer clear(secret)
 			ui := u.pluginUI(ctx)
@@ -326,7 +327,7 @@ func (u *UI) encryptAge() {
 				return err
 			}
 			defer out.Abort()
-			if err := svops.AgeEncrypt(out, src, recipients, armor.IsChecked(), mixed.IsChecked()); err != nil {
+			if err := svops.AgeEncrypt(out, src, recipients, armored, mixedPQ); err != nil {
 				return err
 			}
 			return commitOut(out, rep)
@@ -375,7 +376,7 @@ func (u *UI) decryptAge() {
 					return &svops.VaultIdentity{Ref: r, Fetch: func(r svrpc.Ref) (svage.Identity, error) {
 						id, err := svops.LoadAgeIdentity(ctx, c, r)
 						if err != nil {
-							return nil, fmt.Errorf("sv://%s/%s: %s", r.Vault, r.Item, u.describe(err))
+							return nil, fmt.Errorf("sv://%s/%s: %s", r.Vault, r.Item, describeErr(err))
 						}
 						return id, nil
 					}}

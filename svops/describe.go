@@ -54,7 +54,7 @@ func UndoLines(rec InstalledHost) []string {
 	return out
 }
 
-// UninstalledLine says what uninstalling did for one browser's place.
+// UninstalledLines say what uninstalling did for one browser's place.
 func UninstalledLines(u Uninstalled) []string {
 	label := u.Label()
 	switch {

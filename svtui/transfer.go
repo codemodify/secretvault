@@ -144,7 +144,7 @@ func (u *UI) storeImport(vault string, res *svimport.Result, prefix string, over
 	var rep *svops.ImportReport
 	u.call(func(_ context.Context, c *secretvault.Client) (err error) {
 		defer res.Wipe()
-		rep, err = svops.StoreImport(u.newCtx, c, res, svops.ImportOptions{Vault: vault, Prefix: prefix, Overwrite: overwrite, Describe: u.describe})
+		rep, err = svops.StoreImport(u.newCtx, c, res, svops.ImportOptions{Vault: vault, Prefix: prefix, Overwrite: overwrite, Describe: describeErr})
 		return err
 	}, func(err error) {
 		var b strings.Builder
@@ -217,7 +217,7 @@ func (u *UI) writeExport(vault, format, path, prefix string, pass []byte) {
 	var conflicts []string
 	u.call(func(_ context.Context, c *secretvault.Client) error {
 		defer clear(pass)
-		items, err := svops.ReadForExport(u.newCtx, c, svops.ExportOptions{Vault: vault, Prefix: prefix, Describe: u.describe,
+		items, err := svops.ReadForExport(u.newCtx, c, svops.ExportOptions{Vault: vault, Prefix: prefix, Describe: describeErr,
 			Each: func(e svrpc.Entry) {
 				if len(e.Conflicts) > 0 {
 					conflicts = append(conflicts, e.Item.Name)

@@ -28,11 +28,12 @@ func (u *UI) showContacts() {
 	p.reload = func() {
 		var cs []svrpc.Contact
 		var where string
+		q := query
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 			if where, err = c.ContactsVault(ctx, ""); err != nil {
 				return err
 			}
-			cs, err = c.Contacts(ctx, "", query)
+			cs, err = c.Contacts(ctx, "", q)
 			return err
 		}, func(err error) {
 			if err != nil {
@@ -110,8 +111,9 @@ func (u *UI) showContact(id string, then func()) {
 	p.page = pageSub
 	var ct svrpc.Contact
 	p.reload = func() {
+		var got svrpc.Contact
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
-			ct, err = c.Contact(ctx, "", id)
+			got, err = c.Contact(ctx, "", id)
 			return err
 		}, func(err error) {
 			if err != nil {
@@ -119,6 +121,7 @@ func (u *UI) showContact(id string, then func()) {
 				p.close()
 				return
 			}
+			ct = got
 			p.frame.SetTitle(" " + tview.Escape(ct.Name) + " ")
 			var b strings.Builder
 			fmt.Fprintf(&b, "[::b]%s[::-]  %s", tview.Escape(ct.Name), tview.Escape(svops.LevelText(ct.Level)))
@@ -509,6 +512,9 @@ func (u *UI) lookupContact(then func()) {
 					w = "Added"
 				}
 				fmt.Fprintf(&b, "%s: %s %s (%s)\n", w, k.Type, svops.GroupFingerprint(k.Fingerprint), tview.Escape(k.Contact))
+				for _, x := range k.Warnings {
+					fmt.Fprintf(&b, "  [yellow]warning:[-] %s\n", tview.Escape(x))
+				}
 			}
 			if len(res.Found) == 0 {
 				b.WriteString("Nothing was found.")
@@ -574,11 +580,11 @@ func (u *UI) chooseContactsVault(then func()) {
 	for _, v := range u.vaults {
 		names = append(names, v.Name)
 	}
-	names = append(names, "the default vault, whichever it is")
-	u.choose("Keep contacts in", names, func(i int) {
+	vaults := len(names)
+	u.choose("Keep contacts in", append(names, "the default vault, whichever it is"), func(i int) {
 		set := "-"
-		if i < len(u.vaults) {
-			set = u.vaults[i].Name
+		if i < vaults {
+			set = names[i]
 		}
 		var name string
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {

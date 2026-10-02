@@ -199,6 +199,12 @@ func (u *UI) hostInit(then func()) {
 	pcrs := f.text("TPM2 PCRs", "", "with sealing: also bind it to these, such as 7 (optional)")
 	f.show("Make it", func() string {
 		o := svops.HostInitOptions{Suite: option(suite), Seal: seal.IsChecked(), Out: filePath(out), Credstore: filePath(credstore), PCRs: trimmed(pcrs), SystemdCreds: u.opts.SystemdCreds}
+		if o.Out == "" {
+			o.Out = svrpc.HostIdentityFile()
+		}
+		if o.Credstore == "" {
+			o.Credstore = svrpc.HostCredstore
+		}
 		var res *svops.HostInitResult
 		u.call(func(context.Context, *secretvault.Client) (err error) {
 			res, err = svops.HostInit(o)

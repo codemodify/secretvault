@@ -206,7 +206,7 @@ func (u *UI) showLines(title string, lines []onceLine, qr *svqr.Code, once bool)
 				closeNow()
 				return nil
 			}
-			u.confirm("Close?", "This is not shown again. Have you written it down, or copied it where it belongs?", "Close", closeNow)
+			u.confirmOnce(closeNow)
 			return nil
 		case ev.Rune() == 'c' && v.selected >= 0:
 			u.copyValue(v.lines[v.selected].secret)
@@ -224,6 +224,36 @@ func (u *UI) showLines(title string, lines []onceLine, qr *svqr.Code, once bool)
 		return
 	}
 	open()
+}
+
+// pageOnceAsk is the question closing a once view asks, above it: never
+// behind a dialog the once view covers.
+const pageOnceAsk = "once-ask"
+
+// confirmOnce asks before closing a once view.
+func (u *UI) confirmOnce(close func()) {
+	m := tview.NewModal().SetText("This is not shown again. Have you written it down, or copied it where it belongs?").
+		AddButtons([]string{"Cancel", "Close"})
+	m.SetTitle(" Close? ")
+	answer := func(yes bool) {
+		u.closePage(pageOnceAsk)
+		if yes {
+			close()
+		}
+	}
+	m.SetDoneFunc(func(_ int, label string) { answer(label == "Close") })
+	m.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
+		switch ev.Rune() {
+		case 'y', 'Y':
+			answer(true)
+			return nil
+		case 'n', 'N':
+			answer(false)
+			return nil
+		}
+		return ev
+	})
+	u.openPage(pageOnceAsk, m, m)
 }
 
 // pendingOnce is a once view waiting for the one up to close.
@@ -260,5 +290,6 @@ func (u *UI) wipeOnce() {
 		u.once.wipe()
 		u.once = nil
 	}
+	u.closePage(pageOnceAsk)
 	u.closePage(pageOnce)
 }

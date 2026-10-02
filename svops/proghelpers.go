@@ -272,7 +272,11 @@ func (p *HelpersPlan) Undo() ([]string, error) {
 			continue
 		}
 		// Only while it is still the link the plan saw.
-		if target, err := os.Readlink(l.Path); err != nil || (target != filepath.Base(p.CLI) && target != p.CLI) {
+		target, err := os.Readlink(l.Path)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue // gone already
+		}
+		if err != nil || (target != filepath.Base(p.CLI) && target != p.CLI) {
 			done = append(done, l.Path+" changed since the plan was made: left as it is")
 			continue
 		}
@@ -335,8 +339,16 @@ func (p *HelpersPlan) dockerUnchanged() error {
 // file, keeping the rest of it as it is; a config that is a link (kept
 // with the person's dotfiles, say) is written where it leads.
 func setDockerStore(path, store string) error {
-	if real, err := filepath.EvalSymlinks(path); err == nil {
+	if st, err := os.Lstat(path); err == nil && st.Mode()&fs.ModeSymlink != 0 {
+		real, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return fmt.Errorf("%s is a link that leads nowhere: left alone", path)
+		}
 		path = real
+	}
+	mode := fs.FileMode(0o600)
+	if st, err := os.Stat(path); err == nil {
+		mode = st.Mode().Perm()
 	}
 	cfg := map[string]json.RawMessage{}
 	b, err := os.ReadFile(path)
@@ -364,5 +376,5 @@ func setDockerStore(path, store string) error {
 	if err != nil {
 		return err
 	}
-	return WriteReplacing(path, append(out, '\n'), 0o600)
+	return WriteReplacing(path, append(out, '\n'), mode)
 }

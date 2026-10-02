@@ -599,6 +599,17 @@ func (u *UI) vaultLocked(vault string) {
 	if v := u.vaultInfo(vault); v != nil {
 		v.Locked = true
 	}
+	// The panels showing what is in it (the contacts' vault may not be the
+	// one shown), and any value resolved from a reference, go.
+	for _, p := range u.panels {
+		if p.vault == vault {
+			p.close()
+		}
+	}
+	if u.value != nil {
+		u.wipeValue()
+		u.closePage(pageInfo)
+	}
 	if vault != u.vault {
 		u.drawVaults()
 		return
@@ -606,11 +617,6 @@ func (u *UI) vaultLocked(vault string) {
 	u.closeItem()
 	u.wipeHistory()
 	u.closePage(pageRev)
-	for _, p := range u.panels {
-		if p.vault == vault {
-			p.close()
-		}
-	}
 	if u.pages.HasPage(pagePanel) && u.panels[pagePanel] == nil {
 		u.closePage(pagePanel) // the history, the grants, the audit log
 	}

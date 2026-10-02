@@ -27,11 +27,12 @@ func (u *UI) showDevices() {
 	var policy svrpc.SignaturePolicy
 	p.reload = func() {
 		var devs []svrpc.Device
+		var pol svrpc.SignaturePolicy
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 			if devs, err = c.Devices(ctx, vault); err != nil {
 				return err
 			}
-			policy, err = c.Signatures(ctx, vault, nil)
+			pol, err = c.Signatures(ctx, vault, nil)
 			return err
 		}, func(err error) {
 			if err != nil {
@@ -39,6 +40,7 @@ func (u *UI) showDevices() {
 				p.close()
 				return
 			}
+			policy = pol
 			rule := "[yellow]Every revision counts, signed or not[-]; the history says who signed each."
 			if policy.Require {
 				rule = "[green]Only revisions signed by a device registered here count[-]; the rest show in the history as ignored."
@@ -127,7 +129,12 @@ func (u *UI) showDevices() {
 			})
 		})
 	})
-	p.act('s', "Signatures: required or not…", func() { u.toggleSignatures(vault, policy.Require, p.refresh) })
+	p.act('s', "Signatures: required or not…", func() {
+		if policy.Vault == "" {
+			return // not read yet
+		}
+		u.toggleSignatures(vault, policy.Require, p.refresh)
+	})
 	p.show()
 }
 
@@ -182,7 +189,7 @@ func (u *UI) decideProgram(vault string, allow bool, then func()) {
 		untilLock = f.check("Only until the vault locks", false)
 	}
 	f.show(action, func() string {
-		params := svrpc.GrantAddParams{Vault: vault, Program: trimmed(program), Item: trimmed(item), Contacts: contacts.IsChecked(), Decision: "allow-always"}
+		params := svrpc.GrantAddParams{Vault: vault, Program: filePath(program), Item: trimmed(item), Contacts: contacts.IsChecked(), Decision: "allow-always"}
 		if params.Program == "" {
 			return "Name the program."
 		}

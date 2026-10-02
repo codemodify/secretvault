@@ -38,14 +38,18 @@ func (u *UI) showHistory() {
 	var cur svrpc.Entry
 	p.reload = func() {
 		var hist []svrpc.Entry
+		var now svrpc.Entry
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
-			if cur, err = c.Get(ctx, vault, name); err != nil {
+			if now, err = c.Get(ctx, vault, name); err != nil {
 				return err
 			}
-			wipeItem(&cur.Item)
+			wipeItem(&now.Item)
 			hist, err = c.History(ctx, vault, name)
 			return err
 		}, func(err error) {
+			if err == nil {
+				cur = now
+			}
 			if err != nil || vault != u.vault {
 				for i := range hist {
 					wipeItem(&hist[i].Item)
