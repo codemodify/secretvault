@@ -99,12 +99,12 @@ place, or a state.
 | `secretvault set NAME` --kind --label --attr --tag --field --secret-field --generate --no-secret --replace UNLOCK | `item.get`, `item.put`; `svops.SetField`, `svops.GeneratePassword` | File › New item (Ctrl+N), Edit › Edit item (Ctrl+E): the editor, with its generator | done | `n`, `e`: the editor (Ctrl+G generates) | done |
 | `secretvault get NAME` --field --json --clip --clip-seconds UNLOCK | `item.get`; `svops.SecretField`, `svops.Field` | Open (Enter), Copy password (Ctrl+C), Copy username (Ctrl+B), each field's Copy | done | Enter, `c`, `u`, `c` on a field | done |
 | `secretvault ls [PREFIX]` -l UNLOCK | `item.list` | The items list, the folders, the search (Ctrl+F) | done | The items pane, `/` filter | done |
-| `secretvault ls --deleted` | `item.deleted` | Edit › Show deleted items (each with Restore…) | missing | `R` deleted items panel | missing |
+| `secretvault ls --deleted` | `item.deleted` | Edit › Deleted items (each with Restore) | done | `R` deleted items panel | missing |
 | `secretvault mv FROM TO` UNLOCK | `item.rename` | Edit › Rename… (F2) | done | `m` | done |
 | `secretvault rm NAME` UNLOCK | `item.delete` | Edit › Delete… (Delete) | done | `d` | done |
 | `secretvault history NAME` --show UNLOCK | `item.history`; `svops.Author` | Edit › History (Ctrl+H): every revision, viewable, with who signed each (`svops.Author`) and the revisions a vault that requires signatures ignores; the item page's foot says who signed it | done | `h`: every revision, viewable; who signed each is missing | partial |
-| `secretvault restore NAME [REV]` UNLOCK | `item.restore` | History page: "Make this revision current…"; deleted items: Restore… | missing | History panel: `R` on a revision; deleted items panel: Enter | missing |
-| `secretvault resolve NAME` --keep UNLOCK | `svops.Conflicts`, `item.restore` | History page: conflicting versions are marked, and viewable; "Keep this version on every device…" is missing | partial | `h` marks them; `k` keeps one is missing | partial |
+| `secretvault restore NAME [REV]` UNLOCK | `item.restore` | History page: "Make this revision current…" under the revision shown; Edit › Deleted items: Restore | done | History panel: `R` on a revision; deleted items panel: Enter | missing |
+| `secretvault resolve NAME` --keep UNLOCK | `svops.Conflicts`, `item.restore` | History page: conflicting versions are marked, and viewable; "Keep this version on every device…" under each of them | done | `h` marks them; `k` keeps one is missing | partial |
 | `secretvault attach ITEM FILE\|-` --name --type UNLOCK | `svops.ReadAttachment`, `file.attach` | Item page › Files: Add file… (read with `svops.ReadAttachment`: its own name, and its extension's media type) | done | `f` files panel: attach | missing |
 | `secretvault file list ITEM`, `secretvault file ls ITEM` UNLOCK | `item.get` (the item's files) | Item page › Files | done | `f` files panel | missing |
 | `secretvault file get ITEM NAME` -o --force UNLOCK | `file.get`; `svops.SaveFile` | Item page › Files: Save… (the file dialog asks before replacing a file; written with `svops.WriteReplacing`, mode 0600, as a replaced file must not stay as readable as it was) | done | `f` files panel: save | missing |
@@ -115,8 +115,8 @@ place, or a state.
 
 | CLI | Operation | GUI | GUI state | TUI | TUI state |
 | --- | --- | --- | --- | --- | --- |
-| `secretvault import FORMAT FILE` --prefix --dry-run --overwrite --source-passphrase-file --source-keyfile UNLOCK | `svops.ReadImportFile`, `svops.ImportFormat`, `svimport.Import` (asking again while `svops.NeedsPassphrase`), `svops.StoreImport` | File › Import…: choose the file (the format is guessed), its passphrase or key file if it needs one, a preview of the names (the dry run), then import, with the warnings | missing | `I` import dialog | missing |
-| `secretvault export cxf\|kdbx FILE` --prefix --new-passphrase-file UNLOCK | `svops.CheckExport`, `svops.ReadForExport`, `svops.EncodeExport`, `svops.WriteNew` | File › Export…: format, folder, the new file's passphrase (KDBX) or the warning that CXF is not encrypted | missing | `X` export dialog | missing |
+| `secretvault import FORMAT FILE` --prefix --dry-run --overwrite --source-passphrase-file --source-keyfile UNLOCK | `svops.ReadImportFile`, `svops.ImportFormat`, `svimport.Import` (asking again while `svops.NeedsPassphrase`), `svops.StoreImport` | File › Import…: the file (the format guessed, or chosen), a folder to put it under, its passphrase or KeePass key file if it needs one, whether to replace what exists; then the names it would make and its warnings (the dry run), and only then the import, with the warnings in the GUI's words (`ImportOptions.Skipped`) | done | `I` import dialog | missing |
+| `secretvault export cxf\|kdbx FILE` --prefix --new-passphrase-file UNLOCK | `svops.CheckExport`, `svops.ReadForExport`, `svops.EncodeExport`, `svops.WriteNew` | File › Export…: the format, a new file, a folder of the items, the KeePass file's passphrase, the warning that CXF is not encrypted; and the items in conflict or badly signed | done | `X` export dialog | missing |
 
 ## Keyslots and security keys
 

@@ -25,10 +25,6 @@ const (
 	tabHost
 )
 
-func (m *Manager) importItems()         {}
-func (m *Manager) exportItems()         {}
-func (m *Manager) copyReference()       {}
-func (m *Manager) showDeleted()         {}
 func (m *Manager) showKeysPage(int)     {}
 func (m *Manager) showContactsPage(int) {}
 func (m *Manager) addContact()          {}

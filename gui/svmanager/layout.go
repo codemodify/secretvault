@@ -175,7 +175,7 @@ func (m *Manager) buildMenu() *widgets.MenuBar {
 			item(u.itemMenu, "Copy username", "Ctrl+B", m.copyUsername),
 			item(u.itemMenu, "Copy one-time code", "Ctrl+T", m.copyCode),
 			item(u.itemMenu, "Copy password and minimise", "Ctrl+Shift+C", m.copyAndMinimise),
-			item(u.itemMenu, "Copy reference", "", m.copyReference),
+			item(u.itemMenu, "Copy reference…", "", m.copyReference),
 			widgets.Sep(),
 			item(u.itemMenu, "Open", "", m.openSelected),
 			item(u.itemMenu, "Edit item", "Ctrl+E", m.editItem),

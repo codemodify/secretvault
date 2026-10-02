@@ -103,6 +103,7 @@ func (m *Manager) newItemView(e *svrpc.Entry, mode viewMode, keys map[int]*svotp
 		}
 		actions.Add(tip(widgets.NewButton("Edit", m.editItem), "Ctrl+E"))
 		actions.Add(tip(widgets.NewButton("History", m.showHistory), "Ctrl+H"))
+		actions.Add(tip(widgets.NewButton("Copy reference…", m.copyReference), "sv://, for env files and templates"))
 		actions.Add(tip(widgets.NewButton("Rename…", m.renameItem), "F2"))
 		actions.Add(tip(widgets.NewButton("Delete…", m.deleteItem), "Delete"))
 		col.Add(actions)

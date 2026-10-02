@@ -72,6 +72,9 @@ type ImportOptions struct {
 	// Describe says an error in words, in the warnings (err.Error() when
 	// nil).
 	Describe func(error) string
+	// Skipped says, in the warnings, that an item which exists was
+	// skipped: in the CLI's words (which name --overwrite) when nil.
+	Skipped func(name string) string
 }
 
 // ImportReport says what an import stored.
@@ -122,7 +125,11 @@ func StoreImport(newCtx func() (context.Context, context.CancelFunc), cl *secret
 	for _, it := range res.Items {
 		if exists[it.Name] && !o.Overwrite {
 			rep.Skipped++
-			rep.Warnings = append(rep.Warnings, it.Name+": already exists, skipped (--overwrite replaces it)")
+			if o.Skipped != nil {
+				rep.Warnings = append(rep.Warnings, o.Skipped(it.Name))
+			} else {
+				rep.Warnings = append(rep.Warnings, it.Name+": already exists, skipped (--overwrite replaces it)")
+			}
 			continue
 		}
 		ctx, cancel := newCtx()
