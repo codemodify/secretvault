@@ -145,7 +145,8 @@ func TestInstallStandsInForKeePassXCAndUninstallPutsItBack(t *testing.T) {
 	}
 
 	out = h.ok("", "browser", "install")
-	host, _ := svops.BrowserHostProgram("")
+	exe, _ := svops.Executable()
+	host, _ := svops.BrowserHostProgram(exe)
 	ff := readJSON(t, firefoxManifest(home))
 	if ff.Path != host || ff.Name != "org.keepassxc.keepassxc_browser" || len(ff.AllowedExtensions) != 1 || ff.AllowedOrigins != nil {
 		t.Fatalf("the Firefox manifest: %+v", ff)

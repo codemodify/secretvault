@@ -469,7 +469,7 @@ func (c *cli) cmdResolve(args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(con.Versions) == 0 {
+	if len(con.Current.Conflicts) == 0 {
 		fmt.Fprintf(c.stdout, "%s has no conflict.\n", pos[0])
 		return nil
 	}

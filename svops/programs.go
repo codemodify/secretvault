@@ -1,6 +1,7 @@
 package svops
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,8 +47,20 @@ func SiblingProgram(name string) string {
 }
 
 // CLIProgram is the secretvault command-line program beside this one
-// (the managers are installed beside it), or "" when there is none. The
-// operations that name the CLI to other programs (the browsers' host,
-// gpg's agent-program) take it from the managers; the CLI passes "",
-// meaning itself.
-func CLIProgram() string { return SiblingProgram("secretvault") }
+// (the managers are installed beside it), links resolved, or "" when
+// there is none. The operations that name the CLI to other programs (the
+// browsers' host, gpg's agent-program) take its path: the managers pass
+// this, the CLI its own.
+func CLIProgram() string {
+	p := SiblingProgram("secretvault")
+	if p == "" {
+		return ""
+	}
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		p = real
+	}
+	return p
+}
+
+// ErrNoCLI says there is no secretvault CLI to name to other programs.
+var ErrNoCLI = errors.New("the secretvault program is not beside this one, for other programs to start")

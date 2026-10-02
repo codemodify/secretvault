@@ -442,19 +442,19 @@ func RestartUnits(units []string) []RestartFailure {
 
 // UndoTakeover removes the files the takeover made, restarts the units it
 // restarted, and forgets it; it returns the files removed, as far as it
-// got. The daemon's Secret Service is turned off first
-// (secretvault.Client.ServeKeyring).
-func UndoTakeover(s *TakeoverState) ([]string, error) {
+// got, and the units that did not restart. The daemon's Secret Service is
+// turned off first (secretvault.Client.ServeKeyring).
+func UndoTakeover(s *TakeoverState) ([]string, []RestartFailure, error) {
 	var removed []string
 	for _, f := range s.Created {
 		if err := os.Remove(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return removed, err
+			return removed, nil, err
 		}
 		removed = append(removed, f)
 	}
-	RestartUnits(s.Restart)
+	failed := RestartUnits(s.Restart)
 	if sp, err := TakeoverPath(); err == nil {
 		os.Remove(sp)
 	}
-	return removed, nil
+	return removed, failed, nil
 }

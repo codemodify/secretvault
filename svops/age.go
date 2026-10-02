@@ -77,32 +77,54 @@ type AgeKey struct {
 	File      []byte      // a key file holding that line, with comments
 }
 
-// AgeKeygen makes an age identity (post-quantum with pq) and stores it as
-// the item r names, which must not exist: an age identity is never
-// replaced, or files encrypted to it would be lost.
-func AgeKeygen(ctx context.Context, cl *secretvault.Client, r svrpc.Ref, pq bool) (*AgeKey, error) {
-	var idText []byte
-	var rcpt string
-	kind := "X25519"
+// NewAgeIdentity is a new age identity, not stored yet.
+type NewAgeIdentity struct {
+	Text      []byte // AGE-SECRET-KEY-1... (or -PQ-1...): wiped by Wipe
+	Recipient string
+	Kind      string // "X25519" or "post-quantum"
+}
+
+// Wipe clears the identity.
+func (n *NewAgeIdentity) Wipe() { clear(n.Text) }
+
+// GenerateAgeIdentity makes an age identity: post-quantum (ML-KEM-768 with
+// X25519) with pq, else X25519.
+func GenerateAgeIdentity(pq bool) (*NewAgeIdentity, error) {
 	if pq {
-		kind = "post-quantum"
 		id, err := svage.GenerateHybridIdentity()
 		if err != nil {
 			return nil, err
 		}
-		if idText, err = id.AppendText(nil); err != nil {
-			return nil, err
-		}
-		rcpt = id.Recipient().String()
-	} else {
-		id, err := svage.GenerateX25519Identity()
+		text, err := id.AppendText(nil)
 		if err != nil {
 			return nil, err
 		}
-		idText, _ = id.AppendText(nil)
-		rcpt = id.Recipient().String()
+		return &NewAgeIdentity{Text: text, Recipient: id.Recipient().String(), Kind: "post-quantum"}, nil
 	}
-	defer clear(idText)
+	id, err := svage.GenerateX25519Identity()
+	if err != nil {
+		return nil, err
+	}
+	text, _ := id.AppendText(nil)
+	return &NewAgeIdentity{Text: text, Recipient: id.Recipient().String(), Kind: "X25519"}, nil
+}
+
+// AgeKeygen makes an age identity (post-quantum with pq) and stores it as
+// the item r names (StoreAgeIdentity).
+func AgeKeygen(ctx context.Context, cl *secretvault.Client, r svrpc.Ref, pq bool) (*AgeKey, error) {
+	n, err := GenerateAgeIdentity(pq)
+	if err != nil {
+		return nil, err
+	}
+	defer n.Wipe()
+	return StoreAgeIdentity(ctx, cl, r, n)
+}
+
+// StoreAgeIdentity stores a new age identity as the item r names, which
+// must not exist: an age identity is never replaced, or files encrypted
+// to it would be lost.
+func StoreAgeIdentity(ctx context.Context, cl *secretvault.Client, r svrpc.Ref, n *NewAgeIdentity) (*AgeKey, error) {
+	idText, rcpt, kind := n.Text, n.Recipient, n.Kind
 	if found, _, err := FindItem(ctx, cl, r.Vault, r.Item); err != nil {
 		return nil, err
 	} else if found {
@@ -302,6 +324,9 @@ type AgeIdentityOptions struct {
 // AgeIdentities reads an identity argument: sv://VAULT/ITEM[#FIELD], or a
 // file of identities (age's, plugins', ours) or an SSH private key.
 func AgeIdentities(arg string, o AgeIdentityOptions) ([]svage.Identity, error) {
+	if o.Vault == nil || o.SSHPassphrase == nil {
+		return nil, errors.New("svops: AgeIdentities needs Vault and SSHPassphrase")
+	}
 	if strings.HasPrefix(arg, "sv://") {
 		r, err := svrpc.ParseRef(arg)
 		if err != nil {

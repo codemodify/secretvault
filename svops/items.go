@@ -197,8 +197,8 @@ type Conflict struct {
 	Versions []svrpc.Entry // the heads, with their fields: the caller wipes them
 }
 
-// Conflicts reads an item's conflicting versions; Versions is empty when
-// it has none.
+// Conflicts reads an item's conflicting versions. It has none when
+// Current.Conflicts is empty (Versions is then empty too).
 func Conflicts(ctx context.Context, cl *secretvault.Client, vault, name string) (*Conflict, error) {
 	cur, err := cl.Get(ctx, vault, name)
 	if err != nil {

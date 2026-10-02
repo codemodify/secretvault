@@ -21,7 +21,11 @@ func (c *cli) browserInstall(args []string) error {
 	if _, err := parse(fs, args, 0, 0, "[--browser NAME]... [--dry-run]"); err != nil {
 		return err
 	}
-	plan, err := svops.PlanBrowserInstall(names, "")
+	exe, err := svops.Executable() // the browsers start this program
+	if err != nil {
+		return err
+	}
+	plan, err := svops.PlanBrowserInstall(names, exe)
 	if err != nil {
 		return err
 	}
@@ -145,10 +149,13 @@ func (c *cli) browserStatus(args []string) error {
 	if _, err := parse(c.flags("browser status"), args, 0, 0, ""); err != nil {
 		return err
 	}
-	state, host, browsers, err := svops.BrowserStatus("")
+	exe, err := svops.Executable()
 	if err != nil {
 		return err
 	}
+	// What was found is said even when a browser's place could not be
+	// read, which ends the list.
+	state, host, browsers, err := svops.BrowserStatus(exe)
 	if state != nil {
 		fmt.Fprintf(c.stdout, "Installed %s, starting %s (undo with 'secretvault browser uninstall').\n\n",
 			state.When.Local().Format("2006-01-02 15:04"), state.Host)
@@ -182,5 +189,5 @@ func (c *cli) browserStatus(args []string) error {
 		}
 		fmt.Fprintln(c.stdout, line)
 	}
-	return nil
+	return err
 }

@@ -81,18 +81,22 @@ type ImportReport struct {
 }
 
 // StoreError is an item the daemon would not store: the import stops
-// there, after Stored items.
+// there, after Stored items. Err is the daemon's error (it is not
+// unwrapped, so that the message says the whole of it: look at Err).
 type StoreError struct {
-	Name   string
-	Stored int
-	Err    error
+	Name     string
+	Stored   int
+	Err      error
+	describe func(error) string
 }
 
 func (e *StoreError) Error() string {
-	return fmt.Sprintf("storing %s: %v (%d items were stored before it)", e.Name, e.Err, e.Stored)
+	what := e.Err.Error()
+	if e.describe != nil {
+		what = e.describe(e.Err)
+	}
+	return fmt.Sprintf("storing %s: %s (%d items were stored before it)", e.Name, what, e.Stored)
 }
-
-func (e *StoreError) Unwrap() error { return e.Err }
 
 // StoreImport stores what svimport read in a vault, with the items'
 // files, skipping the items that exist unless o.Overwrite. newCtx makes
@@ -125,7 +129,7 @@ func StoreImport(newCtx func() (context.Context, context.CancelFunc), cl *secret
 		_, err := cl.Put(ctx, o.Vault, it)
 		cancel()
 		if err != nil {
-			return rep, &StoreError{Name: it.Name, Stored: rep.Imported, Err: errors.New(describe(err))}
+			return rep, &StoreError{Name: it.Name, Stored: rep.Imported, Err: err, describe: describe}
 		}
 		rep.Imported++
 		for _, f := range res.Files[it.Name] {

@@ -188,7 +188,7 @@ place, or a state.
 | `secretvault pgp verify [IN]` --signature --from -o UNLOCK | `pgp.verify` | Tools › Check a signature… (the verdict against the contacts) | missing | `:` Check a signature | missing |
 | `secretvault smime import FILE.p12` --password-file --item UNLOCK | `smime.import` | Keys › S/MIME keys: Import… | missing | `P` › S/MIME: import | missing |
 | `secretvault smime list`, `secretvault smime ls` UNLOCK | `smime.list` | Keys › S/MIME keys | missing | `P` › S/MIME | missing |
-| `secretvault age keygen` --name --pq -o UNLOCK | `svops.AgeKeygen` | Keys › age identities: New… (the identity line to copy or save) | missing | `P` › age: new | missing |
+| `secretvault age keygen` --name --pq -o UNLOCK | `svops.GenerateAgeIdentity`, `svops.StoreAgeIdentity` (both: `svops.AgeKeygen`) | Keys › age identities: New… (the identity line to copy or save) | missing | `P` › age: new | missing |
 | `secretvault age recipient ITEM` UNLOCK | `svops.AgeItemRecipient` | age identities: Copy the recipient | missing | `P` › age: copy the recipient | missing |
 | `secretvault age identity ITEM` UNLOCK | `svops.VaultName`, `svops.AgePluginIdentity` | age identities: Copy the identity line (for age and SOPS) | missing | `P` › age: copy the identity line | missing |
 | `secretvault age encrypt [IN]` -r -R -p -a -o --allow-mixed-pq UNLOCK | `svops.AgeRecipient`, `svops.EachKeyLine`, `svops.AgeEncrypt`, `svops.CreateAtomic` | Tools › Encrypt a file (age)… (recipients: vault identities, contacts, typed; or a passphrase) | missing | `:` Encrypt a file | missing |
@@ -296,11 +296,20 @@ What the managers need to know, beyond the table:
 - **Programs named to other programs are the CLI.** The browsers' manifest
   (`PlanBrowserInstall`, `BrowserStatus`) and gpg.conf's agent-program
   (`GnuPGOptions.CLI`) must name the `secretvault` CLI, not the manager:
-  pass `svops.CLIProgram()`, and offer neither when it returns "".
+  pass `svops.CLIProgram()`. They refuse "" (`svops.ErrNoCLI`), which is
+  what `CLIProgram` returns when no CLI is installed beside the manager:
+  say so, and offer neither.
 - **Dry runs are plans.** `PlanTakeover`, `PlanBrowserInstall`,
   `PlanGnuPGSetup` and `UninstallBrowsers(true)` change nothing (but for
   the socket directory gpgconf makes, which `GnuPGOptions.DryRun`
-  removes); show them, ask, then apply.
+  removes, as `GnuPGPlan.Discard` does for a plan not carried out); show
+  them, ask, then apply. `BrowserInstallPlan.Apply` refuses a manifest
+  that changed while the plan was shown: make the plan again.
+- **Some messages name the CLI's flags** ("--overwrite replaces it", "use
+  --force"), as the CLI has always said them. A manager shows its own
+  words where they would mislead: the errors are plain values
+  (`svops.StoreError` keeps the daemon's in `Err`), or the condition is
+  one the manager checks first.
 - **Asking stays with you.** svops takes passphrases already asked for, or
   a callback for the one it finds it needs (`PGPImportItem`,
   `ProtectPGPKey`, `PassphraseIdentity`, `AgeIdentityOptions`), and

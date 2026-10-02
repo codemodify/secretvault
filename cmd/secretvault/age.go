@@ -80,13 +80,18 @@ func (c *cli) ageKeygen(args []string) error {
 	if err != nil {
 		return err
 	}
+	n, err := svops.GenerateAgeIdentity(*pq)
+	if err != nil {
+		return err
+	}
+	defer n.Wipe()
 	cl, err := c.open(&u)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
-	k, err := svops.AgeKeygen(ctx, cl, r, *pq)
+	k, err := svops.StoreAgeIdentity(ctx, cl, r, n)
 	if err != nil {
 		return err
 	}

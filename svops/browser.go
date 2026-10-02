@@ -146,16 +146,13 @@ func ManifestFor(s BrowserSpot, host string) []byte {
 // BrowserHostProgram is the program the manifests name: secretvault-browser
 // beside the secretvault CLI, if it is the CLI under that name, else the
 // CLI itself (which knows a browser's arguments when it sees them). cli is
-// the CLI's path: "" for this program, which must then be the CLI (the
-// managers pass CLIProgram(), and have none to offer when it is "").
+// the CLI's path, links resolved: the CLI passes its own (Executable), the
+// managers CLIProgram().
 func BrowserHostProgram(cli string) (string, error) {
-	exe := cli
-	if exe == "" {
-		var err error
-		if exe, err = Executable(); err != nil {
-			return "", err
-		}
+	if cli == "" {
+		return "", ErrNoCLI
 	}
+	exe := cli
 	name := "secretvault-browser"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
@@ -435,6 +432,23 @@ func (plan *BrowserInstallPlan) Apply(p *HostPlan) (*InstalledHost, error) {
 	if p.Skip != "" {
 		return nil, fmt.Errorf("%s: nothing to do: %s", p.Label(), p.Skip)
 	}
+	// A plan shown to a person may have waited: what it saw must still
+	// be there (KeePassXC writes its manifests when it starts).
+	now, err := ReadManifest(p.Spot.Manifest)
+	if err != nil {
+		return nil, err
+	}
+	changed := now.Exists != p.Current.Exists || now.Link != p.Current.Link || now.Sum != p.Current.Sum
+	if p.Spot.RegKey != "" {
+		v, ok, err := registryValue(p.Spot.RegKey)
+		if err != nil {
+			return nil, err
+		}
+		changed = changed || ok != (p.RegPrev != nil) || ok && v != *p.RegPrev
+	}
+	if changed {
+		return nil, fmt.Errorf("%s changed since the plan was made: make it again", p.Spot.Manifest)
+	}
 	rec, err := installHost(p, plan.Host)
 	if rec != nil {
 		plan.state.Hosts = append(plan.state.Hosts, *rec)
@@ -680,7 +694,9 @@ type BrowserState struct {
 
 // BrowserStatus says which host each browser starts, with the record of
 // the install (nil when there is none) and the program secretvault's
-// manifests name (the install's, else BrowserHostProgram(cli)).
+// manifests name (the install's, else BrowserHostProgram(cli)). When a
+// registry key cannot be read (Windows), the error comes with what was
+// found before it.
 func BrowserStatus(cli string) (*BrowserInstall, string, []BrowserState, error) {
 	spots, err := BrowserSpots()
 	if err != nil {
@@ -703,7 +719,7 @@ func BrowserStatus(cli string) (*BrowserInstall, string, []BrowserState, error) 
 		if s.RegKey != "" {
 			v, ok, err := registryValue(s.RegKey)
 			if err != nil {
-				return nil, "", nil, err
+				return state, host, out, err // with the browsers before it
 			}
 			if !ok {
 				st.NoKey = true

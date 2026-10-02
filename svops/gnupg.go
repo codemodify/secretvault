@@ -81,7 +81,7 @@ type GnuPGOptions struct {
 	Vault  string // whose OpenPGP keys
 	Home   string // the GnuPG home, from GnuPGHome
 	GPG    string // the gpg program ("" for gpg on PATH)
-	CLI    string // the secretvault CLI, named as gpg's agent-program ("" for this program; the managers pass CLIProgram())
+	CLI    string // the secretvault CLI, named as gpg's agent-program: the CLI's own path (os.Executable), or the managers' CLIProgram()
 	DryRun bool   // only to show it: leave nothing behind (gpgconf makes the socket directory it names)
 }
 
@@ -143,6 +143,10 @@ func PlanGnuPGSetup(ctx context.Context, cl *secretvault.Client, o GnuPGOptions)
 	}
 	return p, nil
 }
+
+// Discard drops a plan that will not be carried out: the socket directory
+// gpgconf made for it goes, if it is empty.
+func (p *GnuPGPlan) Discard() { ForgetSocketDir(p.Socket) }
 
 // ApplyGnuPGSetup carries a plan out. note, when not "", says what was
 // left as it was (another agent-program in gpg.conf).
@@ -272,14 +276,10 @@ func unreachableKeys(home string, keys []svrpc.PGPKey) int {
 // StableExecutable is a program's path as gpg.conf should name it: as
 // found on PATH when that is the program (/usr/bin/secretvault, a
 // profile's bin), which outlives an upgrade that moves the file itself
-// (a Homebrew Cellar, the Nix store), else exe itself ("" for this
-// program).
+// (a Homebrew Cellar, the Nix store), else exe itself.
 func StableExecutable(exe string) (string, error) {
 	if exe == "" {
-		var err error
-		if exe, err = os.Executable(); err != nil {
-			return "", err
-		}
+		return "", ErrNoCLI
 	}
 	if p, err := exec.LookPath("secretvault"); err == nil && filepath.IsAbs(p) {
 		if a, err1 := os.Stat(p); err1 == nil {

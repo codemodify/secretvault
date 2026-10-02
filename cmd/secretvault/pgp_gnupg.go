@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -45,7 +46,11 @@ func (c *cli) pgpGnuPGSetup(args []string) error {
 	if *remove {
 		return c.gnupgRemove(cl, home, *dryRun)
 	}
-	p, err := svops.PlanGnuPGSetup(ctx, cl, svops.GnuPGOptions{Vault: c.vault, Home: home, GPG: *gpgFlag, DryRun: *dryRun})
+	exe, err := os.Executable() // gpg starts this program when it finds no agent
+	if err != nil {
+		return err
+	}
+	p, err := svops.PlanGnuPGSetup(ctx, cl, svops.GnuPGOptions{Vault: c.vault, Home: home, GPG: *gpgFlag, CLI: exe, DryRun: *dryRun})
 	if err != nil {
 		return err
 	}

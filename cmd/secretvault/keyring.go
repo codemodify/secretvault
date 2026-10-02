@@ -224,7 +224,7 @@ func (c *cli) keyringRestore(args []string) error {
 			fmt.Fprintf(c.stderr, "warning: %v\n", err)
 		}
 	}
-	removed, err := svops.UndoTakeover(s)
+	removed, _, err := svops.UndoTakeover(s) // as before, units that do not restart go unsaid
 	for _, f := range removed {
 		fmt.Fprintf(c.stdout, "Removed %s\n", f)
 	}

@@ -22,7 +22,7 @@ type HostInitOptions struct {
 	Suite     string // "modern" or "nist"
 	Seal      bool   // seal it with systemd-creds instead of writing it in the clear
 	Out       string // the plain identity's file (svrpc.HostIdentityFile() when "")
-	Credstore string // with Seal: the sealed identity's file (svrpc.HostCredstore when "")
+	Credstore string // with Seal: the sealed identity's file (svrpc.HostCredstore, usually)
 	PCRs      string // with Seal: also bind it to these TPM2 PCRs
 	// SystemdCreds runs systemd-creds with stdin (exec when nil; tests
 	// stand in, so nothing touches the system).
@@ -41,12 +41,6 @@ type HostInitResult struct {
 func HostInit(o HostInitOptions) (*HostInitResult, error) {
 	if o.Out == "" {
 		o.Out = svrpc.HostIdentityFile()
-	}
-	if o.Credstore == "" {
-		o.Credstore = svrpc.HostCredstore
-	}
-	if o.Suite == "" {
-		o.Suite = "modern"
 	}
 	rcpt, text, err := NewIdentity(o.Suite, "host identity")
 	if err != nil {
