@@ -61,7 +61,10 @@ func TestMain(m *testing.M) {
 	os.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
 	os.Setenv("HOME", filepath.Join(dir, "home"))
 	os.Setenv("SECRETVAULT_HOME", filepath.Join(dir, "secretvault"))
+	os.MkdirAll(filepath.Join(dir, "secretvault"), 0o700)
 	os.Setenv("SECRETVAULT_SOCK", filepath.Join(dir, "nowhere.sock"))
+	os.Setenv("SECRETVAULT_HOST_DATA", filepath.Join(dir, "host-data"))
+	os.Setenv("SECRETVAULT_HOST_RUNTIME", filepath.Join(dir, "host-run"))
 	os.Setenv("UITK_TRAY", "fake")
 	svops.CommandRunner = commands.run
 	code := m.Run()
@@ -198,6 +201,7 @@ type harness struct {
 	daemonStop func()
 
 	tweaks []func(*svd.Options) // to the daemon's options
+	d      *svd.Daemon
 
 	keysMu sync.Mutex
 	keys   []*fidotest.Authenticator // the security keys plugged in
@@ -321,6 +325,7 @@ func (h *harness) startDaemon() {
 	if err != nil {
 		h.t.Fatal(err)
 	}
+	h.d = d
 	ln, cleanup, err := svd.Listen(h.sock)
 	if err != nil {
 		h.t.Fatal(err)

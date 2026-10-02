@@ -163,6 +163,15 @@ type Manager struct {
 
 	minimiseHook func() // tests: what minimising the window does
 
+	// What the desktop's setup names and runs (desktop.go): the CLI that
+	// other programs are told to start (svops.CLIProgram; never this
+	// program), the host daemon's admin socket, and systemd-creds. Tests
+	// stand in their own.
+	cliProgram   func() string
+	daemonExe    func() string // secretvaultd, which the keyring's activation file names
+	hostSocket   func() string
+	systemdCreds func(stdin []byte, args ...string) ([]byte, error)
+
 	ui *ui
 }
 
@@ -183,6 +192,10 @@ func New(opts Options) (*Manager, error) {
 		syncs: map[string]svrpc.SyncStatus{},
 		done:  make(chan struct{}),
 		gen:   defaultGenerator(),
+
+		cliProgram: svops.CLIProgram,
+		daemonExe:  func() string { return svops.SiblingProgram("secretvaultd") },
+		hostSocket: svrpc.HostAdminSocket,
 	}
 	if m.now == nil {
 		m.now = time.Now

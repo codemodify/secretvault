@@ -336,6 +336,18 @@ func SelectSpots(spots []BrowserSpot, names []string) ([]BrowserSpot, error) {
 	return out, nil
 }
 
+// Why a HostPlan does nothing (HostPlan.Skip), and what an install for
+// another program says, in the CLI's words; a manager compares against
+// them and says them in its own.
+const (
+	SkipAlreadyDone = "already done"
+	SkipChanged     = "its manifest changed since secretvault installed it (KeePassXC writes its own back when it starts); run 'secretvault browser uninstall' first"
+)
+
+// ErrUninstallFirst is an install for another program than the one the
+// browsers were set up for.
+var ErrUninstallFirst = errors.New("run 'secretvault browser uninstall' first")
+
 // HostPlan is what an install does to one manifest.
 type HostPlan struct {
 	Browsers []string
@@ -384,7 +396,7 @@ func PlanBrowserInstall(names []string, cli string) (*BrowserInstallPlan, error)
 	case err != nil:
 		return nil, err
 	case state.Host != host:
-		return nil, fmt.Errorf("the browsers were set up for %s; run 'secretvault browser uninstall' first", state.Host)
+		return nil, fmt.Errorf("the browsers were set up for %s; %w", state.Host, ErrUninstallFirst)
 	}
 	plan := &BrowserInstallPlan{Host: host, state: state}
 	byManifest := map[string]*HostPlan{}
@@ -411,9 +423,9 @@ func PlanBrowserInstall(names []string, cli string) (*BrowserInstallPlan, error)
 		}
 		if rec := state.Find(s.Manifest); rec != nil {
 			if p.Current.Sum == rec.Sum && (s.RegKey == "" || p.RegPrev != nil && *p.RegPrev == s.Manifest) {
-				p.Skip = "already done"
+				p.Skip = SkipAlreadyDone
 			} else {
-				p.Skip = "its manifest changed since secretvault installed it (KeePassXC writes its own back when it starts); run 'secretvault browser uninstall' first"
+				p.Skip = SkipChanged
 			}
 		}
 	}
