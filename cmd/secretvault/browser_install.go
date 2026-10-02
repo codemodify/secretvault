@@ -67,24 +67,8 @@ func (c *cli) browserInstall(args []string) error {
 }
 
 func (c *cli) printHostPlan(p *svops.HostPlan, host string) {
-	label := p.Label()
-	switch {
-	case p.Spot.RegKey != "":
-		fmt.Fprintf(c.stdout, "  %s: write %s\n", label, p.Spot.Manifest)
-		if p.RegPrev != nil {
-			fmt.Fprintf(c.stdout, "      point HKEY_CURRENT_USER\\%s at it; it names %s now, to put back on uninstall\n",
-				p.Spot.RegKey, svops.DescribeHost(p.Current.Host, host))
-		} else {
-			fmt.Fprintf(c.stdout, "      make HKEY_CURRENT_USER\\%s, naming it\n", p.Spot.RegKey)
-		}
-	case p.Current.Exists:
-		fmt.Fprintf(c.stdout, "  %s: replace %s\n", label, p.Spot.Manifest)
-		fmt.Fprintf(c.stdout, "      it names %s now; a copy is kept, to put back on uninstall\n", svops.DescribeHost(p.Current.Host, host))
-	default:
-		fmt.Fprintf(c.stdout, "  %s: write %s\n", label, p.Spot.Manifest)
-		if made := p.MakesDirs(); len(made) > 0 {
-			fmt.Fprintf(c.stdout, "      making %s\n", strings.Join(made, ", "))
-		}
+	for _, l := range svops.HostPlanLines(p, host) {
+		fmt.Fprintln(c.stdout, "  "+l)
 	}
 }
 
@@ -96,25 +80,12 @@ func (c *cli) browserUninstall(args []string) error {
 	}
 	done, err := svops.UninstallBrowsers(*dryRun)
 	for _, u := range done {
-		label := u.Label()
-		switch {
-		case u.Changed:
-			// Someone else's now: it is forgotten, and its backup left
-			// where it is for the person to decide.
-			fmt.Fprintf(c.stdout, "%s: %s changed since secretvault installed it: left as it is\n", label, u.Manifest)
-			if u.Backup != nil && u.Backup.Copy != "" {
-				fmt.Fprintf(c.stdout, "  the manifest it replaced is still in %s\n", u.Backup.Copy)
-			}
-		case *dryRun:
-			c.printUndo(u.InstalledHost)
-		case u.RegKey != "" && u.RegPrev != nil:
-			fmt.Fprintf(c.stdout, "%s: HKEY_CURRENT_USER\\%s names %s again\n", label, u.RegKey, *u.RegPrev)
-		case u.RegKey != "":
-			fmt.Fprintf(c.stdout, "%s: removed HKEY_CURRENT_USER\\%s\n", label, u.RegKey)
-		case u.Backup != nil:
-			fmt.Fprintf(c.stdout, "%s: put back the manifest naming %s, at %s\n", label, svops.DescribeHost(u.Backup.Host, u.Host), u.Manifest)
-		default:
-			fmt.Fprintf(c.stdout, "%s: removed %s\n", label, u.Manifest)
+		lines := svops.UninstalledLines(u)
+		if *dryRun && !u.Changed {
+			lines = svops.UndoLines(u.InstalledHost)
+		}
+		for _, l := range lines {
+			fmt.Fprintln(c.stdout, l)
 		}
 	}
 	if err != nil {
@@ -124,25 +95,6 @@ func (c *cli) browserUninstall(args []string) error {
 		fmt.Fprintln(c.stdout, "Nothing was changed.")
 	}
 	return nil
-}
-
-func (c *cli) printUndo(rec svops.InstalledHost) {
-	label := strings.Join(rec.Browsers, ", ")
-	switch {
-	case rec.RegKey != "" && rec.RegPrev != nil:
-		fmt.Fprintf(c.stdout, "%s: point HKEY_CURRENT_USER\\%s back at %s, and remove %s\n", label, rec.RegKey, *rec.RegPrev, rec.Manifest)
-	case rec.RegKey != "":
-		fmt.Fprintf(c.stdout, "%s: remove HKEY_CURRENT_USER\\%s and %s\n", label, rec.RegKey, rec.Manifest)
-	case rec.Backup != nil && rec.Backup.Link != "":
-		fmt.Fprintf(c.stdout, "%s: make %s a link to %s again\n", label, rec.Manifest, rec.Backup.Link)
-	case rec.Backup != nil:
-		fmt.Fprintf(c.stdout, "%s: put back %s as it was, from %s\n", label, rec.Manifest, rec.Backup.Copy)
-	default:
-		fmt.Fprintf(c.stdout, "%s: remove %s\n", label, rec.Manifest)
-	}
-	for i := len(rec.MadeDirs) - 1; i >= 0; i-- {
-		fmt.Fprintf(c.stdout, "  and %s, if empty\n", rec.MadeDirs[i])
-	}
 }
 
 func (c *cli) browserStatus(args []string) error {
@@ -161,33 +113,7 @@ func (c *cli) browserStatus(args []string) error {
 			state.When.Local().Format("2006-01-02 15:04"), state.Host)
 	}
 	for _, b := range browsers {
-		s := b.Spot
-		switch {
-		case b.NoKey:
-			fmt.Fprintf(c.stdout, "%-9s no host (no HKEY_CURRENT_USER\\%s)\n", s.Name, s.RegKey)
-			continue
-		case b.Err != nil:
-			fmt.Fprintf(c.stdout, "%-9s %s: %v\n", s.Name, b.Path, b.Err)
-			continue
-		}
-		line := fmt.Sprintf("%-9s ", s.Name)
-		switch {
-		case !b.Current.Exists:
-			used := "not used here"
-			if s.Used() {
-				used = "used here"
-			}
-			line += "no host (" + used + ")"
-		default:
-			line += svops.DescribeHost(b.Current.Host, host)
-		}
-		switch {
-		case b.Changed:
-			line += "; changed since secretvault installed it"
-		case b.Ours && b.Backup != nil:
-			line += "; " + svops.DescribeHost(b.Backup.Host, host) + " kept, to put back"
-		}
-		fmt.Fprintln(c.stdout, line)
+		fmt.Fprintln(c.stdout, svops.BrowserStateLine(b, host))
 	}
 	return err
 }

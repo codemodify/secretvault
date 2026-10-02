@@ -61,9 +61,14 @@ var helpKeys = strings.TrimSpace(`
   M                      containers: encrypted disk images whose keys the
                          vault keeps; making, opening, closing one, backing
                          its header up, its own passphrase
+  Y                      the system keyring: importing its secrets, taking
+                         it over, giving it back (each shown first)
+  B                      browsers: which host each starts, installing and
+                         uninstalling (shown first), the extensions
+                         connected, disconnecting one
   P                      keys: your OpenPGP keys (new, import, export, copy
                          the public key), S/MIME keys, age identities,
-                         identity files
+                         identity files; letting gpg use them
   C                      contacts: people and their keys; adding, importing
                          (a scanned QR code too), looking up, verifying,
                          removing; my QR code; checking a signer; keys seen

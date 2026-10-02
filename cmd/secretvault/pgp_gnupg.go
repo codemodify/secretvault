@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/codemodify/secretvault"
@@ -55,24 +54,13 @@ func (c *cli) pgpGnuPGSetup(args []string) error {
 		return err
 	}
 	if p.OwnHome {
-		fmt.Fprintf(c.stdout, "%s is your own GnuPG home: gpg will use secretvault's keys, and no longer gpg-agent's.\n"+
-			"Where systemd starts gpg-agent by its sockets, stop that first: systemctl --user mask --now gpg-agent.socket gpg-agent-ssh.socket gpg-agent-extra.socket gpg-agent-browser.socket\n", home)
+		fmt.Fprintln(c.stdout, svops.GnuPGOwnHomeNote(home))
 	}
 
 	if *dryRun {
-		fmt.Fprintf(c.stdout, "Pointing the GnuPG home %s at secretvault would:\n", home)
-		if !p.HomeExists {
-			fmt.Fprintf(c.stdout, "- make the directory %s (0700)\n", home)
+		for _, l := range svops.GnuPGPlanLines(p) {
+			fmt.Fprintln(c.stdout, l)
 		}
-		fmt.Fprintf(c.stdout, "- link %s (where gpg looks for its agent) to %s\n", p.Socket, p.Agent)
-		if p.SSHSocket != "" && p.SSHAgent != "" {
-			fmt.Fprintf(c.stdout, "- link %s (its SSH agent) to %s\n", p.SSHSocket, p.SSHAgent)
-		}
-		for _, k := range p.Keys {
-			fmt.Fprintf(c.stdout, "- import the public key %s  %s (%s), trusted as your own\n", svops.GroupFingerprint(k.Fingerprint), svops.FirstUserID(k), k.Item)
-		}
-		fmt.Fprintf(c.stdout, "- add to %s: %s\n", filepath.Join(home, "gpg.conf"), p.AgentProgram)
-		c.gnupgNotes(p.Skipped, p.Unreachable, home)
 		fmt.Fprintln(c.stdout, "Nothing was changed.")
 		return nil
 	}
@@ -100,13 +88,8 @@ func (c *cli) pgpGnuPGSetup(args []string) error {
 
 // gnupgNotes says what gpg will not get.
 func (c *cli) gnupgNotes(skipped []string, unreachable int, home string) {
-	for _, s := range skipped {
-		fmt.Fprintf(c.stdout, "Left out: %s\n", s)
-	}
-	if unreachable > 0 {
-		fmt.Fprintf(c.stdout, "Note: %d secret keys in %s are GnuPG's own, which gpg cannot use while secretvault is its agent;\n"+
-			"take them into the vault first ('gpg --export-secret-keys KEY | secretvault pgp import -').\n",
-			unreachable, filepath.Join(home, "private-keys-v1.d"))
+	for _, l := range svops.GnuPGNotes(skipped, unreachable, home) {
+		fmt.Fprintln(c.stdout, l)
 	}
 }
 
@@ -122,7 +105,8 @@ func (c *cli) gnupgRemove(cl *secretvault.Client, home string, dryRun bool) erro
 			fmt.Fprintf(c.stdout, "%s is not pointed at secretvault.\n", home)
 			return nil
 		}
-		fmt.Fprintf(c.stdout, "Removing would take away the links to secretvaultd in %s's socket directory, and secretvault's agent-program line from %s; the public keys stay.\nNothing was changed.\n", home, filepath.Join(home, "gpg.conf"))
+		fmt.Fprintln(c.stdout, svops.GnuPGRemoveText(home))
+		fmt.Fprintln(c.stdout, "Nothing was changed.")
 		return nil
 	}
 	if err := svops.RemoveGnuPG(ctx, cl, home); err != nil {

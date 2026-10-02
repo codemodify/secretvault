@@ -92,6 +92,7 @@ func (u *UI) showKeys() {
 	p.act('i', "Import an OpenPGP key…", func() { u.importPGPKey(vault, p.refresh) })
 	p.rowAct('c', "Copy the public key", isPGP, func(ref any) { u.copyPGPPublic(vault, ref.(pgpRef).e.Item.Name) })
 	p.rowAct('e', "Export it…", isPGP, func(ref any) { u.exportPGPKey(vault, ref.(pgpRef).e.Item.Name) })
+	p.act('g', "Let gpg use the vault's keys…", func() { u.gpgSetup(vault) })
 	p.act('m', "Import an S/MIME key (.p12)…", func() { u.importSMIME(vault, p.refresh) })
 	p.act('k', "New age identity…", func() { u.newAgeIdentity(vault, p.refresh) })
 	p.rowAct('r', "Copy the recipient", isAge, func(ref any) { u.copyAge(vault, ref.(ageRef).e.Item.Name, false) })

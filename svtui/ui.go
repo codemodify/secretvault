@@ -62,6 +62,13 @@ type Options struct {
 
 	// Now is the clock for one-time codes (time.Now when nil).
 	Now func() time.Time
+
+	// CLI is the secretvault command-line program, named to other
+	// programs (the browsers' manifests, gpg's agent-program, the
+	// helpers' links): svops.CLIProgram() when "", the one beside this
+	// program. Daemon is secretvaultd, for the keyring takeover's service
+	// files: the one beside this program when "".
+	CLI, Daemon string
 }
 
 // clipTTL is how long a copy stays on the clipboard.
@@ -466,6 +473,10 @@ func (u *UI) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.showKeys()
 	case 'M':
 		u.showContainers()
+	case 'Y':
+		u.showKeyring()
+	case 'B':
+		u.showBrowsers()
 	case 'S':
 		u.showSync()
 	case 'I':

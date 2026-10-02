@@ -175,6 +175,20 @@ func (u *UI) menu() []menuEntry {
 		{"Tools", "Decrypt a file (age)…", "", u.decryptAge},
 		{"Tools", "Inspect a message…", "", u.inspectMail},
 		{"Tools", "Sign and encrypt a message…", "", u.composeMail},
+		{"Desktop", "System keyring: who holds it; import, take over, give back", "Y", u.showKeyring},
+		{"Desktop", "Import the system keyring's secrets…", "", func() { u.keyringImport(nil) }},
+		{"Desktop", "Become the system keyring…", "", func() { u.keyringTakeover(nil) }},
+		{"Desktop", "Give the system keyring back…", "", func() { u.keyringRestore(nil) }},
+		{"Desktop", "Browsers: which host each starts, the extensions connected", "B", u.showBrowsers},
+		{"Desktop", "Set the browsers up (KeePassXC-Browser)…", "", func() { u.browserInstall(nil) }},
+		{"Desktop", "Undo the browsers' setup…", "", func() { u.browserUninstall(nil) }},
+		{"Desktop", "GnuPG: let gpg use the vault's keys, or stop…", "", func() {
+			if u.needVault() {
+				u.gpgSetup(u.vault)
+			}
+		}},
+		{"Desktop", "Program helpers: git, docker, age", "", u.showHelpers},
+		{"Desktop", "Open this vault when I log in (on or off)…", "", u.toggleLogin},
 		{"Help", "Keys", "?", u.showHelp},
 		{"Help", "About secretvault: versions, the daemon's status", "", u.showStatus},
 	}

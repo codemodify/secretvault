@@ -147,19 +147,8 @@ func (c *cli) keyringTakeover(args []string) error {
 		return err
 	}
 	if *dryRun {
-		fmt.Fprintf(c.stdout, "The keyring now: %s\n\n", svops.DescribeExe(exe))
-		if !*noImport && exe != "" {
-			fmt.Fprintln(c.stdout, "1. Import its secrets (see 'secretvault keyring import --dry-run').")
-		}
-		for _, f := range p.Order {
-			fmt.Fprintf(c.stdout, "- write %s\n", f)
-		}
-		for _, r := range p.Restart {
-			fmt.Fprintf(c.stdout, "- restart %s (systemctl --user)\n", r)
-		}
-		fmt.Fprintln(c.stdout, "- turn on secretvaultd's Secret Service")
-		for _, n := range p.Notes {
-			fmt.Fprintf(c.stdout, "- by hand: %s\n", n)
+		for _, l := range svops.TakeoverLines(p, exe, !*noImport) {
+			fmt.Fprintln(c.stdout, l)
 		}
 		return nil
 	}
@@ -208,13 +197,9 @@ func (c *cli) keyringRestore(args []string) error {
 		return err
 	}
 	if *dryRun {
-		for _, f := range s.Created {
-			fmt.Fprintf(c.stdout, "- remove %s\n", f)
+		for _, l := range svops.RestoreLines(s) {
+			fmt.Fprintln(c.stdout, l)
 		}
-		for _, r := range s.Restart {
-			fmt.Fprintf(c.stdout, "- restart %s (systemctl --user)\n", r)
-		}
-		fmt.Fprintln(c.stdout, "- turn off secretvaultd's Secret Service")
 		return nil
 	}
 	if cl, err := c.daemon(); err == nil {
