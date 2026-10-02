@@ -122,6 +122,10 @@ type UI struct {
 	editor   *editor       // the open item editor
 	resume   map[string]tview.Primitive
 
+	panels    map[string]*panel // the panels up, by page
+	once      *onceView         // what is shown only once, while it is
+	emergency []string          // requests for emergency access, for the status line
+
 	asking   *promptDialog // the daemon's question on the screen
 	promptID int
 	promptMu sync.Mutex // one prompt at a time
@@ -144,6 +148,7 @@ func New(opts Options) (*UI, error) {
 		clip:   opts.Clip,
 		otp:    map[int]*svotp.Key{},
 		resume: map[string]tview.Primitive{},
+		panels: map[string]*panel{},
 		queue:  make(chan func(), 256),
 		done:   make(chan struct{}),
 	}
@@ -333,6 +338,7 @@ func (u *UI) shutdown() {
 		u.cancel()
 		u.closeItem()
 		u.wipeHistory()
+		u.wipeOnce()
 		if u.editor != nil {
 			u.editor.wipe()
 		}
@@ -343,7 +349,8 @@ func (u *UI) daemonGone() {
 	u.gone = true
 	u.closeItem()
 	u.wipeHistory()
-	for _, p := range []string{pageRev, pagePanel, pageForm, pageDialog} {
+	u.wipeOnce()
+	for _, p := range []string{pageRev, pageSub, pagePanel, pageInfo, pageForm, pageDialog} {
 		u.closePage(p)
 	}
 	if u.editor != nil {
@@ -437,6 +444,12 @@ func (u *UI) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.showAudit()
 	case 'q':
 		u.quit()
+	case ':':
+		u.showMenu()
+	case 'N':
+		u.newVault()
+	case 'V':
+		u.showVaults()
 	default:
 		return ev
 	}
@@ -469,6 +482,9 @@ func (u *UI) openPage(name string, p, focus tview.Primitive) {
 	if front, _ := u.pages.GetFrontPage(); front != name {
 		u.resume[front] = u.app.GetFocus()
 	}
+	if pn := u.panels[name]; pn != nil && pn.frame != p {
+		delete(u.panels, name) // replaced by something else
+	}
 	u.pages.AddPage(name, p, true, true)
 	if u.pages.HasPage(pagePrompt) && name != pagePrompt {
 		// The daemon's question stays on top, and keeps the keyboard.
@@ -491,6 +507,7 @@ func (u *UI) closePage(name string) {
 	cur := u.app.GetFocus()
 	u.pages.RemovePage(name)
 	delete(u.resume, name)
+	delete(u.panels, name)
 	if front != name {
 		u.app.SetFocus(cur)
 		return
@@ -590,59 +607,14 @@ func (u *UI) drawStatus() {
 	if u.busy > 0 {
 		b.WriteString(" [yellow]…[-]")
 	}
+	if len(u.emergency) > 0 {
+		fmt.Fprintf(&b, "  │ [yellow]%s[-]", tview.Escape(u.emergency[0]))
+		if len(u.emergency) > 1 {
+			fmt.Fprintf(&b, " [yellow](and %d more: E)[-]", len(u.emergency)-1)
+		}
+	}
 	if u.message != "" {
 		b.WriteString("  │ " + u.message)
 	}
 	u.status.SetText(b.String())
-}
-
-// showText puts a scrollable text panel up until Escape.
-func (u *UI) showText(title, body string) {
-	view := tview.NewTextView().SetDynamicColors(true).SetScrollable(true).SetWrap(true)
-	view.SetText(body)
-	view.SetBorder(true).SetTitle(" " + title + " — Esc closes ")
-	view.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
-		if ev.Key() == tcell.KeyEscape || ev.Rune() == 'q' || ev.Rune() == '?' {
-			u.closePage(pagePanel)
-			return nil
-		}
-		return ev
-	})
-	u.openPage(pagePanel, view, view)
-}
-
-func (u *UI) showHelp() {
-	u.showText("Keys", strings.TrimSpace(`
-[::b]Moving around[::-]
-  Tab, Shift+Tab, ← →    move between the vaults, the items and the open item
-  ↑ ↓ PgUp PgDn          move in a list
-  Enter                  open the vault or the item under the cursor
-  /                      filter the items as you type (Esc clears it)
-
-[::b]The item[::-]  (the one under the cursor in the list, else the open one)
-  c                      copy its secret, or the field selected in the item
-  u                      copy its username
-  o                      copy its current one-time code
-  r                      reveal or hide its concealed values
-  e                      edit it                 n    make a new item
-  d                      delete it (asks first)  m    rename it
-  h                      its history: every revision, each viewable
-  g                      the password generator
-
-[::b]Vaults[::-]
-  l                      lock this vault         L    lock every vault
-  U                      unlock the vault (asks for its passphrase)
-  G                      grants: what programs may do, and revoking them
-  A                      the audit log: who accessed what
-
-  ?                      this help               q    quit
-
-[::b]In the editor[::-]
-  Tab, Shift+Tab         move between fields     Ctrl+S  save
-  Ctrl+R                 show or hide secrets    Ctrl+G  generate a password
-  Esc                    close without saving
-
-Copies clear themselves from the clipboard after 30 seconds. Secrets are
-wiped from this program's memory when you leave the item, when the vault
-locks, and when you quit.`))
 }

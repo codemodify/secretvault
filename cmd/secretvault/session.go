@@ -127,11 +127,9 @@ func (c *cli) key(u *unlockFlags) (*svrpc.Key, error) {
 	case u.fido2:
 		return &svrpc.Key{Type: svformat.SlotFIDO2}, nil
 	case u.keyfile != "":
-		b, err := os.ReadFile(u.keyfile)
-		return &svrpc.Key{Type: svformat.SlotKeyfile, Secret: b}, err
+		return svops.KeyFromFile(svformat.SlotKeyfile, u.keyfile)
 	case u.identity != "":
-		b, err := os.ReadFile(u.identity)
-		return &svrpc.Key{Type: "identity", Secret: b}, err
+		return svops.KeyFromFile("identity", u.identity)
 	case u.recovery:
 		if !c.canAsk {
 			return nil, errors.New("no terminal to type the recovery key on")
@@ -145,8 +143,7 @@ func (c *cli) key(u *unlockFlags) (*svrpc.Key, error) {
 		rk, err := c.askShares()
 		return &svrpc.Key{Type: svformat.SlotRecovery, Secret: rk}, err
 	case u.passFile != "":
-		b, err := svops.ReadSecretFile(u.passFile)
-		return &svrpc.Key{Type: svformat.SlotPassphrase, Secret: b}, err
+		return svops.KeyFromFile(svformat.SlotPassphrase, u.passFile)
 	}
 	return nil, nil
 }

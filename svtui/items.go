@@ -42,7 +42,7 @@ func (u *UI) start() {
 		}
 		if name == "" {
 			u.drawVaults()
-			u.detail.reset("There are no vaults yet.\n\nCreate one with 'secretvault init'.")
+			u.detail.reset("There are no vaults yet.\n\nN makes one.")
 			u.drawStatus()
 			return
 		}
@@ -52,6 +52,7 @@ func (u *UI) start() {
 			}
 		}
 		u.showVault(name, false)
+		u.noteEmergency()
 	})
 }
 
@@ -622,8 +623,13 @@ func (u *UI) vaultLocked(vault string) {
 	u.closeItem()
 	u.wipeHistory()
 	u.closePage(pageRev)
-	if u.pages.HasPage(pagePanel) {
-		u.closePage(pagePanel)
+	for _, p := range u.panels {
+		if p.vault == vault {
+			p.close()
+		}
+	}
+	if u.pages.HasPage(pagePanel) && u.panels[pagePanel] == nil {
+		u.closePage(pagePanel) // the history, the grants, the audit log
 	}
 	if u.editor != nil {
 		u.editor.close()
@@ -647,6 +653,8 @@ func (u *UI) event(method string, ev svrpc.VaultEvent) {
 			u.reloadVaults()
 		case svrpc.EVaultUnlocked:
 			u.reloadVaults()
+		case svrpc.EEmergency:
+			u.noteEmergency()
 		case svrpc.EItemChanged:
 			if ev.Vault != u.vault || !u.listed {
 				return

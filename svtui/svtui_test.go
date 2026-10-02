@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,8 +17,11 @@ import (
 	"github.com/gdamore/tcell/v2"
 
 	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/internal/fidotest"
 	"github.com/codemodify/secretvault/svcrypto"
 	"github.com/codemodify/secretvault/svd"
+	"github.com/codemodify/secretvault/svfido"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svotp"
 	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svrpc"
@@ -46,41 +50,60 @@ func login(name, user, password string) svrpc.Item {
 
 // harness is a real daemon in this process, a vault with a few items, and
 // the manager on a simulated screen, typed at through injected keys.
+// Nothing reaches the machine's own: HOME, the XDG directories and
+// secretvault's own point into a temporary directory, the buses nowhere,
+// the programs svops would run are a fake's, the security keys are
+// software ones, and the OS's sealing is a stand-in.
 type harness struct {
 	t      *testing.T
+	dir    string // the temporary directory everything lives in
+	home   string // $HOME
+	d      *svd.Daemon
 	sock   string
 	admin  *secretvault.Client // sets things up and checks them, as the CLI would
 	u      *UI
 	screen tcell.SimulationScreen
 
-	mu     sync.Mutex
-	clips  []string
-	leaked atomic.Bool // a watched secret was drawn
+	mu            sync.Mutex
+	clips         []string
+	commands      []string                                          // the programs svops ran
+	commandAnswer func(name string, args ...string) ([]byte, error) // how they answer
+	keys          []*fidotest.Authenticator                         // software security keys plugged in
+	leaked        atomic.Bool                                       // a watched secret was drawn
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T, tweaks ...func(*svd.Options)) *harness {
 	t.Helper()
-	a := svcrypto.DefaultArgon2
+	a, p := svcrypto.DefaultArgon2, svcrypto.DefaultPBKDF2
 	svcrypto.DefaultArgon2 = svcrypto.KDFParams{Alg: svcrypto.Argon2id, Time: 1, MemoryKiB: 64, Threads: 1}
-	t.Cleanup(func() { svcrypto.DefaultArgon2 = a })
+	svcrypto.DefaultPBKDF2 = svcrypto.KDFParams{Alg: svcrypto.PBKDF2SHA256, Iterations: 10}
+	t.Cleanup(func() { svcrypto.DefaultArgon2, svcrypto.DefaultPBKDF2 = a, p })
 
 	dir, err := os.MkdirTemp("", "svtui") // short: socket paths have a length limit
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	h := &harness{t: t, sock: filepath.Join(dir, "s", "d.sock")}
-	d, err := svd.New(svd.Options{Home: filepath.Join(dir, "home"), Socket: h.sock, Desktop: nobody{},
-		IsCLI: func(*svpeer.Process) bool { return true }})
+	h := &harness{t: t, dir: dir, home: filepath.Join(dir, "u"), sock: filepath.Join(dir, "s", "d.sock")}
+	h.isolate()
+	opts := svd.Options{Home: filepath.Join(dir, "home"), Socket: h.sock, Desktop: nobody{},
+		IsCLI: func(*svpeer.Process) bool { return true }, Sealer: &fakeSealer{machine: []byte("this machine")},
+		SecurityKeys: h.openKeys, HTTP: &http.Client{Transport: noNetwork{}}}
+	for _, tweak := range tweaks {
+		tweak(&opts)
+	}
+	d, err := svd.New(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
+	h.d = d
 	ln, cleanup, err := svd.Listen(h.sock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
+	d.StartSync(ctx)
 	go func() { d.Serve(ctx, ln); close(done) }()
 	t.Cleanup(func() { cancel(); <-done; cleanup() })
 
@@ -109,6 +132,117 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	return h
+}
+
+// isolate points everything the manager and svops might touch into the
+// test's directory.
+func (h *harness) isolate() {
+	t := h.t
+	for k, v := range map[string]string{
+		"HOME":                     h.home,
+		"XDG_CONFIG_HOME":          filepath.Join(h.home, ".config"),
+		"XDG_DATA_HOME":            filepath.Join(h.home, ".local", "share"),
+		"XDG_STATE_HOME":           filepath.Join(h.home, ".local", "state"),
+		"XDG_CACHE_HOME":           filepath.Join(h.home, ".cache"),
+		"XDG_RUNTIME_DIR":          filepath.Join(h.dir, "r"),
+		"GNUPGHOME":                filepath.Join(h.home, ".gnupg"),
+		"SECRETVAULT_HOME":         filepath.Join(h.dir, "home"),
+		"SECRETVAULT_SOCK":         h.sock,
+		"SECRETVAULT_VAULT":        "",
+		"SECRETVAULT_HOST":         "",
+		"SECRETVAULT_HOST_DATA":    filepath.Join(h.dir, "hostdata"),
+		"SECRETVAULT_HOST_RUNTIME": filepath.Join(h.dir, "hostrun"),
+		"DBUS_SESSION_BUS_ADDRESS": "unix:path=" + filepath.Join(h.dir, "no-session-bus"),
+		"DBUS_SYSTEM_BUS_ADDRESS":  "unix:path=" + filepath.Join(h.dir, "no-system-bus"),
+	} {
+		t.Setenv(k, v)
+	}
+	for _, d := range []string{h.home, filepath.Join(h.dir, "r")} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := svops.CommandRunner
+	svops.CommandRunner = h.runCommand
+	t.Cleanup(func() { svops.CommandRunner = run })
+}
+
+// runCommand stands in for the programs svops runs (systemctl, gpg...):
+// it records them, and answers as the test said.
+func (h *harness) runCommand(name string, args ...string) ([]byte, error) {
+	h.mu.Lock()
+	h.commands = append(h.commands, strings.Join(append([]string{filepath.Base(name)}, args...), " "))
+	answer := h.commandAnswer
+	h.mu.Unlock()
+	if answer != nil {
+		return answer(name, args...)
+	}
+	return nil, errors.New("test: " + filepath.Base(name) + " is not run here")
+}
+
+func (h *harness) ran() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.commands...)
+}
+
+// plug plugs in a software security key.
+func (h *harness) plug(o fidotest.Options) *fidotest.Authenticator {
+	a := fidotest.New(o)
+	h.t.Cleanup(a.Stop)
+	h.mu.Lock()
+	h.keys = append(h.keys, a)
+	h.mu.Unlock()
+	return a
+}
+
+// openKeys is the daemon's way to the security keys: software ones only.
+func (h *harness) openKeys(ctx context.Context) ([]*svfido.Device, error) {
+	h.mu.Lock()
+	keys := append([]*fidotest.Authenticator(nil), h.keys...)
+	h.mu.Unlock()
+	var out []*svfido.Device
+	for _, a := range keys {
+		d, err := svfido.NewDevice(ctx, a.Transport(), a.Name())
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	if len(out) == 0 {
+		return nil, svfido.ErrNoDevice
+	}
+	return out, nil
+}
+
+// noNetwork is the daemon's HTTP in tests: there is none.
+type noNetwork struct{}
+
+func (noNetwork) RoundTrip(r *http.Request) (*http.Response, error) {
+	return nil, errors.New("test: no network for " + r.URL.Host)
+}
+
+// fakeSealer stands in for the OS's sealing (vaults opened at login).
+type fakeSealer struct{ machine []byte }
+
+func (f *fakeSealer) Name() string     { return "the test's sealer" }
+func (f *fakeSealer) Available() error { return nil }
+func (f *fakeSealer) xor(b []byte) []byte {
+	out := bytes.Clone(b)
+	for i := range out {
+		out[i] ^= f.machine[i%len(f.machine)]
+	}
+	return out
+}
+func (f *fakeSealer) Seal(name string, secret []byte) ([]byte, error) {
+	return f.xor(append([]byte(name+":"), secret...)), nil
+}
+func (f *fakeSealer) Unseal(name string, sealed []byte) ([]byte, error) {
+	rest, ok := bytes.CutPrefix(f.xor(sealed), []byte(name+":"))
+	if !ok {
+		return nil, errors.New("sealed under another name")
+	}
+	return rest, nil
 }
 
 func (h *harness) ctx() context.Context {
