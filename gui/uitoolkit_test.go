@@ -73,6 +73,49 @@ func window(t *testing.T, a *uitoolkit.Application, w, h int, content widget.Com
 	return win
 }
 
+// 7. A clipboard that can hold a secret (7020c65, 58140ea, e54cba4;
+// 9e7e1c6): ClipboardSetSecret takes the bytes over, a paste in the
+// program reads a copy of them, and Clear wipes them; since v0.23.2 the
+// copy is zeroed before anything says it has gone, and OnCleared runs
+// after the clipboard was told. (ClipboardClear, which a lock and the
+// quit run, still calls back before it tells the clipboard.) Headless:
+// what reaches the desktop's clipboards is 35 and 41-43, and the gaps
+// left there 47-49.
+func TestItem07ASecretOnTheClipboard(t *testing.T) {
+	t.Cleanup(platform.ClipboardClear)
+	data := []byte("hunter2-github")
+	c := platform.ClipboardSetSecret(data, -1)
+	got := platform.ClipboardGetSecret()
+	if !platform.ClipboardHoldsSecret() || string(got) != "hunter2-github" || &got[0] == &data[0] {
+		t.Fatal("a secret copied is not held, or a paste in the program does not read a copy of it")
+	}
+	uitoolkit.WipeBytes(got)
+	zeroed, held := false, true
+	c.OnCleared(func() { zeroed, held = allZero(data), platform.ClipboardHoldsSecret() })
+	c.Clear()
+	if !allZero(data) || platform.ClipboardHoldsSecret() || !c.Cleared() || !zeroed || held {
+		t.Fatalf("cleared: wiped %v, held %v; when OnCleared ran, wiped %v and held %v: see uitoolkit-gaps.md item 7",
+			allZero(data), platform.ClipboardHoldsSecret(), zeroed, held)
+	}
+	clr := uitoolkitFunc(t, "clipboard_secret.go", "SecretClip", "Clear")
+	if i, j := strings.Index(clr, "c.wipe()"), strings.Index(clr, "clipboardNativeClear()"); i < 0 || j < i {
+		t.Fatal("Clear tells the clipboard before it wipes the copy again: see uitoolkit-gaps.md item 7")
+	}
+	all := uitoolkitFunc(t, "clipboard_secret.go", "", "ClipboardClear")
+	if i, j := strings.Index(all, "held.forget()"), strings.Index(all, "clipboardNativeClear()"); i < 0 || j < i {
+		t.Fatal("ClipboardClear calls back after the clipboard is clear now: see uitoolkit-gaps.md item 7")
+	}
+}
+
+func allZero(b []byte) bool {
+	for _, c := range b {
+		if c != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // 8. SecretLabel (256978b; 649af18): a revealed value stays out of the
 // shape cache and the accessibility tree; with MaskLen the hidden label
 // is measured for its mask alone and two secrets of different lengths
@@ -166,9 +209,12 @@ func TestItem11SymbolFallback(t *testing.T) {
 // modifiers on any backend, leaves the lock state alone: a window that
 // comes back into focus with Caps Lock on still says so, and no watcher
 // hears it go off. What is left is the other half: a Wayland surface
-// still cannot be asked (it is no LockKeysSurface, though the backend
-// keeps the xkb state the compositor sends after its enter), so there a
-// prompt says nothing of Caps Lock until the first key or pointer event.
+// still cannot be asked (it is no LockKeysSurface), so there a prompt
+// says nothing of Caps Lock until the first key or pointer event. v0.23.2
+// calls that the protocol; it is not: the compositor sends
+// wl_keyboard.modifiers right after enter, before any key, and the backend
+// already folds it into its xkb state (uitkWlKeyMods) and drops it there.
+// An AppKit surface is no LockKeysSurface either.
 func TestItem12CapsLock(t *testing.T) {
 	a := headless(t, 1)
 	w := window(t, a, 300, 80, widgets.NewSecretField(""))
@@ -194,8 +240,12 @@ func TestItem12CapsLock(t *testing.T) {
 		t.Fatalf("after a focus-in the window says Caps Lock %v, and OnLockKeys heard %v: a focus-in reads as the lock off again, see uitoolkit-gaps.md item 12", caps, got)
 	}
 
-	if uitoolkitHas(t, "wayland*_linux.go", "func (s *wlSurface) LockKeys(") {
-		t.Fatal("a Wayland surface can be asked for the lock keys now: see uitoolkit-gaps.md item 12")
+	if uitoolkitHas(t, "wayland*_linux.go", "func (s *wlSurface) LockKeys(") || uitoolkitHas(t, "appkit*_darwin.go", "func (s *akSurface) LockKeys(") {
+		t.Fatal("a Wayland or AppKit surface can be asked for the lock keys now: see uitoolkit-gaps.md item 12")
+	}
+	if mods := uitoolkitFunc(t, "wayland_linux.go", "", "uitkWlKeyMods"); !strings.Contains(mods, "c.mods = wlMods(c)") ||
+		strings.Contains(mods, "push(") {
+		t.Fatal("the Wayland backend says what the modifiers event tells it now, or no longer keeps it: see uitoolkit-gaps.md item 12")
 	}
 }
 
@@ -782,7 +832,10 @@ func TestItem33AMaskedSecretLabelKeepsNoCopy(t *testing.T) {
 // TextField has PreferredWidth, and its floor follows it; and a window's
 // minimum can be stated after the window is made (Window.SetMinSize,
 // platform.SizeLimitSurface on all four backends), once the content that
-// decides it is there. That it does not last is 44.
+// decides it is there. It lasts since v0.23.2 (44). And since v0.23.2
+// (99e0c22) a component that holds one thing, as a key handler does, is
+// never narrower than what it holds, where it does not say so itself (the
+// manager's own wrappers do, and answer exactly their child's floor).
 func TestItem34AWindowFloorFromItsContent(t *testing.T) {
 	a := headless(t, 1)
 	left, right := widgets.NewPad(0, widgets.NewSpacerSize(300, 10)), widgets.NewPad(0, widgets.NewSpacerSize(300, 10))
@@ -804,6 +857,26 @@ func TestItem34AWindowFloorFromItsContent(t *testing.T) {
 	if mw, mh := w.MinSize(); mw != float32(int(floor+0.5)) || mh != 0 {
 		t.Fatalf("stated %v by nothing, the window's minimum is %v by %v", floor, mw, mh)
 	}
+	wrapped := &wrapper{}
+	wrapped.Init(wrapped)
+	inner := widgets.NewSplitter(widgets.SplitColumns, widgets.NewPad(0, widgets.NewSpacerSize(400, 10)), widgets.NewPad(0, widgets.NewSpacerSize(400, 10)))
+	wrapped.Add(inner)
+	window(t, a, 900, 200, wrapped)
+	if got, need := widget.MinWidthOf(wrapped), widget.MinWidthOf(inner); got < need {
+		t.Fatalf("a wrapper round a splitter says its floor is %v, the splitter's %v: see uitoolkit-gaps.md item 34", got, need)
+	}
+}
+
+// wrapper holds one thing and passes everything through to it.
+type wrapper struct{ widget.Base }
+
+func (w *wrapper) Measure(c layout.Constraints) paintengine2d.Point {
+	return w.Children()[0].Measure(c)
+}
+
+func (w *wrapper) Arrange(r paintengine2d.Rect) {
+	w.SetBounds(r)
+	w.Children()[0].Arrange(paintengine2d.XYWH(0, 0, r.Dx(), r.Dy()))
 }
 
 // uitoolkitDir is uitoolkit's platform package as this test is built
@@ -964,15 +1037,15 @@ func TestItem37SecureInputHeld(t *testing.T) {
 
 // 38. A form's rows can be shown and hidden (021593b): Form.Row returns
 // the row, hiding it hides its caption with its field, out of the
-// accessibility tree too, and once the form is laid out again the rows
-// under it move up. How far, and when, is 45.
+// accessibility tree too, and the rows under it move up; shown again, they
+// go back. That they move at once, and as far as the row and its gap, is
+// 45 (d9356f0).
 func TestItem38AFormRowShownOrHidden(t *testing.T) {
 	a := headless(t, 1)
 	form, mid, last := keyslotForm(true)
 	w := window(t, a, 400, 200, widgets.NewColumn(form, widgets.NewLabel("under")))
 	shown := widget.DeviceOrigin(last).Y
 	mid.SetVisible(false)
-	form.RequestLayout()
 	a.PumpOnce()
 	if mid.Visible() || mid.Label.Visible() || mid.Field.Visible() || strings.Contains(treeText(w), "Keyfile") {
 		t.Fatal("a hidden form row, its caption or its field is still there, or still read aloud: see uitoolkit-gaps.md item 38")
@@ -981,7 +1054,6 @@ func TestItem38AFormRowShownOrHidden(t *testing.T) {
 		t.Fatalf("with a row hidden the next stays at %v: see uitoolkit-gaps.md item 38", got)
 	}
 	mid.SetVisible(true)
-	form.RequestLayout()
 	a.PumpOnce()
 	if got := widget.DeviceOrigin(last).Y; got != shown {
 		t.Fatalf("a row shown again puts the next at %v, not %v", got, shown)
@@ -1031,36 +1103,55 @@ func (p *probe) Measure(c layout.Constraints) paintengine2d.Point {
 
 func (p *probe) Arrange(r paintengine2d.Rect) { p.SetBounds(r) }
 
-// 39. A Grid measures what is in an Auto or Flex column with no width to
-// keep to, however narrow the grid: a cell that wraps to the width it is
-// offered (the manager's secret text, drawn from bytes) reports one long
-// line as its column's natural width, so the manager breaks a long key at
-// a fixed number of characters. The maintainers say so in v0.23.1's
-// "Known not done", and that heights are measured at the column's real
-// width: that much holds.
-func TestItem39AGridCellIsOfferedNoWidth(t *testing.T) {
+// floorProbe is a probe that says how narrow it may be, as the manager's
+// secret text does (widget.MinWidther).
+type floorProbe struct{ probe }
+
+func (p *floorProbe) MinWidth() float32 { return 40 }
+
+// 39. A grid column that measures at its share (e011659): what is in a
+// Share column is asked for its width only through widget.MinWidthOf, so
+// a cell that says its floor (as the manager's secret text does) is never
+// measured unbounded, only at the width the column is given; and the
+// column asks the grid for its cells' floors alone. A Flex column is as
+// it was, by design: measured unbounded first, and its heights at the
+// column's real width. The manager's secret text wraps to the width it is
+// offered, in a Share column where it is in a grid, and breaks a long key
+// there rather than every 48 characters.
+func TestItem39AShareColumnOffersItsWidth(t *testing.T) {
 	a := headless(t, 1)
-	p := newProbe()
+	shared := &floorProbe{}
+	shared.Init(shared)
+	flexed := newProbe()
 	g := widgets.NewGrid()
-	g.Cols = []widgets.Track{widgets.Auto(), widgets.Flex(1)}
+	g.Cols = []widgets.Track{widgets.Auto(), widgets.Share(1)}
 	g.Place(widgets.NewLabel("Share 1"), 0, 0)
-	g.Place(p, 0, 1)
-	window(t, a, 300, 100, widgets.NewColumn(g))
-	if p.bounded == 0 || p.bounded > 300 {
-		t.Errorf("a Flex cell's height is not measured at its column's width (narrowest offered: %v)", p.bounded)
+	g.Place(shared, 0, 1)
+	f := widgets.NewGrid()
+	f.Cols = []widgets.Track{widgets.Auto(), widgets.Flex(1)}
+	f.Place(widgets.NewLabel("Share 1"), 0, 0)
+	f.Place(flexed, 0, 1)
+	window(t, a, 300, 100, widgets.NewColumn(g, f))
+	if shared.unbounded || shared.bounded == 0 || shared.bounded > 300 {
+		t.Fatalf("a Share cell was measured unbounded %v, at %v at the narrowest: it is to be offered its column's width, see uitoolkit-gaps.md item 39",
+			shared.unbounded, shared.bounded)
 	}
-	if !p.unbounded {
-		t.Fatal("a Grid offers its Flex cells a width now: see uitoolkit-gaps.md item 39, and the manager's wrapAt")
+	if g.Bounds().Dx() > 300 || shared.Bounds().Max.X > g.Bounds().Dx() || shared.Bounds().Dx() < shared.bounded-1 {
+		t.Fatalf("a grid with a Share column is %v wide, its cell %v, in a window 300 wide; the cell was measured at %v", g.Bounds().Dx(), shared.Bounds(), shared.bounded)
+	}
+	if !flexed.unbounded || flexed.bounded == 0 || flexed.bounded > 300 {
+		t.Fatalf("a Flex cell: measured unbounded %v, at %v at the narrowest; it was both, at the column's width", flexed.unbounded, flexed.bounded)
 	}
 }
 
-// 40. A dialog taller than its window (bba1c63): DialogCard's body
-// scrolls and its action row stays at the foot, in view. But only
-// DialogCard's, whose body is a string: an Overlay of any other card (a
-// form, secrets, a QR code: the manager's dialogs) is still held to the
-// window and lays out what does not fit past its foot, buttons and all.
-// So the manager keeps dialogs short: a QR code in a dialog of its own,
-// long lists in a box of their own height.
+// 40. A dialog taller than its window keeps its buttons in view
+// (bba1c63, dbb2644): DialogCard's body scrolls and its action row stays
+// at the foot, and widgets.DialogContent is that arrangement for a card
+// an application builds, a QR code in it or not. The Overlay itself does
+// nothing of the kind for any other card, and says so. That
+// DialogContent's body takes the whole window, however little it holds,
+// is 46; the manager builds the same arrangement with a body that does
+// not, and its dialogs scroll.
 func TestItem40ADialogTallerThanItsWindow(t *testing.T) {
 	a := headless(t, 1)
 	col := widgets.NewColumn()
@@ -1076,84 +1167,103 @@ func TestItem40ADialogTallerThanItsWindow(t *testing.T) {
 	widget.DismissOverlay(plan)
 
 	tall := newProbe()
-	tall.height = 600 // as a QR code is: it does not shrink
+	tall.height = 600 // as a QR code under a secret is: it does not shrink
 	ok := widgets.NewButton("Done", nil)
-	card := widgets.NewPanel("Tall", widgets.NewColumn(tall, ok))
+	content := widgets.DialogContent(tall, widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept))
+	card := widgets.NewPanel("Tall", content)
 	card.Window = true
 	o := widgets.NewOverlay(card)
 	o.Modal = true
 	widget.ShowOverlay(col, o)
 	a.PumpOnce()
-	body, button := widget.DeviceBounds(tall), widget.DeviceBounds(ok)
-	if body.Max.Y <= button.Min.Y && button.Max.Y <= 300 {
-		t.Fatalf("a tall dialog keeps its buttons in view now (body %v, button %v): see uitoolkit-gaps.md item 40", body, button)
+	scroll, _ := content.Children()[0].(*widgets.ScrollView)
+	if b := widget.DeviceBounds(ok); b.Dy() <= 0 || b.Max.Y > 300 || scroll == nil || scroll.MaxOffset() <= 0 {
+		t.Fatalf("a card built of DialogContent with a body 600 tall puts its button at %v in a window 300 tall, its body scrolling %v: see uitoolkit-gaps.md item 40",
+			b, scroll != nil && scroll.MaxOffset() > 0)
 	}
 }
 
 // Found in the audit of v0.23.1.
 
-// 41. The Wayland owner serves a secret from a string: it holds the bytes
-// and zeroes them, but each paste another program asks for is answered
-// with clipCache.get, which is string(c.data), and the string is turned
-// into bytes again to write to the pipe. Every paste leaves two copies of
-// the passphrase that nothing can wipe.
-func TestItem41WaylandServesASecretFromAString(t *testing.T) {
+// 41. The Wayland owner serves a secret from its bytes (d9356f0): each
+// paste another program asks for is written to the pipe from the cache's
+// own slice, on CLIPBOARD and PRIMARY alike, with no string of it on the
+// way. What the hint is answered with is 47.
+func TestItem41WaylandServesASecretFromItsBytes(t *testing.T) {
 	send := uitoolkitFunc(t, "wayland_linux.go", "", "uitkWlDataSend")
+	prim := uitoolkitFunc(t, "wayland_linux.go", "", "uitkWlPrimSend")
 	write := uitoolkitFunc(t, "wayland_linux.go", "", "wlSendSelection")
-	get := uitoolkitFunc(t, "wlstate.go", "clipCache", "get")
-	if !strings.Contains(send, "c.clip.get()") || !strings.Contains(write, "text string") || !strings.Contains(get, "string(c.data)") {
-		t.Fatal("the Wayland owner serves a secret from its bytes now: see uitoolkit-gaps.md item 41")
+	for name, fn := range map[string]string{"uitkWlDataSend": send, "uitkWlPrimSend": prim} {
+		if !strings.Contains(fn, ".getBytes()") || strings.Contains(fn, ".get()") || strings.Contains(fn, "string(") {
+			t.Fatalf("the Wayland owner's %s serves a secret through a string again: see uitoolkit-gaps.md item 41", name)
+		}
+	}
+	if !strings.Contains(write, "b []byte") || strings.Contains(write, "string") || strings.Contains(write, "[]byte(") {
+		t.Fatal("wlSendSelection takes a string again, or copies what it writes: see uitoolkit-gaps.md item 41")
 	}
 }
 
-// 42. A secret pasted from another program leaves copies nothing wipes,
-// though it no longer arrives as a string on Linux: when the bytes path
-// fails, ClipboardGetSecret reads the clipboard again as a string; the
-// Wayland reader's 4 KiB buffer, which the secret passes through, is
-// never zeroed, and nor is the property X11 hands back (XFree does not
-// zero it, the reason v0.23.1 gave for dropping C.CString on the serving
-// side); and on Windows and macOS there is no bytes path at all.
-func TestItem42APastedSecretLeavesCopies(t *testing.T) {
+// 42. A secret pasted from another program leaves no string, and the
+// buffers it passes through are zeroed (d9356f0, 18a98d9): where the
+// platform has a bytes path, a failed read is a failed read, with no
+// second try through the string reader; the Wayland reader zeroes its
+// 4 KiB staging buffer, and a partial read before dropping it; X11 zeroes
+// the property before XFree; Windows decodes CF_UNICODETEXT into bytes and
+// zeroes its UTF-16 copy and the runes; macOS copies the pasteboard's
+// bytes out of a buffer it zeroes before freeing. With no display at all
+// (headless, as here) the clipboard is this process's own buffer, read as
+// it always was. A paste longer than one read leaves what it outgrew: 49.
+func TestItem42APastedSecretLeavesNoString(t *testing.T) {
 	get := uitoolkitFunc(t, "clipboard_secret.go", "", "ClipboardGetSecret")
+	if i, j := strings.Index(get, "clipboardSecretBytesPath()"), strings.Index(get, "ClipboardGet()"); i < 0 || j < 0 || i > j {
+		t.Fatal("a failed bytes read falls back to the string reader again: see uitoolkit-gaps.md item 42")
+	}
 	loop := uitoolkitFunc(t, "wayland_transfer_linux.go", "", "wlReadLoop")
+	partial := uitoolkitFunc(t, "wayland_linux.go", "", "wlReadFDBytes")
 	notify := uitoolkitFunc(t, "x11_linux.go", "x11Conn", "handleSelNotify")
-	win := uitoolkitFunc(t, "clipboard_secret_windows.go", "", "clipboardNativeGetSecret")
+	win := uitoolkitFunc(t, "clipboard_secret_windows.go", "", "winSecretFromGlobal")
 	mac := uitoolkitFunc(t, "clipboard_secret_darwin.go", "", "clipboardNativeGetSecret")
-	for what, open := range map[string]bool{
-		"a failed bytes read falls back to a string": strings.Contains(get, "s := ClipboardGet()"),
-		"the Wayland read buffer is not zeroed":      !strings.Contains(loop, "clear(buf)") && !strings.Contains(loop, "buf[i] = 0"),
-		"the X11 property is freed unzeroed":         strings.Contains(notify, "C.GoBytes") && !strings.Contains(notify, "memset") && !strings.Contains(notify, "bzero"),
-		"Windows has no bytes path":                  strings.Contains(win, "return nil, false"),
-		"macOS has no bytes path":                    strings.Contains(mac, "return nil, false"),
+	for what, held := range map[string]bool{
+		"the Wayland staging buffer is zeroed": strings.Contains(loop, "defer func()") && strings.Contains(loop, "buf[i] = 0"),
+		"a partial Wayland read is zeroed":     strings.Contains(partial, "out[i] = 0"),
+		"the X11 property is zeroed":           strings.Index(notify, "C.ui_zero(") >= 0 && strings.Index(notify, "C.ui_zero(") < strings.LastIndex(notify, "C.ui_xfree("),
+		"Windows reads bytes, and zeroes":      !strings.Contains(win, "string") && strings.Contains(win, "u[i] = 0") && strings.Contains(win, "runes[i] = 0"),
+		"macOS reads bytes, and zeroes":        strings.Contains(mac, "C.uitk_pb_zfree(") && !strings.Contains(mac, "GoString"),
+		"Windows has a bytes path":             strings.Contains(uitoolkitFunc(t, "clipboard_secret_windows.go", "", "clipboardSecretBytesPath"), "return true"),
+		"macOS has a bytes path":               strings.Contains(uitoolkitFunc(t, "clipboard_secret_darwin.go", "", "clipboardSecretBytesPath"), "return true"),
 	} {
-		if !open {
+		if !held {
 			t.Errorf("no longer so, %s: see uitoolkit-gaps.md item 42", what)
 		}
+	}
+	if !uitoolkitHas(t, "clipboard_secret_darwin.go", "volatile unsigned char *q") || !uitoolkitHas(t, "x11_linux.go", "volatile unsigned char* q") {
+		t.Error("a C buffer is cleared through a plain pointer again, which a compiler may drop before free: see uitoolkit-gaps.md item 42")
 	}
 }
 
 // 43. On X11 a paste of what this program itself put on the clipboard
-// reads the last paste from another program instead, or nothing (new in
-// v0.23.1): readSelection no longer answers an owned selection with what
-// it serves, and both readers then take pasteData, which is whatever the
-// last paste from elsewhere left there. So Ctrl+C then Ctrl+V between two
-// of the program's own fields pastes something else, and into a
-// SecretField pastes nothing.
-func TestItem43X11ReadsItsOwnCopyAsTheLastPaste(t *testing.T) {
+// reads what it serves again (99e0c22): readSelection answers an owned
+// selection, CLIPBOARD or PRIMARY, by putting a copy of what it serves in
+// pasteData, which both readers take, the secret one handing it over.
+func TestItem43X11ReadsItsOwnCopy(t *testing.T) {
 	read := uitoolkitFunc(t, "x11_linux.go", "x11Conn", "readSelection")
-	text := uitoolkitFunc(t, "x11_linux.go", "x11Conn", "readSelectionString")
-	if strings.Contains(read, "clipData") || !strings.Contains(text, "string(c.pasteData)") {
-		t.Fatal("X11 reads its own selection as what it serves again: see uitoolkit-gaps.md item 43")
+	owned := strings.Index(read, "c.ownClip)")
+	if owned < 0 || !strings.Contains(read[owned:], "c.pasteData = append([]byte(nil), c.clipData...)") ||
+		!strings.Contains(read, "c.atomPrimary && c.ownPrim") {
+		t.Fatal("X11 reads its own selection as the last paste from elsewhere again: see uitoolkit-gaps.md item 43")
+	}
+	take := uitoolkitFunc(t, "x11_linux.go", "", "x11ClipGetBytes")
+	if !strings.Contains(take, "c.pasteData = nil") || strings.Contains(take, "string(") {
+		t.Fatal("the X11 secret reader no longer hands over what it read: see uitoolkit-gaps.md items 35 and 43")
 	}
 }
 
-// 44. A window's minimum stated after it is made (34) does not last: a
-// resize of the window by the program puts WindowOptions' minimum back on
-// Windows (winSurface.Resize) and headless, and a change of its resize
-// policy does on every backend (syncLimits), as rolling a Wayland window
-// up and down does. The manager states its floor again whenever the page
-// it shows changes.
-func TestItem44AStatedMinimumDoesNotLast(t *testing.T) {
+// 44. A window's stated minimum lasts (99e0c22): SetMinSize writes the
+// limits back into the options every backend recomputes them from, so a
+// resize by the program and a change of resize policy keep it, on all
+// five surfaces (headless here). The manager no longer states its floor
+// again after a resize.
+func TestItem44AStatedMinimumLasts(t *testing.T) {
 	a := headless(t, 1)
 	w, err := a.NewWindow(uitoolkit.WindowOptions{Width: 800, Height: 400, MinWidth: 300, MinHeight: 200, Headless: true})
 	if err != nil {
@@ -1168,42 +1278,161 @@ func TestItem44AStatedMinimumDoesNotLast(t *testing.T) {
 	}
 	w.SetSize(900, 500)
 	a.PumpOnce()
-	if mw, _ := w.MinSize(); mw != 300 {
-		t.Fatalf("after a resize the minimum is %v: what SetMinSize stated lasts now, see uitoolkit-gaps.md item 44", mw)
+	if mw, mh := w.MinSize(); mw != 600 || mh != 200 {
+		t.Fatalf("after a resize the minimum is %v by %v: what SetMinSize stated does not last, see uitoolkit-gaps.md item 44", mw, mh)
 	}
-	resize := uitoolkitFunc(t, "win32_windows.go", "winSurface", "Resize")
-	sync := uitoolkitFunc(t, "x11_linux.go", "x11Surface", "syncLimits")
-	if !strings.Contains(resize, "limitsFor(s.sizing, s.opts") || !strings.Contains(sync, "limitsFor(s.sizing, s.opts") {
-		t.Fatal("the backends keep a stated minimum now: see uitoolkit-gaps.md item 44")
+	platform.SetSurfaceSizing(w.Surface(), platform.SizingFixed)
+	platform.SetSurfaceSizing(w.Surface(), platform.SizingResizable)
+	if mw, _ := w.MinSize(); mw != 600 {
+		t.Fatalf("after the resize policy changed and back the minimum is %v: see uitoolkit-gaps.md item 44", mw)
+	}
+	for file, recv := range map[string]string{
+		"x11_linux.go": "x11Surface", "wayland_linux.go": "wlSurface", "win32_windows.go": "winSurface",
+		"appkit_geometry_darwin.go": "akSurface", "offscreen.go": "Offscreen",
+	} {
+		if !strings.Contains(uitoolkitFunc(t, file, recv, "SetSizeLimits"), "stateLimits(") {
+			t.Errorf("%s's %s.SetSizeLimits no longer keeps what it is told: see uitoolkit-gaps.md item 44", file, recv)
+		}
 	}
 }
 
-// 45. A form row hidden (38) leaves its gap, and is hidden only at the
-// next layout: FormRow.SetVisible repaints the form and does not lay it
-// out again, so nothing moves until something else asks for a layout;
-// and laid out again, the grid still counts the hidden row among its
-// rows and puts a RowGap where it was. A form of eight rows showing three
-// has five gaps too many between them, so the manager still asks for a
-// keyslot's kind before the form for it.
-func TestItem45AHiddenFormRowKeepsItsGap(t *testing.T) {
+// 45. A form row hidden (38) is gone at once, gap and all (d9356f0):
+// FormRow.SetVisible asks for a layout, and the grid leaves a row nothing
+// visible is in out of its tracks, its gap too. The rows under it are
+// where they are in a form that never had it, so the manager adds a
+// keyslot in one step, the kind at the head of the form.
+func TestItem45AHiddenFormRowLeavesNoGap(t *testing.T) {
 	a := headless(t, 1)
 	form, mid, last := keyslotForm(true)
 	window(t, a, 400, 200, widgets.NewColumn(form, widgets.NewLabel("under")))
 	shown := widget.DeviceOrigin(last).Y
 	mid.SetVisible(false)
 	a.PumpOnce()
-	if got := widget.DeviceOrigin(last).Y; got != shown {
-		t.Fatalf("hiding a row lays the form out again now (the next row went from %v to %v): see uitoolkit-gaps.md item 45", shown, got)
-	}
-	form.RequestLayout()
-	a.PumpOnce()
 	never, _, lastOfNever := keyslotForm(false)
 	window(t, a, 400, 200, widgets.NewColumn(never, widgets.NewLabel("under")))
 	got, want := widget.DeviceOrigin(last).Y, widget.DeviceOrigin(lastOfNever).Y
-	if got == want {
-		t.Fatal("a hidden row leaves no gap now: see uitoolkit-gaps.md item 45, and the manager's two-step Add… for a keyslot")
+	if got == shown {
+		t.Fatal("hiding a row lays the form out only at the next layout again: see uitoolkit-gaps.md item 45")
 	}
-	if gap := got - want; gap != 6 {
-		t.Fatalf("a hidden row leaves %v pixels, not its RowGap", gap)
+	if got != want {
+		t.Fatalf("with a row hidden the next is at %v, in a form that never had it at %v: see uitoolkit-gaps.md item 45, and the manager's Add… for a keyslot", got, want)
+	}
+}
+
+// Found in the audit of v0.23.2.
+
+// 46. DialogContent (40) takes all the height the window offers, however
+// little its body holds: its ScrollView is not told to shrink to its
+// content, so a one-line DialogCard is most of the window tall. And its
+// foot is a row of the actions at their natural widths, so a ButtonBox
+// handed to it no longer keeps the platform's left-hand group (a
+// destructive button, under Mac and GNOME looks) apart. The manager
+// builds the arrangement itself (showDialog): a ScrollView that shrinks
+// to its content, flexed, over its ButtonBox at the dialog's full width.
+func TestItem46DialogContentFillsTheWindow(t *testing.T) {
+	a := headless(t, 1)
+	col := widgets.NewColumn()
+	window(t, a, 600, 700, col)
+	ok := widgets.NewButton("OK", nil)
+	card := widgets.DialogCard("Short", "One line.", ok)
+	o := widgets.NewOverlay(card)
+	widget.ShowOverlay(col, o)
+	a.PumpOnce()
+	h := widget.DeviceBounds(card).Dy()
+	widget.DismissOverlay(o)
+
+	box := widgets.NewButtonBox().AddButton(widgets.NewButton("Delete", nil), widgets.RoleDestructive).
+		AddButton(widgets.NewButton("Cancel", nil), widgets.RoleReject)
+	c2 := widgets.NewPanel("Delete?", widgets.DialogContent(widgets.NewLabel("Delete it?"), box))
+	c2.Window = true
+	o2 := widgets.NewOverlay(c2)
+	widget.ShowOverlay(col, o2)
+	a.PumpOnce()
+	natural := box.Measure(layout.Unbounded()).X
+	if h < 0.75*700 || box.Bounds().Dx() > natural+1 {
+		t.Fatalf("a one-line DialogCard is %v tall in a window 700 tall, and a ButtonBox in DialogContent is %v wide for its natural %v: see uitoolkit-gaps.md item 46",
+			h, box.Bounds().Dx(), natural)
+	}
+}
+
+// 47. On Wayland a secret's password-manager hint is answered with the
+// secret. The owner offers x-kde-passwordManagerHint beside the text
+// types, but its send handler is not told which type was asked for
+// (uitk_dsrc_send drops the mime) and writes the clipboard's bytes for
+// every one; Klipper asks for the hint, reads the passphrase where it
+// looks for "secret", and keeps the copy in its history. X11 answers the
+// hint target with "secret" (handleSelReq).
+func TestItem47WaylandAnswersTheHintWithTheSecret(t *testing.T) {
+	send := uitoolkitFunc(t, "wayland_linux.go", "", "uitkWlDataSend")
+	if !strings.Contains(send, "func uitkWlDataSend(id C.uintptr_t, fd C.int)") ||
+		!uitoolkitHas(t, "wayland_linux.go", "(void)s; (void)mime;\n\tuitkWlDataSend(") {
+		t.Fatal("the Wayland owner is told which type a paste asks for now: see uitoolkit-gaps.md item 47")
+	}
+	if !uitoolkitHas(t, "wayland_linux.go", `C.CString("x-kde-passwordManagerHint")`) {
+		t.Fatal("the Wayland owner no longer offers the hint: see uitoolkit-gaps.md items 7 and 47")
+	}
+	x11 := uitoolkitFunc(t, "x11_linux.go", "x11Conn", "handleSelReq")
+	if !strings.Contains(x11, "case c.atomPwHint:") || !strings.Contains(x11, `[]byte("secret")`) {
+		t.Fatal("X11 no longer answers the hint with \"secret\": see uitoolkit-gaps.md items 7 and 47")
+	}
+}
+
+// 48. A copied secret is still held once the clipboard has moved on.
+// Nothing ends a SecretClip when the selection goes elsewhere (another
+// program's copy, or the program's own ordinary one), so: a paste into a
+// SecretField takes the old secret rather than what is on the clipboard;
+// ClipboardHoldsSecret says one is held; and the clear at its timeout, at
+// a lock and at quit empties whatever the clipboard holds by then on
+// Windows (EmptyClipboard), macOS (clearContents) and Wayland (an empty
+// offer, the primary selection's too), with nothing to check it is still
+// this copy. X11 checks it owns the selection, but its own later copy it
+// does own. Headless, the program's own copy shows it: the native
+// clipboards are not touched.
+func TestItem48ACopiedSecretOutlivesTheClipboard(t *testing.T) {
+	t.Cleanup(platform.ClipboardClear)
+	c := platform.ClipboardSetSecret([]byte("hunter2-github"), -1)
+	platform.ClipboardSet("an ordinary copy since")
+	got := platform.ClipboardGetSecret()
+	held := platform.ClipboardHoldsSecret()
+	c.Clear()
+	if string(got) != "hunter2-github" || !held {
+		t.Fatalf("after an ordinary copy a secret paste reads %q, and a secret is held %v: a copy ends the secret now, see uitoolkit-gaps.md item 48", got, held)
+	}
+	uitoolkit.WipeBytes(got)
+	win := uitoolkitFunc(t, "clipboard_secret_windows.go", "", "clipboardNativeClear")
+	mac := uitoolkitSource(t, "clipboard_secret_darwin.go")
+	if strings.Contains(win, "Sequence") || strings.Contains(win, "Owner") || strings.Contains(mac, "changeCount") {
+		t.Fatal("clearing a secret checks the clipboard is still that copy now: see uitoolkit-gaps.md item 48")
+	}
+	// Only the secret clipboard itself knows a secret is held: no
+	// backend's "the selection went elsewhere" tells it.
+	files, _ := filepath.Glob(filepath.Join(uitoolkitDir(), "*.go"))
+	for _, f := range files {
+		if name := filepath.Base(f); name != "clipboard_secret.go" && !strings.HasSuffix(name, "_test.go") &&
+			strings.Contains(uitoolkitSource(t, name), "secretHeld") {
+			t.Fatalf("%s ends a held secret now: see uitoolkit-gaps.md item 48", name)
+		}
+	}
+	if clear := uitoolkitFunc(t, "clipboard_secret_linux.go", "", "clipboardNativeClear"); !strings.Contains(clear, `wlClipSet("")`) {
+		t.Fatal("the Wayland clear no longer takes the clipboard with an empty offer: see uitoolkit-gaps.md item 48")
+	}
+}
+
+// 49. What a long pasted secret leaves behind (42 holds for one that
+// fits a read): the Wayland reader grows what it has read by append, so
+// a paste longer than its 4 KiB buffer (a private key into a SecretArea)
+// leaves each array it outgrew unzeroed; and X11's INCR transfer, for a
+// paste larger than the owner sends at once, frees each piece unzeroed
+// and grows its buffer by append too.
+func TestItem49ALongPasteLeavesWhatItOutgrew(t *testing.T) {
+	loop := uitoolkitFunc(t, "wayland_transfer_linux.go", "", "wlReadLoop")
+	prop := uitoolkitFunc(t, "x11_linux.go", "x11Conn", "handleProperty")
+	incr, end := strings.Index(prop, "c.incrRecv.active"), strings.Index(prop, "state != propertyDelete")
+	if incr < 0 || end < incr {
+		t.Fatal("what this pin reads of X11's INCR transfer has moved: see uitoolkit-gaps.md item 49")
+	}
+	if !strings.Contains(loop, "out = append(out, buf[:n]...)") || strings.Contains(prop[incr:end], "ui_zero") ||
+		!strings.Contains(prop[incr:end], "AppendINCRPiece(") {
+		t.Fatal("a long paste zeroes what it outgrows now: see uitoolkit-gaps.md item 49")
 	}
 }
