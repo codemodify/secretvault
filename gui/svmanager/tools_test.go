@@ -126,7 +126,7 @@ func TestFilesAreEncryptedAndDecryptedWithAge(t *testing.T) {
 	h.waitText("Decrypt a file (age)")
 	h.fill("File", enc2)
 	h.fill("Write to", out2)
-	h.choose("Identity", 0)
+	h.tick("age/me", false)
 	h.press("Decrypt")
 	h.waitText("The file's passphrase")
 	h.answer(map[string]string{"Passphrase": "a file passphrase"})
@@ -161,7 +161,7 @@ func TestMailIsInspectedAndComposed(t *testing.T) {
 	h.fill("Message", sent)
 	h.press("Inspect")
 	h.waitText("The message's layers")
-	if !strings.Contains(h.text(), "the plan") || !strings.Contains(h.text(), "signature:") {
+	if !strings.Contains(h.text(), "Subject (protected)") || strings.Contains(h.text(), "the plan") || !strings.Contains(h.text(), "signature:") {
 		t.Fatalf("the report:\n%s", h.text())
 	}
 	if strings.Contains(h.text(), "Noon it is.") {

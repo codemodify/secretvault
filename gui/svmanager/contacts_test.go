@@ -150,7 +150,7 @@ func TestMyQRCodeAndContactsVaultAndDirectories(t *testing.T) {
 	h.start(Options{})
 	h.unlock()
 	h.m.showMyQR()
-	h.pump()
+	h.idle()
 	h.press("Show")
 	if got := h.failed(); !strings.Contains(got, "no key of yours") || strings.Contains(got, "--key") {
 		t.Fatalf("no keys: %q", got)
@@ -161,7 +161,7 @@ func TestMyQRCodeAndContactsVaultAndDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.m.showMyQR()
-	h.pump()
+	h.idle()
 	h.press("Show")
 	h.waitText("QR code of the contact code")
 	if find(h.overlay(), func(*qrView) bool { return true }) == nil {

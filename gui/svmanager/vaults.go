@@ -290,8 +290,10 @@ func (m *Manager) lockVault(all bool) {
 
 // makeDefault makes the vault shown the one programs use when they name
 // none.
-func (m *Manager) makeDefault() {
-	vault := m.vault
+func (m *Manager) makeDefault() { m.makeDefaultOf(m.vault, nil) }
+
+// makeDefaultOf makes vault the default, and then calls then.
+func (m *Manager) makeDefaultOf(vault string, then func()) {
 	if vault == "" {
 		return
 	}
@@ -304,6 +306,9 @@ func (m *Manager) makeDefault() {
 		}
 		m.say("%s is the default vault now.", vault)
 		m.reloadVaults()
+		if then != nil {
+			then()
+		}
 	})
 }
 

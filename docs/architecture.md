@@ -642,10 +642,32 @@ answer only after asking the person, through the same program.
   field has it, and saying when Caps Lock is on. A new vault's passphrase
   dialog says so too.
 
+- **Secrets shown once** (a recovery key, its shares, a sync invite, an
+  emergency access invite) are drawn from their bytes in a dialog that
+  wipes them as it closes, and offer a QR code in a dialog of its own,
+  whose modules are wiped with it (`svqr.Code.Wipe`). Passphrases asked in
+  the middle of local work (an OpenPGP key's own, an age file's, an SSH
+  key's) are asked in a dialog from the worker's goroutine, and wiped
+  once used. Decrypted files are written only whole, and only their
+  owner's to read; a file there is replaced only when the person says so.
+  A decrypted message's text parts, and the header fields an encryption
+  protects, are masked until shown.
+- **The desktop.** Becoming the keyring, setting browsers up and pointing
+  gpg at the daemon are shown as the plan svops makes, as the CLI's
+  `--dry-run` shows it, and carried out only when the person says so; the
+  program other programs are told to start is the CLI beside the manager,
+  never the manager. Opening a vault at login asks first, as it adds a key
+  that needs no passphrase.
+
 Where a secret still becomes a Go string:
 - a one-time password key, while svotp parses it, and the code svotp
   makes;
-- a new vault's recovery key, which the daemon's answer carries as a string;
+- a new vault's recovery key, which the daemon's answer carries as a string,
+  and the shares `svops.SplitRecoveryKey` splits it into;
+- a sync invite (`svrpc.SyncInvite`), and a sync server's admin token and
+  an invite to join, which go to the daemon as strings;
+- a decrypted message's text, which the daemon's report carries as
+  strings;
 - the values of fields that are not secret (text, URLs, e-mail);
 - what JSON encoding and decoding make on the way to and from the daemon,
   as for every client;

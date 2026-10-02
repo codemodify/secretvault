@@ -27,6 +27,10 @@ func WriteNew(path string, data []byte) error {
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
+	if err != nil {
+		// It was made here: a part of a secret is not left behind.
+		os.Remove(path)
+	}
 	return err
 }
 

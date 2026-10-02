@@ -90,11 +90,26 @@ func (m *Manager) drawSettings(p *vaultPage, pn *pane, v svrpc.VaultInfo) widget
 	}
 	col := widgets.NewColumn(m.facts(rows)).WithGap(gap).WithPad(gap)
 	login := widgets.NewCheckbox("Open when I log in", v.LoginUnlock, nil)
-	login.OnInput = func(on bool) { m.setLoginUnlock(p, on, login) }
+	login.OnInput = func(on bool) {
+		if !on {
+			m.setLoginUnlock(p, false, login)
+			return
+		}
+		// It weakens the vault: asked first, as removing a keyslot is.
+		login.Checked = false
+		login.Invalidate()
+		m.confirm("Open "+p.vault+" when you log in?", "Vault "+p.vault+" gets a keyslot whose key the system keeps for you: "+
+			"it opens the vault without its passphrase whenever you are logged in, and it locks when you log out instead of "+
+			"after idle minutes. Programs still ask before they read it.", "Open it at login", func() {
+			login.Checked = true
+			login.Invalidate()
+			m.setLoginUnlock(p, true, login)
+		})
+	}
 	col.Add(widgets.NewTip("With a key the system keeps for you; it locks when you log out. Programs still ask before they read it.", login))
 	verify := widgets.NewButton("Verify every file…", func() { m.verifyVault(p) })
 	pn.focus = verify
-	def2 := widgets.NewButton("Make default", func() { m.makeDefault(); m.refreshTab(p, tabSettings) })
+	def2 := widgets.NewButton("Make default", func() { m.makeDefaultOf(p.vault, func() { m.refreshTab(p, tabSettings) }) })
 	def2.SetEnabled(!v.Default)
 	col.Add(buttons(verify, def2, widgets.NewButton("Forget this vault…", func() { m.forgetVault(p) })))
 	return scrolled(col)
@@ -104,10 +119,12 @@ func (m *Manager) drawSettings(p *vaultPage, pn *pane, v svrpc.VaultInfo) widget
 // login).
 func (m *Manager) setLoginUnlock(p *vaultPage, on bool, box *widgets.Checkbox) {
 	var v svrpc.VaultInfo
+	box.SetEnabled(false) // one change at a time
 	m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 		v, err = c.SetLoginUnlock(ctx, p.vault, on)
 		return err
 	}, func(err error) {
+		box.SetEnabled(true)
 		if err != nil {
 			box.Checked = !on
 			box.Invalidate()
@@ -341,6 +358,13 @@ func (m *Manager) unlockWithShares(vault string) {
 	share := f.secret("Share 1", "")
 	count := f.note("Type the shares one at a time; the first says how many it takes.")
 	f.onClose(shares.Wipe)
+	f.failed = func() {
+		// The shares did not open it: they are typed again, from the
+		// first.
+		shares.Wipe()
+		*shares = svops.ShareCollector{}
+		count.SetText("Type the shares one at a time; the first says how many it takes.")
+	}
 	f.show("Add", nil)
 	f.accept.OnClick = func() {
 		if share.Empty() {
@@ -422,7 +446,7 @@ func (m *Manager) showAbout() {
 		if len(st.Emergency) > 0 {
 			col.Add(section(m, "Emergency access"))
 			for _, n := range st.Emergency {
-				l := toned(n.Text, widgets.ToneWarning)
+				l := toned(guiWords(n.Text), widgets.ToneWarning)
 				l.Wrap = true
 				col.Add(l)
 			}

@@ -80,7 +80,7 @@ func (m *Manager) drawSync(p *vaultPage, pn *pane, open bool, devErr error) widg
 	}
 	now := widgets.NewButton("Sync now", func() { m.syncNow(p) })
 	pn.focus = now
-	col.Add(buttons(now,
+	col.Add(buttons(now, widgets.NewButton("Refresh", pn.refresh),
 		widgets.NewButton("Invite a device…", func() { m.inviteDevice(p) }),
 		widgets.NewButton("Stop syncing…", func() { m.syncOff(p) })))
 	col.Add(section(m, "Devices that sync it"))

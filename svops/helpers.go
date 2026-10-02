@@ -2,7 +2,11 @@ package svops
 
 import (
 	"net/url"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/codemodify/secretvault/svcore"
@@ -69,6 +73,50 @@ func GitItem(kv map[string]string) svrpc.Item {
 		{Name: "password", Type: svcore.FieldConcealed, Value: []byte(kv["password"])},
 		{Name: "url", Type: svcore.FieldURL, Value: []byte(kv["protocol"] + "://" + kv["host"])},
 	}}
+}
+
+// HelperLink is one helper's link, as the installer makes it beside the
+// CLI, and whether the programs that start it find it.
+type HelperLink struct {
+	Name   string // as programs start it: git-credential-secretvault, ...
+	Path   string // where the installer puts it, beside the CLI ("" with no CLI)
+	Exists bool   // something is there
+	Ours   bool   // and it is the CLI
+	OnPath string // where PATH finds it, "" when it does not
+}
+
+// HelperLinks says, helper by helper (in the order of their names), where
+// its link to the CLI at cli is, whether it is there and is the CLI, and
+// where PATH finds it. An interface shows it; scripts/install.sh makes
+// the links.
+func HelperLinks(cli string) []HelperLink {
+	names := make([]string, 0, len(Helpers))
+	for n := range Helpers {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	var out []HelperLink
+	for _, n := range names {
+		exe := n
+		if runtime.GOOS == "windows" {
+			exe += ".exe"
+		}
+		h := HelperLink{Name: n}
+		if cli != "" {
+			h.Path = filepath.Join(filepath.Dir(cli), exe)
+			if a, err := os.Stat(h.Path); err == nil {
+				h.Exists = true
+				if b, err := os.Stat(cli); err == nil && os.SameFile(a, b) {
+					h.Ours = true
+				}
+			}
+		}
+		if p, err := exec.LookPath(exe); err == nil {
+			h.OnPath = p
+		}
+		out = append(out, h)
+	}
+	return out
 }
 
 // DockerItemName is the item docker's helper keeps a registry's login as.

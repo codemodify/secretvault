@@ -167,10 +167,12 @@ func (m *Manager) removeDevice(p *vaultPage) {
 // signatures).
 func (m *Manager) setSignatures(p *vaultPage, require bool, box *widgets.Checkbox) {
 	var out svrpc.SignaturePolicy
+	box.SetEnabled(false) // one change at a time
 	m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 		out, err = c.Signatures(ctx, p.vault, &require)
 		return err
 	}, func(err error) {
+		box.SetEnabled(true)
 		if err != nil {
 			box.Checked = !require
 			box.Invalidate()

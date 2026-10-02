@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
@@ -62,16 +63,18 @@ func (m *Manager) signFile() {
 				}
 			}
 			var res svrpc.PGPSignResult
-			f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
-				if params.Data, err = os.ReadFile(path); err != nil {
-					return err
-				}
-				if res, err = c.SignPGP(ctx, params); err != nil {
-					return err
-				}
-				return writeAtomic(dst, 0o644, res.Signature)
-			}, func() {
-				m.say("Signed with %s; wrote %s.", res.Item, dst)
+			m.replacing(dst, func() {
+				f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
+					if params.Data, err = os.ReadFile(path); err != nil {
+						return err
+					}
+					if res, err = c.SignPGP(ctx, params); err != nil {
+						return err
+					}
+					return writeAtomic(dst, 0o644, res.Signature)
+				}, func() {
+					m.say("Signed with %s; wrote %s.", res.Item, dst)
+				})
 			})
 		})
 	})
@@ -144,36 +147,38 @@ func (m *Manager) verifyFile() {
 		params := svrpc.PGPVerifyParams{From: strings.TrimSpace(from.Text)}
 		sigPath, dst := sig.Path(), out.Path()
 		var res svrpc.PGPVerifyResult
-		f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
-			if params.Data, err = os.ReadFile(path); err != nil {
-				return err
-			}
-			if sigPath != "" {
-				if params.Signature, err = os.ReadFile(sigPath); err != nil {
+		m.replacing(dst, func() {
+			f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
+				if params.Data, err = os.ReadFile(path); err != nil {
 					return err
 				}
-			}
-			if res, err = c.VerifyPGP(ctx, params); err != nil {
-				return err
-			}
-			if dst != "" && res.Body != nil {
-				return writeAtomic(dst, 0o644, res.Body)
-			}
-			return nil
-		}, func() {
-			verdict := "No valid signature."
-			valid := false
-			for _, s := range res.Signatures {
-				if s.Valid && s.Verdict != nil && s.Verdict.Trusted {
-					verdict = "A valid signature, by a signer your contacts verify."
-					break
+				if sigPath != "" {
+					if params.Signature, err = os.ReadFile(sigPath); err != nil {
+						return err
+					}
 				}
-				valid = valid || s.Valid
-			}
-			if verdict == "No valid signature." && valid {
-				verdict = "A valid signature, but by a signer your contacts do not verify."
-			}
-			m.showText("The signature", verdict, signaturesText(res.Signatures))
+				if res, err = c.VerifyPGP(ctx, params); err != nil {
+					return err
+				}
+				if dst != "" && res.Body != nil {
+					return writeAtomic(dst, 0o644, res.Body)
+				}
+				return nil
+			}, func() {
+				verdict := "No valid signature."
+				valid := false
+				for _, s := range res.Signatures {
+					if s.Valid && s.Verdict != nil && s.Verdict.Trusted {
+						verdict = "A valid signature, by a signer your contacts verify."
+						break
+					}
+					valid = valid || s.Valid
+				}
+				if verdict == "No valid signature." && valid {
+					verdict = "A valid signature, but by a signer your contacts do not verify."
+				}
+				m.showText("The signature", verdict, signaturesText(res.Signatures))
+			})
 		})
 	})
 }
@@ -206,24 +211,26 @@ func (m *Manager) decryptPGPFile() {
 				params.Key = keys[i]
 			}
 			var res svrpc.PGPDecryptResult
-			f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
-				if params.Data, err = os.ReadFile(path); err != nil {
-					return err
-				}
-				if res, err = c.DecryptPGP(ctx, params); err != nil {
-					return err
-				}
-				defer clear(res.Body)
-				return writeAtomic(dst, 0o600, res.Body)
-			}, func() {
-				text := signaturesText(res.Signatures)
-				for _, w := range res.Warnings {
-					text += "\nwarning: " + w
-				}
-				m.say("Decrypted with %s; wrote %s.", res.Item, dst)
-				if strings.TrimSpace(text) != "" {
-					m.showText("Decrypted", "Decrypted with "+res.Item+" into "+dst+", which only you can read.", strings.TrimSpace(text))
-				}
+			m.replacing(dst, func() {
+				f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
+					if params.Data, err = os.ReadFile(path); err != nil {
+						return err
+					}
+					if res, err = c.DecryptPGP(ctx, params); err != nil {
+						return err
+					}
+					defer clear(res.Body)
+					return writeAtomic(dst, 0o600, res.Body)
+				}, func() {
+					text := signaturesText(res.Signatures)
+					for _, w := range res.Warnings {
+						text += "\nwarning: " + w
+					}
+					m.say("Decrypted with %s; wrote %s.", res.Item, dst)
+					if strings.TrimSpace(text) != "" {
+						m.showText("Decrypted", "Decrypted with "+res.Item+" into "+dst+", which only you can read.", strings.TrimSpace(text))
+					}
+				})
 			})
 		})
 	})
@@ -334,61 +341,63 @@ func (m *Manager) encryptAgeFile() {
 				return
 			}
 			armored, mix := armor.Checked, mixed.Checked
-			f.call(func(ctx context.Context, c *secretvault.Client) error {
-				itemRecipient := func(r svrpc.Ref) (string, error) { return svops.AgeItemRecipient(ctx, c, r) }
-				var recipients []svage.Recipient
-				for _, a := range args {
-					r, err := svops.AgeRecipient(a, itemRecipient, m.pluginUI())
-					if err != nil {
-						return fmt.Errorf("%.40s: %w", a, err)
-					}
-					recipients = append(recipients, r)
-				}
-				if rf != "" {
-					b, err := os.ReadFile(rf)
-					if err != nil {
-						return err
-					}
-					if err := svops.EachKeyLine(b, func(n int, line []byte) error {
-						r, err := svops.AgeRecipient(string(line), itemRecipient, m.pluginUI())
+			m.replacing(dst, func() {
+				f.call(func(ctx context.Context, c *secretvault.Client) error {
+					itemRecipient := func(r svrpc.Ref) (string, error) { return svops.AgeItemRecipient(ctx, c, r) }
+					var recipients []svage.Recipient
+					for _, a := range args {
+						r, err := svops.AgeRecipient(a, itemRecipient, m.pluginUI())
 						if err != nil {
-							return fmt.Errorf("%s:%d: %w", rf, n, err)
+							return fmt.Errorf("%.40s: %w", a, err)
 						}
 						recipients = append(recipients, r)
-						return nil
-					}); err != nil {
-						return err
 					}
-				}
-				if usePass {
-					p, err := m.askSecret("The file's passphrase", "Passphrase", "Whoever has it opens the file.", true, minPassphrase)
+					if rf != "" {
+						b, err := os.ReadFile(rf)
+						if err != nil {
+							return err
+						}
+						if err := svops.EachKeyLine(b, func(n int, line []byte) error {
+							r, err := svops.AgeRecipient(string(line), itemRecipient, m.pluginUI())
+							if err != nil {
+								return fmt.Errorf("%s:%d: %w", rf, n, err)
+							}
+							recipients = append(recipients, r)
+							return nil
+						}); err != nil {
+							return err
+						}
+					}
+					if usePass {
+						p, err := m.askSecret("The file's passphrase", "Passphrase", "Whoever has it opens the file.", true, 1)
+						if err != nil {
+							return err
+						}
+						sr, err := svage.NewScryptRecipient(p)
+						clear(p)
+						if err != nil {
+							return err
+						}
+						defer sr.Wipe()
+						recipients = append(recipients, sr)
+					}
+					src, err := os.Open(path)
 					if err != nil {
 						return err
 					}
-					sr, err := svage.NewScryptRecipient(p)
-					clear(p)
+					defer src.Close()
+					a, err := svops.CreateAtomic(dst, 0o644)
 					if err != nil {
 						return err
 					}
-					defer sr.Wipe()
-					recipients = append(recipients, sr)
-				}
-				src, err := os.Open(path)
-				if err != nil {
-					return err
-				}
-				defer src.Close()
-				a, err := svops.CreateAtomic(dst, 0o644)
-				if err != nil {
-					return err
-				}
-				defer a.Abort()
-				if err := svops.AgeEncrypt(a, src, recipients, armored, mix); err != nil {
-					return err
-				}
-				return a.Commit()
-			}, func() {
-				m.say("Encrypted %s into %s.", filepath.Base(path), dst)
+					defer a.Abort()
+					if err := svops.AgeEncrypt(a, src, recipients, armored, mix); err != nil {
+						return err
+					}
+					return a.Commit()
+				}, func() {
+					m.say("Encrypted %s into %s.", filepath.Base(path), dst)
+				})
 			})
 		})
 	})
@@ -422,13 +431,19 @@ func (m *Manager) decryptAgeFile() {
 		f := m.newForm("Decrypt a file (age)")
 		in := f.path("File", PickOpen, "")
 		out := f.path("Write to", PickSave, "")
-		names := []string{"none of the vault's"}
-		for _, e := range ids {
-			names = append(names, e.Item.Name)
+		// Any number of the vault's identities, and of identity files, as
+		// the CLI's -i takes them, each tried in turn.
+		boxes := make([]*widgets.Checkbox, len(ids))
+		if len(ids) > 0 {
+			list := widgets.NewColumn().WithGap(4)
+			for i, e := range ids {
+				boxes[i] = widgets.NewCheckbox(e.Item.Name, i == 0, nil)
+				list.Add(boxes[i])
+			}
+			f.row("Identities", list)
 		}
-		which := f.choice("Identity", names, min(1, len(ids)))
-		idFile := f.path("Identity file", PickOpen, "")
-		f.note("Identity file: optional: age's, a plugin's, or an SSH private key. With no identity, the file's passphrase is asked for.")
+		idFile := f.path("Identity files", PickOpen, "")
+		f.note("Identity files: optional, several separated by commas: age's, a plugin's, or an SSH private key. With no identity, the file's passphrase is asked for.")
 		f.show("Decrypt", func() {
 			path, dst := in.Path(), out.Path()
 			if path == "" || dst == "" {
@@ -436,61 +451,63 @@ func (m *Manager) decryptAgeFile() {
 				return
 			}
 			var args []string
-			if i := which.Selected - 1; i >= 0 && i < len(ids) {
-				args = append(args, svrpc.Ref{Vault: vault, Item: ids[i].Item.Name}.String())
-			}
-			if p := idFile.Path(); p != "" {
-				args = append(args, p)
-			}
-			f.call(func(ctx context.Context, c *secretvault.Client) error {
-				opts := svops.AgeIdentityOptions{
-					Vault: func(r svrpc.Ref) svage.Identity {
-						return &svops.VaultIdentity{Ref: r, Fetch: func(r svrpc.Ref) (svage.Identity, error) {
-							return svops.LoadAgeIdentity(ctx, c, r)
-						}}
-					},
-					UI: m.pluginUI(),
-					SSHPassphrase: func(p string) ([]byte, error) {
-						return m.askSecret("The SSH key's passphrase", "Passphrase", "The key in "+filepath.Base(p)+" is protected by a passphrase.", false, 1)
-					},
+			for i, b := range boxes {
+				if b.Checked {
+					args = append(args, svrpc.Ref{Vault: vault, Item: ids[i].Item.Name}.String())
 				}
-				var list []svage.Identity
-				for _, a := range args {
-					more, err := svops.AgeIdentities(a, opts)
+			}
+			args = append(args, splitList(idFile.Path())...)
+			m.replacing(dst, func() {
+				f.call(func(ctx context.Context, c *secretvault.Client) error {
+					opts := svops.AgeIdentityOptions{
+						Vault: func(r svrpc.Ref) svage.Identity {
+							return &svops.VaultIdentity{Ref: r, Fetch: func(r svrpc.Ref) (svage.Identity, error) {
+								return svops.LoadAgeIdentity(ctx, c, r)
+							}}
+						},
+						UI: m.pluginUI(),
+						SSHPassphrase: func(p string) ([]byte, error) {
+							return m.askSecret("The SSH key's passphrase", "Passphrase", "The key in "+filepath.Base(p)+" is protected by a passphrase.", false, 1)
+						},
+					}
+					var list []svage.Identity
+					for _, a := range args {
+						more, err := svops.AgeIdentities(a, opts)
+						if err != nil {
+							return err
+						}
+						list = append(list, more...)
+					}
+					byPassphrase := len(list) == 0
+					if byPassphrase {
+						list = append(list, svops.PassphraseIdentity{Ask: func() ([]byte, error) {
+							return m.askSecret("The file's passphrase", "Passphrase", filepath.Base(path)+" is encrypted to a passphrase.", false, 1)
+						}})
+					}
+					src, err := os.Open(path)
 					if err != nil {
 						return err
 					}
-					list = append(list, more...)
-				}
-				byPassphrase := len(list) == 0
-				if byPassphrase {
-					list = append(list, svops.PassphraseIdentity{Ask: func() ([]byte, error) {
-						return m.askSecret("The file's passphrase", "Passphrase", filepath.Base(path)+" is encrypted to a passphrase.", false, 1)
-					}})
-				}
-				src, err := os.Open(path)
-				if err != nil {
-					return err
-				}
-				defer src.Close()
-				r, err := svops.AgeDecrypt(src, list)
-				if err != nil {
-					if byPassphrase && errors.Is(err, svage.ErrIncorrectIdentity) {
-						return errors.New("the file is not encrypted to a passphrase: choose an identity of the vault, or an identity file")
+					defer src.Close()
+					r, err := svops.AgeDecrypt(src, list)
+					if err != nil {
+						if byPassphrase && errors.Is(err, svage.ErrIncorrectIdentity) {
+							return errors.New("the file is not encrypted to a passphrase: choose an identity of the vault, or an identity file")
+						}
+						return err
 					}
-					return err
-				}
-				a, err := svops.CreateAtomic(dst, 0o600)
-				if err != nil {
-					return err
-				}
-				defer a.Abort()
-				if _, err := io.Copy(a, r); err != nil {
-					return err
-				}
-				return a.Commit()
-			}, func() {
-				m.say("Decrypted %s into %s, which only you can read.", filepath.Base(path), dst)
+					a, err := svops.CreateAtomic(dst, 0o600)
+					if err != nil {
+						return err
+					}
+					defer a.Abort()
+					if _, err := io.Copy(a, r); err != nil {
+						return err
+					}
+					return a.Commit()
+				}, func() {
+					m.say("Decrypted %s into %s, which only you can read.", filepath.Base(path), dst)
+				})
 			})
 		})
 	})
@@ -514,6 +531,11 @@ func (m *Manager) inspectMessage() {
 		levels[i] = l.text
 	}
 	least := f.choice("Signers count from", levels, 0)
+	contactVaults := []string{"the vault contacts are kept in"}
+	for _, v := range m.vaults {
+		contactVaults = append(contactVaults, v.Name)
+	}
+	contacts := f.choice("Contacts from", contactVaults, 0)
 	f.show("Inspect", func() {
 		path := in.Path()
 		if path == "" {
@@ -521,6 +543,9 @@ func (m *Manager) inspectMessage() {
 			return
 		}
 		params := svrpc.MailInspectParams{Decrypt: decrypt.Checked, Vault: vault, MinLevel: minLevels[max(0, least.Selected)].level}
+		if i := contacts.Selected; i > 0 && i < len(contactVaults) {
+			params.Contacts = contactVaults[i]
+		}
 		var rep svmail.Report
 		var res svrpc.MailInspectResult
 		f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
@@ -530,7 +555,9 @@ func (m *Manager) inspectMessage() {
 			if res, err = c.InspectMail(ctx, params); err != nil {
 				return err
 			}
-			return json.Unmarshal(res.Report, &rep)
+			err = json.Unmarshal(res.Report, &rep)
+			clear(res.Report) // it holds the decrypted text too
+			return err
 		}, func() {
 			m.showMailReport(&rep, res.Verdicts)
 		})
@@ -591,32 +618,42 @@ func (m *Manager) showMailReport(rep *svmail.Report, verdicts []svrpc.MailVerdic
 			fmt.Fprintf(&b, "  %s\n", w.Message)
 		}
 	}
-	col := widgets.NewColumn(m.facts([][2]string{{"From", h.From + where}, {"Subject", h.Subject + where}})).WithGap(12)
-	view := widgets.NewMonoTextView(strings.TrimRight(b.String(), "\n"), "")
-	view.SetAccessibleName("The message's layers")
-	view.MinRows = 8
-	col.Add(view)
 	var texts []*secretText
 	var held [][]byte
-	for _, p := range rep.Parts {
-		if p.Text == "" || p.LegacyDisplay {
-			continue
-		}
-		v := []byte(p.Text)
+	// masked shows a value masked until shown: a decrypted part, or the
+	// header fields an encryption protected.
+	masked := func(label string, v []byte) widget.Component {
 		held = append(held, v)
 		t := newSecretText(v)
 		t.wrap = true
-		t.SetAccessibleName(p.ContentType)
+		t.SetAccessibleName(label)
 		texts = append(texts, t)
 		show := widgets.NewButton("Show", nil)
+		show.SetAccessibleName("Show the " + strings.ToLower(label))
 		show.OnClick = func() {
 			t.SetReveal(!t.Revealed())
 			show.Text = showLabel(t.Revealed(), false)
 			show.RequestLayout()
 			m.syncCapture()
 		}
-		col.Add(widgets.NewRow(m.muted(p.ContentType), show).WithGap(gap))
-		col.Add(t)
+		return widgets.NewColumn(widgets.NewRow(m.muted(label), show).WithGap(gap), t).WithGap(4)
+	}
+	col := widgets.NewColumn().WithGap(12)
+	if where != "" {
+		col.Add(masked("From"+where, []byte(h.From)))
+		col.Add(masked("Subject"+where, []byte(h.Subject)))
+	} else {
+		col.Add(m.facts([][2]string{{"From", h.From}, {"Subject", h.Subject}}))
+	}
+	view := widgets.NewMonoTextView(strings.TrimRight(b.String(), "\n"), "")
+	view.SetAccessibleName("The message's layers")
+	view.MinRows = 8
+	col.Add(view)
+	for _, p := range rep.Parts {
+		if p.Text == "" || p.LegacyDisplay {
+			continue
+		}
+		col.Add(masked(p.ContentType, []byte(p.Text)))
 	}
 	var d *dialog
 	ok := widgets.NewButton("Close", func() { d.Close() })
@@ -659,23 +696,25 @@ func (m *Manager) composeMessage() {
 		params := svrpc.MailComposeParams{Sign: sign.Checked, Encrypt: encrypt.Checked, Format: []string{"", "openpgp", "smime"}[max(0, format.Selected)],
 			Key: strings.TrimSpace(key.Text), Vault: vault}
 		var res svrpc.MailComposeResult
-		f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
-			if params.Message, err = svops.ReadMessage(path, nil); err != nil {
-				return err
-			}
-			if res, err = c.ComposeMail(ctx, params); err != nil {
-				return err
-			}
-			return svops.WriteMessage(dst, res.Message)
-		}, func() {
-			how := res.Format
-			if res.SignedWith != "" {
-				how += ", signed with " + res.SignedWith
-			}
-			if len(res.EncryptedTo) > 0 {
-				how += ", encrypted to " + strings.Join(res.EncryptedTo, ", ")
-			}
-			m.say("Wrote %s (%s).", dst, how)
+		m.replacing(dst, func() {
+			f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
+				if params.Message, err = svops.ReadMessage(path, nil); err != nil {
+					return err
+				}
+				if res, err = c.ComposeMail(ctx, params); err != nil {
+					return err
+				}
+				return svops.WriteMessage(dst, res.Message)
+			}, func() {
+				how := res.Format
+				if res.SignedWith != "" {
+					how += ", signed with " + res.SignedWith
+				}
+				if len(res.EncryptedTo) > 0 {
+					how += ", encrypted to " + strings.Join(res.EncryptedTo, ", ")
+				}
+				m.say("Wrote %s (%s).", dst, how)
+			})
 		})
 	})
 }

@@ -248,12 +248,18 @@ func (m *Manager) share(p *vaultPage) {
 			}
 		}
 		f := m.newForm("Share " + p.vault)
-		who := f.choice("With", names, min(1, len(withKey)))
+		// Nobody is chosen for the person: a contact is picked, or a
+		// recipient given, and never both.
+		who := f.choice("With", names, 0)
 		rcpt := f.path("Recipient", PickOpen, "")
 		f.note("Recipient: the text of one, a file holding one, or an identity file (its public half is used).")
 		label := f.text("Label", "", "a name for the person or device")
 		f.show("Share", func() {
 			arg, name := rcpt.Path(), strings.TrimSpace(label.Text)
+			if who.Selected > 0 && arg != "" {
+				f.fail("Choose a contact, or give a recipient: not both.")
+				return
+			}
 			if i := who.Selected - 1; i >= 0 && i < len(withKey) {
 				k, _ := secretvaultKey(withKey[i])
 				arg = string(k.Material)
@@ -309,7 +315,7 @@ func (m *Manager) grantEmergency(p *vaultPage) {
 			names = append(names, c.Name)
 		}
 		f := m.newForm("Emergency access to " + p.vault)
-		who := f.choice("Trustee", names, min(1, len(all)))
+		who := f.choice("Trustee", names, 0)
 		rcpt := f.text("Recipient", "", "a secretvault recipient, if not a contact")
 		fp := f.text("Fingerprint", "", "which of the contact's secretvault keys, if they have several")
 		wait := f.text("Wait", "7d", "like 48h, 7d or 2w (an hour to a year)")
@@ -317,6 +323,10 @@ func (m *Manager) grantEmergency(p *vaultPage) {
 		f.note("They may then ask for the vault. You are told when they do, and unless you deny it within the wait, they get it.")
 		f.show("Grant", func() {
 			contact := strings.TrimSpace(rcpt.Text)
+			if who.Selected > 0 && contact != "" {
+				f.fail("Choose a contact, or give a recipient: not both.")
+				return
+			}
 			if i := who.Selected - 1; i >= 0 && i < len(all) {
 				contact = all[i].ID
 			}

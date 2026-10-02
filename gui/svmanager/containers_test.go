@@ -49,7 +49,8 @@ func TestContainersAreMadeOpenedAndClosed(t *testing.T) {
 		t.Fatalf("said %q", h.m.ui.message)
 	}
 
-	h.pressOn("Close")
+	h.pressOn("Close…")
+	h.press("Close")
 	h.said("Closed " + img)
 	h.idle()
 	if p.boxes[0].State != "closed" {
@@ -58,12 +59,20 @@ func TestContainersAreMadeOpenedAndClosed(t *testing.T) {
 	h.pressOn("Open")
 	h.said("Opened " + img)
 
-	out := filepath.Join(h.dir, "work.header")
-	h.picks = []string{out}
+	// Any image's header, without the vault, to a new file only.
+	taken := filepath.Join(h.dir, "taken.header")
+	os.WriteFile(taken, []byte("old"), 0o600)
 	h.pressOn("Back up the header…")
-	h.waitText("Header backed up")
-	h.press("Close")
-	if st, err := os.Stat(out); err != nil || st.Size() == 0 {
+	h.fill("To", taken)
+	h.press("Back up")
+	if got := h.failed(); !strings.Contains(got, "exists") {
+		t.Fatalf("a backup over a file: %q", got)
+	}
+	out := filepath.Join(h.dir, "work.header")
+	h.fill("To", out)
+	h.press("Back up")
+	h.said("Wrote " + img + "'s header to " + out)
+	if st, err := os.Stat(out); err != nil || st.Size() < 1024 {
 		t.Fatalf("the header backup: %v %v", st, err)
 	}
 

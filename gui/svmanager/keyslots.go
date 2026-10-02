@@ -199,7 +199,7 @@ func (m *Manager) addSlotOf(p *vaultPage, typ string) {
 			if info.RecoveryKey != "" {
 				m.showNewRecovery(p.vault, info.RecoveryKey, n, k)
 			}
-		})
+		}, params.Secret)
 	})
 }
 
@@ -233,6 +233,13 @@ func (m *Manager) removeSlot(p *vaultPage) {
 		return
 	}
 	s := p.slots[i]
+	if s.Type == svformat.SlotEmergency {
+		// Removing it would end the grant only half: the server would
+		// still hold it. Revoking ends it whole.
+		m.say("Keyslot %s is emergency access: end it with Sharing › Emergency access › Revoke…", s.ID)
+		m.selectTab(p.tabbedPage, tabSharing)
+		return
+	}
 	what := s.Type
 	if s.Label != "" {
 		what += " (" + s.Label + ")"

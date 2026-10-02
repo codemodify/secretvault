@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -202,6 +200,10 @@ func (m *Manager) takeOver(p *desktopPage) {
 		m.fail(err)
 		return
 	}
+	if m.takingOver {
+		m.say("A takeover is under way already.")
+		return
+	}
 	if s, err := svops.LoadTakeover(); err == nil {
 		m.say("The takeover was already done on %s.", s.When.Local().Format("2006-01-02"))
 		return
@@ -264,24 +266,38 @@ func (m *Manager) takeOver(p *desktopPage) {
 	})
 }
 
-// applyTakeover carries out a takeover plan the person said yes to.
+// applyTakeover carries out a takeover plan the person said yes to. Only
+// one runs at a time, and it checks again, as it starts, that no takeover
+// was done meanwhile (by the CLI, say): the import before it may wait a
+// long time for the old keyring to be unlocked.
 func (m *Manager) applyTakeover(p *desktopPage, plan *svops.TakeoverPlan, exe, vault, prefix string, doImport bool) {
+	if m.takingOver {
+		m.say("A takeover is under way already.")
+		return
+	}
+	m.takingOver = true
 	var report []string
-	m.call(func(ctx context.Context, c *secretvault.Client) error {
+	m.call(func(_ context.Context, c *secretvault.Client) error {
+		if s, err := svops.LoadTakeover(); err == nil {
+			return fmt.Errorf("the takeover was already done on %s", s.When.Local().Format("2006-01-02"))
+		}
 		if doImport {
+			// As the CLI: the import has ten minutes of its own, since the
+			// old keyring may ask to be unlocked.
+			ctx, cancel := context.WithTimeout(m.ctx, 10*time.Minute)
 			secrets, warnings, err := m.readKeyring(ctx)
 			if err != nil {
+				cancel()
 				return fmt.Errorf("importing first: %w", err)
 			}
-			defer func() {
-				for i := range secrets {
-					secrets[i].Wipe()
-				}
-			}()
 			for _, w := range warnings {
 				report = append(report, "warning: "+w)
 			}
 			_, n, err := svops.ImportKeyring(ctx, c, vault, prefix, secrets)
+			for i := range secrets {
+				secrets[i].Wipe()
+			}
+			cancel()
 			if err != nil {
 				return fmt.Errorf("importing first: %w", err)
 			}
@@ -294,6 +310,8 @@ func (m *Manager) applyTakeover(p *desktopPage, plan *svops.TakeoverPlan, exe, v
 		if err != nil {
 			return err
 		}
+		ctx, cancel := context.WithTimeout(m.ctx, callTimeout)
+		defer cancel()
 		if err := c.ServeKeyring(ctx, true); err != nil {
 			return err
 		}
@@ -305,6 +323,7 @@ func (m *Manager) applyTakeover(p *desktopPage, plan *svops.TakeoverPlan, exe, v
 		}
 		return nil
 	}, func(err error) {
+		m.takingOver = false
 		intro := "secretvault is now the keyring. Give it back with Desktop › System keyring › Give it back…"
 		if err != nil {
 			intro = m.describe(err) + " What was done so far is below; Give it back… undoes it."
@@ -315,7 +334,9 @@ func (m *Manager) applyTakeover(p *desktopPage, plan *svops.TakeoverPlan, exe, v
 }
 
 // restoreKeyring undoes the takeover exactly (the CLI's keyring restore):
-// what it would remove shown first.
+// what it would remove shown first. It works with the daemon gone too,
+// which is when it may be needed most: turning the daemon's Secret
+// Service off is then all that is left out, as the CLI leaves it.
 func (m *Manager) restoreKeyring(p *desktopPage) {
 	s, err := svops.LoadTakeover()
 	if errors.Is(err, fs.ErrNotExist) {
@@ -336,11 +357,27 @@ func (m *Manager) restoreKeyring(p *desktopPage) {
 	lines = append(lines, "turn off secretvaultd's Secret Service")
 	m.showPlan("Give the keyring back", "Giving the keyring back to "+svops.DescribeExe(s.Previous)+" would:", lines, "Give it back", func() {
 		var report []string
-		m.call(func(ctx context.Context, c *secretvault.Client) error {
-			if err := c.ServeKeyring(ctx, false); err != nil {
-				report = append(report, "warning: "+m.describe(err))
+		c := m.client
+		if m.gone {
+			c = nil
+		}
+		m.work(func() error {
+			// What was shown is what is undone: a takeover undone, or done
+			// again, meanwhile (by the CLI) is looked at again first.
+			now, err := svops.LoadTakeover()
+			if err != nil || !now.When.Equal(s.When) || !slices.Equal(now.Created, s.Created) {
+				return errors.New("the takeover changed since it was shown: look at it again")
 			}
-			removed, _, err := svops.UndoTakeover(s) // as the CLI, units that do not restart go unsaid
+			if c != nil {
+				ctx, cancel := context.WithTimeout(m.ctx, callTimeout)
+				if err := c.ServeKeyring(ctx, false); err != nil {
+					report = append(report, "warning: "+m.describe(err))
+				}
+				cancel()
+			} else {
+				report = append(report, "warning: secretvaultd is not running: its Secret Service is off with it")
+			}
+			removed, _, err := svops.UndoTakeover(now) // as the CLI, units that do not restart go unsaid
 			for _, f := range removed {
 				report = append(report, "Removed "+f)
 			}
@@ -844,53 +881,42 @@ var helperUse = map[string]string{
 
 func (m *Manager) fillHelpers(p *desktopPage, pn *pane) {
 	cli := m.cliProgram()
-	type helper struct{ name, link, onPath string }
-	var hs []helper
+	var links []svops.HelperLink
+	pn.gen++
+	gen := pn.gen
 	m.work(func() error {
-		for _, name := range sortedKeys(svops.Helpers) {
-			h := helper{name: name, link: "not made"}
-			if cli != "" {
-				l := filepath.Join(filepath.Dir(cli), name)
-				if a, err := os.Stat(l); err == nil {
-					if b, err := os.Stat(cli); err == nil && os.SameFile(a, b) {
-						h.link = l
-					} else {
-						h.link = l + ": not a link to secretvault"
-					}
-				}
-			}
-			if path, err := exec.LookPath(name); err == nil {
-				h.onPath = path
-			}
-			hs = append(hs, h)
-		}
+		links = svops.HelperLinks(cli)
 		return nil
 	}, func(error) {
-		if !m.up(p.tabbedPage) {
+		if !m.up(p.tabbedPage) || gen != pn.gen {
 			return
 		}
-		pn.filled = true
 		col := widgets.NewColumn(m.paragraph("git, docker and age start secretvault under these names, as their credential helper and plugin; " +
 			"each read is asked about like any program's. The names are links to the secretvault program, beside it: the installer " +
 			"(scripts/install.sh) makes them, as it installs the CLI.")).WithGap(gap).WithPad(gap)
 		if cli == "" {
 			col.Add(toned(m.describe(svops.ErrNoCLI), widgets.ToneWarning))
 		}
-		var copies []*widgets.Button
-		for _, h := range hs {
-			col.Add(section(m, h.name))
-			found := "not found on PATH: git, docker and age will not start it"
-			if h.onPath != "" {
-				found = h.onPath
+		for _, h := range links {
+			col.Add(section(m, h.Name))
+			link := "not made"
+			switch {
+			case h.Ours:
+				link = h.Path
+			case h.Exists:
+				link = h.Path + ": not a link to secretvault"
 			}
-			use := helperUse[h.name]
-			col.Add(m.facts([][2]string{{"Link", h.link}, {"Found as", found}, {"Use", use}}))
+			found := "not found on PATH: the program that starts it will not find it"
+			if h.OnPath != "" {
+				found = h.OnPath
+			}
+			use := helperUse[h.Name]
+			col.Add(m.facts([][2]string{{"Link", link}, {"Found as", found}, {"Use", use}}))
 			if strings.HasPrefix(use, "git ") {
-				b := widgets.NewButton("Copy git's setting", func() { m.copyValue([]byte(use), "git's setting", "") })
-				copies = append(copies, b)
-				col.Add(buttons(b, widgets.NewButton("Show git's logins", func() { m.showFolder("git/") })))
+				col.Add(buttons(widgets.NewButton("Copy git's setting", func() { m.copyValue([]byte(use), "git's setting", "") }),
+					widgets.NewButton("Show git's logins", func() { m.showFolder("git/") })))
 			}
-			if strings.HasPrefix(h.name, "docker") {
+			if strings.HasPrefix(h.Name, "docker") {
 				col.Add(buttons(widgets.NewButton("Show the registries' logins", func() { m.showFolder("docker/") })))
 			}
 		}
@@ -935,6 +961,8 @@ func (m *Manager) fillHost(p *desktopPage, pn *pane) {
 	var st svrpc.HostStatus
 	var pol svrpc.HostPolicy
 	var events []svrpc.HostEvent
+	pn.gen++
+	gen := pn.gen
 	m.hostCall(func(ctx context.Context, c *secretvault.Client) (err error) {
 		if st, err = c.HostStatus(ctx); err != nil {
 			return err
@@ -945,7 +973,7 @@ func (m *Manager) fillHost(p *desktopPage, pn *pane) {
 		events, err = c.HostAudit(ctx, 200)
 		return err
 	}, func(err error) {
-		if !m.up(p.tabbedPage) {
+		if !m.up(p.tabbedPage) || gen != pn.gen {
 			return
 		}
 		pn.filled = true

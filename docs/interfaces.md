@@ -91,7 +91,7 @@ place, or a state.
 | `secretvault vault default NAME` | `vault.default` | Vault › Make default; Vault page › Settings tab: Make default | done | `V` vault panel: make default | missing |
 | `secretvault vault rotate` --new-recovery --new-passphrase-file UNLOCK | `vault.rotate` | Vault page › Keyslots tab: Rotate the key… (proves itself first, as the CLI does; the passphrase, a new recovery key shown once, and a report of what opens it now) | done | `K` keyslots panel: rotate | missing |
 | `secretvault vault signatures [required\|optional]` UNLOCK | `vault.signatures` | Vault page › Devices tab: "Count only signed revisions" | done | `D` devices panel: signatures | missing |
-| `secretvault vault login on\|off` UNLOCK | `vault.login` | Vault page › Settings tab: "Open when I log in" | done | `V` vault panel: login | missing |
+| `secretvault vault login on\|off` UNLOCK | `vault.login` | Vault page › Settings tab: "Open when I log in" (asks first, as it adds a key that needs no passphrase) | done | `V` vault panel: login | missing |
 | `secretvault verify` UNLOCK | `vault.verify` | Vault page › Settings tab: Verify every file… (the report) | done | `V` vault panel: verify | missing |
 | `secretvault passwd` --new-passphrase-file UNLOCK | `vault.passwd` | Vault page › Keyslots tab: Change the passphrase… (proves itself first, then asks for the new one) | done | `K` keyslots panel: passphrase | missing |
 | `secretvault version` | `secretvault.Version`; `daemon.status` for the daemon's | Help › About secretvault: this program's version and the daemon's | done | `?` help, at its head | missing |
@@ -108,7 +108,7 @@ place, or a state.
 | `secretvault rm NAME` UNLOCK | `item.delete` | Edit › Delete… (Delete) | done | `d` | done |
 | `secretvault history NAME` --show UNLOCK | `item.history`; `svops.Author` | Edit › History (Ctrl+H): every revision, viewable, with who signed each (`svops.Author`) and the revisions a vault that requires signatures ignores; the item page's foot says who signed it | done | `h`: every revision, viewable; who signed each is missing | partial |
 | `secretvault restore NAME [REV]` UNLOCK | `item.restore` | History page: "Make this revision current…" under the revision shown; Edit › Deleted items: Restore | done | History panel: `R` on a revision; deleted items panel: Enter | missing |
-| `secretvault resolve NAME` --keep UNLOCK | `svops.Conflicts`, `item.restore` | History page: conflicting versions are marked, and viewable; "Keep this version on every device…" under each of them | done | `h` marks them; `k` keeps one is missing | partial |
+| `secretvault resolve NAME` --keep UNLOCK | `svops.Conflicts`, `item.restore` | History page: conflicting versions are marked (from the item's conflicts, as the CLI's history marks them) and viewable; "Keep this version on every device…" under each of them (`item.restore`) | done | `h` marks them; `k` keeps one is missing | partial |
 | `secretvault attach ITEM FILE\|-` --name --type UNLOCK | `svops.ReadAttachment`, `file.attach` | Item page › Files: Add file… (read with `svops.ReadAttachment`: its own name, and its extension's media type) | done | `f` files panel: attach | missing |
 | `secretvault file list ITEM`, `secretvault file ls ITEM` UNLOCK | `item.get` (the item's files) | Item page › Files | done | `f` files panel | missing |
 | `secretvault file get ITEM NAME` -o --force UNLOCK | `file.get`; `svops.SaveFile` | Item page › Files: Save… (the file dialog asks before replacing a file; written with `svops.WriteReplacing`, mode 0600, as a replaced file must not stay as readable as it was) | done | `f` files panel: save | missing |
@@ -128,16 +128,16 @@ place, or a state.
 | --- | --- | --- | --- | --- | --- |
 | `secretvault slot list`, `secretvault slot ls` | `slot.list` | Vault page › Keyslots tab | done | `K` keyslots panel | missing |
 | `secretvault slot add passphrase\|recovery\|keyfile\|recipient\|fido2` --label --new-passphrase-file --create --split --threshold --uv --no-uv UNLOCK | `slot.add`; `svops.CreateKeyfile`, `svops.RecipientArg`, `svops.SplitThreshold`, `svops.SplitLabel`, `svops.SplitRecoveryKey` | Keyslots tab: Add…: the kind, then what it takes: a passphrase; a recovery key shown once, or split into shares shown once; a keyfile, made there or chosen; a recipient, its file or an identity file; the security key plugged in (its PIN with every touch, always, or a touch alone; the PIN asked in its own window, the touches in the status bar) | done | `K` keyslots panel: `a` | missing |
-| `secretvault slot rm ID`, `secretvault slot remove ID` UNLOCK | `slot.remove` | Keyslots tab: Remove… (asks first, and says it is not revocation) | done | `K` keyslots panel: `x` | missing |
+| `secretvault slot rm ID`, `secretvault slot remove ID` UNLOCK | `slot.remove` | Keyslots tab: Remove… (asks first, and says it is not revocation; an emergency access keyslot is sent to Sharing › Emergency access › Revoke…, as the daemon requires) | done | `K` keyslots panel: `x` | missing |
 | `secretvault fido2 list`, `secretvault fido2 ls` | `fido2.list` | Keys › Security keys: those plugged in, and what each can do (its PIN and the tries left, hmac-secret, a problem); Refresh | done | `K` keyslots panel: the security keys plugged in | missing |
 
 ## Sharing and emergency access
 
 | CLI | Operation | GUI | GUI state | TUI | TUI state |
 | --- | --- | --- | --- | --- | --- |
-| `secretvault share RECIPIENT\|FILE` --label UNLOCK | `svops.RecipientArg`, `slot.add` (a recipient keyslot) | Vault page › Sharing tab: Share with…: a contact's secretvault key, a recipient, a file holding one, or an identity file (all through `svops.RecipientArg`) | done | `E` sharing panel: share | missing |
+| `secretvault share RECIPIENT\|FILE` --label UNLOCK | `svops.RecipientArg`, `slot.add` (a recipient keyslot) | Vault page › Sharing tab: Share with…: a contact's secretvault key, or a recipient, a file holding one, or an identity file (all through `svops.RecipientArg`); never both | done | `E` sharing panel: share | missing |
 | `secretvault unshare SLOT-ID...` --new-recovery --new-passphrase-file UNLOCK | `vault.rotate` (dropping the slots) | Sharing tab: Cut off… (the keyslot chosen; the key rotated without it, a new recovery key if asked, and what opens it now) | done | `E` sharing panel: cut off | missing |
-| `secretvault emergency grant CONTACT\|RECIPIENT` --wait --fingerprint --name UNLOCK | `svops.ParseWait`, `emergency.grant` | Sharing tab › Emergency access: Grant… (a contact, or a recipient; the wait read by `svops.ParseWait`), then the invite to send, to copy or as a QR code | done | `E` panel: grant | missing |
+| `secretvault emergency grant CONTACT\|RECIPIENT` --wait --fingerprint --name UNLOCK | `svops.ParseWait`, `emergency.grant` | Sharing tab › Emergency access: Grant… (a contact, or a recipient, never both; the wait read by `svops.ParseWait`), then the invite to send, to copy or as a QR code | done | `E` panel: grant | missing |
 | `secretvault emergency list`, `secretvault emergency ls` UNLOCK | `emergency.list`; `svops.WaitText` | Sharing tab › Emergency access: the grants given and the access held here; requests also in the status bar, in the GUI's own words | done | `E` panel | missing |
 | `secretvault emergency deny GRANT` UNLOCK | `emergency.deny` | Emergency access: Deny… | done | `E` panel: deny | missing |
 | `secretvault emergency revoke GRANT` --rotate --new-recovery --new-passphrase-file UNLOCK | `emergency.revoke`, then `vault.rotate` | Emergency access: Revoke… (with "rotate the key too", ticked when they were given it) | done | `E` panel: revoke | missing |
@@ -188,7 +188,7 @@ place, or a state.
 | `secretvault pgp export [KEY]` --secret --unprotected --new-passphrase-file -o UNLOCK | `pgp.public`; with --secret `item.get`, `svops.ProtectPGPKey`; `svops.CreateAtomic` | OpenPGP keys: Export… (the public key, the secret key under a new passphrase asked for when `svops.ProtectPGPKey` needs it, or the secret key as kept), to a file that appears whole, mode 0600 | done | `P` › OpenPGP: export | missing |
 | `secretvault pgp pub [KEY]` -o UNLOCK | `pgp.public` | OpenPGP keys: Copy the public key | done | `P` › OpenPGP: `c` copies the public key | missing |
 | `secretvault pgp sign [IN]` --key --inline --clear -a --text -o UNLOCK | `pgp.sign` | Tools › Sign a file… (the key, detached, inline or cleartext, armored, a text signature, where it goes) | done | `:` Sign a file | missing |
-| `secretvault pgp decrypt [IN]` --key --verify --from -o UNLOCK | `pgp.decrypt` | Tools › Decrypt a file (OpenPGP)… (the key, or the one it is for; its signatures checked if asked, with From), into a new file only yours to read | done | `:` Decrypt a file | missing |
+| `secretvault pgp decrypt [IN]` --key --verify --from -o UNLOCK | `pgp.decrypt` | Tools › Decrypt a file (OpenPGP)… (the key, or the one it is for; its signatures checked if asked, with From), into a file only yours to read; one there is replaced only when you say so | done | `:` Decrypt a file | missing |
 | `secretvault pgp verify [IN]` --signature --from -o UNLOCK | `pgp.verify` | Tools › Check a signature… (a detached signature or a signed message, From, its text written if asked): the verdict against the contacts | done | `:` Check a signature | missing |
 | `secretvault smime import FILE.p12` --password-file --item UNLOCK | `smime.import` | Keys › S/MIME keys: Import… (the .p12 file, its password, the item) | done | `P` › S/MIME: import | missing |
 | `secretvault smime list`, `secretvault smime ls` UNLOCK | `smime.list` | Keys › S/MIME keys: item, addresses, certificate, expiry | done | `P` › S/MIME | missing |
@@ -196,7 +196,7 @@ place, or a state.
 | `secretvault age recipient ITEM` UNLOCK | `svops.AgeItemRecipient` | age identities (`svops.AgeKeyEntries`): Copy the recipient | done | `P` › age: copy the recipient | missing |
 | `secretvault age identity ITEM` UNLOCK | `svops.VaultName`, `svops.AgePluginIdentity` | age identities: Copy the identity line (for age and SOPS) | done | `P` › age: copy the identity line | missing |
 | `secretvault age encrypt [IN]` -r -R -p -a -o --allow-mixed-pq UNLOCK | `svops.AgeRecipient`, `svops.EachKeyLine`, `svops.AgeEncrypt`, `svops.CreateAtomic` | Tools › Encrypt a file (age)… (recipients typed, or added from the vault's identities and the contacts' SSH keys, a recipients file; or a passphrase asked for twice; armor, mixed post-quantum); another plugin talks to the person in dialogs | done | `:` Encrypt a file | missing |
-| `secretvault age decrypt [IN]` -i -o UNLOCK | `svops.AgeIdentities`, `svops.VaultIdentity`, `svops.PassphraseIdentity`, `svops.AgeDecrypt` | Tools › Decrypt a file (age)… (one of the vault's identities, an identity file or SSH key, whose passphrase is asked for; with none, the file's passphrase), into a new file only yours to read | done | `:` Decrypt a file | missing |
+| `secretvault age decrypt [IN]` -i -o UNLOCK | `svops.AgeIdentities`, `svops.VaultIdentity`, `svops.PassphraseIdentity`, `svops.AgeDecrypt` | Tools › Decrypt a file (age)… (any of the vault's identities, any identity files or SSH keys, whose passphrases are asked for; with none, the file's passphrase), into a new file only yours to read | done | `:` Decrypt a file | missing |
 
 ## Contacts and trust
 
@@ -209,7 +209,7 @@ place, or a state.
 | `secretvault contact rm NAME`, `secretvault contact remove NAME` --fingerprint UNLOCK | `contact.remove` | Contacts page: Remove… (the contact, or one of its keys) | done | `C` panel: remove | missing |
 | `secretvault contact verify [NAME]` --fingerprint --in-person --qr --org --tofu --email --note UNLOCK | `contact.verify` | Contacts page: Verify… (the key; its fingerprint typed as it was compared, and checked against the key's; in person, their QR code, an organisation, or accepted as it is; addresses; a note) | done | `C` panel: verify | missing |
 | `secretvault contact lookup ADDRESS\|FPR` --wkd --keyserver --directory --add --name UNLOCK | `contact.lookup` | Contacts › Look up… (everywhere, WKD only, a keyserver, or one directory; keep what is found) | done | `C` panel: look up | missing |
-| `secretvault contact qr` --key --recipient --name --email --uri --light UNLOCK | `svops.OwnCard`, `svtrust.Card.URI`, `svqr` | Contacts › Show my QR code… (your OpenPGP keys, and a recipient or identity file; the name and addresses): the code, and its text | done | `C` panel: my QR code | missing |
+| `secretvault contact qr` --key --recipient --name --email --uri --light UNLOCK | `svops.OwnCard`, `svtrust.Card.URI`, `svqr` | Contacts › Show my QR code… (the key items chosen, OpenPGP or SSH, else every OpenPGP key; a recipient or identity file; the name and addresses): the code, and its text | done | `C` panel: my QR code | missing |
 | `secretvault contact vault [VAULT\|-]` | `contact.vault` | Contacts › Keep contacts in… (says where they are now; a vault chosen, or the default) | done | `C` panel: vault | missing |
 | `secretvault contact directory add NAME URL` --base --bind-dn --password --ca | `directory.add` | Contacts › Directories: Add… (name, address, where people are, bind DN, its password as an sv:// reference, a CA file) | done | `C` panel › directories: add | missing |
 | `secretvault contact directory list`, `secretvault contact directory ls` | `directory.list` | Contacts › Directories | done | `C` panel › directories | missing |
@@ -221,7 +221,7 @@ place, or a state.
 
 | CLI | Operation | GUI | GUI state | TUI | TUI state |
 | --- | --- | --- | --- | --- | --- |
-| `secretvault mail inspect FILE\|-` --decrypt --json --min-level --contacts UNLOCK | `svops.ReadMessage`, `mail.inspect` | Tools › Inspect a message… (decrypted if asked, the weakest verification that counts): its headers, layers, signers judged against the contacts, warnings, and its text parts, each masked until shown | done | `:` Inspect a message | missing |
+| `secretvault mail inspect FILE\|-` --decrypt --json --min-level --contacts UNLOCK | `svops.ReadMessage`, `mail.inspect` | Tools › Inspect a message… (decrypted if asked, the weakest verification that counts, the contacts vault): its headers, layers, signers judged against the contacts, warnings, and its text parts, each masked until shown, as are the header fields an encryption protects | done | `:` Inspect a message | missing |
 | `secretvault mail compose FILE\|-` --sign --encrypt --format --key -o UNLOCK | `svops.ReadMessage`, `mail.compose`, `svops.WriteMessage` | Tools › Sign and encrypt a message… (sign, encrypt, OpenPGP or S/MIME, your key, where it goes) | done | `:` Compose a message | missing |
 
 ## Encrypted containers
@@ -230,10 +230,10 @@ place, or a state.
 | --- | --- | --- | --- | --- | --- |
 | `secretvault container create FILE` --size --fs --label --item --passphrase --new-passphrase-file --sector-size --mount-options UNLOCK | `svops.MountsHere`, `svops.ParseSize`, `svops.ContainerItemName`, `container.create` | Vault page › Containers tab: New container… (the image, its size read by `svops.ParseSize`, the filesystem, its label, the key item, the sector size, mount options, and a passphrase of its own if wanted) | done | `M` containers panel: new | missing |
 | `secretvault container open FILE` --item --mount-options UNLOCK | `svops.ExistingImage`, `container.open` | Containers tab: Open (the one chosen), Open another file… (any image, with the item and mount options); Copy the folder's path | done | `M` panel: open | missing |
-| `secretvault container close FILE\|MOUNTPOINT` | `container.close` | Containers tab: Close | done | `M` panel: close | missing |
+| `secretvault container close FILE\|MOUNTPOINT` | `container.close` | Containers tab: Close… (the one chosen, or any image or folder named) | done | `M` panel: close | missing |
 | `secretvault container list`, `secretvault container ls` UNLOCK | `container.list` | Vault page › Containers tab | done | `M` panel | missing |
-| `secretvault container header-backup FILE OUT` | `svcontainer.BackupHeader` | Containers tab: Back up the header… (where, chosen) | done | `M` panel: header backup | missing |
-| `secretvault container passwd FILE` --item --remove --new-passphrase-file UNLOCK | `svops.ExistingImage`, `container.passwd` | Containers tab: Passphrase… (set, change or remove its own passphrase) | done | `M` panel: passphrase | missing |
+| `secretvault container header-backup FILE OUT` | `svcontainer.BackupHeader` | Containers tab: Back up the header… (the one chosen, or any image named, to a new file; no vault needed) | done | `M` panel: header backup | missing |
+| `secretvault container passwd FILE` --item --remove --new-passphrase-file UNLOCK | `svops.ExistingImage`, `container.passwd` | Containers tab: Passphrase… (the one chosen, or any image and item named: set, change or remove its own passphrase) | done | `M` panel: passphrase | missing |
 
 ## The desktop
 
@@ -253,8 +253,10 @@ place, or a state.
 ## The host daemon (servers, as root)
 
 The host commands are root's, on a server; the managers reach the host
-daemon the same way the CLI does (its admin socket, as root), from a
-Host page that shows only there.
+daemon the same way the CLI does (its admin socket, as root). The GUI's
+is the Desktop page's Host daemon tab, which anywhere else says that its
+admin socket does not answer (making the host identity works on files,
+as the CLI's `host init` does).
 
 | CLI | Operation | GUI | GUI state | TUI | TUI state |
 | --- | --- | --- | --- | --- | --- |
@@ -262,7 +264,7 @@ Host page that shows only there.
 | `secretvault host allow UNIT CREDENTIAL REF`, `secretvault host allow --user USER` --program | `host.allow` | Host daemon: Allow… (a unit's credential, or a local service's references; the unit's LoadCredential= line, and the warnings) | done | `H` panel: allow | missing |
 | `secretvault host deny UNIT CREDENTIAL`, `secretvault host deny --user USER` --program | `host.deny` | Host daemon: Deny… | done | `H` panel: deny | missing |
 | `secretvault host list`, `secretvault host ls` | `host.list` | Host daemon: the policy (credentials, local services) | done | `H` panel | missing |
-| `secretvault host status` | `host.status` | Host daemon: the daemon, its sockets, its identity and recipient, its policy's state, and its vaults; when its admin socket does not answer (not root, not a server), it says so | done | `H` panel: status | missing |
+| `secretvault host status` | `host.status` | Desktop › Host daemon: the daemon, its sockets, its identity and recipient, its policy's state, and its vaults; away from a server's root, where its admin socket does not answer, the tab says so, and still makes the host identity | done | `H` panel: status | missing |
 | `secretvault host audit` -n | `host.audit` | Host daemon: deliveries and refusals, newest first | done | `H` panel: audit | missing |
 
 ## For programs

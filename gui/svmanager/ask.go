@@ -29,12 +29,7 @@ func (m *Manager) askSecret(title, label, note string, repeat bool, minLen int) 
 		}
 		var take func() ([]byte, bool)
 		if repeat {
-			newPass := f.newPassphrase(label)
-			take = func() ([]byte, bool) {
-				// newPassphrase holds to minPassphrase; a file's own
-				// passphrase may be as short as its owner chose.
-				return newPass()
-			}
+			take = f.newPassphraseMin(label, minLen)
 		} else {
 			s := f.secret(label, "")
 			take = func() ([]byte, bool) {

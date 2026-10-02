@@ -92,11 +92,16 @@ func encode(data []byte, level Level, minVersion, mask int) (*Code, error) {
 	if version == 0 {
 		return nil, fmt.Errorf("%w: %d bytes at level %v", ErrTooLong, len(data), level)
 	}
-	codewords := addErrorCorrection(dataBits(data, version, level), version, level)
+	bits := dataBits(data, version, level)
+	codewords := addErrorCorrection(bits, version, level)
 
 	s := newSymbol(version)
 	s.drawFunctionPatterns()
 	s.drawCodewords(codewords)
+	// What was encoded may be a secret (an invite): the buffers that held
+	// it on the way to the modules go.
+	clear(bits)
+	clear(codewords)
 	if mask < 0 {
 		best := -1
 		for m := range 8 {
@@ -232,6 +237,9 @@ func addErrorCorrection(data []byte, version int, level Level) []byte {
 		for _, e := range ecc {
 			out = append(out, e[i])
 		}
+	}
+	for _, e := range ecc {
+		clear(e)
 	}
 	return out
 }

@@ -232,37 +232,39 @@ func (m *Manager) exportPGPKey(p *keysPage) {
 		}
 		kind := what.Selected
 		var note string
-		f.call(func(ctx context.Context, c *secretvault.Client) error {
-			k, err := c.PGPPublicKey(ctx, p.vault, key)
-			if err != nil {
-				return err
-			}
-			data := []byte(k.PublicKey)
-			if kind > 0 {
-				e, err := c.Get(ctx, p.vault, k.Item)
+		m.replacing(path, func() {
+			f.call(func(ctx context.Context, c *secretvault.Client) error {
+				k, err := c.PGPPublicKey(ctx, p.vault, key)
 				if err != nil {
 					return err
 				}
-				defer svops.Wipe(&e.Item)
-				sf, ok := svops.Field(&e.Item, svrpc.PGPSecretField)
-				if !ok {
-					return fmt.Errorf("%s has no secret key", k.Item)
-				}
-				data = sf.Value
-				if kind == 1 {
-					if data, err = svops.ProtectPGPKey(&e.Item, func() ([]byte, error) {
-						return m.askSecret("The exported key's passphrase", "Passphrase", "The key is written protected by this passphrase.", true, minPassphrase)
-					}); err != nil {
+				data := []byte(k.PublicKey)
+				if kind > 0 {
+					e, err := c.Get(ctx, p.vault, k.Item)
+					if err != nil {
 						return err
 					}
-					defer clear(data)
-				} else if _, protected := svops.Field(&e.Item, svrpc.PGPPassField); protected {
-					note = fmt.Sprintf(" The key is protected by the passphrase in its item's %q field.", svrpc.PGPPassField)
+					defer svops.Wipe(&e.Item)
+					sf, ok := svops.Field(&e.Item, svrpc.PGPSecretField)
+					if !ok {
+						return fmt.Errorf("%s has no secret key", k.Item)
+					}
+					data = sf.Value
+					if kind == 1 {
+						if data, err = svops.ProtectPGPKey(&e.Item, func() ([]byte, error) {
+							return m.askSecret("The exported key's passphrase", "Passphrase", "The key is written protected by this passphrase.", true, minPassphrase)
+						}); err != nil {
+							return err
+						}
+						defer clear(data)
+					} else if _, protected := svops.Field(&e.Item, svrpc.PGPPassField); protected {
+						note = fmt.Sprintf(" The key is protected by the passphrase in its item's %q field.", svrpc.PGPPassField)
+					}
 				}
-			}
-			return writeAtomic(path, 0o600, data)
-		}, func() {
-			m.say("Wrote it to %s.%s", path, note)
+				return writeAtomic(path, 0o600, data)
+			}, func() {
+				m.say("Wrote it to %s.%s", path, note)
+			})
 		})
 	})
 }

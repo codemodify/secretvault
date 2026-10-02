@@ -350,9 +350,6 @@ func (m *Manager) importContacts() {
 			}
 			var err error
 			res, err = c.ImportContacts(ctx, params)
-			if err == nil && len(res.Keys) == 0 {
-				err = fmt.Errorf("nothing was imported%s", strings.TrimSuffix(": "+strings.Join(res.Warnings, "; "), ": "))
-			}
 			return err
 		}, func() {
 			text := fingerprintsOf(res.Keys)
@@ -364,7 +361,14 @@ func (m *Manager) importContacts() {
 				text += "warning: " + w + "\n"
 			}
 			m.refreshContacts()
-			m.showText("Contacts imported", plural(len(res.Keys), "key")+" taken in.", strings.TrimRight(text, "\n"))
+			intro := plural(len(res.Keys), "key") + " taken in."
+			if len(res.Keys) == 0 {
+				// As the CLI, which fails: said, with what was not found,
+				// which is what a scanned code naming keys you do not
+				// have needs.
+				intro = "Nothing was imported."
+			}
+			m.showText("Contacts imported", intro, strings.TrimRight(text, "\n"))
 		})
 	})
 }
@@ -555,39 +559,73 @@ func (m *Manager) lookupContact() {
 }
 
 // showMyQR shows your own keys as a QR code for someone to scan (the
-// CLI's contact qr): your OpenPGP keys, and secretvault recipients if
-// named.
+// CLI's contact qr): the key items chosen (OpenPGP or SSH keys; none
+// chosen, every OpenPGP key), and secretvault recipients if named.
 func (m *Manager) showMyQR() {
 	if m.gone {
 		m.fail(errGone)
 		return
 	}
-	f := m.newForm("My QR code")
-	rcpt := f.path("Recipient", PickOpen, "")
-	f.note("Optional: a secretvault recipient, or an identity file, to show as well as your OpenPGP keys in vault " + m.vault + ".")
-	name := f.text("Name", "", "default: from your first OpenPGP key")
-	emails := f.text("Addresses", "", "default: your first OpenPGP key's")
 	vault := m.vault
-	f.show("Show", func() {
-		var recipients []string
-		if r := rcpt.Path(); r != "" {
-			recipients = []string{r}
+	var entries []svrpc.Entry
+	m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
+		if vault == "" {
+			return nil
 		}
-		var card *svtrust.Card
-		f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
-			card, err = svops.OwnCard(ctx, c, vault, nil, recipients)
-			return err
-		}, func() {
-			if n := strings.TrimSpace(name.Text); n != "" {
-				card.Name = n
+		entries, err = c.List(ctx, vault, "")
+		return err
+	}, func(err error) {
+		if err != nil {
+			m.fail(err)
+			return
+		}
+		f := m.newForm("My QR code")
+		var keys []string
+		for _, e := range entries {
+			if e.Item.Attrs[svrpc.PGPFingerprint] != "" || e.Item.Kind == "ssh-key" {
+				keys = append(keys, e.Item.Name)
 			}
-			if e := splitList(emails.Text); len(e) > 0 {
-				card.Emails = e
+		}
+		boxes := make([]*widgets.Checkbox, len(keys))
+		if len(keys) > 0 {
+			list := widgets.NewColumn().WithGap(4)
+			for i, k := range keys {
+				boxes[i] = widgets.NewCheckbox(k, false, nil)
+				list.Add(boxes[i])
 			}
-			uri := card.URI()
-			m.showText("My contact code", "Its text, the same as the QR code holds (it holds no secret): show the code to someone to scan, "+
-				"or send them the text for Contacts › Import….", uri)
-			m.showQR("contact code", []byte(uri))
+			f.row("Keys", list)
+			f.note("Keys: none ticked shows every OpenPGP key in vault " + vault + ".")
+		}
+		rcpt := f.path("Recipient", PickOpen, "")
+		f.note("Optional: a secretvault recipient, or an identity file, to show as well.")
+		name := f.text("Name", "", "default: from your first OpenPGP key")
+		emails := f.text("Addresses", "", "default: your first OpenPGP key's")
+		f.show("Show", func() {
+			var items, recipients []string
+			for i, b := range boxes {
+				if b.Checked {
+					items = append(items, keys[i])
+				}
+			}
+			if r := rcpt.Path(); r != "" {
+				recipients = []string{r}
+			}
+			var card *svtrust.Card
+			f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
+				card, err = svops.OwnCard(ctx, c, vault, items, recipients)
+				return err
+			}, func() {
+				if n := strings.TrimSpace(name.Text); n != "" {
+					card.Name = n
+				}
+				if e := splitList(emails.Text); len(e) > 0 {
+					card.Emails = e
+				}
+				uri := card.URI()
+				m.showText("My contact code", "Its text, the same as the QR code holds (it holds no secret): show the code to someone to scan, "+
+					"or send them the text for Contacts › Import….", uri)
+				m.showQR("contact code", []byte(uri))
+			})
 		})
 	})
 }
@@ -608,10 +646,13 @@ func (m *Manager) contactsVault() {
 			m.fail(err)
 			return
 		}
+		// The vaults as they are now: the list may change under the dialog.
 		names := []string{"the default vault, whichever it is"}
+		var vaultNames []string
 		sel := 0
 		for i, v := range m.vaults {
 			names = append(names, v.Name)
+			vaultNames = append(vaultNames, v.Name)
 			if v.Name == now {
 				sel = i + 1
 			}
@@ -621,8 +662,8 @@ func (m *Manager) contactsVault() {
 		which := f.choice("Vault", names, sel)
 		f.show("Keep them there", func() {
 			set := "-"
-			if i := which.Selected - 1; i >= 0 && i < len(m.vaults) {
-				set = m.vaults[i].Name
+			if i := which.Selected - 1; i >= 0 && i < len(vaultNames) {
+				set = vaultNames[i]
 			}
 			var name string
 			f.call(func(ctx context.Context, c *secretvault.Client) (err error) {

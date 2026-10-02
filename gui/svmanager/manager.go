@@ -157,9 +157,10 @@ type Manager struct {
 	asking  *promptDialog // the daemon's question on the screen
 	promptN int
 
-	gen      generator // the generator's settings, kept between uses
-	hidden   bool      // the window is hidden in the tray
-	excluded bool      // the window is kept out of screen captures (syncCapture)
+	gen        generator // the generator's settings, kept between uses
+	hidden     bool      // the window is hidden in the tray
+	takingOver bool      // the system keyring is being taken over
+	excluded   bool      // the window is kept out of screen captures (syncCapture)
 
 	minimiseHook func() // tests: what minimising the window does
 
@@ -493,7 +494,7 @@ func (m *Manager) describe(err error) string {
 	case errors.Is(err, svrpc.ErrWrongKey):
 		return "That passphrase does not open this vault."
 	case errors.Is(err, svrpc.ErrDenied):
-		return sentence(err.Error())
+		return sentence(guiWords(err.Error()))
 	case errors.Is(err, svrpc.ErrLocked):
 		return "The vault is locked; Ctrl+U unlocks it."
 	case errors.Is(err, svrpc.ErrNoPrompter):
@@ -516,12 +517,14 @@ func (m *Manager) describe(err error) string {
 		return "There is an item of that name already: give the key another name (a key is never replaced)."
 	case errors.Is(err, svops.ErrNoGnuPGKey):
 		return "The vault holds no OpenPGP key gpg can use: make one in Keys › OpenPGP keys (version 4), or import one."
+	case errors.Is(err, svops.ErrUninstallFirst):
+		return "The browsers were set up for another program: Desktop › Browsers › Undo… first, then set them up again."
 	case errors.Is(err, svops.ErrNoCLI):
 		return "The secretvault program is not installed beside this one, so other programs cannot be set up to start it."
 	case errors.As(err, &e):
-		return sentence(e.Message)
+		return sentence(guiWords(e.Message))
 	}
-	return sentence(err.Error())
+	return sentence(guiWords(err.Error()))
 }
 
 // sentence capitalises s and ends it with a full stop.

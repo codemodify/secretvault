@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/codemodify/paintengine2d"
@@ -58,6 +60,7 @@ type formDialog struct {
 	caps    bool // a new passphrase is typed: Caps Lock is said beside the buttons
 	first   widget.Component
 	running bool
+	failed  func() // what the dialog does when what it asked for fails
 }
 
 // newForm starts a dialog of title.
@@ -101,12 +104,24 @@ func (f *formDialog) secret(label, placeholder string) *widgets.SecretField {
 // is too short or the two differ, which is said in the dialog (and both
 // fields are emptied).
 func (f *formDialog) newPassphrase(label string) func() ([]byte, bool) {
-	pass := f.secret(label, fmt.Sprintf("At least %d characters", minPassphrase))
+	return f.newPassphraseMin(label, minPassphrase)
+}
+
+// newPassphraseMin is newPassphrase for one at least least characters
+// long (a file's own passphrase is as long as its owner likes, as the CLI
+// takes it).
+func (f *formDialog) newPassphraseMin(label string, least int) func() ([]byte, bool) {
+	least = max(1, least)
+	hint := fmt.Sprintf("At least %d characters", least)
+	if least == 1 {
+		hint = ""
+	}
+	pass := f.secret(label, hint)
 	again := f.secret("Repeat", "The same again")
 	pass.OnSubmit = func(*widgets.SecretField) { f.m.win.RequestFocus(again) }
 	return func() ([]byte, bool) {
-		if pass.Len() < minPassphrase {
-			f.fail(fmt.Sprintf("Use a passphrase of at least %d characters.", minPassphrase))
+		if pass.Len() < least {
+			f.fail(fmt.Sprintf("Use a passphrase of at least %d characters.", least))
 			f.m.win.RequestFocus(pass)
 			return nil, false
 		}
@@ -188,7 +203,14 @@ func (f *formDialog) onClose(fn func()) { f.closers = append(f.closers, fn) }
 // show puts the dialog up, with an accept button that calls accept.
 func (f *formDialog) show(acceptLabel string, accept func()) *formDialog {
 	f.body.Add(f.problem)
-	f.accept = widgets.NewButton(acceptLabel, accept)
+	// While what it asked for runs, its button is greyed, and Enter in a
+	// field does nothing either: a secret is not taken twice.
+	run := func() {
+		if !f.running && accept != nil {
+			accept()
+		}
+	}
+	f.accept = widgets.NewButton(acceptLabel, run)
 	cancel := widgets.NewButton("Cancel", func() { f.close() })
 	buttons := widgets.NewButtonBox().AddButton(f.accept, widgets.RoleAccept).AddButton(cancel, widgets.RoleReject)
 	var foot widget.Component = buttons
@@ -204,7 +226,7 @@ func (f *formDialog) show(acceptLabel string, accept func()) *formDialog {
 	}
 	for _, s := range f.secrets {
 		if s.OnSubmit == nil {
-			s.OnSubmit = func(*widgets.SecretField) { accept() }
+			s.OnSubmit = func(*widgets.SecretField) { run() }
 		}
 	}
 	f.d = f.m.showDialog(f.title, f.body, foot, focus, func() {
@@ -282,12 +304,26 @@ func (f *formDialog) after(err error, done func()) {
 	f.accept.SetEnabled(true)
 	if err != nil {
 		f.fail(f.m.describe(err))
+		if f.failed != nil {
+			f.failed()
+		}
 		return
 	}
 	f.close()
 	if done != nil {
 		done()
 	}
+}
+
+// replacing runs do once the person has said a file that is at path may
+// be replaced (a path typed, rather than chosen in the file dialog, which
+// asks itself); at once when nothing is there.
+func (m *Manager) replacing(path string, do func()) {
+	if _, err := os.Lstat(path); err != nil {
+		do()
+		return
+	}
+	m.confirm("Replace "+filepath.Base(path)+"?", path+" is there already.\n\nReplace it?", "Replace", do)
 }
 
 // pathField is a path, typed or chosen with the file dialog.
