@@ -103,6 +103,11 @@ func Icon(side int) *paintengine2d.Image {
 	return img
 }
 
+// Icons is Icon at the sizes a desktop picks from for a window.
+func Icons() []*paintengine2d.Image {
+	return []*paintengine2d.Image{Icon(16), Icon(24), Icon(32), Icon(48), Icon(64), Icon(128)}
+}
+
 // paintLock draws the padlock in box: a shackle over a body with a
 // keyhole cut out of it.
 func paintLock(ctx *paintengine2d.Context, box paintengine2d.Rect) {

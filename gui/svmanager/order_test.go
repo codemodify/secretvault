@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/codemodify/paintengine2d"
+	"github.com/codemodify/uitoolkit"
+	"github.com/codemodify/uitoolkit/diag"
 	"github.com/codemodify/uitoolkit/platform"
 	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widget"
@@ -693,5 +695,23 @@ func TestARefusedRenameIsSaidInTheDialog(t *testing.T) {
 	f := find(h.overlay(), func(*widgets.TextField) bool { return true })
 	if h.overlay() == nil || f == nil || f.Text != "mail/fastmail.com" {
 		t.Fatal("the rename dialog went, or lost what was typed")
+	}
+}
+
+// uitoolkit did everything the manager told it, through the pages a
+// person goes through: no finding at warning level (its diagnostics).
+func TestTheToolkitDidWhatItWasTold(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{Tray: true})
+	h.unlock()
+	h.open("web/github.com")
+	h.win().Press(platform.KeyE, platform.ModCtrl)
+	h.waitFor("the editor", func() bool { return h.m.editor != nil })
+	h.win().Press(platform.KeyG, platform.ModCtrl)
+	h.pump()
+	for _, f := range uitoolkit.Diagnostics() {
+		if f.Level == diag.Warn {
+			t.Errorf("%v", f)
+		}
 	}
 }

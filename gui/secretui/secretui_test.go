@@ -54,6 +54,10 @@ func TestADialogIsOpenedAsOne(t *testing.T) {
 		t.Fatalf("role %v centred %v above %v sizing %v uncaptured %v activations %d",
 			o.WindowRole(), o.Centered(), o.KeepAboveRequested(), o.Sizing(), o.ExcludeFromCapture(), o.Activations())
 	}
+	// It wears secretvault's padlock, at the sizes a desktop picks from.
+	if icons := o.FrameCalls().Icons; len(icons) == 0 || len(icons[len(icons)-1]) != len(Icons()) {
+		t.Fatalf("the dialog's icons: %v", icons)
+	}
 	// As tall as its content: the button is inside the window.
 	_, h := w.PixelSize()
 	if bottom := widget.DeviceOrigin(ok).Y + ok.Bounds().Dy(); ok.Bounds().Empty() || bottom > float32(h) {

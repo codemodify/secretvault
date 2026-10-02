@@ -157,6 +157,10 @@ func (d *dialog) build(a *uitoolkit.Application) (body, actions, first widget.Co
 			// cut short; a short one takes its one line.
 			v := widgets.NewLabel(f.value)
 			v.Wrap = true
+			// Named for itself: a form names the field beside a label
+			// after the label, and a label named "Program" is read aloud
+			// as "Program", not as the program (uitoolkit-gaps.md, 36).
+			v.SetAccessibleName(f.value)
 			name := form.AddRow(f.name+":", v)
 			name.Tone = widgets.ToneMuted
 			d.factValues = append(d.factValues, v)

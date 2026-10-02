@@ -42,6 +42,7 @@ import (
 	"syscall"
 
 	"github.com/codemodify/uitoolkit"
+	"github.com/codemodify/uitoolkit/platform"
 
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/gui/svmanager"
@@ -51,8 +52,14 @@ import (
 // EnvVault names the vault to show first when --vault is not given.
 const EnvVault = "SECRETVAULT_VAULT"
 
+// AppID is what a Linux desktop files the manager's windows under (the
+// Wayland app_id, the X11 WM_CLASS): its own task-bar entry and window
+// rules, apart from the prompt's, whatever the binary is called.
+const AppID = "secretvault-gui"
+
 func main() {
 	_ = svcrypto.NoCoreDumps()
+	platform.SetAppID(AppID)
 	fs := flag.NewFlagSet("secretvault-gui", flag.ContinueOnError)
 	vault := fs.String("vault", os.Getenv(EnvVault), "the vault to show first (default: the default vault)")
 	noTray := fs.Bool("no-tray", false, "no tray icon: closing the window quits")

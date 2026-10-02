@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -754,5 +755,57 @@ func TestItem34AWindowFloorFromItsContent(t *testing.T) {
 		if _, ok := reflect.TypeOf(&uitoolkit.Window{}).MethodByName(m); ok {
 			t.Fatalf("Window has %s now: see uitoolkit-gaps.md item 34, and the manager's minWindowWidth", m)
 		}
+	}
+}
+
+// Found in the audit of v0.23.0.
+
+// uitoolkitSource reads a file of uitoolkit's platform package as this
+// test is built against it, for the gaps that are about what the code
+// does where no headless window can show it.
+func uitoolkitSource(t *testing.T, name string) string {
+	t.Helper()
+	file, _ := runtime.FuncForPC(reflect.ValueOf(platform.ClipboardGetSecret).Pointer()).FileLine(0)
+	b, err := os.ReadFile(filepath.Join(filepath.Dir(file), name))
+	if err != nil {
+		t.Skipf("uitoolkit's source is not where it was built from: %v", err)
+	}
+	return string(b)
+}
+
+// 35. A secret on the Linux clipboard is a Go string twice over: the
+// owner serves a copied secret from one (Wayland as well as X11), and a
+// paste from another program into a SecretField arrives as one.
+func TestItem35ClipboardSecretsAsStrings(t *testing.T) {
+	linux := uitoolkitSource(t, "clipboard_secret_linux.go")
+	get := uitoolkitSource(t, "clipboard_secret.go")
+	if !strings.Contains(linux, "s := string(b)") || !strings.Contains(get, "return []byte(s)") {
+		t.Fatal("the Linux secret clipboard no longer goes through a string: see uitoolkit-gaps.md items 7 and 35")
+	}
+}
+
+// 36. Form.AddRow names the field beside a caption after the caption,
+// and a Label is named that way too: a form row whose value is a label
+// is read aloud as its caption, and the value not at all.
+func TestItem36AFormValueIsReadAsItsCaption(t *testing.T) {
+	a := headless(t, 1)
+	form := widgets.NewForm()
+	form.AddRow("Program:", widgets.NewLabel("/usr/bin/mail"))
+	w := window(t, a, 400, 80, form)
+	if strings.Contains(treeText(w), "/usr/bin/mail") {
+		t.Fatal("a form's label value is read aloud now: see uitoolkit-gaps.md item 36, and the prompt's facts")
+	}
+}
+
+// 37. Secure input's answer is not what is in effect. On X11 a prompt
+// asks as its field takes the focus, at its first layout, before the
+// window is mapped: XGrabKeyboard answers GrabNotViewable, the toolkit
+// retries for a quarter of a second, holding up the first frame, and
+// answers false; the grab is then taken at the focus-in, and if that
+// fails nobody is told. None of it is a diagnostic.
+func TestItem37SecureInputAnswer(t *testing.T) {
+	src := uitoolkitSource(t, "x11_secure_linux.go")
+	if !strings.Contains(src, "250 * time.Millisecond") || strings.Contains(src, "GrabNotViewable") || strings.Contains(src, "diag.") {
+		t.Fatal("X11 secure input tells a window that is not mapped yet apart, or reports, now: see uitoolkit-gaps.md item 37")
 	}
 }

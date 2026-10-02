@@ -34,12 +34,20 @@ import (
 	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svprompt"
 	"github.com/codemodify/uitoolkit"
+	"github.com/codemodify/uitoolkit/platform"
 )
 
 const usage = "usage: secretvault-gui-prompt [PROMPT]"
 
+// AppID is what a Linux desktop files the prompt's windows under (the
+// Wayland app_id, the X11 WM_CLASS): apart from the manager's, so a
+// question from the daemon is not grouped with, or raised as, the
+// manager's window, whatever the binary is called.
+const AppID = "secretvault-gui-prompt"
+
 func main() {
 	_ = svcrypto.NoCoreDumps()
+	platform.SetAppID(AppID)
 	args := os.Args[1:]
 	switch {
 	case len(args) == 0:

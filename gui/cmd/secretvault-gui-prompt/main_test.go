@@ -13,6 +13,9 @@ import (
 
 	"github.com/codemodify/secretvault/svprompt"
 	"github.com/codemodify/uitoolkit"
+	"github.com/codemodify/uitoolkit/a11y"
+	"github.com/codemodify/uitoolkit/a11y/a11ytest"
+	"github.com/codemodify/uitoolkit/diag"
 	"github.com/codemodify/uitoolkit/platform"
 	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widget"
@@ -631,4 +634,59 @@ func TestOnlyTheFirstAnswerCounts(t *testing.T) {
 		t.Fatalf("a second answer went out: %+v", a)
 	default:
 	}
+}
+
+// Every kind of dialog passes an accessibility audit, and what it says
+// is read aloud: the program asking, not only the word "Program" beside
+// it. The keyboard goes from the field to the second field, OK and
+// Cancel, and round again. And the toolkit did everything it was told.
+func TestTheDialogsAreAccessible(t *testing.T) {
+	h := newHarness(t, nil)
+	h.do("SETTITLE Allow access to vault Personal?",
+		"SETDESC mail (/usr/bin/mail) wants to read \"imap\".%0A%0AProgram: /usr/bin/mail%0AProcess: 4242")
+	h.do(consent...)
+	h.send("CHOOSE")
+	d := h.dialog()
+	tree := a11ytest.Audit(t, "consent", d.win.AccessibleTree())
+	var read []string
+	tree.Walk(func(n *a11y.Node) bool {
+		read = append(read, n.Name)
+		return true
+	})
+	for _, want := range []string{"Program:", "/usr/bin/mail", "Process:", "4242", "Deny"} {
+		if !slicesContains(read, want) {
+			t.Errorf("a screen reader does not hear %q: %q", want, read)
+		}
+	}
+	d.win.Press(platform.KeyEscape)
+	h.expect(errCanceledLine)
+
+	h.do("RESET", "SETPROMPT Passphrase:", "SETREPEAT Repeat:")
+	h.send("GETPIN")
+	d = h.dialog()
+	a11ytest.Audit(t, "new passphrase", d.win.AccessibleTree())
+	order := []widget.Component{d.pin, d.repeat, d.buttons["ok"], d.buttons["cancel"], d.pin}
+	for i, want := range order {
+		if d.win.Focus() != want {
+			t.Fatalf("Tab %d: the keyboard is on %T", i, d.win.Focus())
+		}
+		d.win.Press(platform.KeyTab)
+	}
+	d.win.Press(platform.KeyEscape)
+	h.expect(errCanceledLine)
+
+	for _, f := range uitoolkit.Diagnostics() {
+		if f.Level == diag.Warn {
+			t.Errorf("uitoolkit did not do what it was told: %v", f)
+		}
+	}
+}
+
+func slicesContains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }

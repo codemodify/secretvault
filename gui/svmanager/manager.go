@@ -187,7 +187,7 @@ func New(opts Options) (*Manager, error) {
 		return nil, err
 	}
 	m.win = win
-	win.SetIcon(secretui.Icon(16), secretui.Icon(24), secretui.Icon(32), secretui.Icon(48), secretui.Icon(64), secretui.Icon(128))
+	win.SetIcon(secretui.Icons()...)
 	win.SetOnCloseRequest(m.closeRequested)
 	m.build()
 	if opts.Tray {

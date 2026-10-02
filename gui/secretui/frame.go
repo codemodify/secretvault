@@ -122,6 +122,10 @@ func Open(a *uitoolkit.Application, title string, width int, f *Frame) (*uitoolk
 		return nil, err
 	}
 	f.win = w
+	// The desktop shows secretvault's padlock for it, as for the manager:
+	// a question that comes up on its own says whose it is in the task
+	// bar and the window switcher too.
+	w.SetIcon(Icons()...)
 	// FitContent fits the window to f when it is first laid out, before
 	// it is shown, and centres it again for the height it then has.
 	w.SetContent(f)
