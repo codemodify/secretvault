@@ -308,7 +308,7 @@ func (u *UI) showMenu() {
 		AddItem(t, 0, 1, false)
 	frame.SetBorder(true).SetBorderPadding(0, 0, 1, 1).SetTitle(" Actions — type to find · ↑↓ choose · Enter does it · Esc closes ")
 	_, _, _, h := u.pages.GetRect()
-	u.openPage(pageDialog, centred(frame, 84, max(10, min(h-2, 40))), find)
+	u.openDialog(centred(frame, 84, max(10, min(h-2, 40))), find, nil)
 }
 
 // startFilter puts the cursor in the item filter.

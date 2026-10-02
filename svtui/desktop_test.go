@@ -257,7 +257,7 @@ func TestProgramHelpersAreLinkedAndConfigured(t *testing.T) {
 			return []byte(strings.Join(git, "\n")), nil
 		case slices.Contains(args, "--add"):
 			git = append(git, args[len(args)-1])
-		case slices.Contains(args, "--unset"):
+		case slices.Contains(args, "--unset-all"):
 			git = nil
 		}
 		return nil, nil

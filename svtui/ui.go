@@ -141,7 +141,14 @@ type UI struct {
 	host          *secretvault.Client // the host daemon, once the host panel reached it
 	hostRecipient string              // its identity's recipient, as it last said
 	once          *onceView           // what is shown only once, while it is
-	emergency     []string            // requests for emergency access, for the status line
+	value         []byte              // a value resolved from a reference, while it is shown
+	onceQueue     []pendingOnce       // once views waiting for the one up to close
+
+	dialogSeq    int             // numbers the dialogs
+	dialogID     int             // the dialog up
+	dialogCancel func()          // cancels it, wiping what it holds
+	dialogQueue  []pendingDialog // dialogs waiting for it to close
+	emergency    []string        // requests for emergency access, for the status line
 
 	asking   *promptDialog // the daemon's question on the screen
 	promptID int
@@ -357,6 +364,8 @@ func (u *UI) shutdown() {
 		u.closeItem()
 		u.wipeHistory()
 		u.wipeOnce()
+		u.dropDialogs()
+		u.closePage(pageDialog)
 		if u.editor != nil {
 			u.editor.wipe()
 		}
@@ -368,6 +377,7 @@ func (u *UI) daemonGone() {
 	u.closeItem()
 	u.wipeHistory()
 	u.wipeOnce()
+	u.dropDialogs()
 	for _, p := range []string{pageRev, pageSub, pagePanel, pageInfo, pageForm, pageDialog} {
 		u.closePage(p)
 	}
@@ -558,6 +568,9 @@ func (u *UI) closePage(name string) {
 	delete(u.panels, name)
 	if front != name {
 		u.app.SetFocus(cur)
+		if name == pageDialog {
+			u.dialogClosed()
+		}
 		return
 	}
 	front, _ = u.pages.GetFrontPage()
@@ -570,6 +583,9 @@ func (u *UI) closePage(name string) {
 		next = u.itemList
 	}
 	u.app.SetFocus(next)
+	if name == pageDialog {
+		u.dialogClosed()
+	}
 }
 
 // say puts a message in the status line.

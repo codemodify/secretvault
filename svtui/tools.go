@@ -65,6 +65,7 @@ func (u *UI) signFile() {
 		if problem := replaceProblem(dst, replace.IsChecked()); problem != "" {
 			return problem
 		}
+		rep := replace.IsChecked()
 		data, err := os.ReadFile(src)
 		if err != nil {
 			return err.Error()
@@ -75,7 +76,7 @@ func (u *UI) signFile() {
 			if res, err = c.SignPGP(ctx, p); err != nil {
 				return err
 			}
-			return writeOut(dst, res.Signature, 0o644)
+			return writeOut(dst, res.Signature, 0o644, rep)
 		}, func(err error) {
 			if err != nil {
 				u.fail(err)
@@ -112,6 +113,7 @@ func (u *UI) decryptPGPFile() {
 		if problem := replaceProblem(dst, replace.IsChecked()); problem != "" {
 			return problem
 		}
+		rep := replace.IsChecked()
 		data, err := os.ReadFile(src)
 		if err != nil {
 			return err.Error()
@@ -123,7 +125,7 @@ func (u *UI) decryptPGPFile() {
 				return err
 			}
 			defer clear(res.Body)
-			return writeOut(dst, res.Body, 0o600)
+			return writeOut(dst, res.Body, 0o600, rep)
 		}, func(err error) {
 			if err != nil {
 				u.fail(err)
@@ -177,13 +179,14 @@ func (u *UI) verifyPGPFile() {
 				return problem
 			}
 		}
+		rep := replace.IsChecked()
 		var res svrpc.PGPVerifyResult
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 			if res, err = c.VerifyPGP(ctx, p); err != nil {
 				return err
 			}
 			if dst != "" && res.Body != nil {
-				return writeOut(dst, res.Body, 0o644)
+				return writeOut(dst, res.Body, 0o644, rep)
 			}
 			return nil
 		}, func(err error) {
@@ -215,17 +218,17 @@ func (u *UI) verifyPGPFile() {
 }
 
 // pluginUI lets other age plugins (a YubiKey's) talk to the person here.
-func (u *UI) pluginUI() *svage.PluginUI {
+func (u *UI) pluginUI(ctx context.Context) *svage.PluginUI {
 	return &svage.PluginUI{
 		DisplayMessage: func(name, msg string) error {
 			u.post(func() { u.say("age-plugin-%s: %s", name, msg) })
 			return nil
 		},
 		RequestValue: func(name, prompt string, secret bool) ([]byte, error) {
-			return u.askFromWorker("age-plugin-"+name, strings.TrimSpace(prompt), "Answer", secret)
+			return u.askFromWorker(ctx, "age-plugin-"+name, strings.TrimSpace(prompt), "Answer", secret)
 		},
 		Confirm: func(name, prompt, yes, _ string) (bool, error) {
-			return u.confirmFromWorker("age-plugin-"+name, strings.TrimSpace(prompt), yes), nil
+			return u.confirmFromWorker(ctx, "age-plugin-"+name, strings.TrimSpace(prompt), yes), nil
 		},
 	}
 }
@@ -271,13 +274,14 @@ func (u *UI) encryptAge() {
 		if problem := replaceProblem(dst, replace.IsChecked()); problem != "" {
 			return problem
 		}
+		rep := replace.IsChecked()
 		var secret []byte
 		if usePass {
 			secret = pass.value()
 		}
-		ui := u.pluginUI()
 		u.call(func(ctx context.Context, c *secretvault.Client) error {
 			defer clear(secret)
+			ui := u.pluginUI(ctx)
 			itemRecipient := func(r svrpc.Ref) (string, error) { return svops.AgeItemRecipient(ctx, c, r) }
 			var recipients []svage.Recipient
 			for _, a := range args {
@@ -325,7 +329,7 @@ func (u *UI) encryptAge() {
 			if err := svops.AgeEncrypt(out, src, recipients, armor.IsChecked(), mixed.IsChecked()); err != nil {
 				return err
 			}
-			return out.Commit()
+			return commitOut(out, rep)
 		}, func(err error) {
 			if err != nil {
 				u.fail(err)
@@ -363,8 +367,9 @@ func (u *UI) decryptAge() {
 		if problem := replaceProblem(dst, replace.IsChecked()); problem != "" {
 			return problem
 		}
-		ui := u.pluginUI()
+		rep := replace.IsChecked()
 		u.call(func(ctx context.Context, c *secretvault.Client) error {
+			ui := u.pluginUI(ctx)
 			opts := svops.AgeIdentityOptions{
 				Vault: func(r svrpc.Ref) svage.Identity {
 					return &svops.VaultIdentity{Ref: r, Fetch: func(r svrpc.Ref) (svage.Identity, error) {
@@ -377,7 +382,7 @@ func (u *UI) decryptAge() {
 				},
 				UI: ui,
 				SSHPassphrase: func(path string) ([]byte, error) {
-					return u.askFromWorker("Passphrase", "The SSH key "+path+" is encrypted.", "Passphrase", true)
+					return u.askFromWorker(ctx, "Passphrase", "The SSH key "+path+" is encrypted.", "Passphrase", true)
 				},
 			}
 			var identities []svage.Identity
@@ -390,7 +395,7 @@ func (u *UI) decryptAge() {
 			}
 			if len(identities) == 0 {
 				identities = append(identities, svops.PassphraseIdentity{Ask: func() ([]byte, error) {
-					return u.askFromWorker("Passphrase", "The file is encrypted to a passphrase.", "Passphrase", true)
+					return u.askFromWorker(ctx, "Passphrase", "The file is encrypted to a passphrase.", "Passphrase", true)
 				}})
 			}
 			in, err := os.Open(src)
@@ -410,7 +415,7 @@ func (u *UI) decryptAge() {
 			if _, err := io.Copy(out, r); err != nil {
 				return err
 			}
-			return out.Commit()
+			return commitOut(out, rep)
 		}, func(err error) {
 			if err != nil {
 				u.fail(err)
@@ -484,6 +489,7 @@ func (u *UI) composeMail() {
 		if problem := replaceProblem(dst, replace.IsChecked()); problem != "" {
 			return problem
 		}
+		rep := replace.IsChecked()
 		msg, err := svops.ReadMessage(src, nil)
 		if err != nil {
 			return err.Error()
@@ -497,6 +503,9 @@ func (u *UI) composeMail() {
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 			if res, err = c.ComposeMail(ctx, p); err != nil {
 				return err
+			}
+			if !rep {
+				return svops.WriteNew(dst, res.Message) // never over a file that appeared meanwhile
 			}
 			return svops.WriteMessage(dst, res.Message)
 		}, func(err error) {

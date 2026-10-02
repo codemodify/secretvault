@@ -37,6 +37,7 @@ type formDialog struct {
 	closed  bool
 	single  tview.FormItem // the only field, when there is one: Enter submits
 	fields  int
+	id      int // its dialog's number
 
 	// onCancel runs when the dialog is cancelled rather than submitted.
 	onCancel func()
@@ -165,7 +166,7 @@ func (f *formDialog) show(action string, ok func() string) {
 	frame.AddItem(f.form, h, 0, true)
 	frame.SetBorder(true).SetBorderPadding(0, 0, 1, 1).SetTitle(" " + tview.Escape(f.title) + " ")
 	height := 2 + f.introH + h + 3 // the problem's room
-	u.openPage(pageDialog, centred(frame, f.width, u.fit(height)), f.form)
+	f.id = u.openDialog(centred(frame, f.width, u.fit(height)), f.form, f.cancel)
 }
 
 // cancel takes the dialog down without doing anything.
@@ -185,7 +186,7 @@ func (f *formDialog) close() {
 	for _, s := range f.secrets {
 		s.wipe()
 	}
-	f.u.closePage(pageDialog)
+	f.u.closeDialog(f.id)
 }
 
 // trimmed is a text field, trimmed.
@@ -273,10 +274,11 @@ func (u *UI) showPlan(title, body, action string, do func(), cancelled ...func()
 	buttons := tview.NewForm().SetButtonsAlign(tview.AlignCenter)
 	buttons.SetBorderPadding(0, 0, 0, 0)
 	closed := false
+	var id int
 	cancel := func() {
 		if !closed {
 			closed = true
-			u.closePage(pageDialog)
+			u.closeDialog(id)
 			for _, f := range cancelled {
 				f()
 			}
@@ -285,7 +287,7 @@ func (u *UI) showPlan(title, body, action string, do func(), cancelled ...func()
 	buttons.AddButton("Cancel", cancel).AddButton(action, func() {
 		if !closed {
 			closed = true
-			u.closePage(pageDialog)
+			u.closeDialog(id)
 			do()
 		}
 	})
@@ -312,7 +314,7 @@ func (u *UI) showPlan(title, body, action string, do func(), cancelled ...func()
 		}
 		return ev
 	})
-	u.openPage(pageDialog, centred(frame, 78, u.fit(wrappedLines(body, 70)+4)), view)
+	id = u.openDialog(centred(frame, 78, u.fit(wrappedLines(body, 70)+4)), view, cancel)
 }
 
 // choose asks which of options; done gets its index.
@@ -330,7 +332,7 @@ func (u *UI) choose(title string, options []string, done func(int)) {
 	for _, o := range options {
 		width = max(width, len(o)+6)
 	}
-	u.openPage(pageDialog, centred(list, min(width, 90), len(options)+2), list)
+	u.openDialog(centred(list, min(width, 90), len(options)+2), list, nil)
 }
 
 // yesNo is how the TUI writes a flag.

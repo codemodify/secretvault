@@ -195,6 +195,12 @@ func (p *HelpersPlan) SetupLines() []string {
 // and makes it docker's credsStore, as the plan says; it returns what it
 // did, as far as it got.
 func (p *HelpersPlan) Apply() ([]string, error) {
+	if p.DockerErr == nil && p.DockerStore != helperStore {
+		// A plan shown to a person may have waited.
+		if err := p.dockerUnchanged(); err != nil {
+			return nil, err
+		}
+	}
 	var done []string
 	for _, l := range p.Links {
 		if l.Exists {
@@ -212,15 +218,17 @@ func (p *HelpersPlan) Apply() ([]string, error) {
 		done = append(done, "git's credential helpers include secretvault")
 	}
 	if p.DockerErr == nil && p.DockerStore != helperStore {
+		rp, err := helpersRecordPath()
+		if err != nil {
+			return done, err
+		}
 		if p.DockerStore != "" {
-			rp, err := helpersRecordPath()
-			if err != nil {
-				return done, err
-			}
 			b, _ := json.Marshal(helpersRecord{DockerPrevious: p.DockerStore})
 			if err := WriteReplacing(rp, b, 0o600); err != nil {
 				return done, err
 			}
+		} else if err := os.Remove(rp); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return done, err
 		}
 		if err := setDockerStore(p.DockerConfig, helperStore); err != nil {
 			return done, err
@@ -239,7 +247,7 @@ func (p *HelpersPlan) UndoLines() []string {
 		}
 	}
 	if p.GitErr == nil && p.GitHas {
-		out = append(out, "- git config --global --unset credential.helper '^secretvault$'")
+		out = append(out, "- git config --global --unset-all credential.helper '^secretvault$'")
 	}
 	if p.DockerErr == nil && p.DockerStore == helperStore {
 		if p.DockerPrevious != "" {
@@ -263,18 +271,29 @@ func (p *HelpersPlan) Undo() ([]string, error) {
 		if !l.Ours {
 			continue
 		}
+		// Only while it is still the link the plan saw.
+		if target, err := os.Readlink(l.Path); err != nil || (target != filepath.Base(p.CLI) && target != p.CLI) {
+			done = append(done, l.Path+" changed since the plan was made: left as it is")
+			continue
+		}
 		if err := os.Remove(l.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return done, err
 		}
 		done = append(done, "removed "+l.Path)
 	}
 	if p.GitErr == nil && p.GitHas {
-		if out, err := CommandRunner("git", "config", "--global", "--unset", "credential.helper", "^"+helperStore+"$"); err != nil {
+		if out, err := CommandRunner("git", "config", "--global", "--unset-all", "credential.helper", "^"+helperStore+"$"); err != nil {
 			return done, fmt.Errorf("git config: %v %s", err, strings.TrimSpace(string(out)))
 		}
 		done = append(done, "git's credential helpers no longer include secretvault")
 	}
-	if p.DockerErr == nil && p.DockerStore == helperStore {
+	if p.DockerErr != nil {
+		return done, nil // its record stays, for an undo that can read it
+	}
+	if p.DockerStore == helperStore {
+		if err := p.dockerUnchanged(); err != nil {
+			return done, err
+		}
 		if err := setDockerStore(p.DockerConfig, p.DockerPrevious); err != nil {
 			return done, err
 		}
@@ -290,9 +309,35 @@ func (p *HelpersPlan) Undo() ([]string, error) {
 	return done, nil
 }
 
+// dockerUnchanged checks docker's credsStore is what the plan saw.
+func (p *HelpersPlan) dockerUnchanged() error {
+	b, err := os.ReadFile(p.DockerConfig)
+	now := ""
+	switch {
+	case err == nil:
+		var cfg map[string]json.RawMessage
+		if err := json.Unmarshal(b, &cfg); err != nil {
+			return fmt.Errorf("%s is not JSON: left alone", p.DockerConfig)
+		}
+		if raw, ok := cfg["credsStore"]; ok {
+			json.Unmarshal(raw, &now)
+		}
+	case !errors.Is(err, fs.ErrNotExist):
+		return err
+	}
+	if now != p.DockerStore {
+		return fmt.Errorf("%s changed since the plan was made: make it again", p.DockerConfig)
+	}
+	return nil
+}
+
 // setDockerStore sets (or with "" removes) credsStore in docker's config
-// file, keeping the rest of it as it is.
+// file, keeping the rest of it as it is; a config that is a link (kept
+// with the person's dotfiles, say) is written where it leads.
 func setDockerStore(path, store string) error {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
 	cfg := map[string]json.RawMessage{}
 	b, err := os.ReadFile(path)
 	switch {

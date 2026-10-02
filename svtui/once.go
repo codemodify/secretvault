@@ -197,7 +197,7 @@ func (u *UI) showLines(title string, lines []onceLine, qr *svqr.Code, once bool)
 			return
 		}
 		closed = true
-		u.wipeOnce()
+		u.closeOnce()
 	}
 	v.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
 		switch {
@@ -214,13 +214,48 @@ func (u *UI) showLines(title string, lines []onceLine, qr *svqr.Code, once bool)
 		}
 		return ev
 	})
-	u.wipeOnce()
-	u.once = v
-	u.openPage(pageOnce, centred(v, 84, u.fit(v.height()+4)), v)
+	open := func() {
+		u.once = v
+		u.openPage(pageOnce, centred(v, 84, u.fit(v.height()+4)), v)
+	}
+	if u.once != nil {
+		// One shown once is never replaced unseen: this waits for it.
+		u.onceQueue = append(u.onceQueue, pendingOnce{v, open})
+		return
+	}
+	open()
 }
 
-// wipeOnce takes down what is shown once, wiping it.
+// pendingOnce is a once view waiting for the one up to close.
+type pendingOnce struct {
+	v    *onceView
+	open func()
+}
+
+// closeOnce takes down the once view up, wiping it, and shows the next
+// one waiting.
+func (u *UI) closeOnce() {
+	if u.once != nil {
+		u.once.wipe()
+		u.once = nil
+	}
+	u.closePage(pageOnce)
+	if len(u.onceQueue) > 0 {
+		next := u.onceQueue[0]
+		u.onceQueue = u.onceQueue[1:]
+		next.open()
+	}
+}
+
+// wipeOnce takes down every once view, shown or waiting, wiping them, and
+// any value resolved from a reference (the daemon went away, or the
+// program is quitting).
 func (u *UI) wipeOnce() {
+	u.wipeValue()
+	for _, p := range u.onceQueue {
+		p.v.wipe()
+	}
+	u.onceQueue = nil
 	if u.once != nil {
 		u.once.wipe()
 		u.once = nil

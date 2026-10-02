@@ -43,7 +43,7 @@ func TestHelpersAreSetUpAndUndoneLeavingTheRestAlone(t *testing.T) {
 			return []byte(strings.Join(git, "\n") + "\n"), nil
 		case slices.Contains(args, "--add"):
 			git = append(git, args[len(args)-1])
-		case slices.Contains(args, "--unset"):
+		case slices.Contains(args, "--unset-all"):
 			git = slices.DeleteFunc(git, func(h string) bool { return h == "secretvault" })
 		}
 		return nil, nil
@@ -63,6 +63,15 @@ func TestHelpersAreSetUpAndUndoneLeavingTheRestAlone(t *testing.T) {
 			t.Errorf("the plan lacks %q:\n%s", want, lines)
 		}
 	}
+	// A plan that waited while docker's config changed is made again.
+	os.WriteFile(filepath.Join(dir, "docker", "config.json"), []byte(`{"auths": {"r.example": {}}, "credsStore": "pass"}`), 0o600)
+	if _, err := p.Apply(); err == nil || !strings.Contains(err.Error(), "changed since the plan was made") {
+		t.Fatalf("a stale plan: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "bin", "git-credential-secretvault")); err == nil || len(git) != 1 {
+		t.Fatal("a stale plan changed something")
+	}
+	os.WriteFile(filepath.Join(dir, "docker", "config.json"), []byte(`{"auths": {"r.example": {}}, "credsStore": "desktop"}`), 0o600)
 	if _, err := p.Apply(); err != nil {
 		t.Fatal(err)
 	}

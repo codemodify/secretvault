@@ -176,6 +176,31 @@ func (a *AtomicFile) Commit() error {
 	return nil
 }
 
+// CommitNew puts the file in place only if nothing is at its name: a file
+// that appeared while it was being written is never replaced (Commit
+// replaces one). It fails with an error satisfying errors.Is(err,
+// fs.ErrExist) when something is there.
+func (a *AtomicFile) CommitNew() error {
+	if a.done {
+		return nil
+	}
+	a.done = true
+	tmp := a.File.Name()
+	defer os.Remove(tmp)
+	if err := a.File.Close(); err != nil {
+		return err
+	}
+	err := os.Link(tmp, a.path)
+	if err == nil || errors.Is(err, fs.ErrExist) {
+		return err
+	}
+	// No hard links here: the next best, a check just before the rename.
+	if _, lerr := os.Lstat(a.path); lerr == nil {
+		return &fs.PathError{Op: "create", Path: a.path, Err: fs.ErrExist}
+	}
+	return os.Rename(tmp, a.path)
+}
+
 // Abort throws the file away, unless it was committed.
 func (a *AtomicFile) Abort() {
 	if !a.done {

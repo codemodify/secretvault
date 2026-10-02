@@ -37,7 +37,7 @@ func (u *UI) confirm(title, text, action string, do func()) {
 		}
 		return ev
 	})
-	u.openPage(pageDialog, m, m)
+	u.openDialog(m, m, nil)
 }
 
 // ask asks for one line of text.
@@ -62,7 +62,7 @@ func (u *UI) ask(title, label, value string, done func(string)) {
 	form.AddButton("OK", ok).AddButton("Cancel", func() { u.closePage(pageDialog) })
 	form.SetCancelFunc(func() { u.closePage(pageDialog) })
 	form.SetBorder(true).SetTitle(" " + tview.Escape(title) + " ")
-	u.openPage(pageDialog, centred(form, 64, 7), form)
+	u.openDialog(centred(form, 64, 7), form, nil)
 }
 
 // table makes a panel table with a header row.

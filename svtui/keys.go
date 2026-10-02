@@ -2,7 +2,9 @@ package svtui
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strconv"
 	"strings"
@@ -166,7 +168,7 @@ func (u *UI) importPGPKey(vault string, then func()) {
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 			defer clear(data)
 			it, fp, err = svops.PGPImportItem(data, pth, name, func() ([]byte, error) {
-				return u.askFromWorker("Passphrase of the key", "The key is protected: its passphrase unlocks it, and is kept beside it in the item.", "Passphrase", true)
+				return u.askFromWorker(ctx, "Passphrase of the key", "The key is protected: its passphrase unlocks it, and is kept beside it in the item.", "Passphrase", true)
 			})
 			if err != nil {
 				return err
@@ -219,6 +221,7 @@ func (u *UI) exportPGPKey(vault, key string) {
 		if problem := replaceProblem(pth, replace.IsChecked()); problem != "" {
 			return problem
 		}
+		rep := replace.IsChecked()
 		i, _ := what.GetCurrentOption()
 		var newPass []byte
 		if i == 1 {
@@ -255,7 +258,7 @@ func (u *UI) exportPGPKey(vault, key string) {
 					note = fmt.Sprintf(" The key is protected by the passphrase in its item's %q field.", svrpc.PGPPassField)
 				}
 			}
-			return writeOut(pth, data, 0o600)
+			return writeOut(pth, data, 0o600, rep)
 		}, func(err error) {
 			if err != nil {
 				u.fail(err)
@@ -276,8 +279,9 @@ func replaceProblem(path string, replace bool) string {
 }
 
 // writeOut writes data to path through a file that appears only once it
-// is whole (svops.CreateAtomic), as the CLI's -o does.
-func writeOut(path string, data []byte, mode os.FileMode) error {
+// is whole (svops.CreateAtomic), as the CLI's -o does; over a file that is
+// there only with replace, even one that appeared meanwhile.
+func writeOut(path string, data []byte, mode os.FileMode, replace bool) error {
 	f, err := svops.CreateAtomic(path, mode)
 	if err != nil {
 		return err
@@ -286,7 +290,21 @@ func writeOut(path string, data []byte, mode os.FileMode) error {
 	if _, err := f.Write(data); err != nil {
 		return err
 	}
-	return f.Commit()
+	return commitOut(f, replace)
+}
+
+// commitOut puts a result in place: over what is there with replace,
+// else only where nothing is.
+func commitOut(f *svops.AtomicFile, replace bool) error {
+	if replace {
+		return f.Commit()
+	}
+	if err := f.CommitNew(); errors.Is(err, fs.ErrExist) {
+		return fmt.Errorf("%s appeared meanwhile: tick Replace to write over it, or choose another name", f.Name())
+	} else if err != nil {
+		return err
+	}
+	return nil
 }
 
 // importSMIME is 'secretvault smime import FILE.p12'.
@@ -443,23 +461,31 @@ func (u *UI) identityFileRecipient() {
 // interface's (svops asking for a key's passphrase, an age plugin for a
 // PIN), and waits for the answer. A secret is typed masked; the caller
 // wipes it.
-func (u *UI) askFromWorker(title, intro, label string, secret bool) ([]byte, error) {
+func (u *UI) askFromWorker(ctx context.Context, title, intro, label string, secret bool) ([]byte, error) {
 	ch := make(chan []byte, 1)
+	answer := func(v []byte) {
+		select {
+		case ch <- v:
+		default:
+			clear(v)
+		}
+	}
+	var f *formDialog
 	u.post(func() {
-		f := u.newForm(title, intro)
+		f = u.newForm(title, intro)
 		var s *secretInput
-		var in = (*tview.InputField)(nil)
+		var in *tview.InputField
 		if secret {
 			s = f.secret(label)
 		} else {
 			in = f.text(label, "", "")
 		}
-		f.onCancel = func() { ch <- nil }
+		f.onCancel = func() { answer(nil) }
 		f.show("OK", func() string {
 			if secret {
-				ch <- s.value()
+				answer(s.value())
 			} else {
-				ch <- []byte(trimmed(in))
+				answer([]byte(trimmed(in)))
 			}
 			return ""
 		})
@@ -470,26 +496,51 @@ func (u *UI) askFromWorker(title, intro, label string, secret bool) ([]byte, err
 			return nil, svrpc.ErrCanceled
 		}
 		return v, nil
+	case <-ctx.Done():
+		// The question goes, whether it is up or still waiting.
+		u.post(func() {
+			if f != nil {
+				f.cancel()
+			}
+			select {
+			case v := <-ch: // answered as it went
+				clear(v)
+			default:
+			}
+		})
+		return nil, ctx.Err()
 	case <-u.done:
 		return nil, svrpc.ErrCanceled
 	}
 }
 
-// confirmFromWorker asks yes or no from another goroutine.
-func (u *UI) confirmFromWorker(title, text, yes string) bool {
+// confirmFromWorker asks yes or no from another goroutine. No is first,
+// and answers Enter: a question that comes while someone types is not
+// taken for a yes.
+func (u *UI) confirmFromWorker(ctx context.Context, title, text, yes string) bool {
 	ch := make(chan bool, 1)
+	answer := func(v bool) {
+		select {
+		case ch <- v:
+		default:
+		}
+	}
+	id := -1
 	u.post(func() {
-		m := tview.NewModal().SetText(text).AddButtons([]string{yes, "No"})
+		m := tview.NewModal().SetText(text).AddButtons([]string{"No", yes})
 		m.SetTitle(" " + tview.Escape(title) + " ")
 		m.SetDoneFunc(func(_ int, label string) {
-			u.closePage(pageDialog)
-			ch <- label == yes
+			answer(label == yes)
+			u.closeDialog(id)
 		})
-		u.openPage(pageDialog, m, m)
+		id = u.openDialog(m, m, func() { answer(false) })
 	})
 	select {
 	case v := <-ch:
 		return v
+	case <-ctx.Done():
+		u.post(func() { u.closeDialog(id) })
+		return false
 	case <-u.done:
 		return false
 	}

@@ -96,8 +96,8 @@ func (u *UI) showValue(title string, v []byte) {
 	view.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
 		switch {
 		case ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyEnter || ev.Rune() == 'q':
-			clear(v)
 			view.reset("")
+			u.wipeValue()
 			u.closePage(pageInfo)
 		case ev.Rune() == 'r':
 			reveal = !reveal
@@ -109,7 +109,15 @@ func (u *UI) showValue(title string, v []byte) {
 		}
 		return nil
 	})
+	u.wipeValue()
+	u.value = v
 	u.openPage(pageInfo, centred(view, 84, 5), view)
+}
+
+// wipeValue wipes the value showValue shows, if any.
+func (u *UI) wipeValue() {
+	clear(u.value)
+	u.value = nil
 }
 
 // checkResult is one reference checked: whether it resolves, never what

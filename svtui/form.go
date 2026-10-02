@@ -325,7 +325,7 @@ func (ed *editor) askField() {
 	form.AddButton("Add", add).AddButton("Cancel", func() { u.closePage(pageDialog) })
 	form.SetCancelFunc(func() { u.closePage(pageDialog) })
 	form.SetBorder(true).SetTitle(" Add a field ")
-	u.openPage(pageDialog, centred(form, 52, 9), form)
+	u.openDialog(centred(form, 52, 9), form, nil)
 }
 
 // askRemove asks which field to remove.
@@ -345,7 +345,7 @@ func (ed *editor) askRemove() {
 	}
 	list.SetDoneFunc(func() { u.closePage(pageDialog) })
 	list.SetBorder(true).SetTitle(" Remove which field? — Esc keeps them all ")
-	u.openPage(pageDialog, centred(list, 52, len(ed.fields)+2), list)
+	u.openDialog(centred(list, 52, len(ed.fields)+2), list, nil)
 }
 
 // item reads the form. The caller wipes the fields' values.
@@ -466,10 +466,11 @@ func (u *UI) showGenerator(use func([]byte)) {
 		pw = p
 		preview.set(pw)
 	}
+	var id int
 	done := func() {
 		clear(pw)
 		preview.wipe()
-		u.closePage(pageDialog)
+		u.closeDialog(id)
 	}
 	size := tview.NewInputField().SetLabel("Length").SetText(strconv.Itoa(length)).SetFieldWidth(5).
 		SetAcceptanceFunc(tview.InputFieldInteger)
@@ -504,7 +505,7 @@ func (u *UI) showGenerator(use func([]byte)) {
 	form.SetCancelFunc(done)
 	form.SetBorder(true).SetTitle(" Password generator — 8 to 128 characters ")
 	regenerate()
-	u.openPage(pageDialog, centred(form, 64, 11), form)
+	id = u.openDialog(centred(form, 64, 11), form, done)
 }
 
 func sortedKeys(m map[string]string) []string {
