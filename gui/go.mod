@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/codemodify/paintengine2d v0.11.0
 	github.com/codemodify/secretvault v0.0.0-00010101000000-000000000000
-	github.com/codemodify/uitoolkit v0.23.0
+	github.com/codemodify/uitoolkit v0.23.1
 )
 
 require (
