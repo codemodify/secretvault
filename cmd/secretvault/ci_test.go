@@ -24,6 +24,7 @@ import (
 	"github.com/codemodify/secretvault/svcrypto"
 	"github.com/codemodify/secretvault/svdeliver"
 	"github.com/codemodify/secretvault/svformat"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svstore"
 )
 
@@ -51,9 +52,9 @@ func clearCIEnv(t *testing.T) {
 		"SECRETVAULT_SERVER_FINGERPRINT", "SECRETVAULT_SERVER_CA", "SECRETVAULT_ROLE", "SECRETVAULT_AUDIENCE", "GITHUB_ENV", "CI_JOB_TOKEN"} {
 		t.Setenv(k, "")
 	}
-	old := k8sTokenPath
-	k8sTokenPath = filepath.Join(t.TempDir(), "no-token")
-	t.Cleanup(func() { k8sTokenPath = old })
+	old := svops.K8sTokenPath
+	svops.K8sTokenPath = filepath.Join(t.TempDir(), "no-token")
+	t.Cleanup(func() { svops.K8sTokenPath = old })
 }
 
 func newCIWorld(t *testing.T) *ciWorld {
@@ -233,7 +234,7 @@ func TestCIFetchInGitLabAndKubernetes(t *testing.T) {
 	// A pod's service-account token.
 	tokenFile := filepath.Join(w.dir, "sa-token")
 	os.WriteFile(tokenFile, []byte(w.jwt(w.server.URL, map[string]any{"sub": "system:serviceaccount:payments:api"})+"\n"), 0o600)
-	k8sTokenPath = tokenFile
+	svops.K8sTokenPath = tokenFile
 	t.Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.1")
 	if out, errs, code := w.ci("fetch", "sv://main/prod/db#username", "--role", "k8s-api"); code != 0 || out != "app\n" {
 		t.Fatalf("Kubernetes: %d %q %s", code, out, errs)

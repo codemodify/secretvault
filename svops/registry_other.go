@@ -1,11 +1,11 @@
 //go:build !windows
 
-package main
+package svops
 
 import "errors"
 
 // Only Windows keeps native-messaging hosts in the registry; elsewhere a
-// browserSpot has no key and these are never called.
+// BrowserSpot has no key and these are never called.
 
 var errNoRegistry = errors.New("there is no registry here")
 

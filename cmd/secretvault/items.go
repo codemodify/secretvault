@@ -16,49 +16,9 @@ import (
 
 	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svcrypto"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
-
-func wipe(it *svrpc.Item) {
-	for i := range it.Fields {
-		clear(it.Fields[i].Value)
-	}
-}
-
-func field(it *svrpc.Item, name string) (svrpc.Field, bool) {
-	for _, f := range it.Fields {
-		if f.Name == name {
-			return f, true
-		}
-	}
-	return svrpc.Field{}, false
-}
-
-// secretField is the item's primary secret, as svcore.Item.Secret picks it.
-func secretField(it *svrpc.Item) (svrpc.Field, bool) {
-	for _, n := range []string{"password", "secret"} {
-		if f, ok := field(it, n); ok {
-			return f, true
-		}
-	}
-	for _, f := range it.Fields {
-		if f.Type == svcore.FieldConcealed || f.Type == svcore.FieldKey {
-			return f, true
-		}
-	}
-	return svrpc.Field{}, false
-}
-
-func setField(it *svrpc.Item, f svrpc.Field) {
-	for i := range it.Fields {
-		if it.Fields[i].Name == f.Name {
-			clear(it.Fields[i].Value)
-			it.Fields[i] = f
-			return
-		}
-	}
-	it.Fields = append(it.Fields, f)
-}
 
 func (c *cli) cmdSet(args []string) error {
 	fs := c.flags("set")
@@ -108,7 +68,7 @@ func (c *cli) cmdSet(args []string) error {
 			if err != nil {
 				return err
 			}
-			secret = trimNewline(b)
+			secret = svops.TrimNewline(b)
 			if len(secret) == 0 {
 				return errors.New("stdin held no secret (use --no-secret to change only the other parts)")
 			}
@@ -141,7 +101,7 @@ func (c *cli) cmdSet(args []string) error {
 			return err
 		}
 	}
-	defer wipe(&it)
+	defer svops.Wipe(&it)
 	if set["label"] {
 		it.Label = *label
 	}
@@ -157,27 +117,20 @@ func (c *cli) cmdSet(args []string) error {
 		}
 	}
 	for _, k := range sortedKeys(fieldMap) {
-		setField(&it, svrpc.Field{Name: k, Type: svcore.FieldText, Value: []byte(fieldMap[k])})
+		svops.SetField(&it, svrpc.Field{Name: k, Type: svcore.FieldText, Value: []byte(fieldMap[k])})
 	}
 	if secret != nil {
-		setField(&it, svrpc.Field{Name: *secretName, Type: svcore.FieldConcealed, Value: secret})
+		svops.SetField(&it, svrpc.Field{Name: *secretName, Type: svcore.FieldConcealed, Value: secret})
 	}
 	e, err := cl.Put(ctx, c.vault, it)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(c.stderr, "Stored %s (revision %s)\n", name, short(e.Rev))
+	fmt.Fprintf(c.stderr, "Stored %s (revision %s)\n", name, svops.Short(e.Rev))
 	if generated != nil {
 		fmt.Fprintf(c.stdout, "%s\n", generated)
 	}
 	return nil
-}
-
-func short(rev string) string {
-	if len(rev) > 12 {
-		return rev[:12]
-	}
-	return rev
 }
 
 // jsonItem is how --json prints an item.
@@ -254,7 +207,7 @@ func (c *cli) cmdGet(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer wipe(&e.Item)
+	defer svops.Wipe(&e.Item)
 	c.warnConflicts(e)
 	if *asJSON {
 		enc := json.NewEncoder(c.stdout)
@@ -264,10 +217,10 @@ func (c *cli) cmdGet(args []string) error {
 	var f svrpc.Field
 	var ok bool
 	if *fieldName != "" {
-		if f, ok = field(&e.Item, *fieldName); !ok {
+		if f, ok = svops.Field(&e.Item, *fieldName); !ok {
 			return fmt.Errorf("%s has no field %q", pos[0], *fieldName)
 		}
-	} else if f, ok = secretField(&e.Item); !ok {
+	} else if f, ok = svops.SecretField(&e.Item); !ok {
 		return fmt.Errorf("%s has no secret field; use --field or --json", pos[0])
 	}
 	if *toClip {
@@ -327,7 +280,7 @@ func (c *cli) cmdList(args []string) error {
 			mark = "  (conflict)"
 		}
 		if *long {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s%s\n", e.Item.Name, e.Item.Kind, e.Time.Local().Format("2006-01-02 15:04"), short(e.Rev), mark)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s%s\n", e.Item.Name, e.Item.Kind, e.Time.Local().Format("2006-01-02 15:04"), svops.Short(e.Rev), mark)
 		} else {
 			fmt.Fprintf(tw, "%s%s\n", e.Item.Name, mark)
 		}
@@ -389,7 +342,7 @@ func (c *cli) cmdHistory(args []string) error {
 	if err != nil {
 		return err
 	}
-	wipe(&cur.Item)
+	svops.Wipe(&cur.Item)
 	heads := map[string]bool{cur.Rev: true}
 	for _, r := range cur.Conflicts {
 		heads[r] = true
@@ -413,50 +366,16 @@ func (c *cli) cmdHistory(args []string) error {
 		if e.Ignored {
 			note = strings.TrimSpace(note + " ignored: the vault requires signatures")
 		}
-		line := fmt.Sprintf("%s\t%s\t%s\t%s", e.Time.Local().Format("2006-01-02 15:04:05"), short(e.Rev), author(e), note)
+		line := fmt.Sprintf("%s\t%s\t%s\t%s", e.Time.Local().Format("2006-01-02 15:04:05"), svops.Short(e.Rev), svops.Author(e), note)
 		if *show {
-			if f, ok := secretField(&e.Item); ok {
+			if f, ok := svops.SecretField(&e.Item); ok {
 				line += "\t" + string(f.Value)
 			}
 		}
 		fmt.Fprintln(tw, line)
-		wipe(&e.Item)
+		svops.Wipe(&e.Item)
 	}
 	return tw.Flush()
-}
-
-// author says who wrote a revision, as far as its signature tells: the
-// device's label and the first half of its key ID (labels are anyone's to
-// choose; keys are not, and 64 bits are too many to grind out a lookalike)
-// when the signature verifies, and otherwise what the revision claims,
-// marked as a claim.
-func author(e svrpc.Entry) string {
-	s := e.Signature
-	key := s.Key
-	if len(key) > 16 {
-		key = key[:16]
-	}
-	named := strings.TrimSpace(s.Label + " " + key)
-	switch s.Status {
-	case svrpc.SigVerified:
-		switch {
-		case s.Mine:
-			return s.Label + " (this device)"
-		case s.Removed:
-			return named + " (removed)"
-		case s.Vouched:
-			return named + " (vouched for)"
-		}
-		return named
-	case svrpc.SigBad:
-		return "BAD SIGNATURE, as " + named
-	case svrpc.SigUnverified:
-		return "unverified, key " + key
-	}
-	if len(e.Device) >= 8 {
-		return "unsigned, device " + e.Device[:8]
-	}
-	return "unsigned"
 }
 
 func (c *cli) cmdGen(args []string) error {
@@ -467,11 +386,7 @@ func (c *cli) cmdGen(args []string) error {
 	if _, err := parse(fs, args, 0, 0, "[--length N] [--no-symbols] [--clip]"); err != nil {
 		return err
 	}
-	classes := []string{svcrypto.Lower, svcrypto.Upper, svcrypto.Digits, svcrypto.Symbols}
-	if *noSymbols {
-		classes = classes[:3]
-	}
-	p, err := svcrypto.Password(*n, classes...)
+	p, err := svops.GeneratePassword(*n, !*noSymbols)
 	if err != nil {
 		return err
 	}
@@ -521,7 +436,7 @@ func (c *cli) cmdRestore(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(c.stdout, "Restored %s (revision %s)\n", e.Item.Name, short(e.Rev))
+	fmt.Fprintf(c.stdout, "Restored %s (revision %s)\n", e.Item.Name, svops.Short(e.Rev))
 	return nil
 }
 
@@ -547,35 +462,22 @@ func (c *cli) cmdResolve(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(c.stdout, "Kept that version of %s; the conflict is settled (revision %s).\n", e.Item.Name, short(e.Rev))
+		fmt.Fprintf(c.stdout, "Kept that version of %s; the conflict is settled (revision %s).\n", e.Item.Name, svops.Short(e.Rev))
 		return nil
 	}
-	cur, err := cl.Get(ctx, c.vault, pos[0])
+	con, err := svops.Conflicts(ctx, cl, c.vault, pos[0])
 	if err != nil {
 		return err
 	}
-	wipe(&cur.Item)
-	if len(cur.Conflicts) == 0 {
+	if len(con.Versions) == 0 {
 		fmt.Fprintf(c.stdout, "%s has no conflict.\n", pos[0])
 		return nil
 	}
-	heads := map[string]bool{cur.Rev: true}
-	for _, r := range cur.Conflicts {
-		heads[r] = true
-	}
-	hist, err := cl.History(ctx, c.vault, pos[0])
-	if err != nil {
-		return err
-	}
 	fmt.Fprintf(c.stdout, "%s was changed on two devices at once. Its versions:\n\n", pos[0])
 	tw := tabwriter.NewWriter(c.stdout, 0, 4, 2, ' ', 0)
-	for _, e := range hist {
-		if !heads[e.Rev] {
-			wipe(&e.Item)
-			continue
-		}
+	for _, e := range con.Versions {
 		note := ""
-		if e.Rev == cur.Rev {
+		if e.Rev == con.Current.Rev {
 			note = "(shown now)"
 		}
 		device := "-"
@@ -586,8 +488,8 @@ func (c *cli) cmdResolve(args []string) error {
 		for _, f := range e.Item.Fields {
 			fields = append(fields, f.Name)
 		}
-		fmt.Fprintf(tw, "  %s\t%s\tdevice %s\tfields %s\t%s\n", short(e.Rev), e.Time.Local().Format("2006-01-02 15:04:05"), device, strings.Join(fields, ","), note)
-		wipe(&e.Item)
+		fmt.Fprintf(tw, "  %s\t%s\tdevice %s\tfields %s\t%s\n", svops.Short(e.Rev), e.Time.Local().Format("2006-01-02 15:04:05"), device, strings.Join(fields, ","), note)
+		svops.Wipe(&e.Item)
 	}
 	tw.Flush()
 	fmt.Fprintf(c.stdout, "\nSee each with 'secretvault history %s --show'; keep one with 'secretvault resolve %s --keep REV'.\n", pos[0], pos[0])

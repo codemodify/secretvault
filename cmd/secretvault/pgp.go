@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -9,10 +8,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/codemodify/secretvault/svcore"
-	"github.com/codemodify/secretvault/svpgp"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
-	"github.com/codemodify/secretvault/svtrust"
 )
 
 // Your own OpenPGP keys, kept in vault items of kind "key":
@@ -101,15 +98,11 @@ func (c *cli) pgpList(args []string) error {
 		return err
 	}
 	tw := tabwriter.NewWriter(c.stdout, 0, 4, 2, ' ', 0)
-	n := 0
-	for _, e := range entries {
-		if e.Item.Kind != svrpc.PGPItemKind || e.Item.Attrs[svrpc.PGPFingerprint] == "" {
-			continue
-		}
-		n++
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", e.Item.Name, groupFP(e.Item.Attrs[svrpc.PGPFingerprint]), e.Item.Attrs[svrpc.PGPUserID])
+	keys := svops.PGPKeyEntries(entries)
+	for _, e := range keys {
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", e.Item.Name, svops.GroupFingerprint(e.Item.Attrs[svrpc.PGPFingerprint]), e.Item.Attrs[svrpc.PGPUserID])
 	}
-	if n == 0 {
+	if len(keys) == 0 {
 		fmt.Fprintln(c.stdout, "No OpenPGP keys; make one with 'secretvault pgp new'.")
 		return nil
 	}
@@ -148,7 +141,7 @@ func (c *cli) pgpNew(args []string) error {
 		return err
 	}
 	fmt.Fprintf(c.stdout, "Made a version %d OpenPGP key, stored as %s:\n", k.Version, k.Item)
-	fmt.Fprintf(c.stdout, "  %s\n", groupFP(k.Fingerprint))
+	fmt.Fprintf(c.stdout, "  %s\n", svops.GroupFingerprint(k.Fingerprint))
 	for _, uid := range k.UserIDs {
 		fmt.Fprintf(c.stdout, "  %s\n", uid)
 	}
@@ -171,82 +164,29 @@ func (c *cli) pgpImport(args []string) error {
 		return err
 	}
 	defer clear(data)
-	keys, err := svpgp.ReadKeys(bytes.NewReader(data))
-	if err != nil {
-		return err
-	}
-	if len(keys) != 1 || !keys[0].HasSecret() {
-		for _, k := range keys {
-			k.Close()
-		}
-		return fmt.Errorf("%s does not hold exactly one secret key (someone's public key goes to 'secretvault contact add')", pos[0])
-	}
-	k := keys[0]
-	defer k.Close()
-	var pass []byte
-	if k.Locked() {
+	it, fp, err := svops.PGPImportItem(data, pos[0], *item, func() ([]byte, error) {
 		switch {
 		case *passFile != "":
-			pass, err = readSecretFile(*passFile)
+			return svops.ReadSecretFile(*passFile)
 		case c.canAsk:
-			pass, err = c.ask("Passphrase of the key: ")
-		default:
-			err = errors.New("the key is protected: give its passphrase with --key-passphrase-file")
+			return c.ask("Passphrase of the key: ")
 		}
-		if err != nil {
-			return err
-		}
-		defer clear(pass)
-		if err := k.Unlock(pass); err != nil {
-			return err
-		}
-	}
-	secret, err := k.Armor(true)
+		return nil, errors.New("the key is protected: give its passphrase with --key-passphrase-file")
+	})
 	if err != nil {
 		return err
 	}
-	defer clear(secret)
-	public, err := k.Public().Armor(false)
-	if err != nil {
-		return err
-	}
-	fp := fmt.Sprintf("%X", k.Fingerprint())
-	uid := k.PrimaryUserID()
-	name := *item
-	if name == "" {
-		_, addr := svtrust.SplitUserID(uid)
-		if addr == "" {
-			addr = fp
-		}
-		name = svrpc.PGPItemPrefix + addr
-	}
-	if err := svcore.CheckName(name); err != nil {
-		return err
-	}
+	defer svops.Wipe(&it)
 	cl, err := c.open(&u)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
-	if found, _, err := findItem(ctx, cl, c.vault, name); err != nil {
-		return err
-	} else if found {
-		return fmt.Errorf("%s already exists; pick another name with --item (a key is never replaced)", name)
-	}
-	it := svrpc.Item{Kind: svrpc.PGPItemKind, Name: name, Label: "OpenPGP key " + uid,
-		Attrs: map[string]string{svrpc.PGPFingerprint: fp, svrpc.PGPUserID: uid},
-		Fields: []svrpc.Field{
-			{Name: svrpc.PGPSecretField, Type: svcore.FieldKey, Value: secret},
-			{Name: svrpc.PGPPublicField, Type: svcore.FieldText, Value: public},
-		}}
-	if pass != nil {
-		it.Fields = append(it.Fields, svrpc.Field{Name: svrpc.PGPPassField, Type: svcore.FieldConcealed, Value: pass})
-	}
-	if _, err := cl.Put(ctx, c.vault, it); err != nil {
+	if err := svops.StorePGPKey(ctx, cl, c.vault, it); err != nil {
 		return err
 	}
-	fmt.Fprintf(c.stdout, "Imported %s as %s.\n", groupFP(fp), name)
+	fmt.Fprintf(c.stdout, "Imported %s as %s.\n", svops.GroupFingerprint(fp), it.Name)
 	return nil
 }
 
@@ -291,8 +231,8 @@ func (c *cli) pgpExport(args []string, pub bool) error {
 		if err != nil {
 			return err
 		}
-		defer wipe(&e.Item)
-		f, ok := field(&e.Item, svrpc.PGPSecretField)
+		defer svops.Wipe(&e.Item)
+		f, ok := svops.Field(&e.Item, svrpc.PGPSecretField)
 		if !ok {
 			return fmt.Errorf("%s has no secret key", k.Item)
 		}
@@ -302,7 +242,7 @@ func (c *cli) pgpExport(args []string, pub bool) error {
 				return err
 			}
 			defer clear(data)
-		} else if _, protected := field(&e.Item, svrpc.PGPPassField); protected {
+		} else if _, protected := svops.Field(&e.Item, svrpc.PGPPassField); protected {
 			fmt.Fprintf(c.stderr, "The key is protected by the passphrase in its item's %q field.\n", svrpc.PGPPassField)
 		}
 	}
@@ -320,30 +260,7 @@ func (c *cli) pgpExport(args []string, pub bool) error {
 // protectKey returns an item's secret key protected with a new
 // passphrase.
 func (c *cli) protectKey(it *svrpc.Item, passFile string) ([]byte, error) {
-	f, _ := field(it, svrpc.PGPSecretField)
-	k, err := svpgp.ReadKey(bytes.NewReader(f.Value))
-	if err != nil {
-		return nil, err
-	}
-	defer k.Close()
-	if k.Locked() {
-		pass, ok := field(it, svrpc.PGPPassField)
-		if !ok {
-			return nil, errors.New("the key is protected by a passphrase its item does not hold")
-		}
-		if err := k.Unlock(pass.Value); err != nil {
-			return nil, err
-		}
-	}
-	p, err := c.newPassphrase(passFile)
-	if err != nil {
-		return nil, err
-	}
-	defer clear(p)
-	if err := k.Lock(p, nil); err != nil {
-		return nil, err
-	}
-	return k.Armor(true)
+	return svops.ProtectPGPKey(it, func() ([]byte, error) { return c.newPassphrase(passFile) })
 }
 
 func (c *cli) pgpSign(args []string) error {
@@ -464,7 +381,7 @@ func (c *cli) printSignatures(sigs []svrpc.PGPSignature) {
 				}
 			}
 		case s.Valid:
-			fmt.Fprintf(c.stderr, "Signature: valid, by %s (not checked against your contacts)\n", groupFP(s.Signer))
+			fmt.Fprintf(c.stderr, "Signature: valid, by %s (not checked against your contacts)\n", svops.GroupFingerprint(s.Signer))
 		default:
 			fmt.Fprintf(c.stderr, "Signature: not checked (%s), by %s\n", s.Error, s.Issuer)
 		}

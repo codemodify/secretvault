@@ -20,6 +20,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/codemodify/secretvault/svage"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -66,7 +67,7 @@ func TestAgeKeygenStoresAnIdentityAndPrintsWhatAgeNeeds(t *testing.T) {
 	if err := json.Unmarshal([]byte(h.ok("", h.with("get", "--json", "age/laptop")...)), &j); err != nil {
 		t.Fatal(err)
 	}
-	if j.Kind != "key" || j.Attrs[ageRecipientName] != rcpt {
+	if j.Kind != "key" || j.Attrs[svops.AgeRecipientName] != rcpt {
 		t.Fatalf("the item: %+v", j)
 	}
 	secret := strings.TrimSpace(h.ok("", h.with("get", "age/laptop", "--field", "age_identity")...))
@@ -376,7 +377,7 @@ func TestAgePluginBinaryServesAgeClients(t *testing.T) {
 
 	// An identity for an item that is not there: the plugin says so, and
 	// age reports it.
-	missing, _ := pluginIdentity("default", "age/missing")
+	missing, _ := svops.AgePluginIdentity("default", "age/missing")
 	mid, _ := svage.ParseIdentity(missing)
 	buf.Reset()
 	w, _ = svage.Encrypt(&buf, r)

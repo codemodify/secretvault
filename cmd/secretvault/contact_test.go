@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svpgp"
 	"github.com/codemodify/secretvault/svtrust"
 )
@@ -62,7 +63,7 @@ func TestContactsAndVerdictsFromTheCommandLine(t *testing.T) {
 		t.Fatalf("check said %q", out)
 	}
 	// Fingerprints as people read them out: in groups, any case.
-	spaced := strings.ToLower(groupFP(fp))
+	spaced := strings.ToLower(svops.GroupFingerprint(fp))
 	if out := h.ok("", h.with("contact", "verify", "Alice Example", "--fingerprint", spaced, "--in-person")...); !strings.Contains(out, "verified in person") {
 		t.Fatalf("verify said %q", out)
 	}
@@ -72,7 +73,7 @@ func TestContactsAndVerdictsFromTheCommandLine(t *testing.T) {
 		t.Fatalf("check said %q", out)
 	}
 	show := h.ok("", h.with("contact", "show", "alice@example.org")...)
-	for _, want := range []string{"Alice Example", "met at FOSDEM", groupFP(fp), "fingerprint compared in person on", "verified in person"} {
+	for _, want := range []string{"Alice Example", "met at FOSDEM", svops.GroupFingerprint(fp), "fingerprint compared in person on", "verified in person"} {
 		if !strings.Contains(show, want) {
 			t.Fatalf("show lacks %q:\n%s", want, show)
 		}
@@ -211,7 +212,7 @@ func TestQRCodesFromTheCommandLine(t *testing.T) {
 	bob := newPGP(t, 4, "Bob <bob@example.org>")
 	h.ok("", h.with("contact", "add", h.publicKeyFile("bob.asc", bob))...)
 	out := h.ok("", h.with("contact", "import", "OPENPGP4FPR:"+fpHex(bob))...)
-	if !strings.Contains(out, "Verified in person: openpgp "+groupFP(fpHex(bob))+" (Bob)") {
+	if !strings.Contains(out, "Verified in person: openpgp "+svops.GroupFingerprint(fpHex(bob))+" (Bob)") {
 		t.Fatalf("import said %q", out)
 	}
 	out, _ = h.fails(0, h.with("trust", "check", "--fingerprint", fpHex(bob), "--from", "bob@example.org")...)

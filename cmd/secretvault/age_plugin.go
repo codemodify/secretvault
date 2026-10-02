@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/codemodify/secretvault/svage"
+	"github.com/codemodify/secretvault/svops"
 )
 
 // age-plugin-secretvault: this program under the name age, rage, SOPS and
@@ -36,16 +37,16 @@ func (c *cli) cmdAgePlugin(args []string) error {
 	c.canAsk = false
 	c.clientName = "age-plugin-secretvault"
 	p := &svage.Plugin{
-		Name: agePluginName,
+		Name: svops.AgePluginName,
 		Identity: func(data []byte) (svage.Identity, error) {
-			r, err := itemOfPluginIdentity(data)
+			r, err := svops.ItemOfPluginIdentity(data)
 			if err != nil {
 				return nil, err
 			}
-			return &vaultIdentity{c: c, r: r}, nil
+			return c.vaultIdentity(nil, r), nil
 		},
 		IdentityAsRecipient: func(data []byte) (svage.Recipient, error) {
-			r, err := itemOfPluginIdentity(data)
+			r, err := svops.ItemOfPluginIdentity(data)
 			if err != nil {
 				return nil, err
 			}
@@ -55,9 +56,9 @@ func (c *cli) cmdAgePlugin(args []string) error {
 			}
 			ctx, cancel := c.ctx()
 			defer cancel()
-			rcpt, err := c.itemRecipient(ctx, cl, r)
+			rcpt, err := svops.AgeItemRecipient(ctx, cl, r)
 			if err != nil {
-				return nil, fmt.Errorf("sv://%s/%s: %s", r.vault, r.item, describe(err))
+				return nil, fmt.Errorf("sv://%s/%s: %s", r.Vault, r.Item, describe(err))
 			}
 			return svage.ParseRecipient(rcpt)
 		},

@@ -7,15 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/codemodify/secretvault"
-	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -32,46 +29,18 @@ import (
 // The helpers are this program under another name (a symlink, so the
 // daemon still knows it as secretvault's own CLI). A reference names a
 // vault ("-" for the default one), an item, and optionally a field (the
-// item's secret when left out): sv://-/web/github.com#username.
-
-// ref is a parsed sv:// reference (svrpc.Ref).
-type ref struct {
-	vault, item, field string
-}
-
-func parseRef(s string) (ref, error) {
-	r, err := svrpc.ParseRef(s)
-	if err != nil {
-		return ref{}, err
-	}
-	return ref{vault: r.Vault, item: r.Item, field: r.Field}, nil
-}
-
-func (r ref) String() string { return svrpc.Ref{Vault: r.vault, Item: r.item, Field: r.field}.String() }
+// item's secret when left out): sv://-/web/github.com#username. What a
+// reference resolves to, the items the helpers keep, and env files and
+// templates are svops' (refs.go, helpers.go).
 
 // resolve reads what a reference points at. The host daemon resolves it
 // itself (host.resolve), so a local service is sent the one value its
 // policy lists and never the rest of the item.
-func (c *cli) resolve(ctx context.Context, cl *secretvault.Client, r ref) ([]byte, error) {
+func (c *cli) resolve(ctx context.Context, cl *secretvault.Client, r svrpc.Ref) ([]byte, error) {
 	if c.host || c.hostAdmin {
 		return cl.HostResolve(ctx, r.String())
 	}
-	e, err := cl.Get(ctx, r.vault, r.item)
-	if err != nil {
-		return nil, fmt.Errorf("sv://%s/%s: %w", r.vault, r.item, err)
-	}
-	defer wipe(&e.Item)
-	var f svrpc.Field
-	var ok bool
-	if r.field != "" {
-		f, ok = field(&e.Item, r.field)
-	} else {
-		f, ok = secretField(&e.Item)
-	}
-	if !ok {
-		return nil, fmt.Errorf("sv://%s/%s has no field %q", r.vault, r.item, r.field)
-	}
-	return append([]byte(nil), f.Value...), nil
+	return svops.Resolve(ctx, cl, r)
 }
 
 func (c *cli) cmdRead(args []string) error {
@@ -82,7 +51,7 @@ func (c *cli) cmdRead(args []string) error {
 	if err != nil {
 		return err
 	}
-	r, err := parseRef(pos[0])
+	r, err := svrpc.ParseRef(pos[0])
 	if err != nil {
 		return err
 	}
@@ -102,32 +71,38 @@ func (c *cli) cmdRead(args []string) error {
 	return nil
 }
 
-// readEnvFile reads KEY=VALUE lines (# comments, optional export, quotes).
-func readEnvFile(path string) ([][2]string, error) {
-	f, err := os.Open(path)
+// lazyResolve resolves references, connecting (and presenting the keys
+// the flags name) at the first one.
+func (c *cli) lazyResolve(ctx context.Context, u *unlockFlags) func(svrpc.Ref) ([]byte, error) {
+	var cl *secretvault.Client
+	return func(r svrpc.Ref) ([]byte, error) {
+		if cl == nil {
+			var err error
+			if cl, err = c.open(u); err != nil {
+				return nil, err
+			}
+		}
+		return c.resolve(ctx, cl, r)
+	}
+}
+
+// runCommand runs a command with an environment, passing its exit status
+// through as ours.
+func (c *cli) runCommand(cmdline, env []string) error {
+	path, err := exec.LookPath(cmdline[0])
 	if err != nil {
-		return nil, err
+		return err
 	}
-	defer f.Close()
-	var out [][2]string
-	s := bufio.NewScanner(f)
-	for n := 1; s.Scan(); n++ {
-		line := strings.TrimSpace(s.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+	cmd := exec.Command(path, cmdline[1:]...)
+	cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr = env, c.stdin, c.stdout, c.stderr
+	if err := cmd.Run(); err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return exitCode(ee.ExitCode())
 		}
-		line = strings.TrimPrefix(line, "export ")
-		k, v, ok := strings.Cut(line, "=")
-		if !ok || strings.TrimSpace(k) == "" {
-			return nil, fmt.Errorf("%s:%d: not KEY=VALUE", path, n)
-		}
-		v = strings.TrimSpace(v)
-		if len(v) >= 2 && (v[0] == '"' && v[len(v)-1] == '"' || v[0] == '\'' && v[len(v)-1] == '\'') {
-			v = v[1 : len(v)-1]
-		}
-		out = append(out, [2]string{strings.TrimSpace(k), v})
+		return err
 	}
-	return out, s.Err()
+	return nil
 }
 
 // cmdRun runs a command with its environment's references resolved.
@@ -146,88 +121,35 @@ func (c *cli) cmdRun(args []string) error {
 		fmt.Fprintln(c.stderr, "usage: secretvault run [--env-file F] [--env K=V] -- COMMAND [ARGS...]")
 		return errUsage
 	}
-	env := map[string]string{}
-	var order []string
-	set := func(k, v string) {
-		if _, ok := env[k]; !ok {
-			order = append(order, k)
-		}
-		env[k] = v
+	env := svops.NewEnviron(os.Environ())
+	if err := env.LoadFiles(envFiles); err != nil {
+		return err
 	}
-	for _, kv := range os.Environ() {
-		if k, v, ok := strings.Cut(kv, "="); ok {
-			set(k, v)
-		}
+	if err := env.SetPairs(envs); err != nil {
+		return err
 	}
-	for _, f := range envFiles {
-		pairs, err := readEnvFile(f)
-		if err != nil {
-			return err
-		}
-		for _, p := range pairs {
-			set(p[0], p[1])
-		}
-	}
-	for _, kv := range envs {
-		k, v, ok := strings.Cut(kv, "=")
-		if !ok {
-			return fmt.Errorf("--env %q is not KEY=VALUE", kv)
-		}
-		set(k, v)
-	}
-	var cl *secretvault.Client
 	ctx, cancel := c.ctx()
 	defer cancel()
-	for _, k := range order {
-		if !strings.HasPrefix(env[k], "sv://") {
-			continue
-		}
-		r, err := parseRef(env[k])
-		if err != nil {
-			return fmt.Errorf("%s: %w", k, err)
-		}
-		if cl == nil {
-			if cl, err = c.open(&u); err != nil {
-				return err
-			}
-		}
-		v, err := c.resolve(ctx, cl, r)
-		if err != nil {
-			return fmt.Errorf("%s: %w", k, err)
-		}
-		env[k] = string(v)
-		clear(v)
+	var cl *secretvault.Client
+	connect := func() (err error) {
+		cl, err = c.open(&u)
+		return err
 	}
-	var list []string
-	for _, k := range order {
-		list = append(list, k+"="+env[k])
+	fetch := func(r svrpc.Ref) ([]byte, error) { return c.resolve(ctx, cl, r) }
+	if err := env.Resolve(svrpc.ParseRef, connect, fetch); err != nil {
+		return err
 	}
 	if c.client != nil {
 		c.client.Close()
 		c.client = nil
 	}
-	path, err := exec.LookPath(cmdline[0])
-	if err != nil {
-		return err
-	}
-	cmd := exec.Command(path, cmdline[1:]...)
-	cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr = list, c.stdin, c.stdout, c.stderr
-	if err := cmd.Run(); err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return exitCode(ee.ExitCode())
-		}
-		return err
-	}
-	return nil
+	return c.runCommand(cmdline, env.List())
 }
 
 // exitCode passes a child's exit status through as ours.
 type exitCode int
 
 func (e exitCode) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
-
-var templateRef = regexp.MustCompile(`\{\{\s*(sv://[^\s}]+)\s*\}\}`)
 
 // cmdInject fills {{ sv://... }} references in a template.
 func (c *cli) cmdInject(args []string) error {
@@ -249,41 +171,18 @@ func (c *cli) cmdInject(args []string) error {
 	if err != nil {
 		return err
 	}
-	var cl *secretvault.Client
 	ctx, cancel := c.ctx()
 	defer cancel()
-	var failure error
-	result := templateRef.ReplaceAllFunc(tmpl, func(m []byte) []byte {
-		if failure != nil {
-			return m
-		}
-		r, err := parseRef(string(templateRef.FindSubmatch(m)[1]))
-		if err != nil {
-			failure = err
-			return m
-		}
-		if cl == nil {
-			if cl, err = c.open(&u); err != nil {
-				failure = err
-				return m
-			}
-		}
-		v, err := c.resolve(ctx, cl, r)
-		if err != nil {
-			failure = err
-			return m
-		}
-		return v
-	})
-	defer clear(result)
-	if failure != nil {
-		return failure
+	result, err := svops.Inject(tmpl, c.lazyResolve(ctx, &u))
+	if err != nil {
+		return err
 	}
+	defer clear(result)
 	if *out == "" {
 		_, err = c.stdout.Write(result)
 		return err
 	}
-	return writeNew(*out, result)
+	return svops.WriteNew(*out, result)
 }
 
 // Git's credential helper protocol
@@ -303,26 +202,6 @@ func readKV(r io.Reader) map[string]string {
 		}
 	}
 	return out
-}
-
-func gitItemName(kv map[string]string) string {
-	name := "git/" + pathSafe(kv["host"])
-	if kv["path"] != "" {
-		name += "/" + pathSafe(kv["path"])
-	}
-	if kv["username"] != "" {
-		name += "/" + pathSafe(kv["username"])
-	}
-	return name
-}
-
-func gitMatches(it *svrpc.Item, kv map[string]string) bool {
-	for _, k := range []string{"protocol", "host", "path", "username"} {
-		if kv[k] != "" && it.Attrs["git_"+k] != kv[k] {
-			return false
-		}
-	}
-	return it.Attrs["git_host"] != ""
 }
 
 func (c *cli) cmdGitCredential(args []string) error {
@@ -347,18 +226,18 @@ func (c *cli) cmdGitCredential(args []string) error {
 			return err
 		}
 		for _, e := range entries {
-			if !gitMatches(&e.Item, kv) {
+			if !svops.GitMatches(&e.Item, kv) {
 				continue
 			}
 			full, err := cl.Get(ctx, c.vault, e.Item.Name)
 			if err != nil {
 				return err
 			}
-			defer wipe(&full.Item)
-			if u, ok := field(&full.Item, "username"); ok {
+			defer svops.Wipe(&full.Item)
+			if u, ok := svops.Field(&full.Item, "username"); ok {
 				fmt.Fprintf(c.stdout, "username=%s\n", u.Value)
 			}
-			if p, ok := secretField(&full.Item); ok {
+			if p, ok := svops.SecretField(&full.Item); ok {
 				fmt.Fprintf(c.stdout, "password=%s\n", p.Value)
 			}
 			return nil
@@ -368,18 +247,7 @@ func (c *cli) cmdGitCredential(args []string) error {
 		if kv["host"] == "" || kv["password"] == "" {
 			return nil
 		}
-		attrs := map[string]string{}
-		for _, k := range []string{"protocol", "host", "path", "username"} {
-			if kv[k] != "" {
-				attrs["git_"+k] = kv[k]
-			}
-		}
-		it := svrpc.Item{Kind: "login", Name: gitItemName(kv), Label: kv["host"], Attrs: attrs, Fields: []svrpc.Field{
-			{Name: "username", Type: svcore.FieldText, Value: []byte(kv["username"])},
-			{Name: "password", Type: svcore.FieldConcealed, Value: []byte(kv["password"])},
-			{Name: "url", Type: svcore.FieldURL, Value: []byte(kv["protocol"] + "://" + kv["host"])},
-		}}
-		_, err := cl.Put(ctx, c.vault, it)
+		_, err := cl.Put(ctx, c.vault, svops.GitItem(kv))
 		return err
 	case "erase":
 		entries, err := cl.List(ctx, c.vault, "git/")
@@ -387,7 +255,7 @@ func (c *cli) cmdGitCredential(args []string) error {
 			return err
 		}
 		for _, e := range entries {
-			if gitMatches(&e.Item, kv) {
+			if svops.GitMatches(&e.Item, kv) {
 				if err := cl.Delete(ctx, c.vault, e.Item.Name); err != nil {
 					return err
 				}
@@ -400,14 +268,6 @@ func (c *cli) cmdGitCredential(args []string) error {
 
 // Docker's credential helper protocol
 // (https://github.com/docker/docker-credential-helpers).
-
-func dockerItemName(server string) string {
-	u := server
-	if p, err := url.Parse(server); err == nil && p.Host != "" {
-		u = p.Host + p.Path
-	}
-	return "docker/" + pathSafe(u)
-}
 
 func (c *cli) cmdDockerCredential(args []string) error {
 	fs := c.flags("docker-credential")
@@ -435,7 +295,7 @@ func (c *cli) cmdDockerCredential(args []string) error {
 	switch args[0] {
 	case "get":
 		server, _ := io.ReadAll(c.stdin)
-		name := dockerItemName(strings.TrimSpace(string(server)))
+		name := svops.DockerItemName(strings.TrimSpace(string(server)))
 		e, err := cl.Get(ctx, c.vault, name)
 		if err != nil {
 			if errors.Is(err, svrpc.ErrNotFound) {
@@ -444,26 +304,20 @@ func (c *cli) cmdDockerCredential(args []string) error {
 			}
 			return err
 		}
-		defer wipe(&e.Item)
-		u, _ := field(&e.Item, "username")
-		p, _ := secretField(&e.Item)
+		defer svops.Wipe(&e.Item)
+		u, _ := svops.Field(&e.Item, "username")
+		p, _ := svops.SecretField(&e.Item)
 		return json.NewEncoder(c.stdout).Encode(creds{ServerURL: strings.TrimSpace(string(server)), Username: string(u.Value), Secret: string(p.Value)})
 	case "store":
 		var in creds
 		if err := json.NewDecoder(c.stdin).Decode(&in); err != nil {
 			return err
 		}
-		it := svrpc.Item{Kind: "login", Name: dockerItemName(in.ServerURL), Label: in.ServerURL,
-			Attrs: map[string]string{"docker_server": in.ServerURL}, Fields: []svrpc.Field{
-				{Name: "username", Type: svcore.FieldText, Value: []byte(in.Username)},
-				{Name: "password", Type: svcore.FieldConcealed, Value: []byte(in.Secret)},
-				{Name: "url", Type: svcore.FieldURL, Value: []byte(in.ServerURL)},
-			}}
-		_, err := cl.Put(ctx, c.vault, it)
+		_, err := cl.Put(ctx, c.vault, svops.DockerItem(in.ServerURL, in.Username, in.Secret))
 		return err
 	case "erase":
 		server, _ := io.ReadAll(c.stdin)
-		return cl.Delete(ctx, c.vault, dockerItemName(strings.TrimSpace(string(server))))
+		return cl.Delete(ctx, c.vault, svops.DockerItemName(strings.TrimSpace(string(server))))
 	case "list":
 		entries, err := cl.List(ctx, c.vault, "docker/")
 		if err != nil {
@@ -476,9 +330,9 @@ func (c *cli) cmdDockerCredential(args []string) error {
 				if err != nil {
 					continue
 				}
-				u, _ := field(&full.Item, "username")
+				u, _ := svops.Field(&full.Item, "username")
 				out[s] = string(u.Value)
-				wipe(&full.Item)
+				svops.Wipe(&full.Item)
 			}
 		}
 		return json.NewEncoder(c.stdout).Encode(out)
@@ -488,17 +342,4 @@ func (c *cli) cmdDockerCredential(args []string) error {
 }
 
 // helperName is the command a program name stands for.
-func helperName(argv0 string) string {
-	base := strings.TrimSuffix(filepath.Base(argv0), ".exe")
-	switch base {
-	case "git-credential-secretvault":
-		return "git-credential"
-	case "docker-credential-secretvault":
-		return "docker-credential"
-	case "age-plugin-secretvault":
-		return "age-plugin"
-	case "secretvault-browser":
-		return "browser-host"
-	}
-	return ""
-}
+func helperName(argv0 string) string { return svops.HelperName(argv0) }

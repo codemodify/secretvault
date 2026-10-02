@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/codemodify/secretvault/svd"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -27,7 +28,7 @@ func gnupgTools(t *testing.T) (gpg, gpgconf string) {
 	if testing.Short() {
 		t.Skip("GnuPG interop is slow")
 	}
-	gpg, gpgconf, err := gnupgPrograms("")
+	gpg, gpgconf, err := svops.GnuPGPrograms("")
 	if err != nil {
 		t.Skip(err)
 	}
@@ -80,11 +81,11 @@ func TestGPGSetupPointsAGnuPGHomeAtTheDaemon(t *testing.T) {
 		return append(env, "GNUPGHOME="+home)
 	}
 	gnupgCleanup(t, gpgconf, home)
-	agentSock, err := gnupgDir(gpgconf, home, "agent-socket")
+	agentSock, err := svops.GnuPGDir(gpgconf, home, "agent-socket")
 	if err != nil {
 		t.Fatal(err)
 	}
-	forgetSocketDir(agentSock)
+	svops.ForgetSocketDir(agentSock)
 
 	// --dry-run says what would happen, and nothing does.
 	out := h.ok("", h.with("pgp", "gpg-setup", "--gnupghome", home, "--gpg", gpg, "--dry-run")...)

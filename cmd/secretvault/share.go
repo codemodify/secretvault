@@ -6,6 +6,7 @@ import (
 
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svformat"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -27,7 +28,7 @@ func (c *cli) cmdShare(args []string) error {
 	if err != nil {
 		return err
 	}
-	r, err := recipientArg(pos[0])
+	r, err := svops.RecipientArg(pos[0])
 	if err != nil {
 		return err
 	}

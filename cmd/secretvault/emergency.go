@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -45,7 +45,7 @@ func (c *cli) cmdEmergency(args []string) error {
 		if err != nil {
 			return err
 		}
-		d, err := parseWait(*wait)
+		d, err := svops.ParseWait(*wait)
 		if err != nil {
 			return err
 		}
@@ -62,7 +62,7 @@ func (c *cli) cmdEmergency(args []string) error {
 		}
 		g := res.Grant
 		fmt.Fprintf(c.stdout, "%s may now ask for vault %q. Unless you deny it within %s of their asking, they get it.\n",
-			g.Trustee, g.Vault, waitText(g.Wait))
+			g.Trustee, g.Vault, svops.WaitText(g.Wait))
 		if res.Warning != "" {
 			fmt.Fprintln(c.stderr, "Warning: "+res.Warning)
 		}
@@ -177,7 +177,7 @@ func (c *cli) cmdEmergency(args []string) error {
 			return err
 		}
 		fmt.Fprintf(c.stdout, "Accepted, as %q. Should you need it, ask with 'secretvault emergency request %s': its owner is told,\n", a.Name, a.Name)
-		fmt.Fprintf(c.stdout, "and unless they deny it within %s, 'secretvault emergency open %s --identity FILE' opens it then.\n", waitText(a.Wait), a.Name)
+		fmt.Fprintf(c.stdout, "and unless they deny it within %s, 'secretvault emergency open %s --identity FILE' opens it then.\n", svops.WaitText(a.Wait), a.Name)
 		return nil
 
 	case "request":
@@ -248,43 +248,6 @@ func identityFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
-// parseWait reads a waiting period: a Go duration (48h, 90m), or a number
-// of days (7d) or weeks (2w).
-func parseWait(s string) (time.Duration, error) {
-	for suffix, unit := range map[string]time.Duration{"d": 24 * time.Hour, "w": 7 * 24 * time.Hour} {
-		if digits, ok := strings.CutSuffix(s, suffix); ok {
-			n, err := strconv.Atoi(digits)
-			if err != nil || n <= 0 || n > 10000 { // beyond any wait allowed, and far from overflowing
-				return 0, fmt.Errorf("%q is not a wait (like 48h, 7d or 2w)", s)
-			}
-			return time.Duration(n) * unit, nil
-		}
-	}
-	d, err := time.ParseDuration(s)
-	if err != nil || d <= 0 {
-		return 0, fmt.Errorf("%q is not a wait (like 48h, 7d or 2w)", s)
-	}
-	return d, nil
-}
-
-// waitText says a wait in seconds as people do.
-func waitText(secs int64) string {
-	d := time.Duration(secs) * time.Second
-	switch {
-	case d >= 24*time.Hour && d%(24*time.Hour) == 0:
-		if n := d / (24 * time.Hour); n != 1 {
-			return fmt.Sprintf("%d days", n)
-		}
-		return "a day"
-	case d >= time.Hour && d%time.Hour == 0:
-		if n := d / time.Hour; n != 1 {
-			return fmt.Sprintf("%d hours", n)
-		}
-		return "an hour"
-	}
-	return d.String()
-}
-
 func when(t *time.Time) string {
 	if t == nil {
 		return "-"
@@ -312,7 +275,7 @@ func (c *cli) printEmergency(l svrpc.EmergencyList) error {
 	if len(l.Given) > 0 {
 		fmt.Fprintln(tw, "GRANT\tVAULT\tTRUSTEE\tWAIT\tSTATE")
 		for _, g := range l.Given {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", shortID(g.ID, 12), g.Vault, trusteeName(g), waitText(g.Wait), grantState(g))
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", shortID(g.ID, 12), g.Vault, trusteeName(g), svops.WaitText(g.Wait), grantState(g))
 		}
 		tw.Flush()
 		for _, g := range l.Given {

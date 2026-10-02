@@ -3,14 +3,12 @@ package main
 import (
 	"errors"
 	"fmt"
-	"math"
 	"path/filepath"
-	"runtime"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/codemodify/secretvault/svcontainer"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -47,25 +45,6 @@ func (c *cli) cmdContainer(args []string) error {
 	return errUsage
 }
 
-// mountsHere refuses, early and in plain words, where containers cannot
-// be mounted yet.
-func mountsHere() error {
-	if runtime.GOOS != "linux" {
-		return svcontainer.ErrNoMount
-	}
-	return nil
-}
-
-// containerItemName is the item a new container's key goes in by default:
-// containers/ and the file's name without its extension.
-func containerItemName(path string) string {
-	base := filepath.Base(path)
-	if stem := strings.TrimSuffix(base, filepath.Ext(base)); stem != "" {
-		base = stem
-	}
-	return "containers/" + base
-}
-
 func (c *cli) containerCreate(args []string) error {
 	fs := c.flags("container create")
 	size := fs.String("size", "", "the whole image's size: `N` bytes, or with K, M, G or T (1G)")
@@ -82,13 +61,13 @@ func (c *cli) containerCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := mountsHere(); err != nil {
+	if err := svops.MountsHere(); err != nil {
 		return err
 	}
 	if *size == "" {
 		return errors.New("say how big the container is, with --size (512M, 1G, ...)")
 	}
-	n, err := parseSize(*size)
+	n, err := svops.ParseSize(*size)
 	if err != nil {
 		return err
 	}
@@ -97,7 +76,7 @@ func (c *cli) containerCreate(args []string) error {
 		return err
 	}
 	if *item == "" {
-		*item = containerItemName(path)
+		*item = svops.ContainerItemName(path)
 	}
 	var pass []byte
 	if *withPass || *passFile != "" {
@@ -117,7 +96,7 @@ func (c *cli) containerCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(c.stderr, "Created %s (%s, %s); its key is the item %s.\n", info.Path, humanSize(n), *fsType, info.Item)
+	fmt.Fprintf(c.stderr, "Created %s (%s, %s); its key is the item %s.\n", info.Path, svops.HumanSize(n), *fsType, info.Item)
 	if len(pass) > 0 {
 		fmt.Fprintln(c.stderr, "The passphrase also opens it, with cryptsetup alone.")
 	}
@@ -135,10 +114,10 @@ func (c *cli) containerOpen(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := mountsHere(); err != nil {
+	if err := svops.MountsHere(); err != nil {
 		return err
 	}
-	path, err := existingImage(pos[0])
+	path, err := svops.ExistingImage(pos[0])
 	if err != nil {
 		return err
 	}
@@ -161,7 +140,7 @@ func (c *cli) containerClose(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := mountsHere(); err != nil {
+	if err := svops.MountsHere(); err != nil {
 		return err
 	}
 	target, err := filepath.Abs(pos[0])
@@ -242,7 +221,7 @@ func (c *cli) containerPasswd(args []string) error {
 	if err != nil {
 		return err
 	}
-	path, err := existingImage(pos[0])
+	path, err := svops.ExistingImage(pos[0])
 	if err != nil {
 		return err
 	}
@@ -269,49 +248,4 @@ func (c *cli) containerPasswd(args []string) error {
 		fmt.Fprintf(c.stderr, "%s opens with the new passphrase (and cryptsetup alone).\n", info.Path)
 	}
 	return nil
-}
-
-// existingImage is an image's absolute path, once it is known to be a
-// container. It is checked here, with this program's own access, so a
-// mistake is told exactly (the daemon tells programs no more than "not a
-// container" before they have consent).
-func existingImage(arg string) (string, error) {
-	path, err := filepath.Abs(arg)
-	if err != nil {
-		return "", err
-	}
-	if _, err := svcontainer.Inspect(path); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-// parseSize reads a size: bytes, or a number with K, M, G or T (powers of
-// 1024; KiB, MB and the like mean the same).
-func parseSize(s string) (int64, error) {
-	s = strings.TrimSpace(s)
-	i := strings.IndexFunc(s, func(r rune) bool { return !(r >= '0' && r <= '9' || r == '.') })
-	num, unit := s, ""
-	if i >= 0 {
-		num, unit = s[:i], strings.ToUpper(strings.TrimSpace(s[i:]))
-	}
-	unit = strings.TrimSuffix(strings.TrimSuffix(unit, "B"), "I")
-	mult, ok := map[string]float64{"": 1, "K": 1 << 10, "M": 1 << 20, "G": 1 << 30, "T": 1 << 40}[unit]
-	n, err := strconv.ParseFloat(num, 64)
-	if !ok || err != nil || n <= 0 || n*mult > math.MaxInt64/2 {
-		return 0, fmt.Errorf("%q is not a size (say 512M or 1G)", s)
-	}
-	return int64(math.Ceil(n * mult)), nil
-}
-
-func humanSize(n int64) string {
-	for _, u := range []struct {
-		unit string
-		size int64
-	}{{"TiB", 1 << 40}, {"GiB", 1 << 30}, {"MiB", 1 << 20}, {"KiB", 1 << 10}} {
-		if n >= u.size {
-			return strings.TrimSuffix(strconv.FormatFloat(float64(n)/float64(u.size), 'f', 1, 64), ".0") + " " + u.unit
-		}
-	}
-	return fmt.Sprintf("%d bytes", n)
 }

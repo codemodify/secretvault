@@ -6,10 +6,9 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
-	"time"
 
-	"github.com/codemodify/secretvault/svcrypto"
 	"github.com/codemodify/secretvault/svformat"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -74,14 +73,13 @@ func (c *cli) slotAdd(args []string) error {
 		if pos[0] != svformat.SlotRecovery {
 			return errors.New("--split and --threshold are for recovery slots")
 		}
-		if *threshold == 0 {
-			*threshold = *shares/2 + 1
+		k, err := svops.SplitThreshold(*shares, *threshold)
+		if err != nil {
+			return err
 		}
-		if *shares < 2 || *shares > 255 || *threshold < 2 || *threshold > *shares {
-			return fmt.Errorf("%d of %d shares: use 2 to 255 shares, and a threshold from 2 up to the number of shares", *threshold, *shares)
-		}
+		*threshold = k
 		if *label == "" {
-			*label = fmt.Sprintf("recovery key, %d of %d shares", *threshold, *shares)
+			*label = svops.SplitLabel(*shares, *threshold)
 		}
 	}
 	p := svrpc.SlotAddParams{Vault: c.vault, Type: pos[0], Label: *label}
@@ -116,7 +114,7 @@ func (c *cli) slotAdd(args []string) error {
 		}
 	case svformat.SlotKeyfile:
 		if *create {
-			if err := writeNew(pos[1], svcrypto.RandomBytes(64)); err != nil {
+			if err := svops.CreateKeyfile(pos[1]); err != nil {
 				return err
 			}
 		}
@@ -124,7 +122,7 @@ func (c *cli) slotAdd(args []string) error {
 			return err
 		}
 	case svformat.SlotRecipient:
-		r, err := recipientArg(pos[1])
+		r, err := svops.RecipientArg(pos[1])
 		if err != nil {
 			return err
 		}
@@ -157,12 +155,7 @@ func (c *cli) slotAdd(args []string) error {
 // printRecoveryShares splits a new recovery key into shares and prints
 // them instead of it: the whole key is never shown.
 func (c *cli) printRecoveryShares(text string, n, k int) error {
-	rk, err := svformat.ParseRecoveryKey(text)
-	if err != nil {
-		return err
-	}
-	shares, err := svcrypto.SplitSecret(rk, n, k)
-	clear(rk)
+	shares, err := svops.SplitRecoveryKey(text, n, k)
 	if err != nil {
 		return err
 	}
@@ -172,8 +165,7 @@ func (c *cli) printRecoveryShares(text string, n, k int) error {
 	for i, s := range shares {
 		fmt.Fprintln(c.stdout)
 		fmt.Fprintf(c.stdout, "  Share %d of %d:\n", i+1, n)
-		fmt.Fprintln(c.stdout, "    "+svformat.EncodeRecoveryShare(s, k))
-		clear(s)
+		fmt.Fprintln(c.stdout, "    "+s)
 	}
 	fmt.Fprintln(c.stdout)
 	fmt.Fprintf(c.stdout, "To open the vault with them: 'secretvault unlock --shares', then type any %d.\n", k)
@@ -420,23 +412,12 @@ func (c *cli) cmdIdentity(args []string) error {
 		if *out == "" {
 			return errors.New("identity new needs --out FILE")
 		}
-		suite, err := svcrypto.ParseSuite(*suiteName)
+		rcpt, body, err := svops.NewIdentity(*suiteName, "identity")
 		if err != nil {
 			return err
 		}
-		id, err := suite.NewIdentity()
-		if err != nil {
-			return err
-		}
-		priv, err := id.Bytes()
-		if err != nil {
-			return err
-		}
-		defer clear(priv)
-		rcpt := svformat.EncodeRecipient(suite, id.Recipient())
-		body := fmt.Sprintf("# secretvault identity, created %s\n# recipient: %s\n%s\n",
-			time.Now().UTC().Format(time.RFC3339), rcpt, svformat.EncodeIdentity(suite, priv))
-		if err := writeNew(*out, []byte(body)); err != nil {
+		defer clear(body)
+		if err := svops.WriteNew(*out, body); err != nil {
 			return err
 		}
 		fmt.Fprintln(c.stdout, rcpt)
@@ -446,11 +427,11 @@ func (c *cli) cmdIdentity(args []string) error {
 		if err != nil {
 			return err
 		}
-		id, err := readIdentity(pos[0])
+		rcpt, err := svops.IdentityRecipient(pos[0])
 		if err != nil {
 			return err
 		}
-		fmt.Fprintln(c.stdout, svformat.EncodeRecipient(id.Suite(), id.Recipient()))
+		fmt.Fprintln(c.stdout, rcpt)
 		return nil
 	}
 	fmt.Fprintf(c.stderr, "secretvault identity: unknown subcommand %q\n", args[0])

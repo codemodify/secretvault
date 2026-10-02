@@ -1,4 +1,4 @@
-package main
+package svops
 
 import (
 	"os"
@@ -47,37 +47,37 @@ func TestATakeoverPlanForGnomeKeyringWritesOnlyUserFiles(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	portalSystem(t, "GNOME", "gnome-keyring", true)
-	saved := commandRunner
-	t.Cleanup(func() { commandRunner = saved })
-	commandRunner = func(name string, args ...string) ([]byte, error) {
+	saved := CommandRunner
+	t.Cleanup(func() { CommandRunner = saved })
+	CommandRunner = func(name string, args ...string) ([]byte, error) {
 		if strings.Join(args, " ") == "--user cat gnome-keyring-daemon.service" {
 			return []byte("[Service]\nExecStart=/usr/bin/gnome-keyring-daemon --foreground --components=\"pkcs11,secrets\" --control-directory=%t/keyring\n"), nil
 		}
 		t.Fatalf("unexpected command %s %v", name, args)
 		return nil, nil
 	}
-	p, err := planTakeover("/usr/bin/gnome-keyring-daemon", "/opt/sv/secretvaultd")
+	p, err := PlanTakeover("/usr/bin/gnome-keyring-daemon", "/opt/sv/secretvaultd")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range p.order {
+	for _, f := range p.Order {
 		if !strings.HasPrefix(f, home) {
 			t.Errorf("the plan writes %s, outside the user's own directories", f)
 		}
 	}
-	svc := p.files[filepath.Join(home, "data", "dbus-1", "services", "org.freedesktop.secrets.service")]
+	svc := p.Files[filepath.Join(home, "data", "dbus-1", "services", "org.freedesktop.secrets.service")]
 	if !strings.Contains(svc, "Exec=/opt/sv/secretvaultd") {
 		t.Fatalf("activation file:\n%s", svc)
 	}
-	dropIn := p.files[filepath.Join(home, "config", "systemd", "user", "gnome-keyring-daemon.service.d", "50-secretvault.conf")]
+	dropIn := p.Files[filepath.Join(home, "config", "systemd", "user", "gnome-keyring-daemon.service.d", "50-secretvault.conf")]
 	if !strings.Contains(dropIn, "ExecStart=\n") || !strings.Contains(dropIn, `--components="pkcs11"`) {
 		t.Fatalf("drop-in:\n%s", dropIn)
 	}
-	if len(p.restart) != 1 || p.restart[0] != "gnome-keyring-daemon.service" {
-		t.Fatalf("restart %v", p.restart)
+	if len(p.Restart) != 1 || p.Restart[0] != "gnome-keyring-daemon.service" {
+		t.Fatalf("restart %v", p.Restart)
 	}
 	if _, err := os.Stat("/etc/xdg/autostart/gnome-keyring-secrets.desktop"); err == nil {
-		auto := p.files[filepath.Join(home, "config", "autostart", "gnome-keyring-secrets.desktop")]
+		auto := p.Files[filepath.Join(home, "config", "autostart", "gnome-keyring-secrets.desktop")]
 		if !strings.HasSuffix(auto, "Hidden=true\n") {
 			t.Fatalf("autostart override:\n%s", auto)
 		}
@@ -93,9 +93,9 @@ func TestOtherKeyringsGetStepsToDoByHand(t *testing.T) {
 		"/usr/bin/keepassxc":  "KeePassXC",
 		"/usr/bin/oo7-daemon": "oo7",
 	} {
-		p, _ := planTakeover(exe, "/x/secretvaultd")
-		if len(p.notes) != 1 || !strings.Contains(p.notes[0], want) {
-			t.Errorf("%s: notes %v", exe, p.notes)
+		p, _ := PlanTakeover(exe, "/x/secretvaultd")
+		if len(p.Notes) != 1 || !strings.Contains(p.Notes[0], want) {
+			t.Errorf("%s: notes %v", exe, p.Notes)
 		}
 	}
 }
@@ -108,22 +108,22 @@ func TestFlatpakAppsSecretPortalIsPointedAtSecretvault(t *testing.T) {
 
 	// KDE picks kwallet: a copy of its file, with only Secret changed.
 	portalSystem(t, "KDE", "kwallet", true)
-	p, _ := planTakeover("/usr/bin/ksecretd", "/x/secretvaultd")
-	conf, ok := p.files[userConf]
+	p, _ := PlanTakeover("/usr/bin/ksecretd", "/x/secretvaultd")
+	conf, ok := p.Files[userConf]
 	if !ok {
-		t.Fatalf("no user portals.conf in the plan: %v", p.order)
+		t.Fatalf("no user portals.conf in the plan: %v", p.Order)
 	}
 	if !strings.Contains(conf, "default=kde\n") || !strings.Contains(conf, "org.freedesktop.impl.portal.Secret=gnome-keyring\n") || strings.Contains(conf, "kwallet") {
 		t.Fatalf("the copy:\n%s", conf)
 	}
-	if !slices.Contains(p.restart, "xdg-desktop-portal.service") {
-		t.Fatalf("restarts: %v", p.restart)
+	if !slices.Contains(p.Restart, "xdg-desktop-portal.service") {
+		t.Fatalf("restarts: %v", p.Restart)
 	}
 
 	// GNOME already picks gnome-keyring: nothing to write.
 	portalSystem(t, "GNOME", "gnome-keyring", true)
-	p, _ = planTakeover("/usr/bin/ksecretd", "/x/secretvaultd")
-	for _, f := range p.order {
+	p, _ = PlanTakeover("/usr/bin/ksecretd", "/x/secretvaultd")
+	for _, f := range p.Order {
 		if strings.Contains(f, "xdg-desktop-portal") {
 			t.Fatalf("GNOME got %s", f)
 		}
@@ -133,17 +133,17 @@ func TestFlatpakAppsSecretPortalIsPointedAtSecretvault(t *testing.T) {
 	portalSystem(t, "KDE", "kwallet", true)
 	os.MkdirAll(filepath.Dir(userConf), 0o755)
 	os.WriteFile(userConf, []byte("[preferred]\ndefault=kde\n"), 0o644)
-	p, _ = planTakeover("/usr/bin/ksecretd", "/x/secretvaultd")
-	if _, ok := p.files[userConf]; ok || !strings.Contains(strings.Join(p.notes, "\n"), userConf) {
-		t.Fatalf("the user's file: planned %v, notes %v", ok, p.notes)
+	p, _ = PlanTakeover("/usr/bin/ksecretd", "/x/secretvaultd")
+	if _, ok := p.Files[userConf]; ok || !strings.Contains(strings.Join(p.Notes, "\n"), userConf) {
+		t.Fatalf("the user's file: planned %v, notes %v", ok, p.Notes)
 	}
 	os.Remove(userConf)
 
 	// With no backend that reaches org.freedesktop.secrets, it says so.
 	portalSystem(t, "KDE", "kwallet", false)
-	p, _ = planTakeover("/usr/bin/ksecretd", "/x/secretvaultd")
-	if _, ok := p.files[userConf]; ok || !strings.Contains(strings.Join(p.notes, "\n"), "Flatpak apps keep theirs") {
-		t.Fatalf("no backend: planned %v, notes %v", ok, p.notes)
+	p, _ = PlanTakeover("/usr/bin/ksecretd", "/x/secretvaultd")
+	if _, ok := p.Files[userConf]; ok || !strings.Contains(strings.Join(p.Notes, "\n"), "Flatpak apps keep theirs") {
+		t.Fatalf("no backend: planned %v, notes %v", ok, p.Notes)
 	}
 }
 

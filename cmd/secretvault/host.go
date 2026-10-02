@@ -1,18 +1,12 @@
 package main
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
-	"time"
 
-	"github.com/codemodify/secretvault/svcrypto"
-	"github.com/codemodify/secretvault/svformat"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -108,51 +102,16 @@ func (c *cli) hostInit(args []string) error {
 	if *out == "" {
 		*out = svrpc.HostIdentityFile()
 	}
-	suite, err := svcrypto.ParseSuite(*suiteName)
+	res, err := svops.HostInit(svops.HostInitOptions{Suite: *suiteName, Seal: *seal, Out: *out, Credstore: *credstore, PCRs: *pcrs,
+		SystemdCreds: c.systemdCreds})
 	if err != nil {
 		return err
 	}
-	id, err := suite.NewIdentity()
-	if err != nil {
-		return err
-	}
-	priv, err := id.Bytes()
-	if err != nil {
-		return err
-	}
-	defer clear(priv)
-	rcpt := svformat.EncodeRecipient(suite, id.Recipient())
-	text := []byte(fmt.Sprintf("# secretvault host identity, created %s\n# recipient: %s\n%s\n",
-		time.Now().UTC().Format(time.RFC3339), rcpt, svformat.EncodeIdentity(suite, priv)))
-	defer clear(text)
-
-	if *seal {
-		if _, err := os.Stat(*credstore); err == nil {
-			return fmt.Errorf("there is a sealed host identity at %s already: remove it first to make a new one (vaults shared to the old one then need sharing again)", *credstore)
-		}
-		if err := os.MkdirAll(filepath.Dir(*credstore), 0o700); err != nil {
-			return err
-		}
-		cargs := []string{"encrypt", "--name=" + svrpc.HostIdentityCredential}
-		if *pcrs != "" {
-			cargs = append(cargs, "--tpm2-pcrs="+*pcrs)
-		}
-		cargs = append(cargs, "-", *credstore)
-		if msg, err := c.runSystemdCreds(text, cargs...); err != nil {
-			return fmt.Errorf("systemd-creds: %v: %s", err, strings.TrimSpace(string(msg)))
-		}
-		fmt.Fprintf(c.stdout, "Made the host identity, sealed in %s: systemd passes it to secretvaultd-host.service, and it was never written in the clear.\n", *credstore)
+	rcpt := res.Recipient
+	if res.Sealed {
+		fmt.Fprintf(c.stdout, "Made the host identity, sealed in %s: systemd passes it to secretvaultd-host.service, and it was never written in the clear.\n", res.Path)
 	} else {
-		if err := os.MkdirAll(filepath.Dir(*out), 0o700); err != nil {
-			return err
-		}
-		if err := writeNew(*out, text); err != nil {
-			if errors.Is(err, os.ErrExist) {
-				return fmt.Errorf("there is a host identity at %s already: remove it first to make a new one (vaults shared to the old one then need sharing again)", *out)
-			}
-			return err
-		}
-		fmt.Fprintf(c.stdout, "Made the host identity, in %s, readable by root only.\n", *out)
+		fmt.Fprintf(c.stdout, "Made the host identity, in %s, readable by root only.\n", res.Path)
 	}
 	fmt.Fprintf(c.stdout, "Its recipient, which vaults are shared to:\n\n    %s\n\n", rcpt)
 	install := "secretvaultd install --host"
@@ -174,16 +133,6 @@ func (c *cli) hostInit(args []string) error {
      and in the unit: LoadCredential=CREDENTIAL:%s
 `, install, rcpt, filepath.Join(svrpc.HostDataDir(), "vaults", "NAME"), filepath.Join(svrpc.HostDataDir(), "vaults", "NAME"), svrpc.HostCredentialSocket())
 	return nil
-}
-
-// runSystemdCreds runs systemd-creds with stdin.
-func (c *cli) runSystemdCreds(stdin []byte, args ...string) ([]byte, error) {
-	if c.systemdCreds != nil {
-		return c.systemdCreds(stdin, args...)
-	}
-	cmd := exec.Command("systemd-creds", args...)
-	cmd.Stdin = bytes.NewReader(stdin)
-	return cmd.CombinedOutput()
 }
 
 // hostRule runs host allow and host deny.

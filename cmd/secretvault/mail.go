@@ -3,12 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/codemodify/secretvault/svmail"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -34,12 +34,7 @@ func (c *cli) cmdMail(args []string) error {
 	if err != nil {
 		return err
 	}
-	var msg []byte
-	if pos[0] == "-" {
-		msg, err = io.ReadAll(io.LimitReader(c.stdin, svrpc.MaxMessage/2))
-	} else {
-		msg, err = os.ReadFile(pos[0])
-	}
+	msg, err := svops.ReadMessage(pos[0], c.stdin)
 	if err != nil {
 		return err
 	}
@@ -144,12 +139,7 @@ func (c *cli) mailCompose(args []string) error {
 	if err != nil {
 		return err
 	}
-	var msg []byte
-	if pos[0] == "-" {
-		msg, err = io.ReadAll(io.LimitReader(c.stdin, svrpc.MaxMessage/2))
-	} else {
-		msg, err = os.ReadFile(pos[0])
-	}
+	msg, err := svops.ReadMessage(pos[0], c.stdin)
 	if err != nil {
 		return err
 	}
@@ -167,7 +157,7 @@ func (c *cli) mailCompose(args []string) error {
 		_, err = c.stdout.Write(res.Message)
 		return err
 	}
-	if err := os.WriteFile(*out, res.Message, 0o600); err != nil {
+	if err := svops.WriteMessage(*out, res.Message); err != nil {
 		return err
 	}
 	how := res.Format
@@ -205,7 +195,7 @@ func (c *cli) cmdSMIME(args []string) error {
 		var pass []byte
 		switch {
 		case *passFile != "":
-			pass, err = readSecretFile(*passFile)
+			pass, err = svops.ReadSecretFile(*passFile)
 		case c.canAsk:
 			pass, err = c.ask("Password of " + filepath.Base(pos[0]) + ": ")
 		}

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/codemodify/secretvault/svrpc"
+	"github.com/codemodify/secretvault/svops"
 )
 
 // The devices registered in a vault, whose keys sign what they write.
@@ -46,7 +46,7 @@ func (c *cli) cmdDevice(args []string) error {
 		tw := tabwriter.NewWriter(c.stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(tw, "KEY\tLABEL\tDEVICE\tREGISTERED\tSTANDING")
 		for _, d := range devs {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", d.Key, d.Label, d.Device[:8], d.Registered.Local().Format("2006-01-02 15:04"), standing(d))
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", d.Key, d.Label, d.Device[:8], d.Registered.Local().Format("2006-01-02 15:04"), svops.DeviceStanding(d))
 		}
 		if err := tw.Flush(); err != nil {
 			return err
@@ -124,21 +124,6 @@ func (c *cli) cmdDevice(args []string) error {
 	}
 	fmt.Fprintf(c.stderr, "secretvault device: unknown subcommand %q (ls, label, rm, vouch)\n", args[0])
 	return errUsage
-}
-
-// standing is how far a device is to be believed, as this device sees it.
-func standing(d svrpc.Device) string {
-	switch {
-	case d.This && d.Removed:
-		return "this device, removed"
-	case d.This:
-		return "this device"
-	case d.Removed:
-		return "removed"
-	case d.Vouched:
-		return "vouched for"
-	}
-	return "not vouched for"
 }
 
 // signatures shows or sets a vault's policy on signatures.

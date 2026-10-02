@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svops"
 )
 
 // Installing into browsers, in a home of the test's own: nothing here
@@ -42,13 +43,13 @@ func browserHome(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv(svcore.EnvHome, filepath.Join(home, "sv"))
-	spots, err := browserSpots()
+	spots, err := svops.BrowserSpots()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, s := range spots {
-		if !strings.HasPrefix(s.manifest, home+"/") || !strings.HasPrefix(s.profile, home+"/") {
-			t.Fatalf("%s's place %s is outside the test's home", s.name, s.manifest)
+		if !strings.HasPrefix(s.Manifest, home+"/") || !strings.HasPrefix(s.Profile, home+"/") {
+			t.Fatalf("%s's place %s is outside the test's home", s.Name, s.Manifest)
 		}
 	}
 	return home
@@ -103,13 +104,13 @@ func plantKeePassXC(t *testing.T, path string) {
 	os.Chtimes(path, keepassxcTime, keepassxcTime)
 }
 
-func readJSON(t *testing.T, path string) nativeManifest {
+func readJSON(t *testing.T, path string) svops.NativeManifest {
 	t.Helper()
 	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var m nativeManifest
+	var m svops.NativeManifest
 	if err := json.Unmarshal(b, &m); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +145,7 @@ func TestInstallStandsInForKeePassXCAndUninstallPutsItBack(t *testing.T) {
 	}
 
 	out = h.ok("", "browser", "install")
-	host, _ := browserHostProgram()
+	host, _ := svops.BrowserHostProgram("")
 	ff := readJSON(t, firefoxManifest(home))
 	if ff.Path != host || ff.Name != "org.keepassxc.keepassxc_browser" || len(ff.AllowedExtensions) != 1 || ff.AllowedOrigins != nil {
 		t.Fatalf("the Firefox manifest: %+v", ff)
@@ -289,28 +290,28 @@ func TestWindowsAndMacOSPlaces(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", filepath.Join(home, "Local"))
 	t.Setenv("APPDATA", filepath.Join(home, "Roaming"))
 	t.Setenv(svcore.EnvHome, filepath.Join(home, "sv"))
-	win, err := browserSpotsOn("windows")
+	win, err := svops.BrowserSpotsOn("windows")
 	if err != nil {
 		t.Fatal(err)
 	}
-	byName := map[string]browserSpot{}
+	byName := map[string]svops.BrowserSpot{}
 	for _, s := range win {
-		byName[s.name] = s
+		byName[s.Name] = s
 	}
 	// Brave and Vivaldi read Chrome's key, so they share its manifest.
-	if byName["brave"].regKey != byName["chrome"].regKey || byName["vivaldi"].manifest != byName["chrome"].manifest {
+	if byName["brave"].RegKey != byName["chrome"].RegKey || byName["vivaldi"].Manifest != byName["chrome"].Manifest {
 		t.Errorf("brave %+v, chrome %+v", byName["brave"], byName["chrome"])
 	}
-	if k := byName["firefox"].regKey; k != `Software\Mozilla\NativeMessagingHosts\org.keepassxc.keepassxc_browser` {
+	if k := byName["firefox"].RegKey; k != `Software\Mozilla\NativeMessagingHosts\org.keepassxc.keepassxc_browser` {
 		t.Errorf("Firefox's key: %s", k)
 	}
-	if !strings.HasPrefix(byName["edge"].manifest, filepath.Join(home, "sv")) {
-		t.Errorf("Edge's manifest is not secretvault's own: %s", byName["edge"].manifest)
+	if !strings.HasPrefix(byName["edge"].Manifest, filepath.Join(home, "sv")) {
+		t.Errorf("Edge's manifest is not secretvault's own: %s", byName["edge"].Manifest)
 	}
-	mac, _ := browserSpotsOn("darwin")
+	mac, _ := svops.BrowserSpotsOn("darwin")
 	for _, s := range mac {
-		if s.regKey != "" || !strings.HasPrefix(s.manifest, filepath.Join(home, "Library", "Application Support")) || !strings.HasSuffix(s.manifest, "/NativeMessagingHosts/org.keepassxc.keepassxc_browser.json") {
-			t.Errorf("macOS %s: %+v", s.name, s)
+		if s.RegKey != "" || !strings.HasPrefix(s.Manifest, filepath.Join(home, "Library", "Application Support")) || !strings.HasSuffix(s.Manifest, "/NativeMessagingHosts/org.keepassxc.keepassxc_browser.json") {
+			t.Errorf("macOS %s: %+v", s.Name, s)
 		}
 	}
 }

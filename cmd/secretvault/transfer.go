@@ -1,33 +1,19 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
-	"mime"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/codemodify/secretvault/svimport"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
 // Moving secrets in from other password managers, and out to KeePass and
-// CXF files. The work is svimport's; here are the files, the prompts and
-// the daemon.
-
-// maxImportFile bounds the file an import reads into memory.
-const maxImportFile = 256 << 20
-
-func formatNames() string {
-	var s []string
-	for _, f := range svimport.Formats {
-		s = append(s, string(f))
-	}
-	return strings.Join(s, ", ")
-}
+// CXF files. The work is svimport's and svops' (transfer.go); here are
+// the flags, the prompts and the printing.
 
 func (c *cli) cmdImport(args []string) error {
 	fs := c.flags("import")
@@ -38,32 +24,31 @@ func (c *cli) cmdImport(args []string) error {
 	srcKey := fs.String("source-keyfile", "", "the KeePass key file (`FILE`) that opens a KDBX export")
 	var u unlockFlags
 	u.register(fs)
-	pos, err := parse(fs, args, 2, 2, "FORMAT FILE [flags]\n\nFORMAT is auto (guess from the file), or one of: "+formatNames())
+	pos, err := parse(fs, args, 2, 2, "FORMAT FILE [flags]\n\nFORMAT is auto (guess from the file), or one of: "+svops.FormatNames())
 	if err != nil {
 		return err
 	}
 	format, path := pos[0], pos[1]
-	switch format {
-	case "pass", "gopass":
-		return errors.New("pass and gopass stores are encrypted with OpenPGP, which secretvault reads from milestone M5 on")
+	if format == "pass" || format == "gopass" {
+		_, _, err := svops.ImportFormat(format, path, nil)
+		return err
 	}
-	data, err := readImportFile(path)
+	data, err := svops.ReadImportFile(path)
 	if err != nil {
 		return err
 	}
 	defer clear(data)
-	f := svimport.Format(format)
-	if format == "auto" {
-		var ok bool
-		if f, ok = svimport.Detect(filepath.Base(path), data); !ok {
-			return fmt.Errorf("cannot tell what kind of export %s is; name its format: %s", path, formatNames())
-		}
+	f, guessed, err := svops.ImportFormat(format, path, data)
+	if err != nil {
+		return err
+	}
+	if guessed {
 		fmt.Fprintf(c.stderr, "Reading %s as %s.\n", path, f)
 	}
 
 	opts := svimport.Options{Prefix: *prefix}
 	if *srcPass != "" {
-		if opts.Passphrase, err = readSecretFile(*srcPass); err != nil {
+		if opts.Passphrase, err = svops.ReadSecretFile(*srcPass); err != nil {
 			return err
 		}
 	}
@@ -92,57 +77,18 @@ func (c *cli) cmdImport(args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := c.ctx()
-	existing, err := cl.List(ctx, c.vault, *prefix)
-	cancel()
+	rep, err := svops.StoreImport(c.ctx, cl, res, svops.ImportOptions{Vault: c.vault, Prefix: *prefix, Overwrite: *overwrite, Describe: describe})
+	if rep != nil {
+		c.printWarnings(rep.Warnings)
+	}
 	if err != nil {
 		return err
 	}
-	exists := map[string]bool{}
-	for _, e := range existing {
-		exists[e.Item.Name] = true
-	}
-	warnings := res.Warnings
-	imported, skipped, files := 0, 0, 0
-	for _, it := range res.Items {
-		if exists[it.Name] && !*overwrite {
-			skipped++
-			warnings = append(warnings, it.Name+": already exists, skipped (--overwrite replaces it)")
-			continue
-		}
-		ctx, cancel := c.ctx()
-		_, err := cl.Put(ctx, c.vault, it)
-		cancel()
-		if err != nil {
-			c.printWarnings(warnings)
-			return fmt.Errorf("storing %s: %s (%d items were stored before it)", it.Name, describe(err), imported)
-		}
-		imported++
-		for _, f := range res.Files[it.Name] {
-			if len(f.Data) > svrpc.MaxFileData {
-				warnings = append(warnings, fmt.Sprintf("%s: file %s not imported (larger than %d MiB)", it.Name, f.Name, svrpc.MaxFileData>>20))
-				continue
-			}
-			typ := f.Type
-			if typ == "" {
-				typ = mime.TypeByExtension(filepath.Ext(f.Name))
-			}
-			ctx, cancel := c.ctx()
-			_, err := cl.Attach(ctx, svrpc.FileAttachParams{Vault: c.vault, Item: it.Name, Name: f.Name, Type: typ, Data: f.Data})
-			cancel()
-			if err != nil {
-				warnings = append(warnings, fmt.Sprintf("%s: file %s not imported: %s", it.Name, f.Name, describe(err)))
-				continue
-			}
-			files++
-		}
-	}
-	c.printWarnings(warnings)
 	withFiles := ""
-	if files > 0 {
-		withFiles = fmt.Sprintf(" (%d files)", files)
+	if rep.Files > 0 {
+		withFiles = fmt.Sprintf(" (%d files)", rep.Files)
 	}
-	fmt.Fprintf(c.stdout, "Imported %d items%s, skipped %d, with %d warnings.\n", imported, withFiles, skipped, len(warnings))
+	fmt.Fprintf(c.stdout, "Imported %d items%s, skipped %d, with %d warnings.\n", rep.Imported, withFiles, rep.Skipped, len(rep.Warnings))
 	return nil
 }
 
@@ -154,11 +100,11 @@ func (c *cli) readExport(f svimport.Format, data []byte, path string, opts *svim
 		switch {
 		case err == nil:
 			return res, nil
-		case fromFile || tries >= 3 || !(errors.Is(err, svimport.ErrPassphrase) || errors.Is(err, svimport.ErrWrongKey)):
+		case fromFile || tries >= 3 || !svops.NeedsPassphrase(err):
 			return nil, err
 		case !c.canAsk:
 			return nil, fmt.Errorf("%s is encrypted and there is no terminal to ask on; use --source-passphrase-file", path)
-		case errors.Is(err, svimport.ErrWrongKey) && len(opts.Passphrase) > 0:
+		case svops.WrongPassphrase(err) && len(opts.Passphrase) > 0:
 			fmt.Fprintf(c.stderr, "! That passphrase does not open %s.\n", filepath.Base(path))
 		}
 		clear(opts.Passphrase)
@@ -176,23 +122,6 @@ func (c *cli) printWarnings(ws []string) {
 	}
 }
 
-func readImportFile(path string) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, maxImportFile+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(b) > maxImportFile {
-		clear(b)
-		return nil, fmt.Errorf("%s is larger than %d MiB", path, maxImportFile>>20)
-	}
-	return b, nil
-}
-
 func (c *cli) cmdExport(args []string) error {
 	fs := c.flags("export")
 	prefix := fs.String("prefix", "", "export only the items whose names start with `PREFIX`")
@@ -204,11 +133,8 @@ func (c *cli) cmdExport(args []string) error {
 		return err
 	}
 	format, path := pos[0], pos[1]
-	if format != "cxf" && format != "kdbx" {
-		return fmt.Errorf("cannot export to %q: the formats are cxf and kdbx", format)
-	}
-	if _, err := os.Lstat(path); err == nil {
-		return fmt.Errorf("%s already exists; export writes only new files", path)
+	if err := svops.CheckExport(format, path); err != nil {
+		return err
 	}
 	// Ask for the new file's passphrase before talking to the daemon, so
 	// its prompts and ours never interleave.
@@ -224,43 +150,26 @@ func (c *cli) cmdExport(args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := c.ctx()
-	entries, err := cl.List(ctx, c.vault, *prefix)
-	cancel()
+	items, err := svops.ReadForExport(c.ctx, cl, svops.ExportOptions{Vault: c.vault, Prefix: *prefix, Describe: describe,
+		Each: func(e svrpc.Entry) { c.warnConflicts(e) }})
 	if err != nil {
 		return err
 	}
-	items := make([]svrpc.Item, 0, len(entries))
 	defer func() {
 		for i := range items {
-			wipe(&items[i])
+			svops.Wipe(&items[i])
 		}
 	}()
-	for _, e := range entries {
-		ctx, cancel := c.ctx()
-		full, err := cl.Get(ctx, c.vault, e.Item.Name)
-		cancel()
-		if err != nil {
-			return fmt.Errorf("reading %s: %s", e.Item.Name, describe(err))
-		}
-		c.warnConflicts(full)
-		items = append(items, full.Item)
-	}
-
-	var buf bytes.Buffer
-	defer func() { clear(buf.Bytes()) }()
-	switch format {
-	case "cxf":
+	if format == "cxf" {
 		fmt.Fprintf(c.stderr, "warning: %s is not encrypted: anyone who can read it has every secret in it. "+
 			"Import it where it is going, then delete it.\n", path)
-		err = svimport.ExportCXF(items, &buf)
-	case "kdbx":
-		err = svimport.ExportKDBX(items, &buf, pass)
 	}
+	out, err := svops.EncodeExport(format, items, pass)
 	if err != nil {
 		return err
 	}
-	if err := writeNew(path, buf.Bytes()); err != nil {
+	defer clear(out)
+	if err := svops.WriteNew(path, out); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.stdout, "Exported %d items to %s.\n", len(items), path)

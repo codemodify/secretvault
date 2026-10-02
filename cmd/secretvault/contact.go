@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +12,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svqr"
 	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/secretvault/svtrust"
@@ -89,27 +88,6 @@ func (c *cli) cmdContact(args []string) error {
 	return usage()
 }
 
-// levelText says a verification level in words.
-func levelText(l string) string {
-	if l == "" {
-		return "not verified"
-	}
-	return svtrust.Level(l).String()
-}
-
-// groupFP writes a hex fingerprint in groups of four, as people compare
-// them; other fingerprints as they are.
-func groupFP(fp string) string {
-	if strings.HasPrefix(fp, "SHA256:") || len(fp)%4 != 0 {
-		return fp
-	}
-	var groups []string
-	for i := 0; i < len(fp); i += 4 {
-		groups = append(groups, fp[i:i+4])
-	}
-	return strings.Join(groups, " ")
-}
-
 func day(t time.Time) string { return t.Local().Format("2006-01-02") }
 
 func (c *cli) contactList(args []string) error {
@@ -149,7 +127,7 @@ func (c *cli) contactList(args []string) error {
 		if ct.Origin == svtrust.OriginMail || ct.Origin == svtrust.OriginLookup {
 			name += " (from " + ct.Origin + ")"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", name, strings.Join(ct.Emails, ", "), strings.Join(types, ", "), levelText(ct.Level))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", name, strings.Join(ct.Emails, ", "), strings.Join(types, ", "), svops.LevelText(ct.Level))
 	}
 	return tw.Flush()
 }
@@ -192,14 +170,14 @@ func (c *cli) contactShow(args []string) error {
 	}
 	fmt.Fprintf(tw, "  origin\t%s, %s\n", ct.Origin, day(ct.Created))
 	for _, k := range ct.Keys {
-		fmt.Fprintf(tw, "\n%s key %s\n", k.Type, groupFP(k.Fingerprint))
+		fmt.Fprintf(tw, "\n%s key %s\n", k.Type, svops.GroupFingerprint(k.Fingerprint))
 		if k.Label != "" {
 			fmt.Fprintf(tw, "  label\t%s\n", k.Label)
 		}
 		if len(k.Addresses) > 0 {
 			fmt.Fprintf(tw, "  addresses\t%s\n", strings.Join(k.Addresses, ", "))
 		}
-		fmt.Fprintf(tw, "  level\t%s\n", levelText(k.Level))
+		fmt.Fprintf(tw, "  level\t%s\n", svops.LevelText(k.Level))
 		if k.State != "" {
 			fmt.Fprintf(tw, "  state\t%s\n", k.State)
 		}
@@ -282,7 +260,7 @@ func (c *cli) contactAdd(args []string) error {
 	}
 	fmt.Fprintf(c.stdout, "Added %s with %d key(s).\n", ch.Contact.Name, len(ch.Contact.Keys))
 	for _, k := range ch.Contact.Keys {
-		fmt.Fprintf(c.stdout, "  %s %s\n", k.Type, groupFP(k.Fingerprint))
+		fmt.Fprintf(c.stdout, "  %s %s\n", k.Type, svops.GroupFingerprint(k.Fingerprint))
 	}
 	c.warn(ch.Warnings)
 	if len(ch.Contact.Keys) > 0 {
@@ -295,12 +273,6 @@ func (c *cli) warn(ws []string) {
 	for _, w := range ws {
 		fmt.Fprintln(c.stderr, "warning:", w)
 	}
-}
-
-// isContactURI reports whether an argument is a URI a QR code shows.
-func isContactURI(s string) bool {
-	l := strings.ToLower(s)
-	return strings.HasPrefix(l, svtrust.ContactScheme+":") || strings.HasPrefix(l, "openpgp4fpr:")
 }
 
 func (c *cli) contactImport(args []string) error {
@@ -316,7 +288,7 @@ func (c *cli) contactImport(args []string) error {
 		return err
 	}
 	p := svrpc.ContactImportParams{Vault: c.vault, Contact: *to, Name: *name, Fetch: *fetch, Keyserver: *keyserver}
-	if isContactURI(pos[0]) {
+	if svops.IsContactURI(pos[0]) {
 		p.URI = pos[0]
 	} else {
 		if p.Data, err = c.readArg(pos[0]); err != nil {
@@ -342,12 +314,12 @@ func (c *cli) contactImport(args []string) error {
 		case k.New:
 			what = "Added"
 		}
-		fmt.Fprintf(c.stdout, "%s: %s %s (%s)\n", what, k.Type, groupFP(k.Fingerprint), k.Contact)
+		fmt.Fprintf(c.stdout, "%s: %s %s (%s)\n", what, k.Type, svops.GroupFingerprint(k.Fingerprint), k.Contact)
 		c.warn(k.Warnings)
 	}
 	for _, m := range res.Missing {
 		typ, fp, _ := strings.Cut(m, ":")
-		fmt.Fprintf(c.stdout, "Not found: %s %s (add the key, or use --fetch, then scan again)\n", typ, groupFP(fp))
+		fmt.Fprintf(c.stdout, "Not found: %s %s (add the key, or use --fetch, then scan again)\n", typ, svops.GroupFingerprint(fp))
 	}
 	c.warn(res.Warnings)
 	if len(res.Keys) == 0 {
@@ -376,7 +348,7 @@ func (c *cli) contactRemove(args []string) error {
 		return err
 	}
 	if *fp != "" {
-		fmt.Fprintf(c.stdout, "Removed key %s from %s.\n", groupFP(svtrust.NormalizeFingerprint(*fp)), ct.Name)
+		fmt.Fprintf(c.stdout, "Removed key %s from %s.\n", svops.GroupFingerprint(svtrust.NormalizeFingerprint(*fp)), ct.Name)
 	} else {
 		fmt.Fprintf(c.stdout, "Removed %s.\n", ct.Name)
 	}
@@ -435,7 +407,7 @@ func (c *cli) contactVerify(args []string) error {
 	}
 	for _, k := range ct.Keys {
 		if k.Fingerprint == svtrust.NormalizeFingerprint(*fp) || strings.HasSuffix(k.Fingerprint, svtrust.NormalizeFingerprint(*fp)) {
-			fmt.Fprintf(c.stdout, "%s's %s key %s: %s.\n", ct.Name, k.Type, groupFP(k.Fingerprint), levelText(k.Level))
+			fmt.Fprintf(c.stdout, "%s's %s key %s: %s.\n", ct.Name, k.Type, svops.GroupFingerprint(k.Fingerprint), svops.LevelText(k.Level))
 			return nil
 		}
 	}
@@ -476,9 +448,9 @@ func (c *cli) contactLookup(args []string) error {
 			if i < len(f.Known) && f.Known[i] != "" {
 				known = " (you have it: " + f.Known[i] + ")"
 			}
-			fmt.Fprintf(c.stdout, "  %s %s  %s%s\n", k.Type, groupFP(k.Fingerprint), k.Label, known)
+			fmt.Fprintf(c.stdout, "  %s %s  %s%s\n", k.Type, svops.GroupFingerprint(k.Fingerprint), k.Label, known)
 			if len(k.Addresses) > 0 {
-				fmt.Fprintf(c.stdout, "    for %s: %s\n", strings.Join(k.Addresses, ", "), levelText(k.Level))
+				fmt.Fprintf(c.stdout, "    for %s: %s\n", strings.Join(k.Addresses, ", "), svops.LevelText(k.Level))
 			}
 		}
 	}
@@ -490,7 +462,7 @@ func (c *cli) contactLookup(args []string) error {
 		if k.New {
 			what = "Added"
 		}
-		fmt.Fprintf(c.stdout, "%s: %s %s (%s)\n", what, k.Type, groupFP(k.Fingerprint), k.Contact)
+		fmt.Fprintf(c.stdout, "%s: %s %s (%s)\n", what, k.Type, svops.GroupFingerprint(k.Fingerprint), k.Contact)
 		c.warn(k.Warnings)
 	}
 	return nil
@@ -518,7 +490,7 @@ func (c *cli) contactQR(args []string) error {
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
-	card, err := c.ownCard(ctx, cl, items, recipients)
+	card, err := svops.OwnCard(ctx, cl, c.vault, items, recipients)
 	if err != nil {
 		return err
 	}
@@ -554,83 +526,6 @@ func (c *cli) printQR(text string, light bool) error {
 	}
 	fmt.Fprint(c.stdout, code.Terminal(opts))
 	return nil
-}
-
-// ownCard gathers the fingerprints of your keys for a QR code.
-func (c *cli) ownCard(ctx context.Context, cl *secretvault.Client, items, recipients []string) (*svtrust.Card, error) {
-	entries, err := cl.List(ctx, c.vault, "")
-	if err != nil {
-		return nil, err
-	}
-	card := &svtrust.Card{}
-	firstUID := ""
-	addPGP := func(it svrpc.Item) {
-		card.Keys = append(card.Keys, svtrust.CardKey{Type: svtrust.OpenPGP, Fingerprint: it.Attrs[svrpc.PGPFingerprint]})
-		if firstUID == "" {
-			firstUID = it.Attrs[svrpc.PGPUserID]
-		}
-	}
-	for _, want := range items {
-		var found *svrpc.Item
-		for i := range entries {
-			if entries[i].Item.Name == want {
-				found = &entries[i].Item
-			}
-		}
-		switch {
-		case found == nil:
-			return nil, fmt.Errorf("%s: %w", want, svrpc.ErrNotFound)
-		case found.Attrs[svrpc.PGPFingerprint] != "":
-			addPGP(*found)
-		case found.Kind == "ssh-key":
-			fp := found.Attrs["fingerprint"]
-			if fp == "" {
-				e, err := cl.Get(ctx, c.vault, want)
-				if err != nil {
-					return nil, err
-				}
-				if f, ok := field(&e.Item, "public_key"); ok {
-					if k, err := svtrust.ParseKey(f.Value); err == nil {
-						fp = k.Fingerprint
-					}
-				}
-				wipe(&e.Item)
-			}
-			if fp == "" {
-				return nil, fmt.Errorf("%s has no public key to show", want)
-			}
-			card.Keys = append(card.Keys, svtrust.CardKey{Type: svtrust.SSH, Fingerprint: fp})
-		default:
-			return nil, fmt.Errorf("%s is neither an OpenPGP key nor an SSH key", want)
-		}
-	}
-	if len(items) == 0 {
-		for _, e := range entries {
-			if e.Item.Kind == svrpc.PGPItemKind && e.Item.Attrs[svrpc.PGPFingerprint] != "" {
-				addPGP(e.Item)
-			}
-		}
-	}
-	for _, r := range recipients {
-		text, err := recipientArg(r)
-		if err != nil {
-			return nil, err
-		}
-		k, err := svtrust.ParseKey([]byte(text))
-		if err != nil {
-			return nil, err
-		}
-		card.Keys = append(card.Keys, svtrust.CardKey{Type: svtrust.Secretvault, Fingerprint: k.Fingerprint})
-	}
-	if len(card.Keys) == 0 {
-		return nil, errors.New("no keys to show: make one with 'secretvault pgp new', or name them with --key or --recipient")
-	}
-	name, addr := svtrust.SplitUserID(firstUID)
-	card.Name = name
-	if addr != "" {
-		card.Emails = []string{addr}
-	}
-	return card, nil
 }
 
 func (c *cli) contactVault(args []string) error {
@@ -772,7 +667,7 @@ func (c *cli) trustSeen(args []string) error {
 	if res.New {
 		what = "New key"
 	}
-	fmt.Fprintf(c.stdout, "%s: %s from %s (%s)\n", what, groupFP(res.Fingerprint), svtrust.ParseAddress(*from), res.Contact.Name)
+	fmt.Fprintf(c.stdout, "%s: %s from %s (%s)\n", what, svops.GroupFingerprint(res.Fingerprint), svtrust.ParseAddress(*from), res.Contact.Name)
 	c.warn(res.Warnings)
 	return nil
 }

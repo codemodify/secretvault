@@ -1,22 +1,17 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"golang.org/x/term"
 
-	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svage"
-	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -28,20 +23,9 @@ import (
 //	secretvault age encrypt [-r R]... [-R F]... [-p] [-a] [-o OUT] [IN]
 //	secretvault age decrypt [-i sv://VAULT/ITEM | -i FILE]... [-o OUT] [IN]
 //
-// An age identity lives in an item of kind "key": the field age_identity
-// (type "key") holds the AGE-SECRET-KEY-1... or AGE-SECRET-KEY-PQ-1...
-// text, and the attribute and field age_recipient its public half. The
-// recipient is a plain age recipient, so anyone can encrypt to it without
-// secretvault. Decrypting takes the identity from the daemon, which asks
-// the person first as it does for any other item; age, rage and SOPS get
-// there through age-plugin-secretvault (age_plugin.go), whose identity
-// string names the item.
-
-const (
-	ageIdentityField = "age_identity"
-	ageRecipientName = "age_recipient" // the field and the attribute
-	agePluginName    = "secretvault"
-)
+// How identities are kept in items, made, found and used is svops'
+// (age.go); age, rage and SOPS reach them through age-plugin-secretvault
+// (age_plugin.go).
 
 func (c *cli) cmdAge(args []string) error {
 	usage := func() error {
@@ -78,55 +62,6 @@ func (c *cli) cmdAge(args []string) error {
 	return usage()
 }
 
-// ageItem reads an ITEM argument: a name in --vault, or sv://VAULT/ITEM.
-func (c *cli) ageItem(arg string) (ref, error) {
-	if strings.HasPrefix(arg, "sv://") {
-		return parseRef(arg)
-	}
-	if err := svcore.CheckName(arg); err != nil {
-		return ref{}, err
-	}
-	return ref{vault: c.vault, item: arg}, nil
-}
-
-// vaultName is the name of vault ("" for the default one).
-func vaultName(ctx context.Context, cl *secretvault.Client, vault string) (string, error) {
-	if vault != "" {
-		return vault, nil
-	}
-	vs, err := cl.Vaults(ctx)
-	if err != nil {
-		return "", err
-	}
-	for _, v := range vs {
-		if v.Default {
-			return v.Name, nil
-		}
-	}
-	return "", errors.New("there is no default vault; create one with 'secretvault init'")
-}
-
-// pluginIdentity is the AGE-PLUGIN-SECRETVAULT-1... string naming an item.
-func pluginIdentity(vault, item string) (string, error) {
-	return svage.EncodePluginIdentity(agePluginName, []byte(vault+"/"+item))
-}
-
-// itemOfPluginIdentity reads what pluginIdentity wrote: "VAULT/ITEM",
-// with "-" (or nothing) for the default vault.
-func itemOfPluginIdentity(data []byte) (ref, error) {
-	vault, item, ok := strings.Cut(string(data), "/")
-	if !ok {
-		return ref{}, errors.New("the identity does not name a vault item")
-	}
-	if err := svcore.CheckName(item); err != nil {
-		return ref{}, err
-	}
-	if vault == "-" {
-		vault = ""
-	}
-	return ref{vault: vault, item: item}, nil
-}
-
 func (c *cli) ageKeygen(args []string) error {
 	fs := c.flags("age keygen")
 	pq := fs.Bool("pq", false, "make a post-quantum identity (ML-KEM-768 + X25519, age v1.3 or later)")
@@ -141,144 +76,30 @@ func (c *cli) ageKeygen(args []string) error {
 		fmt.Fprintln(c.stderr, "usage: secretvault age keygen --name ITEM [--pq] [-o FILE]")
 		return errUsage
 	}
-	r, err := c.ageItem(*name)
+	r, err := svops.AgeItemRef(c.vault, *name)
 	if err != nil {
 		return err
 	}
-	var idText []byte
-	var rcpt string
-	if *pq {
-		id, err := svage.GenerateHybridIdentity()
-		if err != nil {
-			return err
-		}
-		idText, err = id.AppendText(nil)
-		if err != nil {
-			return err
-		}
-		rcpt = id.Recipient().String()
-	} else {
-		id, err := svage.GenerateX25519Identity()
-		if err != nil {
-			return err
-		}
-		idText, _ = id.AppendText(nil)
-		rcpt = id.Recipient().String()
-	}
-	defer clear(idText)
-
 	cl, err := c.open(&u)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
-	// Never replace a key: files encrypted to it would be lost.
-	if found, _, err := findItem(ctx, cl, r.vault, r.item); err != nil {
-		return err
-	} else if found {
-		return fmt.Errorf("%s already exists; pick another name (an age identity is never replaced)", r.item)
-	}
-	it := svrpc.Item{
-		Kind: "key", Name: r.item, Label: "age identity",
-		Attrs: map[string]string{ageRecipientName: rcpt},
-		Fields: []svrpc.Field{
-			{Name: ageIdentityField, Type: svcore.FieldKey, Value: idText},
-			{Name: ageRecipientName, Type: svcore.FieldText, Value: []byte(rcpt)},
-		},
-	}
-	e, err := cl.Put(ctx, r.vault, it)
+	k, err := svops.AgeKeygen(ctx, cl, r, *pq)
 	if err != nil {
 		return err
 	}
-	vault, err := vaultName(ctx, cl, r.vault)
-	if err != nil {
-		return err
-	}
-	plugin, err := pluginIdentity(vault, r.item)
-	if err != nil {
-		return err
-	}
-	kind := "X25519"
-	if *pq {
-		kind = "post-quantum"
-	}
-	file := fmt.Sprintf("# secretvault age identity (%s): item %q in vault %q\n# created: %s\n# recipient: %s\n%s\n",
-		kind, r.item, vault, e.Time.UTC().Format(time.RFC3339), rcpt, plugin)
-	fmt.Fprintf(c.stderr, "Stored a new %s age identity as %s (revision %s).\n", kind, r.item, short(e.Rev))
+	fmt.Fprintf(c.stderr, "Stored a new %s age identity as %s (revision %s).\n", k.Kind, r.Item, svops.Short(k.Entry.Rev))
 	if *out != "" {
-		if err := writeNew(*out, []byte(file)); err != nil {
+		if err := svops.WriteNew(*out, k.File); err != nil {
 			return err
 		}
-		fmt.Fprintln(c.stdout, rcpt)
+		fmt.Fprintln(c.stdout, k.Recipient)
 		return nil
 	}
-	_, err = io.WriteString(c.stdout, file)
+	_, err = c.stdout.Write(k.File)
 	return err
-}
-
-// findItem looks an item up by listing (which shows attributes, never
-// secrets).
-func findItem(ctx context.Context, cl *secretvault.Client, vault, item string) (bool, svrpc.Item, error) {
-	entries, err := cl.List(ctx, vault, item)
-	if err != nil {
-		return false, svrpc.Item{}, err
-	}
-	for _, e := range entries {
-		if e.Item.Name == item {
-			return true, e.Item, nil
-		}
-	}
-	return false, svrpc.Item{}, nil
-}
-
-// itemRecipient is the age recipient of the identity in an item: from its
-// attribute when it has one, else worked out from the identity.
-func (c *cli) itemRecipient(ctx context.Context, cl *secretvault.Client, r ref) (string, error) {
-	found, it, err := findItem(ctx, cl, r.vault, r.item)
-	if err != nil {
-		return "", err
-	}
-	if !found {
-		return "", fmt.Errorf("%s: %w", r.item, svrpc.ErrNotFound)
-	}
-	if rc := it.Attrs[ageRecipientName]; rc != "" && r.field == "" {
-		return rc, nil
-	}
-	id, err := loadIdentity(ctx, cl, r)
-	if err != nil {
-		return "", err
-	}
-	switch id := id.(type) {
-	case *svage.X25519Identity:
-		return id.Recipient().String(), nil
-	case *svage.HybridIdentity:
-		return id.Recipient().String(), nil
-	}
-	return "", fmt.Errorf("%s does not hold an age identity", r.item)
-}
-
-// loadIdentity reads the age identity in an item (its age_identity
-// field, or r.field), wiping the item once it is parsed.
-func loadIdentity(ctx context.Context, cl *secretvault.Client, r ref) (svage.Identity, error) {
-	e, err := cl.Get(ctx, r.vault, r.item)
-	if err != nil {
-		return nil, err
-	}
-	defer wipe(&e.Item)
-	name := r.field
-	if name == "" {
-		name = ageIdentityField
-	}
-	f, ok := field(&e.Item, name)
-	if !ok {
-		return nil, fmt.Errorf("%s has no field %q (make one with 'secretvault age keygen')", r.item, name)
-	}
-	id, err := svage.ParseIdentityBytes(f.Value)
-	if err != nil {
-		return nil, fmt.Errorf("%s: field %q: %w", r.item, name, err)
-	}
-	return id, nil
 }
 
 func (c *cli) ageShow(args []string, asPlugin bool) error {
@@ -293,7 +114,7 @@ func (c *cli) ageShow(args []string, asPlugin bool) error {
 	if err != nil {
 		return err
 	}
-	r, err := c.ageItem(pos[0])
+	r, err := svops.AgeItemRef(c.vault, pos[0])
 	if err != nil {
 		return err
 	}
@@ -303,7 +124,7 @@ func (c *cli) ageShow(args []string, asPlugin bool) error {
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
-	rcpt, err := c.itemRecipient(ctx, cl, r)
+	rcpt, err := svops.AgeItemRecipient(ctx, cl, r)
 	if err != nil {
 		return err
 	}
@@ -311,11 +132,11 @@ func (c *cli) ageShow(args []string, asPlugin bool) error {
 		fmt.Fprintln(c.stdout, rcpt)
 		return nil
 	}
-	vault, err := vaultName(ctx, cl, r.vault)
+	vault, err := svops.VaultName(ctx, cl, r.Vault)
 	if err != nil {
 		return err
 	}
-	s, err := pluginIdentity(vault, r.item)
+	s, err := svops.AgePluginIdentity(vault, r.Item)
 	if err != nil {
 		return err
 	}
@@ -323,61 +144,32 @@ func (c *cli) ageShow(args []string, asPlugin bool) error {
 	return nil
 }
 
-// vaultIdentity is an age identity kept in a vault item. It is fetched
-// through the daemon, which asks the person as it always does, the first
-// time a stanza it could open turns up, and kept for the rest of the run.
-type vaultIdentity struct {
-	c  *cli
-	u  *unlockFlags // nil in the plugin, which presents no keys
-	r  ref
-	id svage.Identity
-}
-
-func (v *vaultIdentity) Unwrap(stanzas []*svage.Stanza) ([]byte, error) {
-	if v.id == nil {
-		native := false
-		for _, s := range stanzas {
-			native = native || s.Type == "X25519" || s.Type == "mlkem768x25519"
-		}
-		if !native {
-			// Not worth asking anyone about.
-			return nil, fmt.Errorf("%w: the file has no X25519 or post-quantum stanza", svage.ErrIncorrectIdentity)
-		}
-		cl, err := v.c.open(v.u)
+// vaultIdentity is an age identity kept in a vault item, fetched through
+// the daemon (presenting the keys u names; none in the plugin) the first
+// time a stanza it could open turns up.
+func (c *cli) vaultIdentity(u *unlockFlags, r svrpc.Ref) svage.Identity {
+	return &svops.VaultIdentity{Ref: r, Fetch: func(r svrpc.Ref) (svage.Identity, error) {
+		cl, err := c.open(u)
 		if err != nil {
 			return nil, err
 		}
-		ctx, cancel := v.c.ctx()
+		ctx, cancel := c.ctx()
 		defer cancel()
-		if v.id, err = loadIdentity(ctx, cl, v.r); err != nil {
-			return nil, fmt.Errorf("sv://%s/%s: %s", v.r.vault, v.r.item, describe(err))
+		id, err := svops.LoadAgeIdentity(ctx, cl, r)
+		if err != nil {
+			return nil, fmt.Errorf("sv://%s/%s: %s", r.Vault, r.Item, describe(err))
 		}
-	}
-	return v.id.Unwrap(stanzas)
+		return id, nil
+	}}
 }
 
-// askedPassphrase is the identity used when none is given: a passphrase,
-// asked for on the terminal if the file turns out to be encrypted to one.
-type askedPassphrase struct{ c *cli }
-
-func (a askedPassphrase) Unwrap(stanzas []*svage.Stanza) ([]byte, error) {
-	if len(stanzas) != 1 || stanzas[0].Type != "scrypt" {
-		return nil, fmt.Errorf("%w: the file is not encrypted to a passphrase; give an identity with -i", svage.ErrIncorrectIdentity)
-	}
-	if !a.c.canAsk {
+// askPassphrase asks for a file's passphrase, when it turns out to be
+// encrypted to one.
+func (c *cli) askPassphrase() ([]byte, error) {
+	if !c.canAsk {
 		return nil, errors.New("the file is encrypted to a passphrase, and there is no terminal to ask for it on")
 	}
-	p, err := a.c.ask("Passphrase: ")
-	if err != nil {
-		return nil, err
-	}
-	defer clear(p)
-	id, err := svage.NewScryptIdentity(p)
-	if err != nil {
-		return nil, err
-	}
-	defer id.Wipe()
-	return id.Unwrap(stanzas)
+	return c.ask("Passphrase: ")
 }
 
 // pluginUI lets other plugins (a YubiKey's, say) talk to the person on
@@ -415,53 +207,13 @@ func (c *cli) pluginUI() *svage.PluginUI {
 // ageRecipient reads a -r argument: any recipient age knows, or
 // sv://VAULT/ITEM for the recipient of an identity kept in a vault.
 func (c *cli) ageRecipient(ctx context.Context, u *unlockFlags, arg string) (svage.Recipient, error) {
-	arg = strings.TrimSpace(arg)
-	if strings.HasPrefix(arg, "sv://") {
-		r, err := parseRef(arg)
-		if err != nil {
-			return nil, err
-		}
+	return svops.AgeRecipient(arg, func(r svrpc.Ref) (string, error) {
 		cl, err := c.open(u)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
-		rc, err := c.itemRecipient(ctx, cl, r)
-		if err != nil {
-			return nil, err
-		}
-		arg = rc
-	}
-	if strings.HasPrefix(arg, "AGE-") {
-		return nil, errors.New("that is an identity (a secret key), not a recipient")
-	}
-	r, err := svage.ParseRecipient(arg)
-	if err != nil {
-		return nil, err
-	}
-	if _, ok := r.(*svage.PluginRecipient); ok {
-		// Another plugin's: let it talk to the person here.
-		pr, err := svage.NewPluginRecipient(arg, c.pluginUI())
-		if err != nil {
-			return nil, err
-		}
-		return pr, nil
-	}
-	return r, nil
-}
-
-// eachKeyLine calls f for each line of a key file that is not blank or a
-// "#" comment, numbering lines from 1.
-func eachKeyLine(b []byte, f func(n int, line []byte) error) error {
-	for n, line := range bytes.Split(b, []byte("\n")) {
-		line = bytes.TrimSpace(line)
-		if len(line) == 0 || line[0] == '#' {
-			continue
-		}
-		if err := f(n+1, line); err != nil {
-			return err
-		}
-	}
-	return nil
+		return svops.AgeItemRecipient(ctx, cl, r)
+	}, c.pluginUI())
 }
 
 func (c *cli) ageEncrypt(args []string) error {
@@ -494,7 +246,7 @@ func (c *cli) ageEncrypt(args []string) error {
 		if err != nil {
 			return err
 		}
-		err = eachKeyLine(b, func(n int, line []byte) error {
+		err = svops.EachKeyLine(b, func(n int, line []byte) error {
 			r, err := c.ageRecipient(ctx, &u, string(line))
 			if err != nil {
 				return fmt.Errorf("%s:%d: %w", f, n, err)
@@ -542,25 +294,8 @@ func (c *cli) ageEncrypt(args []string) error {
 	if !*armor && out.terminal() {
 		return errors.New("refusing to write binary ciphertext to a terminal; use -a or -o")
 	}
-	dst, aw := out.w, io.WriteCloser(nil)
-	if *armor {
-		aw = svage.NewArmorWriter(dst)
-		dst = aw
-	}
-	w, err := svage.Options{AllowMixedPostQuantum: *mixed}.Encrypt(dst, recipients...)
-	if err != nil {
+	if err := svops.AgeEncrypt(out.w, in, recipients, *armor, *mixed); err != nil {
 		return err
-	}
-	if _, err := io.Copy(w, in); err != nil {
-		return err
-	}
-	if err := w.Close(); err != nil {
-		return err
-	}
-	if aw != nil {
-		if err := aw.Close(); err != nil {
-			return err
-		}
 	}
 	return out.commit()
 }
@@ -568,63 +303,16 @@ func (c *cli) ageEncrypt(args []string) error {
 // ageIdentities reads a -i argument: sv://VAULT/ITEM[#FIELD], or a file
 // of identities (age's, plugins', ours) or an SSH private key.
 func (c *cli) ageIdentities(u *unlockFlags, arg string) ([]svage.Identity, error) {
-	if strings.HasPrefix(arg, "sv://") {
-		r, err := parseRef(arg)
-		if err != nil {
-			return nil, err
-		}
-		return []svage.Identity{&vaultIdentity{c: c, u: u, r: r}}, nil
-	}
-	b, err := os.ReadFile(arg)
-	if err != nil {
-		return nil, err
-	}
-	defer clear(b)
-	if bytes.Contains(b, []byte("PRIVATE KEY-----")) {
-		id, err := svage.ParseSSHIdentity(b, func() ([]byte, error) {
+	return svops.AgeIdentities(arg, svops.AgeIdentityOptions{
+		Vault: func(r svrpc.Ref) svage.Identity { return c.vaultIdentity(u, r) },
+		UI:    c.pluginUI(),
+		SSHPassphrase: func(path string) ([]byte, error) {
 			if !c.canAsk {
 				return nil, errors.New("no terminal to ask for it on")
 			}
-			return c.ask("Passphrase for " + arg + ": ")
-		})
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", arg, err)
-		}
-		return []svage.Identity{id}, nil
-	}
-	var ids []svage.Identity
-	err = eachKeyLine(b, func(n int, line []byte) error {
-		var id svage.Identity
-		var err error
-		switch {
-		case bytes.HasPrefix(line, []byte("AGE-PLUGIN-")):
-			var name string
-			var data []byte
-			if name, data, err = svage.ParsePluginIdentity(string(line)); err != nil {
-				break
-			}
-			if name == agePluginName {
-				// Ours: straight to the daemon, no plugin process.
-				var r ref
-				if r, err = itemOfPluginIdentity(data); err == nil {
-					id = &vaultIdentity{c: c, u: u, r: r}
-				}
-			} else {
-				id, err = svage.NewPluginIdentity(string(line), c.pluginUI())
-			}
-		default:
-			id, err = svage.ParseIdentityBytes(line)
-		}
-		if err != nil {
-			return fmt.Errorf("%s:%d: %w", arg, n, err)
-		}
-		ids = append(ids, id)
-		return nil
+			return c.ask("Passphrase for " + path + ": ")
+		},
 	})
-	if err == nil && len(ids) == 0 {
-		err = fmt.Errorf("%s holds no identities", arg)
-	}
-	return ids, err
 }
 
 func (c *cli) ageDecrypt(args []string) error {
@@ -647,31 +335,14 @@ func (c *cli) ageDecrypt(args []string) error {
 		ids = append(ids, more...)
 	}
 	if len(ids) == 0 {
-		ids = append(ids, askedPassphrase{c})
+		ids = append(ids, svops.PassphraseIdentity{Ask: c.askPassphrase})
 	}
 	in, closeIn, err := c.input(pos)
 	if err != nil {
 		return err
 	}
 	defer closeIn()
-	br := bufio.NewReader(in)
-	var src io.Reader = br
-	if peek, _ := br.Peek(2048); svage.IsArmored(peek) {
-		src = svage.NewArmorReader(br)
-	}
-	r, err := svage.Decrypt(src, ids...)
-	var nm *svage.NoIdentityMatchError
-	if errors.As(err, &nm) {
-		msg := "no identity given can open this file"
-		if len(nm.Errors) == 1 {
-			// With one identity, say what it said ("wrong passphrase", say).
-			prefix := svage.ErrIncorrectIdentity.Error() + ": "
-			if why, ok := strings.CutPrefix(nm.Errors[0].Error(), prefix); ok {
-				msg = why
-			}
-		}
-		return fmt.Errorf("%s (it is encrypted to: %s)", msg, strings.Join(nm.StanzaTypes, ", "))
-	}
+	r, err := svops.AgeDecrypt(in, ids)
 	if err != nil {
 		return err
 	}
@@ -699,30 +370,24 @@ func (c *cli) input(pos []string) (io.Reader, func(), error) {
 }
 
 // outFile is where a command's result goes: stdout, or a file that
-// appears only when the whole result is written (so a failed decryption
-// leaves neither part of the plaintext nor a clobbered file).
+// appears only when the whole result is written (svops.AtomicFile), so a
+// failed decryption leaves neither part of the plaintext nor a clobbered
+// file.
 type outFile struct {
-	w      io.Writer
-	c      *cli
-	f      *os.File
-	path   string
-	closed bool
+	w io.Writer
+	c *cli
+	f *svops.AtomicFile // nil for stdout
 }
 
 func (c *cli) output(path string, mode os.FileMode) (*outFile, error) {
 	if path == "" || path == "-" {
-		return &outFile{w: c.stdout, c: c, closed: true}, nil
+		return &outFile{w: c.stdout, c: c}, nil
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	f, err := svops.CreateAtomic(path, mode)
 	if err != nil {
 		return nil, err
 	}
-	if err := f.Chmod(mode); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return nil, err
-	}
-	return &outFile{w: f, c: c, f: f, path: path}, nil
+	return &outFile{w: f, c: c, f: f}, nil
 }
 
 // terminal reports whether the output is stdout on a terminal.
@@ -732,25 +397,14 @@ func (o *outFile) terminal() bool {
 }
 
 func (o *outFile) commit() error {
-	if o.closed {
+	if o.f == nil {
 		return nil
 	}
-	o.closed = true
-	if err := o.f.Close(); err != nil {
-		os.Remove(o.f.Name())
-		return err
-	}
-	if err := os.Rename(o.f.Name(), o.path); err != nil {
-		os.Remove(o.f.Name())
-		return err
-	}
-	return nil
+	return o.f.Commit()
 }
 
 func (o *outFile) abort() {
-	if !o.closed {
-		o.closed = true
-		o.f.Close()
-		os.Remove(o.f.Name())
+	if o.f != nil {
+		o.f.Abort()
 	}
 }

@@ -125,17 +125,3 @@ func TestContainerCommandErrors(t *testing.T) {
 		t.Fatalf("over an existing file: %d %q", code, errs)
 	}
 }
-
-func TestParseSize(t *testing.T) {
-	for in, want := range map[string]int64{"1024": 1024, "40M": 40 << 20, "40MiB": 40 << 20, "40mb": 40 << 20, "1G": 1 << 30,
-		"1.5G": 3 << 29, "2T": 2 << 40, "512K": 512 << 10} {
-		if got, err := parseSize(in); err != nil || got != want {
-			t.Errorf("%s: %d %v", in, got, err)
-		}
-	}
-	for _, bad := range []string{"", "G", "-1G", "1X", "1e30G", "0"} {
-		if _, err := parseSize(bad); err == nil {
-			t.Errorf("%q parsed", bad)
-		}
-	}
-}

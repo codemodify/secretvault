@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -11,8 +10,8 @@ import (
 	"time"
 
 	"github.com/codemodify/secretvault"
-	"github.com/codemodify/secretvault/svcrypto"
 	"github.com/codemodify/secretvault/svformat"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -146,7 +145,7 @@ func (c *cli) key(u *unlockFlags) (*svrpc.Key, error) {
 		rk, err := c.askShares()
 		return &svrpc.Key{Type: svformat.SlotRecovery, Secret: rk}, err
 	case u.passFile != "":
-		b, err := readSecretFile(u.passFile)
+		b, err := svops.ReadSecretFile(u.passFile)
 		return &svrpc.Key{Type: svformat.SlotPassphrase, Secret: b}, err
 	}
 	return nil, nil
@@ -157,42 +156,24 @@ func (c *cli) key(u *unlockFlags) (*svrpc.Key, error) {
 // text. A share typed twice, or from another split, is caught there, or
 // by the key's own checksum.
 func (c *cli) askShares() ([]byte, error) {
-	var shares [][]byte
-	defer func() {
-		for _, s := range shares {
-			clear(s)
-		}
-	}()
-	need := 0
-	for need == 0 || len(shares) < need {
-		prompt := fmt.Sprintf("Recovery share %d: ", len(shares)+1)
-		if need > 0 {
-			prompt = fmt.Sprintf("Recovery share %d of %d: ", len(shares)+1, need)
+	var shares svops.ShareCollector
+	defer shares.Wipe()
+	for !shares.Done() {
+		prompt := fmt.Sprintf("Recovery share %d: ", shares.Have()+1)
+		if shares.Need() > 0 {
+			prompt = fmt.Sprintf("Recovery share %d of %d: ", shares.Have()+1, shares.Need())
 		}
 		b, err := c.ask(prompt)
 		if err != nil {
 			return nil, err
 		}
-		share, k, err := svformat.ParseRecoveryShare(string(b))
+		err = shares.Add(b)
 		clear(b)
 		if err != nil {
-			fmt.Fprintln(c.stderr, strings.TrimPrefix(err.Error(), "svformat: "))
-			continue
+			fmt.Fprintln(c.stderr, err)
 		}
-		if need != 0 && k != need {
-			clear(share)
-			fmt.Fprintf(c.stderr, "That share is from a split that needs %d, not %d: it belongs to another recovery key.\n", k, need)
-			continue
-		}
-		need = k
-		shares = append(shares, share)
 	}
-	rk, err := svcrypto.CombineShares(shares)
-	if err != nil {
-		return nil, fmt.Errorf("those shares do not fit together: %w", err)
-	}
-	defer clear(rk)
-	return []byte(svformat.EncodeRecoveryKey(rk)), nil
+	return shares.Key()
 }
 
 // open connects and, when the flags name a key, presents it: that unlocks
@@ -218,24 +199,10 @@ func (c *cli) open(u *unlockFlags) (*secretvault.Client, error) {
 	return cl, nil
 }
 
-// readSecretFile reads a secret from a file, without its final newline.
-func readSecretFile(path string) ([]byte, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return trimNewline(b), nil
-}
-
-func trimNewline(b []byte) []byte {
-	b = bytes.TrimSuffix(b, []byte("\n"))
-	return bytes.TrimSuffix(b, []byte("\r"))
-}
-
 // newPassphrase gets a new passphrase from a file or the terminal.
 func (c *cli) newPassphrase(file string) ([]byte, error) {
 	if file != "" {
-		p, err := readSecretFile(file)
+		p, err := svops.ReadSecretFile(file)
 		if err == nil && len(p) < minPassphrase {
 			return nil, fmt.Errorf("the passphrase is too short: use at least %d characters", minPassphrase)
 		}
@@ -245,62 +212,4 @@ func (c *cli) newPassphrase(file string) ([]byte, error) {
 		return nil, errors.New("no terminal to ask for the new passphrase on; use --passphrase-file")
 	}
 	return c.askNew("New passphrase: ", minPassphrase)
-}
-
-func readIdentity(path string) (*svcrypto.Identity, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	defer clear(b)
-	for _, line := range strings.Split(string(b), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		suite, priv, err := svformat.ParseIdentity(line)
-		if err != nil {
-			return nil, err
-		}
-		defer clear(priv)
-		return suite.ParseIdentity(priv)
-	}
-	return nil, fmt.Errorf("%s holds no identity", path)
-}
-
-// recipientArg reads a recipient given as text, as a file holding one, or
-// as an identity file (whose public half is the recipient), and returns
-// its text form.
-func recipientArg(arg string) (string, error) {
-	if suite, pub, err := svformat.ParseRecipient(arg); err == nil {
-		return svformat.EncodeRecipient(suite, pub), nil
-	}
-	b, err := os.ReadFile(arg)
-	if err != nil {
-		return "", fmt.Errorf("%q is neither a recipient nor a readable file", arg)
-	}
-	for _, line := range strings.Split(string(b), "\n") {
-		if suite, pub, err := svformat.ParseRecipient(line); err == nil {
-			return svformat.EncodeRecipient(suite, pub), nil
-		}
-	}
-	clear(b)
-	id, err := readIdentity(arg)
-	if err != nil {
-		return "", fmt.Errorf("%s holds no recipient or identity", arg)
-	}
-	return svformat.EncodeRecipient(id.Suite(), id.Recipient()), nil
-}
-
-// writeNew creates a file that must not exist yet, mode 0600.
-func writeNew(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(data)
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	return err
 }
