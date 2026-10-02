@@ -62,66 +62,7 @@ func (c *cli) cmdMail(args []string) error {
 }
 
 func (c *cli) printMail(rep *svmail.Report, verdicts []svrpc.MailVerdict) {
-	w := c.stdout
-	h, where := rep.Headers, ""
-	if rep.Protected != nil {
-		h, where = rep.Protected.Headers, " (protected)"
-	}
-	fmt.Fprintf(w, "From:    %s%s\nSubject: %s%s\n", h.From, where, h.Subject, where)
-	fmt.Fprintf(w, "Signed: %s   Encrypted: %s\n", rep.Signed, rep.Encrypted)
-	for _, l := range rep.Layers {
-		fmt.Fprintf(w, "\n%s %s, covering the %s", l.Format, l.Kind, l.Covers)
-		if l.Part != "" {
-			fmt.Fprintf(w, " (part %s)", l.Part)
-		}
-		fmt.Fprintln(w, ":")
-		if l.Error != "" {
-			fmt.Fprintf(w, "  could not be read: %s\n", l.Error)
-		}
-		if e := l.Encryption; e != nil {
-			if e.Decrypted {
-				fmt.Fprintf(w, "  decrypted with %s (%s, integrity: %s)\n", e.DecryptedWith, e.Cipher, e.Integrity)
-			} else {
-				fmt.Fprintf(w, "  not decrypted: %s\n", e.Error)
-			}
-		}
-		for i, s := range l.Signatures {
-			who := s.Fingerprint
-			if who == "" && s.Certificate != nil {
-				who = s.Certificate.Subject
-			}
-			if who == "" {
-				who = s.Issuer
-			}
-			fmt.Fprintf(w, "  signature: %s, by %s\n", s.Status, who)
-			if s.Error != "" {
-				fmt.Fprintf(w, "    %s\n", s.Error)
-			}
-			for _, v := range verdicts {
-				if v.Layer == l.ID && v.Index == i {
-					fmt.Fprintf(w, "    %s\n", v.Verdict.Status)
-					for _, r := range v.Verdict.Reasons {
-						fmt.Fprintf(w, "    %s\n", r)
-					}
-				}
-			}
-		}
-	}
-	for _, p := range rep.Parts {
-		if p.Text == "" || p.LegacyDisplay {
-			continue
-		}
-		fmt.Fprintf(w, "\n--- %s ---\n%s", p.ContentType, p.Text)
-		if !strings.HasSuffix(p.Text, "\n") {
-			fmt.Fprintln(w)
-		}
-	}
-	if len(rep.Warnings) > 0 {
-		fmt.Fprintln(w, "\nWarnings:")
-		for _, wn := range rep.Warnings {
-			fmt.Fprintf(w, "  %s\n", wn.Message)
-		}
-	}
+	fmt.Fprint(c.stdout, svops.MailText(rep, verdicts))
 }
 
 // mailCompose is `secretvault mail compose`: a message signed with your

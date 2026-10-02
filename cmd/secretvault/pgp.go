@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"text/tabwriter"
 
 	"github.com/codemodify/secretvault/svops"
@@ -368,23 +367,8 @@ func (c *cli) pgpDecrypt(args []string) error {
 
 // printSignatures tells what each signature is, on stderr.
 func (c *cli) printSignatures(sigs []svrpc.PGPSignature) {
-	for _, s := range sigs {
-		switch {
-		case s.Verdict != nil:
-			fmt.Fprintf(c.stderr, "Signature: %s\n", s.Verdict.Status)
-			if !s.Valid {
-				fmt.Fprintf(c.stderr, "  The signature is not valid: %s.\n", s.Error)
-			}
-			for _, r := range s.Verdict.Reasons {
-				if !strings.HasPrefix(r, "The signature is not valid") {
-					fmt.Fprintf(c.stderr, "  %s\n", r)
-				}
-			}
-		case s.Valid:
-			fmt.Fprintf(c.stderr, "Signature: valid, by %s (not checked against your contacts)\n", svops.GroupFingerprint(s.Signer))
-		default:
-			fmt.Fprintf(c.stderr, "Signature: not checked (%s), by %s\n", s.Error, s.Issuer)
-		}
+	for _, l := range svops.SignatureLines(sigs) {
+		fmt.Fprintln(c.stderr, l)
 	}
 }
 

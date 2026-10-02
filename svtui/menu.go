@@ -96,6 +96,31 @@ func (u *UI) menu() []menuEntry {
 		}},
 		{"Vault", "Audit log", "A", u.showAudit},
 
+		{"Keys", "Keys: OpenPGP, S/MIME, age identities", "P", u.showKeys},
+		{"Keys", "New OpenPGP key…", "", func() {
+			if u.needVault() {
+				u.newPGPKey(u.vault, nil)
+			}
+		}},
+		{"Keys", "Import an OpenPGP key…", "", func() {
+			if u.needVault() {
+				u.importPGPKey(u.vault, nil)
+			}
+		}},
+		{"Keys", "Export an OpenPGP key, or copy its public key", "P", u.showKeys},
+		{"Keys", "Import an S/MIME key (.p12)…", "", func() {
+			if u.needVault() {
+				u.importSMIME(u.vault, nil)
+			}
+		}},
+		{"Keys", "New age identity…", "", func() {
+			if u.needVault() {
+				u.newAgeIdentity(u.vault, nil)
+			}
+		}},
+		{"Keys", "Copy an age identity's recipient or identity line", "P", u.showKeys},
+		{"Keys", "New identity file…", "", u.newIdentityFile},
+		{"Keys", "The recipient of an identity file…", "", u.identityFileRecipient},
 		{"Keys", "Security keys plugged in, and what each can do", "K", u.showSlots},
 		{"Sharing", "Sharing and emergency access: who opens this vault", "E", u.showSharing},
 		{"Sharing", "Share this vault with a person's identity…", "", func() {
@@ -130,6 +155,14 @@ func (u *UI) menu() []menuEntry {
 		{"Contacts", "Directories: add, remove", "", u.showDirectories},
 		{"Contacts", "Check a signer…", "", u.checkSigner},
 		{"Contacts", "Record a key seen in mail…", "", func() { u.keySeen(nil) }},
+		{"Tools", "Password generator", "g", func() { u.showGenerator(nil) }},
+		{"Tools", "Sign a file (OpenPGP)…", "", u.signFile},
+		{"Tools", "Decrypt a file (OpenPGP)…", "", u.decryptPGPFile},
+		{"Tools", "Check a signature (OpenPGP)…", "", u.verifyPGPFile},
+		{"Tools", "Encrypt a file (age)…", "", u.encryptAge},
+		{"Tools", "Decrypt a file (age)…", "", u.decryptAge},
+		{"Tools", "Inspect a message…", "", u.inspectMail},
+		{"Tools", "Sign and encrypt a message…", "", u.composeMail},
 		{"Help", "Keys", "?", u.showHelp},
 		{"Help", "About secretvault: versions, the daemon's status", "", u.showStatus},
 	}
