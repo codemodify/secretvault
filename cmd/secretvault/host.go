@@ -204,12 +204,7 @@ func count(n int, thing string) string {
 	return fmt.Sprintf("%d %ss", n, thing)
 }
 
-func hostClientName(userName, program string) string {
-	if program == "" {
-		return "User " + userName
-	}
-	return program + ", run by user " + userName + ","
-}
+func hostClientName(userName, program string) string { return svops.HostClientName(userName, program) }
 
 func (c *cli) printHostPolicy(pol svrpc.HostPolicy) error {
 	if len(pol.Credentials) == 0 && len(pol.Clients) == 0 {
@@ -294,21 +289,7 @@ func (c *cli) printHostEvents(events []svrpc.HostEvent) error {
 	tw := tabwriter.NewWriter(c.stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "TIME\tOUTCOME\tWHO\tWHAT\tDETAIL")
 	for _, ev := range events {
-		who, what, detail := ev.Program, ev.Ref, ev.Reason
-		switch {
-		case ev.Outcome == "changed":
-			what = "the policy"
-		case ev.Unit != "":
-			who, what = ev.Unit, "credential "+ev.Credential
-			if detail == "" {
-				detail = ev.Ref
-			}
-		default:
-			who = fmt.Sprintf("%s, uid %d", ev.Program, ev.UID)
-		}
-		if who == "" || ev.Unit == "" && ev.Program == "" {
-			who = fmt.Sprintf("process %d (uid %d)", ev.PID, ev.UID)
-		}
+		who, what, detail := svops.HostEventColumns(ev)
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", ev.Time.Local().Format("2006-01-02 15:04:05"), ev.Outcome, who, what, detail)
 	}
 	return tw.Flush()

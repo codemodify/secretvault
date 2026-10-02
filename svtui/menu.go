@@ -189,6 +189,12 @@ func (u *UI) menu() []menuEntry {
 		}},
 		{"Desktop", "Program helpers: git, docker, age", "", u.showHelpers},
 		{"Desktop", "Open this vault when I log in (on or off)…", "", u.toggleLogin},
+		{"Host", "Host daemon: its identity, policy and vaults (as root)", "H", u.showHost},
+		{"Host", "Make the host identity…", "", func() { u.hostInit(nil) }},
+		{"Host", "Allow a unit's credential…", "", func() { u.hostAllowUnit(nil) }},
+		{"Host", "Allow a local service…", "", func() { u.hostAllowService(nil) }},
+		{"Host", "Deny a local service's references…", "", func() { u.hostDenyRefs(nil) }},
+		{"Host", "What the host delivered and refused", "", u.showHostAudit},
 		{"Help", "Keys", "?", u.showHelp},
 		{"Help", "About secretvault: versions, the daemon's status", "", u.showStatus},
 	}

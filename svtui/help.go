@@ -73,6 +73,9 @@ var helpKeys = strings.TrimSpace(`
                          (a scanned QR code too), looking up, verifying,
                          removing; my QR code; checking a signer; keys seen
                          in mail; the directories; where contacts live
+  H                      the host daemon (as root): its identity, what it
+                         serves to units and local services, its vaults,
+                         its log
   G                      grants: what programs may do; allowing or denying
                          one ahead of time, revoking a decision
   A                      the audit log: who accessed what

@@ -69,6 +69,12 @@ type Options struct {
 	// program. Daemon is secretvaultd, for the keyring takeover's service
 	// files: the one beside this program when "".
 	CLI, Daemon string
+
+	// HostSocket is the host daemon's admin socket (svrpc.HostAdminSocket()
+	// when ""), and SystemdCreds runs systemd-creds to seal the host
+	// identity (the real one when nil): tests stand in.
+	HostSocket   string
+	SystemdCreds func(stdin []byte, args ...string) ([]byte, error)
 }
 
 // clipTTL is how long a copy stays on the clipboard.
@@ -129,9 +135,13 @@ type UI struct {
 	editor   *editor       // the open item editor
 	resume   map[string]tview.Primitive
 
-	panels    map[string]*panel // the panels up, by page
-	once      *onceView         // what is shown only once, while it is
-	emergency []string          // requests for emergency access, for the status line
+	panels map[string]*panel // the panels up, by page
+
+	hostMu        sync.Mutex
+	host          *secretvault.Client // the host daemon, once the host panel reached it
+	hostRecipient string              // its identity's recipient, as it last said
+	once          *onceView           // what is shown only once, while it is
+	emergency     []string            // requests for emergency access, for the status line
 
 	asking   *promptDialog // the daemon's question on the screen
 	promptID int
@@ -259,6 +269,7 @@ func (u *UI) Run() error {
 	err := u.app.Run()
 	u.shutdown()
 	u.client.Close()
+	u.closeHost()
 	return err
 }
 
@@ -477,6 +488,8 @@ func (u *UI) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.showKeyring()
 	case 'B':
 		u.showBrowsers()
+	case 'H':
+		u.showHost()
 	case 'S':
 		u.showSync()
 	case 'I':
