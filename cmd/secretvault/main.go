@@ -38,6 +38,7 @@
 //	audit                      show who accessed what
 //	keyring status|import|takeover|restore   be the desktop's keyring (Linux)
 //	browser install|uninstall|status|ls|rm   fill logins in browsers through KeePassXC-Browser
+//	helpers status|setup|undo  link git's, docker's and age's helpers, and set git and docker to use them
 //	read sv://VAULT/ITEM[#FIELD]            print one value ("-" is the default vault)
 //	run [--env-file F] -- CMD               run CMD with sv:// references in its environment resolved
 //	inject [-i IN] [-o OUT]                 fill {{ sv://... }} references in a template
@@ -151,6 +152,11 @@ type cli struct {
 	// (tests stand in, so nothing touches the system).
 	systemdCreds func(stdin []byte, args ...string) ([]byte, error)
 
+	// self is this program's own path, links resolved, which 'helpers'
+	// links other programs' names to (svops.Executable when nil; tests
+	// name a file of their own).
+	self func() (string, error)
+
 	vault  string
 	client *secretvault.Client
 }
@@ -227,6 +233,7 @@ func init() {
 		{"keyring", "be the desktop's keyring: status, import, takeover, restore", (*cli).cmdKeyring},
 		{"browser", "fill logins in browsers through KeePassXC-Browser: install, uninstall, status, ls, rm", (*cli).cmdBrowser},
 		{"browser-host", "the browsers' native-messaging host (run as secretvault-browser)", (*cli).cmdBrowserHost},
+		{"helpers", "the helpers git, docker and age start: status, setup, undo", (*cli).cmdHelpers},
 		{"read", "print one value: sv://VAULT/ITEM[#FIELD]", (*cli).cmdRead},
 		{"run", "run a command with sv:// references in its environment resolved", (*cli).cmdRun},
 		{"inject", "fill {{ sv://... }} references in a template", (*cli).cmdInject},
