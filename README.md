@@ -280,10 +280,18 @@ $ secretvault ci run --server https://secrets.example.com:8443 --role deploy --e
 $ curl -H "Authorization: Bearer $TOKEN" 'https://secrets.example.com:8443/v1/deliver/secret/prod/app/db?field=password&raw=true'
 ```
 
-For git and docker, link the CLI under their helper names:
-`ln -s secretvault bin/git-credential-secretvault`, then
-`git config --global credential.helper secretvault`; likewise
-`docker-credential-secretvault` with `"credsStore": "secretvault"`.
+For git, docker and age, the CLI sets up their helpers: it links itself
+beside itself as `git-credential-secretvault`,
+`docker-credential-secretvault` and `age-plugin-secretvault`, adds
+secretvault to git's `credential.helper`, and makes it docker's
+`credsStore` (the managers do the same from Desktop › Program helpers):
+
+```console
+$ bin/secretvault helpers setup --dry-run   # what would change
+$ bin/secretvault helpers setup
+$ bin/secretvault helpers status            # the links, git's helpers, docker's credsStore
+$ bin/secretvault helpers undo              # only what is secretvault's; docker's old store goes back
+```
 
 For browsers, secretvault stands in for KeePassXC behind KeePassXC's own
 extension, [KeePassXC-Browser](https://github.com/keepassxreboot/keepassxc-browser)
@@ -309,10 +317,11 @@ $ bin/secretvault browser uninstall           # put KeePassXC's manifest back, e
 - **KeePassXC** writes its own manifest back each time it starts with
   browser integration on: turn that off in KeePassXC first.
 
-For age and SOPS, link it as their plugin, somewhere on `PATH`:
+For age and SOPS, its plugin must be on `PATH` (`helpers setup` links it
+beside the CLI, as above):
 
 ```console
-$ ln -s secretvault bin/age-plugin-secretvault
+$ bin/secretvault helpers setup             # or: ln -s secretvault bin/age-plugin-secretvault
 $ bin/secretvault age keygen --name age/sops >> ~/.config/sops/age/keys.txt
 $ tail -2 ~/.config/sops/age/keys.txt
 # recipient: age1...
