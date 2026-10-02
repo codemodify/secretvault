@@ -3,11 +3,14 @@ package svtui
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+
+	"github.com/codemodify/secretvault/svops"
 )
 
 // A dialog that comes while another is up waits for it, and is never
@@ -97,5 +100,19 @@ func TestOnceViewsWaitTheirTurn(t *testing.T) {
 	h.closeOnce()
 	if !bytes.Equal(second, make([]byte, len(second))) {
 		t.Fatal("the second is still held")
+	}
+}
+
+// svops' errors that keep the CLI's words are said in the TUI's own.
+func TestTheCLIsWordsAreSaidInTheTUIsOwn(t *testing.T) {
+	for err, want := range map[error]string{
+		svops.ErrNoOwnKeys:                           "make an OpenPGP key in Keys",
+		fmt.Errorf("f: %w", svops.ErrNoGnuPGKey):     "in Keys (P, then n, version 4)",
+		fmt.Errorf("x (%w)", svops.ErrNoAgeIdentity): "make one in Keys (P, then k)",
+		fmt.Errorf("pgp/x already exists; pick another name with --item (%w)", svops.ErrKeyExists): "give another item name",
+	} {
+		if got := describeErr(err); !strings.Contains(got, want) || strings.Contains(got, "'secretvault ") || strings.Contains(got, "--item") {
+			t.Errorf("%v said %q", err, got)
+		}
 	}
 }

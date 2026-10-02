@@ -26,15 +26,6 @@ func (u *UI) newCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(u.ctx, callTimeout)
 }
 
-// ownWords puts svops' messages that name the CLI's flags in the TUI's
-// own words.
-func ownWords(s string) string {
-	return strings.NewReplacer(
-		"(--overwrite replaces it)", "(tick Replace to replace it)",
-		"use --force", "tick Replace",
-	).Replace(s)
-}
-
 // importFile is 'secretvault import FORMAT FILE'.
 func (u *UI) importFile() {
 	if !u.needVault() {
@@ -144,7 +135,8 @@ func (u *UI) storeImport(vault string, res *svimport.Result, prefix string, over
 	var rep *svops.ImportReport
 	u.call(func(_ context.Context, c *secretvault.Client) (err error) {
 		defer res.Wipe()
-		rep, err = svops.StoreImport(u.newCtx, c, res, svops.ImportOptions{Vault: vault, Prefix: prefix, Overwrite: overwrite, Describe: describeErr})
+		rep, err = svops.StoreImport(u.newCtx, c, res, svops.ImportOptions{Vault: vault, Prefix: prefix, Overwrite: overwrite, Describe: describeErr,
+			Skipped: func(name string) string { return name + ": already exists, skipped (tick Replace to replace it)" }})
 		return err
 	}, func(err error) {
 		var b strings.Builder
@@ -155,7 +147,7 @@ func (u *UI) storeImport(vault string, res *svimport.Result, prefix string, over
 			}
 			fmt.Fprintf(&b, "Imported %d items%s, skipped %d, with %d warnings.\n", rep.Imported, withFiles, rep.Skipped, len(rep.Warnings))
 			for _, w := range rep.Warnings {
-				b.WriteString("\n[yellow]warning:[-] " + tview.Escape(ownWords(w)))
+				b.WriteString("\n[yellow]warning:[-] " + tview.Escape(w))
 			}
 		}
 		if err != nil {

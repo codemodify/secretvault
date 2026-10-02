@@ -387,7 +387,7 @@ func (u *UI) browserInstall(then func()) {
 		todo := 0
 		for _, hp := range plan.Hosts {
 			if hp.Skip != "" {
-				fmt.Fprintf(&b, "  %s: nothing to do: %s\n", tview.Escape(hp.Label()), tview.Escape(hp.Skip))
+				fmt.Fprintf(&b, "  %s: nothing to do: %s\n", tview.Escape(hp.Label()), tview.Escape(ownWords(hp.Skip)))
 				continue
 			}
 			todo++

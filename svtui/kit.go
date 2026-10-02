@@ -137,6 +137,7 @@ func (f *formDialog) show(action string, ok func() string) {
 			return
 		}
 		if p := ok(); p != "" {
+			p = ownWords(p)
 			problem.SetText("[red]" + tview.Escape(sentence(p)) + "[-]")
 			frame.ResizeItem(problem, wrappedLines(p, f.width-4), 0)
 			return

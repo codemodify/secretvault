@@ -35,6 +35,7 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svotp"
 	"github.com/codemodify/secretvault/svrpc"
 )
@@ -633,10 +634,28 @@ func describeErr(err error) string {
 	case errors.Is(err, context.Canceled):
 		return "Canceled."
 	case errors.As(err, &e):
-		return sentence(e.Message)
+		return sentence(ownWords(e.Message))
 	}
-	return sentence(err.Error())
+	return sentence(ownWords(err.Error()))
 }
+
+// ownWords puts svops' messages that keep the CLI's words (its commands
+// and flags) in the TUI's own. They are svops' exported errors, which the
+// CLI's tests hold to their text.
+func ownWords(s string) string {
+	return wordsReplacer.Replace(s)
+}
+
+var wordsReplacer = strings.NewReplacer(
+	svops.ErrNoOwnKeys.Error(), "no keys to show: make an OpenPGP key in Keys (P, then n), or name key items or recipients",
+	svops.ErrNoDefaultVault.Error(), "there is no default vault: N makes one, and V makes one the default",
+	svops.ErrNoGnuPGKey.Error(), "the vault holds no OpenPGP key gpg can use: make one in Keys (P, then n, version 4), or import one",
+	svops.ErrNotOneSecretKey.Error(), "someone's public key goes to Contacts (C, then a)",
+	"pick another name with --item ("+svops.ErrKeyExists.Error()+")", "give another item name ("+svops.ErrKeyExists.Error()+")",
+	svops.ErrNoAgeIdentity.Error(), "make one in Keys (P, then k)",
+	svops.ErrUninstallFirst.Error(), "uninstall first (Browsers, then u)",
+	"(use --force to overwrite it, or -o)", "(tick Replace to write over it, or choose another name)",
+)
 
 // sentence capitalises s and ends it with a full stop.
 func sentence(s string) string {

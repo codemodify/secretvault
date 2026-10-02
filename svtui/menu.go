@@ -19,7 +19,7 @@ type menuEntry struct {
 }
 
 // menuGroups are the menus, in the desktop manager's order.
-var menuGroups = []string{"File", "Edit", "Vault", "Keys", "Sharing", "Contacts", "Tools", "Desktop", "Host", "Help"}
+var menuGroups = []string{"File", "Edit", "Vault", "Keys", "Contacts", "Tools", "Desktop", "Help"}
 
 // menu is every entry.
 func (u *UI) menu() []menuEntry {
@@ -135,26 +135,26 @@ func (u *UI) menu() []menuEntry {
 		{"Keys", "New identity file…", "", u.newIdentityFile},
 		{"Keys", "The recipient of an identity file…", "", u.identityFileRecipient},
 		{"Keys", "Security keys plugged in, and what each can do", "K", u.showSlots},
-		{"Sharing", "Sharing and emergency access: who opens this vault", "E", u.showSharing},
-		{"Sharing", "Share this vault with a person's identity…", "", func() {
+		{"Vault", "Sharing and emergency access: who opens this vault", "E", u.showSharing},
+		{"Vault", "Share this vault with a person's identity…", "", func() {
 			if u.needVault() {
 				u.shareWith(u.vault, nil)
 			}
 		}},
-		{"Sharing", "Cut someone off (rotates the key)…", "E", u.showSharing},
-		{"Sharing", "Grant emergency access…", "", func() {
+		{"Vault", "Cut someone off (rotates the key)…", "E", u.showSharing},
+		{"Vault", "Grant emergency access…", "", func() {
 			if u.needVault() {
 				u.grantEmergency(u.vault, nil)
 			}
 		}},
-		{"Sharing", "Emergency access given: deny a request, revoke a grant", "E", u.showSharing},
-		{"Sharing", "Sync: status, devices, now, stop", "S", u.showSync},
-		{"Sharing", "Sync this vault with a server…", "", func() {
+		{"Vault", "Emergency access given: deny a request, revoke a grant", "E", u.showSharing},
+		{"Vault", "Sync: status, devices, now, stop", "S", u.showSync},
+		{"Vault", "Sync this vault with a server…", "", func() {
 			if u.needVault() {
 				u.syncSetup(u.vault, nil)
 			}
 		}},
-		{"Sharing", "Invite a device to this synced vault…", "", func() {
+		{"Vault", "Invite a device to this synced vault…", "", func() {
 			if u.needVault() {
 				u.syncInvite(u.vault)
 			}
@@ -193,12 +193,12 @@ func (u *UI) menu() []menuEntry {
 		}},
 		{"Desktop", "Program helpers: git, docker, age", "", u.showHelpers},
 		{"Desktop", "Open this vault when I log in (on or off)…", "", u.toggleLogin},
-		{"Host", "Host daemon: its identity, policy and vaults (as root)", "H", u.showHost},
-		{"Host", "Make the host identity…", "", func() { u.hostInit(nil) }},
-		{"Host", "Allow a unit's credential…", "", func() { u.hostAllowUnit(nil) }},
-		{"Host", "Allow a local service…", "", func() { u.hostAllowService(nil) }},
-		{"Host", "Deny a local service's references…", "", func() { u.hostDenyRefs(nil) }},
-		{"Host", "What the host delivered and refused", "", u.showHostAudit},
+		{"Desktop", "Host daemon: its identity, policy and vaults (as root)", "H", u.showHost},
+		{"Desktop", "Make the host identity…", "", func() { u.hostInit(nil) }},
+		{"Desktop", "Allow a unit's credential…", "", func() { u.hostAllowUnit(nil) }},
+		{"Desktop", "Allow a local service…", "", func() { u.hostAllowService(nil) }},
+		{"Desktop", "Deny a local service's references…", "", func() { u.hostDenyRefs(nil) }},
+		{"Desktop", "What the host delivered and refused", "", u.showHostAudit},
 		{"Help", "Keys", "?", u.showHelp},
 		{"Help", "About secretvault: versions, the daemon's status", "", u.showStatus},
 	}
