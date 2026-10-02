@@ -198,20 +198,20 @@ place, or a state.
 
 | CLI | Operation | GUI | GUI state | TUI | TUI state |
 | --- | --- | --- | --- | --- | --- |
-| `secretvault contact list [QUERY]`, `secretvault contact ls [QUERY]` UNLOCK | `contact.list` | Contacts (a menu, and its page): the list, searchable | missing | `C` contacts panel, `/` filter | missing |
-| `secretvault contact show NAME` --json UNLOCK | `contact.get`; `svops.GroupFingerprint`, `svops.LevelText` | Contacts page: the contact, its keys, how each was verified | missing | `C` panel: Enter | missing |
-| `secretvault contact add FILE...` --name --email --notes --org UNLOCK | `contact.add` | Contacts › Add… (key files chosen) | missing | `C` panel: add | missing |
-| `secretvault contact import FILE\|URI` --to --name --fetch --keyserver UNLOCK | `svops.IsContactURI`, `contact.import` | Contacts › Import… (a file, or a scanned code pasted) | missing | `C` panel: import | missing |
-| `secretvault contact rm NAME`, `secretvault contact remove NAME` --fingerprint UNLOCK | `contact.remove` | Contacts page: Remove… (the contact, or one key) | missing | `C` panel: remove | missing |
-| `secretvault contact verify [NAME]` --fingerprint --in-person --qr --org --tofu --email --note UNLOCK | `contact.verify` | Contacts page: Verify… (the fingerprint compared, and how) | missing | `C` panel: verify | missing |
-| `secretvault contact lookup ADDRESS\|FPR` --wkd --keyserver --directory --add --name UNLOCK | `contact.lookup` | Contacts › Look up… | missing | `C` panel: look up | missing |
-| `secretvault contact qr` --key --recipient --name --email --uri --light UNLOCK | `svops.OwnCard`, `svtrust.Card.URI`, `svqr` | Contacts › Show my QR code… | missing | `C` panel: my QR code | missing |
-| `secretvault contact vault [VAULT\|-]` | `contact.vault` | Contacts › Keep contacts in… (a vault chosen) | missing | `C` panel: vault | missing |
-| `secretvault contact directory add NAME URL` --base --bind-dn --password --ca | `directory.add` | Contacts › Directories: Add… | missing | `C` panel › directories: add | missing |
-| `secretvault contact directory list`, `secretvault contact directory ls` | `directory.list` | Contacts › Directories | missing | `C` panel › directories | missing |
-| `secretvault contact directory rm NAME`, `secretvault contact directory remove NAME` | `directory.remove` | Contacts › Directories: Remove… | missing | `C` panel › directories: remove | missing |
-| `secretvault trust check` --fingerprint --key --cert --from --min-level --json UNLOCK | `trust.check` | Contacts › Check a signer… (a fingerprint or a key file, and the From address) | missing | `C` panel: check a signer | missing |
-| `secretvault trust seen` --key --from --at --source --name UNLOCK | `trust.seen` | Contacts › Record a key seen in mail… | missing | `C` panel: record a key seen | missing |
+| `secretvault contact list [QUERY]`, `secretvault contact ls [QUERY]` UNLOCK | `contact.list` | Contacts › Contacts (Ctrl+Shift+K), its page: the list (name, addresses, keys, how well verified), with a search | done | `C` contacts panel, `/` filter | missing |
+| `secretvault contact show NAME` --json UNLOCK | `contact.get`; `svops.GroupFingerprint`, `svops.LevelText` | Contacts page: the contact chosen, below the list: its keys and fingerprints, how each was verified, where each was seen, its warnings | done | `C` panel: Enter | missing |
+| `secretvault contact add FILE...` --name --email --notes --org UNLOCK | `contact.add` | Contacts › Add… (key files chosen, name, addresses, notes, organisation) | done | `C` panel: add | missing |
+| `secretvault contact import FILE\|URI` --to --name --fetch --keyserver UNLOCK | `svops.IsContactURI`, `contact.import` | Contacts › Import… (a file of keys, or the text of a scanned QR code, which verifies its keys; into a contact, a name, fetching from a keyserver) | done | `C` panel: import | missing |
+| `secretvault contact rm NAME`, `secretvault contact remove NAME` --fingerprint UNLOCK | `contact.remove` | Contacts page: Remove… (the contact, or one of its keys) | done | `C` panel: remove | missing |
+| `secretvault contact verify [NAME]` --fingerprint --in-person --qr --org --tofu --email --note UNLOCK | `contact.verify` | Contacts page: Verify… (the key; its fingerprint typed as it was compared, and checked against the key's; in person, their QR code, an organisation, or accepted as it is; addresses; a note) | done | `C` panel: verify | missing |
+| `secretvault contact lookup ADDRESS\|FPR` --wkd --keyserver --directory --add --name UNLOCK | `contact.lookup` | Contacts › Look up… (everywhere, WKD only, a keyserver, or one directory; keep what is found) | done | `C` panel: look up | missing |
+| `secretvault contact qr` --key --recipient --name --email --uri --light UNLOCK | `svops.OwnCard`, `svtrust.Card.URI`, `svqr` | Contacts › Show my QR code… (your OpenPGP keys, and a recipient or identity file; the name and addresses): the code, and its text | done | `C` panel: my QR code | missing |
+| `secretvault contact vault [VAULT\|-]` | `contact.vault` | Contacts › Keep contacts in… (says where they are now; a vault chosen, or the default) | done | `C` panel: vault | missing |
+| `secretvault contact directory add NAME URL` --base --bind-dn --password --ca | `directory.add` | Contacts › Directories: Add… (name, address, where people are, bind DN, its password as an sv:// reference, a CA file) | done | `C` panel › directories: add | missing |
+| `secretvault contact directory list`, `secretvault contact directory ls` | `directory.list` | Contacts › Directories | done | `C` panel › directories | missing |
+| `secretvault contact directory rm NAME`, `secretvault contact directory remove NAME` | `directory.remove` | Contacts › Directories: Remove… | done | `C` panel › directories: remove | missing |
+| `secretvault trust check` --fingerprint --key --cert --from --min-level --json UNLOCK | `trust.check` | Contacts › Check a signer… (a fingerprint or a key file, the From address, the weakest verification that counts): the verdict and its reasons | done | `C` panel: check a signer | missing |
+| `secretvault trust seen` --key --from --at --source --name UNLOCK | `trust.seen` | Contacts › Record a key seen in mail… (the key, the address, when, what it was, a name) | done | `C` panel: record a key seen | missing |
 
 ## Mail
 
