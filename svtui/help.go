@@ -37,6 +37,11 @@ var helpKeys = strings.TrimSpace(`
   l                      lock this vault         L    lock every vault
   U                      unlock the vault (asks for its passphrase)
   N                      a new vault
+  K                      keyslots: the ways the vault opens; adding a
+                         passphrase, recovery key (or shares), keyfile,
+                         recipient or security key; removing one; changing
+                         the passphrase; rotating the key; the security
+                         keys plugged in
   R                      the deleted items: bring one back
   I                      import another password manager's export
   X                      export to KeePass (KDBX) or CXF

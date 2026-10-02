@@ -53,9 +53,26 @@ func (u *UI) menu() []menuEntry {
 		{"Vault", "Forget this vault…", "", u.forgetVault},
 		{"Vault", "Open this vault when I log in (on or off)…", "", u.toggleLogin},
 		{"Vault", "Verify every file of this vault", "", u.verifyVault},
+		{"Vault", "Keyslots: the ways this vault opens; adding, removing one", "K", u.showSlots},
+		{"Vault", "Add a keyslot: passphrase, recovery key, keyfile, recipient, security key…", "", func() {
+			if u.needVault() {
+				u.addSlot(u.vault, nil)
+			}
+		}},
+		{"Vault", "Change the passphrase…", "", func() {
+			if u.needVault() {
+				u.changePassphrase(u.vault)
+			}
+		}},
+		{"Vault", "Rotate the vault key…", "", func() {
+			if u.needVault() {
+				u.rotateKey(u.vault, nil, nil)
+			}
+		}},
 		{"Vault", "Grants: what programs may do", "G", u.showGrants},
 		{"Vault", "Audit log", "A", u.showAudit},
 
+		{"Keys", "Security keys plugged in, and what each can do", "K", u.showSlots},
 		{"Help", "Keys", "?", u.showHelp},
 		{"Help", "About secretvault: versions, the daemon's status", "", u.showStatus},
 	}

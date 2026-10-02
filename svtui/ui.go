@@ -454,6 +454,8 @@ func (u *UI) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.showFiles()
 	case 'R':
 		u.showDeleted()
+	case 'K':
+		u.showSlots()
 	case 'I':
 		u.importFile()
 	case 'X':
