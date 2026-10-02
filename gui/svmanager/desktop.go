@@ -882,21 +882,41 @@ var helperUse = map[string]string{
 func (m *Manager) fillHelpers(p *desktopPage, pn *pane) {
 	cli := m.cliProgram()
 	var links []svops.HelperLink
+	var plan *svops.HelpersPlan
+	var planErr error
 	pn.gen++
 	gen := pn.gen
 	m.work(func() error {
 		links = svops.HelperLinks(cli)
+		if cli != "" {
+			plan, planErr = svops.PlanHelpers(cli)
+		}
 		return nil
 	}, func(error) {
 		if !m.up(p.tabbedPage) || gen != pn.gen {
 			return
 		}
 		col := widgets.NewColumn(m.paragraph("git, docker and age start secretvault under these names, as their credential helper and plugin; " +
-			"each read is asked about like any program's. The names are links to the secretvault program, beside it: the installer " +
-			"(scripts/install.sh) makes them, as it installs the CLI.")).WithGap(gap).WithPad(gap)
+			"each read is asked about like any program's. The names are links to the secretvault program, beside it. Set up… makes " +
+			"them (as the installer, scripts/install.sh, does), and makes secretvault git's credential helper and docker's credsStore; " +
+			"Undo… takes away only what is secretvault's.")).WithGap(gap).WithPad(gap)
 		if cli == "" {
 			col.Add(toned(m.describe(svops.ErrNoCLI), widgets.ToneWarning))
 		}
+		if planErr != nil {
+			col.Add(toned(m.describe(planErr), widgets.ToneWarning))
+		}
+		if plan != nil {
+			// What the plan sees, in the words the CLI's helpers status
+			// uses: git's credential helpers and docker's credsStore.
+			rows := plan.StatusRows()
+			col.Add(m.facts(rows[len(plan.Links):]))
+		}
+		setup := widgets.NewButton("Set up…", func() { m.helpersPlan(p, true) })
+		undo := widgets.NewButton("Undo…", func() { m.helpersPlan(p, false) })
+		setup.SetEnabled(plan != nil)
+		undo.SetEnabled(plan != nil && plan.Undoable())
+		col.Add(buttons(setup, undo))
 		for _, h := range links {
 			col.Add(section(m, h.Name))
 			link := "not made"
@@ -921,9 +941,58 @@ func (m *Manager) fillHelpers(p *desktopPage, pn *pane) {
 			}
 		}
 		refresh := widgets.NewButton("Refresh", pn.refresh)
-		pn.focus = refresh
+		pn.focus = setup
+		if plan == nil {
+			pn.focus = refresh
+		}
 		col.Add(buttons(refresh))
 		pn.box.Set(scrolled(col))
+	})
+}
+
+// helpersPlan sets the helpers up, or undoes that (the CLI's helpers
+// setup and undo): the plan svops makes, naming svops.CLIProgram(), shown
+// in the dry run's words, and carried out only when the person says so;
+// the pane is filled again after.
+func (m *Manager) helpersPlan(p *desktopPage, setup bool) {
+	cli := m.cliProgram()
+	if cli == "" {
+		m.fail(svops.ErrNoCLI)
+		return
+	}
+	var plan *svops.HelpersPlan
+	m.work(func() (err error) {
+		plan, err = svops.PlanHelpers(cli)
+		return err
+	}, func(err error) {
+		if err != nil {
+			m.fail(err)
+			return
+		}
+		title, intro, lines, action, do := "Set the helpers up", svops.HelpersSetupIntro(plan.CLI), plan.SetupLines(), "Set them up", plan.Apply
+		doneTitle, doneIntro := "Helpers set up", "Done as the plan said; what it left alone is as it was. Desktop › Program helpers › Undo… undoes it."
+		if !setup {
+			if !plan.Undoable() {
+				m.say("%s", svops.HelpersNothingToUndo)
+				m.refreshDesktop(p, tabHelpers)
+				return
+			}
+			title, intro, lines, action, do = "Undo the helpers", svops.HelpersUndoIntro, plan.UndoLines(), "Undo", plan.Undo
+			doneTitle, doneIntro = "Helpers undone", "What was secretvault's is taken away; the rest is as it was."
+		}
+		m.showPlan(title, intro, lines, action, func() {
+			var done []string
+			m.work(func() (err error) {
+				done, err = do()
+				return err
+			}, func(err error) {
+				if err != nil {
+					doneIntro = m.describe(err) + " What was done so far is below."
+				}
+				m.showText(doneTitle, doneIntro, strings.Join(done, "\n"))
+				m.refreshDesktop(p, tabHelpers)
+			})
+		}, nil)
 	})
 }
 

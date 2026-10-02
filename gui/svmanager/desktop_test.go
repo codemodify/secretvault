@@ -5,9 +5,11 @@ package svmanager
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -269,6 +271,133 @@ func TestProgramHelpersSayWhereTheirLinksAre(t *testing.T) {
 	h.pressOn("Show git's logins")
 	if h.m.showingVaultPage() {
 		t.Fatal("still on the desktop page")
+	}
+}
+
+// fakeGit stands in for git while the test runs, keeping
+// credential.helper in the slice it returns; every other command is
+// refused, as the harness's fake refuses it.
+func (h *harness) fakeGit() *[]string {
+	h.t.Helper()
+	var git []string
+	var mu sync.Mutex
+	run := svops.CommandRunner
+	h.t.Cleanup(func() { svops.CommandRunner = run })
+	svops.CommandRunner = func(name string, args ...string) ([]byte, error) {
+		if name != "git" {
+			return run(name, args...)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case slices.Contains(args, "--get-all"):
+			if len(git) == 0 {
+				return nil, errors.New("exit status 1")
+			}
+			return []byte(strings.Join(git, "\n") + "\n"), nil
+		case slices.Contains(args, "--add"):
+			git = append(git, args[len(args)-1])
+		case slices.Contains(args, "--unset-all"):
+			git = slices.DeleteFunc(git, func(s string) bool { return s == "secretvault" })
+		}
+		return nil, nil
+	}
+	return &git
+}
+
+func TestProgramHelpersAreSetUpOnAPlanAndUndone(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{})
+	h.unlock()
+	docker := filepath.Join(os.Getenv("DOCKER_CONFIG"), "config.json")
+	if !strings.Contains(docker, "svgui-env") {
+		t.Fatalf("docker's config is %q, not the test's", docker)
+	}
+	os.MkdirAll(filepath.Dir(docker), 0o700)
+	os.WriteFile(docker, []byte(`{"auths": {"r.example": {}}, "credsStore": "desktop"}`), 0o600)
+	t.Cleanup(func() {
+		os.RemoveAll(filepath.Dir(docker))
+		os.Remove(filepath.Join(os.Getenv("SECRETVAULT_HOME"), "helpers.json"))
+	})
+	git := h.fakeGit()
+
+	// With no CLI beside this program, nothing is offered.
+	h.m.cliProgram = func() string { return "" }
+	h.openDesktopPage(tabHelpers)
+	h.waitText("not installed beside this one")
+	if b := button(h.m.ui.main, "Set up…"); b == nil || b.Enabled() {
+		t.Fatal("Set up… was offered with no CLI to name")
+	}
+
+	cli := h.fakeCLI()
+	link := filepath.Join(filepath.Dir(cli), "git-credential-secretvault")
+	h.m.dpage.panes[tabHelpers].refresh()
+	h.waitText("credsStore is desktop")
+	h.waitText("secretvault is not among git's credential helpers")
+	if b := button(h.m.ui.main, "Undo…"); b == nil || b.Enabled() {
+		t.Fatal("Undo… was offered with nothing to undo")
+	}
+
+	// The plan, said no to: nothing changes.
+	h.pressOn("Set up…")
+	h.waitText("Setting the helpers up, as links to " + cli + ", would:")
+	for _, want := range []string{"- link " + link + " to secretvault", "- git config --global --add credential.helper secretvault",
+		`- set "credsStore": "secretvault" in ` + docker + `, in place of "desktop"`} {
+		if !strings.Contains(h.text(), want) {
+			t.Fatalf("the plan lacks %q:\n%s", want, h.text())
+		}
+	}
+	h.press("Cancel")
+	h.idle()
+	if _, err := os.Lstat(link); err == nil || len(*git) != 0 {
+		t.Fatal("a plan said no to was carried out")
+	}
+
+	// Said yes to: carried out, and the pane filled again.
+	h.pressOn("Set up…")
+	h.waitText("Setting the helpers up")
+	h.press("Set them up")
+	h.waitText("linked " + link)
+	h.press("Close")
+	h.idle()
+	if target, err := os.Readlink(link); err != nil || target != "secretvault" {
+		t.Fatalf("the git link leads to %q (%v)", target, err)
+	}
+	if !slices.Equal(*git, []string{"secretvault"}) {
+		t.Fatalf("git's helpers: %q", *git)
+	}
+	if b, _ := os.ReadFile(docker); !strings.Contains(string(b), `"credsStore": "secretvault"`) || !strings.Contains(string(b), "r.example") {
+		t.Fatalf("docker's config: %s", b)
+	}
+	h.waitText("credential.helper includes secretvault")
+	h.waitText("credsStore is secretvault (" + docker + ")")
+	h.waitText("Link: " + link)
+
+	// Undone, on a plan too: only what is secretvault's goes.
+	h.pressOn("Undo…")
+	h.waitText("Undoing the helpers would:")
+	if !strings.Contains(h.text(), "- remove the link "+link) || !strings.Contains(h.text(), `- put "credsStore": "desktop" back in `+docker) {
+		t.Fatalf("the undo plan:\n%s", h.text())
+	}
+	h.press("Undo")
+	h.waitText("removed " + link)
+	h.press("Close")
+	h.idle()
+	if _, err := os.Lstat(link); err == nil {
+		t.Fatal("the git link is still there")
+	}
+	if _, err := os.Stat(cli); err != nil {
+		t.Fatal("the CLI itself was removed")
+	}
+	if len(*git) != 0 {
+		t.Fatalf("git's helpers: %q", *git)
+	}
+	if b, _ := os.ReadFile(docker); !strings.Contains(string(b), `"credsStore": "desktop"`) {
+		t.Fatalf("docker's config: %s", b)
+	}
+	h.waitText("credsStore is desktop")
+	if b := button(h.m.ui.main, "Undo…"); b == nil || b.Enabled() {
+		t.Fatal("Undo… is offered with nothing left to undo")
 	}
 }
 

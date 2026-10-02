@@ -38,8 +38,9 @@ import (
 // windows are headless), no session bus, no keyring, no clipboard (a fake
 // takes the copies), no tray (uitoolkit's fake), no system command (svops's
 // CommandRunner is a fake that refuses), a home of their own (so no
-// ~/.gnupg, no browser profile, no ~/.local/share/secretvault), and a
-// daemon of their own on a temporary socket, with a temporary home.
+// ~/.gnupg, no browser profile, no ~/.local/share/secretvault, no
+// ~/.docker: DOCKER_CONFIG is theirs too), and a daemon of their own on a
+// temporary socket, with a temporary home.
 func TestMain(m *testing.M) {
 	for _, k := range []string{"DISPLAY", "WAYLAND_DISPLAY", "AT_SPI_BUS_ADDRESS", "DBUS_SYSTEM_BUS_ADDRESS",
 		"SECRETVAULT_SOCK", "SECRETVAULT_HOME", "SECRETVAULT_VAULT", "SECRETVAULT_HOST", "GNUPGHOME",
@@ -60,6 +61,7 @@ func TestMain(m *testing.M) {
 	os.Setenv("XDG_CACHE_HOME", filepath.Join(dir, "cache"))
 	os.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
 	os.Setenv("HOME", filepath.Join(dir, "home"))
+	os.Setenv("DOCKER_CONFIG", filepath.Join(dir, "docker"))
 	os.Setenv("SECRETVAULT_HOME", filepath.Join(dir, "secretvault"))
 	os.MkdirAll(filepath.Join(dir, "secretvault"), 0o700)
 	os.Setenv("SECRETVAULT_SOCK", filepath.Join(dir, "nowhere.sock"))
