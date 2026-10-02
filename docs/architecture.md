@@ -1033,6 +1033,7 @@ projects, with `sv` as the prefix:
 | `svcsi` | the Secrets Store CSI driver provider | M8 |
 | `svage` | age files and the age plugin protocol | M8 |
 | `gui/` (a module of its own), `svtui` | the desktop programs (`gui/svmanager` is the manager), with `gui/secretui` for what they share when asking about secrets; the terminal manager | M1–M2 |
+| `svops` | what the CLI and the managers do in their own process, shared so that they stay interchangeable ([interfaces.md](interfaces.md)) | M2 |
 
 **Dependencies:**
 - **Allowed:**

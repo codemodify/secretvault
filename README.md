@@ -80,6 +80,7 @@ decision. If there is none, it asks you.
 | [`svimport`](svimport) | Import from other password managers, export to KeePass and CXF |
 | [`svluks`](svluks) | LUKS2, our own: headers, keyslots, and the encrypted sectors in userspace |
 | [`svcontainer`](svcontainer), [`svudisks`](svudisks) | Encrypted containers, and mounting them through UDisks2 on Linux |
+| [`svops`](svops) | What the CLI and the managers do in their own process (files, keys made before they are stored, desktop setup planned and applied), shared so that they stay interchangeable |
 | [`secretvault`](client.go) | The Go client library |
 
 A vault is a folder of files that are only ever added, never rewritten, so
@@ -436,6 +437,7 @@ where it stops. In short:
 | --- | --- |
 | [docs/architecture.md](docs/architecture.md) | The design: processes, the consent broker, vaults, sync, every face |
 | [docs/clients.md](docs/clients.md) | Using secretvault from a program: Go and the raw protocol |
+| [docs/interfaces.md](docs/interfaces.md) | Every command, the operation behind it, and where it lives in the terminal and desktop managers |
 | [docs/delivery.md](docs/delivery.md) | The secret-delivery server: setup, unsealing, the API, auth, policies; GitHub Actions, GitLab CI, Kubernetes and External Secrets Operator |
 | [docs/format.md](docs/format.md) | The v1 vault format, byte by byte |
 | [docs/security.md](docs/security.md) | The threat model and known gaps |
