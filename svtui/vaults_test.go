@@ -28,7 +28,7 @@ func (h *harness) menu(find string) {
 // daemon asks whether this terminal may use a vault.
 func (h *harness) waitAnswering(want string) {
 	h.t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(waitTime)
 	for s := h.text(); !strings.Contains(s, want); s = h.text() {
 		if strings.Contains(s, "has not used vault") {
 			h.typeText(pass)
@@ -45,7 +45,7 @@ func (h *harness) waitAnswering(want string) {
 // eventually waits for cond, checked on the manager's goroutine.
 func (h *harness) eventually(what string, cond func() bool) {
 	h.t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(waitTime)
 	for time.Now().Before(deadline) {
 		ok := false
 		h.do(func() { ok = cond() })

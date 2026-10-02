@@ -98,10 +98,14 @@ func (p *panel) clear() {
 	}
 }
 
+// labelWidth bounds headings and "none" rows, which share the first
+// column with the rows: say more in the panel's head.
+const labelWidth = 30
+
 // heading adds a row that names the rows below it.
 func (p *panel) heading(text string) {
 	row := p.t.GetRowCount()
-	p.t.SetCell(row, 0, tview.NewTableCell("[::b]"+tview.Escape(text)).SetTextColor(tview.Styles.TertiaryTextColor).SetSelectable(false))
+	p.t.SetCell(row, 0, tview.NewTableCell("[::b]"+tview.Escape(text)).SetTextColor(tview.Styles.TertiaryTextColor).SetSelectable(false).SetMaxWidth(labelWidth))
 	for i := 1; i < p.cols; i++ {
 		p.t.SetCell(row, i, tview.NewTableCell("").SetSelectable(false))
 	}
@@ -110,7 +114,7 @@ func (p *panel) heading(text string) {
 // none adds a row that says there is nothing.
 func (p *panel) none(text string) {
 	row := p.t.GetRowCount()
-	p.t.SetCell(row, 0, tview.NewTableCell(tview.Escape(text)).SetTextColor(tcell.ColorGray).SetSelectable(false))
+	p.t.SetCell(row, 0, tview.NewTableCell(tview.Escape(text)).SetTextColor(tcell.ColorGray).SetSelectable(false).SetMaxWidth(labelWidth))
 	for i := 1; i < p.cols; i++ {
 		p.t.SetCell(row, i, tview.NewTableCell("").SetSelectable(false))
 	}
@@ -164,6 +168,16 @@ func (p *panel) done() {
 			return
 		}
 	}
+}
+
+// selectable reports whether any row can be selected.
+func (p *panel) selectable() bool {
+	for r := 1; r < p.t.GetRowCount(); r++ {
+		if !p.t.GetCell(r, 0).NotSelectable {
+			return true
+		}
+	}
+	return false
 }
 
 // selected is the selected row's reference, or nil.
@@ -233,6 +247,9 @@ func (p *panel) keys(ev *tcell.EventKey) *tcell.EventKey {
 	case ev.Key() == tcell.KeyDelete:
 		ev = tcell.NewEventKey(tcell.KeyRune, 'x', tcell.ModNone)
 	case ev.Key() != tcell.KeyRune:
+		if !p.selectable() {
+			return nil // tview's table looks for a row to move to forever
+		}
 		return ev
 	}
 	for _, a := range p.acts {

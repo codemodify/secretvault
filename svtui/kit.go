@@ -165,7 +165,7 @@ func (f *formDialog) show(action string, ok func() string) {
 	frame.AddItem(f.form, h, 0, true)
 	frame.SetBorder(true).SetBorderPadding(0, 0, 1, 1).SetTitle(" " + tview.Escape(f.title) + " ")
 	height := 2 + f.introH + h + 3 // the problem's room
-	u.openPage(pageDialog, centred(frame, f.width, height), f.form)
+	u.openPage(pageDialog, centred(frame, f.width, u.fit(height)), f.form)
 }
 
 // cancel takes the dialog down without doing anything.
@@ -312,8 +312,7 @@ func (u *UI) showPlan(title, body, action string, do func(), cancelled ...func()
 		}
 		return ev
 	})
-	height := min(wrappedLines(body, 70)+4, 30)
-	u.openPage(pageDialog, centred(frame, 78, height), view)
+	u.openPage(pageDialog, centred(frame, 78, u.fit(wrappedLines(body, 70)+4)), view)
 }
 
 // choose asks which of options; done gets its index.
@@ -346,6 +345,15 @@ var colourTag = regexp.MustCompile(`\[[a-zA-Z0-9_,;:#.\-]*\]`)
 
 // stripTags is text without its colour tags, to measure it.
 func stripTags(text string) string { return colourTag.ReplaceAllString(text, "") }
+
+// fit is a dialog's height, no taller than the screen.
+func (u *UI) fit(height int) int {
+	_, _, _, h := u.pages.GetRect()
+	if h <= 2 {
+		return height
+	}
+	return min(height, h-2)
+}
 
 // needVault says so when there is no vault to act on.
 func (u *UI) needVault() bool {

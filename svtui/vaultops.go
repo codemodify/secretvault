@@ -188,7 +188,7 @@ func (u *UI) showVaults() {
 			u.drawVaults()
 			p.clear()
 			if len(vs) == 0 {
-				p.none("There are no vaults yet: n makes one.")
+				p.none("None yet (n makes one).")
 			}
 			for _, v := range vs {
 				name := v.Name

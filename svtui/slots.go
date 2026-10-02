@@ -26,6 +26,7 @@ func (u *UI) showSlots() {
 	vault := u.vault
 	p := u.newPanel("Keyslots · "+vault, "ID", "TYPE", "LABEL", "CREATED", "DETAIL")
 	p.vault = vault
+	p.setHead("Each keyslot opens the vault on its own. Removing one does not cut off whoever already opened the vault with it: rotate the key for that.")
 	p.reload = func() {
 		var slots []svrpc.SlotInfo
 		var keys []svrpc.FIDO2Device
@@ -43,7 +44,7 @@ func (u *UI) showSlots() {
 				return
 			}
 			p.clear()
-			p.heading("The ways " + vault + " opens")
+			p.heading("Keyslots")
 			for _, s := range slots {
 				detail := s.Detail
 				if s.Recipient != "" {
@@ -54,9 +55,9 @@ func (u *UI) showSlots() {
 			p.heading("Security keys plugged in")
 			switch {
 			case keysErr != nil:
-				p.none(u.describe(keysErr))
+				p.setHead("Security keys: [red]" + tview.Escape(u.describe(keysErr)) + "[-]")
 			case len(keys) == 0:
-				p.none("No security key is plugged in.")
+				p.none("None.")
 			}
 			for _, k := range keys {
 				what := "cannot hold a keyslot"
@@ -352,6 +353,9 @@ func (u *UI) rotateKey(vault string, drop []string, then func()) {
 					then()
 				}
 				lines := []onceLine{{text: fmt.Sprintf("The vault key was rotated (epoch %d). It opens with:", res.Epoch)}}
+				if len(drop) > 0 {
+					lines[0].text = fmt.Sprintf("The vault key was rotated (epoch %d), and %s cut off: what is written from now on is out of their reach. It opens with:", res.Epoch, strings.Join(drop, ", "))
+				}
 				for _, s := range res.Slots {
 					label := s.Label
 					if label == "" {

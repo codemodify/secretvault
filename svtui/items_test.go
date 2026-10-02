@@ -123,7 +123,7 @@ func TestAConflictIsSettledByKeepingOneVersion(t *testing.T) {
 	if err != nil || field(e, "password") != want || len(e.Conflicts) != 0 {
 		t.Fatalf("after keeping %q: %q, conflicts %v, %v", want, field(e, "password"), e.Conflicts, err)
 	}
-	h.waitFor("no conflict")
+	h.waitFor("No conflict")
 }
 
 func TestDeletedItemsComeBack(t *testing.T) {
@@ -142,7 +142,7 @@ func TestDeletedItemsComeBack(t *testing.T) {
 	h.waitFor("Bring mail/fastmail back")
 	h.typeText("y")
 	h.waitFor("Restored mail/fastmail")
-	h.waitFor("Nothing has been deleted")
+	h.waitFor("Nothing deleted")
 	if e, err := h.get("mail/fastmail"); err != nil || field(e, "password") != "fastmail-secret" {
 		t.Fatalf("after restoring: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestAnItemsFilesAreAttachedSavedAndRemoved(t *testing.T) {
 	h.open("web/github.com")
 	h.typeText("f")
 	h.waitFor("Files of web/github.com")
-	h.waitFor("has no files")
+	h.waitFor("No files")
 	h.typeText("a")
 	h.waitFor("Attach a file to web/github.com")
 	h.typeText(scan)
@@ -195,7 +195,7 @@ func TestAnItemsFilesAreAttachedSavedAndRemoved(t *testing.T) {
 	h.typeText("x")
 	h.waitFor("Remove passport.pdf from web/github.com?")
 	h.typeText("y")
-	h.waitFor("has no files")
+	h.waitFor("No files")
 	if e, _ := h.get("web/github.com"); len(e.Item.Files) != 0 {
 		t.Fatalf("still attached: %+v", e.Item.Files)
 	}

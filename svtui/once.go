@@ -1,6 +1,8 @@
 package svtui
 
 import (
+	"strings"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
@@ -28,8 +30,24 @@ type onceView struct {
 	selected int // the selected secret line, -1 for none
 }
 
+// onceWidth is the room a once view's text has.
+const onceWidth = 84 - 2 - 4
+
 func newOnceView(lines []onceLine, qr *svqr.Code) *onceView {
-	v := &onceView{Box: tview.NewBox(), lines: lines, qr: qr, selected: -1}
+	v := &onceView{Box: tview.NewBox(), qr: qr, selected: -1}
+	for _, l := range lines {
+		if l.secret != nil || l.text == "" {
+			v.lines = append(v.lines, l)
+			continue
+		}
+		indent := l.text[:len(l.text)-len(strings.TrimLeft(l.text, " "))]
+		for i, w := range tview.WordWrap(l.text, onceWidth) {
+			if i > 0 {
+				w = indent + "  " + strings.TrimLeft(w, " ")
+			}
+			v.lines = append(v.lines, onceLine{text: w})
+		}
+	}
 	v.move(1)
 	return v
 }
@@ -187,7 +205,7 @@ func (u *UI) showOnce(title string, lines []onceLine, qr *svqr.Code) {
 	})
 	u.wipeOnce()
 	u.once = v
-	u.openPage(pageOnce, centred(v, 84, min(v.height()+4, 40)), v)
+	u.openPage(pageOnce, centred(v, 84, u.fit(v.height()+4)), v)
 }
 
 // wipeOnce takes down what is shown once, wiping it.

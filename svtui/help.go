@@ -48,7 +48,18 @@ var helpKeys = strings.TrimSpace(`
   V                      the vaults: paths, when each locks, the default,
                          forgetting one, opening at login, verifying,
                          unlocking with a keyfile, recovery key or security key
-  G                      grants: what programs may do, and revoking them
+  E                      sharing: who the vault is shared with, cutting
+                         someone off; emergency access given (granting,
+                         denying, revoking) and held (accepting an invite,
+                         asking, opening)
+  S                      sync: every synced vault, this one's devices;
+                         setting up, inviting a device, syncing now,
+                         removing a device, stopping; joining a vault
+  D                      devices: who signs what is written; naming,
+                         vouching for and removing one; whether only
+                         signed revisions count
+  G                      grants: what programs may do; allowing or denying
+                         one ahead of time, revoking a decision
   A                      the audit log: who accessed what
 
   ?                      this help               q    quit

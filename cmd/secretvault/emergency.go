@@ -248,22 +248,12 @@ func identityFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
-func when(t *time.Time) string {
-	if t == nil {
-		return "-"
-	}
-	return t.Local().Format("2006-01-02 15:04")
-}
+func when(t *time.Time) string { return svops.When(t) }
 
 // shortID is the start of an ID, for people to type.
 func shortID(id string, n int) string { return id[:min(len(id), n)] }
 
-func trusteeName(g svrpc.EmergencyGrant) string {
-	if g.Trustee != "" {
-		return g.Trustee
-	}
-	return "the trustee"
-}
+func trusteeName(g svrpc.EmergencyGrant) string { return svops.TrusteeName(g) }
 
 // printEmergency lists the grants of a vault and the access held here.
 func (c *cli) printEmergency(l svrpc.EmergencyList) error {
@@ -300,26 +290,7 @@ func (c *cli) printEmergency(l svrpc.EmergencyList) error {
 	return tw.Flush()
 }
 
-func grantState(g svrpc.EmergencyGrant) string {
-	switch g.State {
-	case svrpc.GrantInvited:
-		return "not accepted yet"
-	case svrpc.GrantAccepted:
-		s := "accepted"
-		if g.Device != "" {
-			s += " on " + g.Device
-		}
-		if g.Denied != nil {
-			s += "; last request denied " + when(g.Denied)
-		}
-		return s
-	case svrpc.GrantRequested:
-		return "REQUESTED " + when(g.Requested) + "; released " + when(g.ReleasesAt) + " unless denied"
-	case svrpc.GrantReleased:
-		return "RELEASED " + when(g.Released)
-	}
-	return "unknown to the server"
-}
+func grantState(g svrpc.EmergencyGrant) string { return svops.GrantState(g) }
 
 func accessState(a svrpc.EmergencyAccess) string {
 	switch a.State {

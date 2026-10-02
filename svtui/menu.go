@@ -28,6 +28,14 @@ func (u *UI) menu() []menuEntry {
 		{"File", "Add a vault folder…", "", u.addVault},
 		{"File", "Import another password manager's export…", "I", u.importFile},
 		{"File", "Export to KeePass (KDBX) or CXF…", "X", u.exportFile},
+		{"File", "Join a synced vault…", "", u.syncJoin},
+		{"File", "Emergency access: accept an invite…", "", func() { u.acceptEmergency(nil) }},
+		{"File", "Emergency access: ask for a vault you hold access to…", "", func() {
+			u.ask("Ask for emergency access", "Its name here:", "", func(name string) { u.requestEmergency(name, nil) })
+		}},
+		{"File", "Emergency access: open a vault after the wait…", "", func() {
+			u.ask("Open with emergency access", "Its name here:", "", func(name string) { u.openEmergency(name, nil) })
+		}},
 		{"File", "Quit", "q", u.quit},
 
 		{"Edit", "New item…", "n", func() { u.newItem(nil) }},
@@ -69,10 +77,50 @@ func (u *UI) menu() []menuEntry {
 				u.rotateKey(u.vault, nil, nil)
 			}
 		}},
+		{"Vault", "Devices: who signs what is written; naming, vouching, removing", "D", u.showDevices},
+		{"Vault", "Count only signed revisions (on or off)…", "", func() {
+			if u.needVault() {
+				u.showDevices()
+			}
+		}},
 		{"Vault", "Grants: what programs may do", "G", u.showGrants},
+		{"Vault", "Allow a program ahead of time…", "", func() {
+			if u.needVault() {
+				u.decideProgram(u.vault, true, nil)
+			}
+		}},
+		{"Vault", "Deny a program ahead of time…", "", func() {
+			if u.needVault() {
+				u.decideProgram(u.vault, false, nil)
+			}
+		}},
 		{"Vault", "Audit log", "A", u.showAudit},
 
 		{"Keys", "Security keys plugged in, and what each can do", "K", u.showSlots},
+		{"Sharing", "Sharing and emergency access: who opens this vault", "E", u.showSharing},
+		{"Sharing", "Share this vault with a person's identity…", "", func() {
+			if u.needVault() {
+				u.shareWith(u.vault, nil)
+			}
+		}},
+		{"Sharing", "Cut someone off (rotates the key)…", "E", u.showSharing},
+		{"Sharing", "Grant emergency access…", "", func() {
+			if u.needVault() {
+				u.grantEmergency(u.vault, nil)
+			}
+		}},
+		{"Sharing", "Emergency access given: deny a request, revoke a grant", "E", u.showSharing},
+		{"Sharing", "Sync: status, devices, now, stop", "S", u.showSync},
+		{"Sharing", "Sync this vault with a server…", "", func() {
+			if u.needVault() {
+				u.syncSetup(u.vault, nil)
+			}
+		}},
+		{"Sharing", "Invite a device to this synced vault…", "", func() {
+			if u.needVault() {
+				u.syncInvite(u.vault)
+			}
+		}},
 		{"Help", "Keys", "?", u.showHelp},
 		{"Help", "About secretvault: versions, the daemon's status", "", u.showStatus},
 	}

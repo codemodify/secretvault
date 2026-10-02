@@ -133,89 +133,63 @@ func (u *UI) showRevision(name string, e *svrpc.Entry) {
 }
 
 // showGrants lists the programs with a remembered decision about the
-// shown vault; x (or Delete) revokes the one selected.
+// shown vault ('secretvault grant ls'): a allows a program and n denies
+// one ahead of time ('grant allow', 'grant deny'); x (or Delete) revokes
+// the one selected ('grant revoke').
 func (u *UI) showGrants() {
 	vault := u.vault
 	if vault == "" {
 		return
 	}
-	var grants []svrpc.Grant
-	u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
-		grants, err = c.Grants(ctx, vault)
-		return err
-	}, func(err error) {
-		if err != nil {
-			u.fail(err)
-			return
-		}
-		t := table(" Grants · "+tview.Escape(vault)+" — x revokes · Esc closes ", "DECISION", "PROGRAM", "ITEM", "MAY", "SINCE")
-		fillGrants(t, grants)
-		revoke := func() {
-			row, _ := t.GetSelection()
-			g, ok := t.GetCell(row, 0).GetReference().(svrpc.Grant)
-			if !ok {
+	p := u.newPanel("Grants · "+vault, "DECISION", "PROGRAM", "ITEM", "MAY", "SINCE")
+	p.vault = vault
+	p.reload = func() {
+		var grants []svrpc.Grant
+		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
+			grants, err = c.Grants(ctx, vault)
+			return err
+		}, func(err error) {
+			if err != nil {
+				u.fail(err)
+				p.close()
 				return
 			}
-			u.confirm("Revoke?", fmt.Sprintf("Forget that %s is %s?\n\nIt will be asked about again.", g.Program, g.Decision), "Revoke", func() {
-				var left []svrpc.Grant
-				u.call(func(ctx context.Context, c *secretvault.Client) error {
-					if err := c.Revoke(ctx, vault, g.ID); err != nil {
-						return err
-					}
-					var err error
-					left, err = c.Grants(ctx, vault)
-					return err
-				}, func(err error) {
-					if err != nil {
-						u.fail(err)
-						return
-					}
-					u.say("Revoked the decision about %s", g.Program)
-					fillGrants(t, left)
-				})
-			})
-		}
-		t.SetSelectedFunc(func(int, int) { revoke() })
-		t.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
-			switch {
-			case ev.Key() == tcell.KeyEscape || ev.Rune() == 'q':
-				u.closePage(pagePanel)
-			case ev.Key() == tcell.KeyDelete || ev.Rune() == 'x':
-				revoke()
-			default:
-				return ev
+			p.clear()
+			if len(grants) == 0 {
+				p.none("No decisions remembered.")
 			}
-			return nil
+			for _, g := range grants {
+				item := g.Item
+				if item == "" {
+					item = "(the whole vault)"
+				}
+				colour := "green"
+				if strings.HasPrefix(g.Decision, "deny") {
+					colour = "red"
+				}
+				p.row(g, tagged("["+colour+"]"+tview.Escape(g.Decision)+"[-]"), g.Program, item, strings.Join(g.Ops, ","), g.Created.Local().Format("2006-01-02 15:04"))
+			}
+			p.done()
 		})
-		u.openPage(pagePanel, t, t)
+	}
+	p.rowAct('x', "Revoke it…", is[svrpc.Grant], func(ref any) {
+		g := ref.(svrpc.Grant)
+		u.confirm("Revoke?", fmt.Sprintf("Forget that %s is %s?\n\nIt will be asked about again.", g.Program, g.Decision), "Revoke", func() {
+			u.call(func(ctx context.Context, c *secretvault.Client) error {
+				return c.Revoke(ctx, vault, g.ID)
+			}, func(err error) {
+				if err != nil {
+					u.fail(err)
+					return
+				}
+				u.say("Revoked the decision about %s", g.Program)
+				p.refresh()
+			})
+		})
 	})
-}
-
-func fillGrants(t *tview.Table, grants []svrpc.Grant) {
-	for t.GetRowCount() > 1 {
-		t.RemoveRow(t.GetRowCount() - 1)
-	}
-	if len(grants) == 0 {
-		t.SetCell(1, 0, tview.NewTableCell("No program has a remembered decision about this vault.").SetTextColor(tcell.ColorGray))
-		return
-	}
-	for i, g := range grants {
-		item := g.Item
-		if item == "" {
-			item = "(the whole vault)"
-		}
-		colour := tcell.ColorGreen
-		if strings.HasPrefix(g.Decision, "deny") {
-			colour = tcell.ColorRed
-		}
-		row := i + 1
-		t.SetCell(row, 0, tview.NewTableCell(g.Decision).SetTextColor(colour).SetReference(g))
-		t.SetCell(row, 1, tview.NewTableCell(tview.Escape(g.Program)).SetMaxWidth(48))
-		t.SetCell(row, 2, tview.NewTableCell(tview.Escape(item)))
-		t.SetCell(row, 3, tview.NewTableCell(strings.Join(g.Ops, ",")))
-		t.SetCell(row, 4, tview.NewTableCell(g.Created.Local().Format("2006-01-02 15:04")))
-	}
-	t.Select(1, 0)
+	p.act('a', "Allow a program…", func() { u.decideProgram(vault, true, p.refresh) })
+	p.act('n', "Deny a program…", func() { u.decideProgram(vault, false, p.refresh) })
+	p.show()
 }
 
 // showAudit shows the newest entries of the shown vault's audit log.

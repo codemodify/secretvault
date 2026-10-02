@@ -199,7 +199,7 @@ func (u *UI) showResolve() {
 			p.clear()
 			if len(con.Current.Conflicts) == 0 {
 				p.setHead("")
-				p.none(name + " has no conflict.")
+				p.none("No conflict.")
 				p.done()
 				return
 			}
@@ -261,7 +261,7 @@ func (u *UI) showDeleted() {
 			}
 			p.clear()
 			if len(del) == 0 {
-				p.none("Nothing has been deleted.")
+				p.none("Nothing deleted.")
 			}
 			for _, d := range del {
 				p.row(d, d.Name, d.Kind, d.Deleted.Local().Format("2006-01-02 15:04"))
@@ -305,7 +305,7 @@ func (u *UI) showFiles() {
 			}
 			p.clear()
 			if len(e.Item.Files) == 0 {
-				p.none(name + " has no files: a attaches one.")
+				p.none("No files (a attaches one).")
 			}
 			for _, f := range e.Item.Files {
 				sum := f.SHA256

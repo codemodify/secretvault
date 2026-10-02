@@ -456,6 +456,12 @@ func (u *UI) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.showDeleted()
 	case 'K':
 		u.showSlots()
+	case 'E':
+		u.showSharing()
+	case 'D':
+		u.showDevices()
+	case 'S':
+		u.showSync()
 	case 'I':
 		u.importFile()
 	case 'X':

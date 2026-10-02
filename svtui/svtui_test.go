@@ -29,6 +29,10 @@ import (
 
 var pass = "correct horse battery staple"
 
+// waitTime is how long a test waits for the screen to change: long, for
+// the race detector's sake.
+const waitTime = 30 * time.Second
+
 const totpURI = "otpauth://totp/Example:ada?secret=JBSWY3DPEHPK3PXP&issuer=Example"
 
 // nobody is the desktop in these tests: there is nobody there to ask, so
@@ -341,7 +345,7 @@ func (h *harness) text() string {
 
 func (h *harness) waitFor(want string) {
 	h.t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(waitTime)
 	for time.Now().Before(deadline) {
 		if strings.Contains(h.text(), want) {
 			return
@@ -353,7 +357,7 @@ func (h *harness) waitFor(want string) {
 
 func (h *harness) waitGone(gone string) {
 	h.t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(waitTime)
 	for time.Now().Before(deadline) {
 		if !strings.Contains(h.text(), gone) {
 			return
@@ -563,7 +567,7 @@ func TestAnotherVaultIsOneEnterAway(t *testing.T) {
 	// CLI proved it from the same terminal session (as when these tests
 	// run in one): then the daemon asks nothing. Run with no terminal, the
 	// program is what is asked about.
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(waitTime)
 	for s := h.text(); !strings.Contains(s, "work/vpn"); s = h.text() {
 		if strings.Contains(s, "has not used vault") {
 			h.typeText(pass)
@@ -737,7 +741,7 @@ func TestNewAndEditedItemsRoundTripThroughTheDaemon(t *testing.T) {
 	h.waitFor("Grace's")
 	h.typeText("h")
 	h.waitFor("History of web/new.example")
-	h.waitFor("current")
+	h.waitFor("(this device)") // the revisions are listed
 	h.key(tcell.KeyDown)
 	h.key(tcell.KeyEnter)
 	h.waitFor("(read-only)")
