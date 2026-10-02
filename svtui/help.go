@@ -58,6 +58,9 @@ var helpKeys = strings.TrimSpace(`
   D                      devices: who signs what is written; naming,
                          vouching for and removing one; whether only
                          signed revisions count
+  M                      containers: encrypted disk images whose keys the
+                         vault keeps; making, opening, closing one, backing
+                         its header up, its own passphrase
   P                      keys: your OpenPGP keys (new, import, export, copy
                          the public key), S/MIME keys, age identities,
                          identity files

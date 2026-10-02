@@ -83,6 +83,18 @@ func (u *UI) menu() []menuEntry {
 				u.showDevices()
 			}
 		}},
+		{"Vault", "Containers: encrypted disk images; open, close, back up, passphrase", "M", u.showContainers},
+		{"Vault", "New encrypted container…", "", func() {
+			if u.needVault() {
+				u.newContainer(u.vault, nil)
+			}
+		}},
+		{"Vault", "Open an encrypted container…", "", func() {
+			if u.needVault() {
+				u.openContainer(u.vault, "", "", nil)
+			}
+		}},
+		{"Vault", "Close an encrypted container…", "", func() { u.closeContainerAsk(nil) }},
 		{"Vault", "Grants: what programs may do", "G", u.showGrants},
 		{"Vault", "Allow a program ahead of time…", "", func() {
 			if u.needVault() {
