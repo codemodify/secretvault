@@ -72,8 +72,8 @@ var slotKinds = []struct{ typ, text string }{
 	{svformat.SlotFIDO2, "The security key plugged in"},
 }
 
-// addSlot adds a keyslot (the CLI's slot add): the kind first, then
-// what that kind takes.
+// addSlot adds a keyslot (the CLI's slot add): the kind at the head, and
+// under it what that kind takes, and nothing else.
 func (m *Manager) addSlot(p *vaultPage) {
 	f := m.newForm("Add a keyslot to " + p.vault)
 	kinds := make([]string, len(slotKinds))
@@ -83,44 +83,45 @@ func (m *Manager) addSlot(p *vaultPage) {
 	kind := widgets.NewRadioGroup(kinds, 0, nil)
 	kind.SetAccessibleName("Kind")
 	f.row("Kind", kind)
-	f.show("Next", func() {
-		typ := slotKinds[max(0, kind.Selected())].typ
-		f.close()
-		m.addSlotOf(p, typ)
-	})
-}
-
-// addSlotOf asks for what a keyslot of kind typ takes, and adds it.
-func (m *Manager) addSlotOf(p *vaultPage, typ string) {
-	f := m.newForm("Add a keyslot to " + p.vault)
 	label := f.text("Label", "", "optional: whose, or what for")
 	var newPass func() ([]byte, bool)
 	var split, create *widgets.Checkbox
 	var shares, threshold *widgets.NumberField
 	var keyfile, recipient *pathField
 	var uv *widgets.ComboBox
-	switch typ {
-	case svformat.SlotPassphrase:
-		newPass = f.newPassphrase("Passphrase")
-	case svformat.SlotRecovery:
-		f.note("A recovery key opens the vault on its own, like the passphrase. It is shown once, and kept nowhere.")
-		split = f.check("Split it into shares, for several people to hold", false)
-		shares = widgets.NewNumberField(2, 255, 3, 1, nil)
-		shares.SetAccessibleName("Shares")
-		threshold = widgets.NewNumberField(2, 255, 2, 1, nil)
-		threshold.SetAccessibleName("Shares it takes")
-		f.row("Shares", widgets.NewRow(shares, widgets.NewLabel("of which it takes"), threshold).WithGap(gap).WithAlign(layout.AlignCenter))
-	case svformat.SlotKeyfile:
-		keyfile = f.path("Keyfile", PickSave, "vault.key")
-		create = f.check("Make a new keyfile there (64 random bytes, only yours to read)", false)
-	case svformat.SlotRecipient:
-		recipient = f.path("Recipient", PickOpen, "")
-		f.note("The text of a recipient, a file holding one, or an identity file. Sharing › Share with… offers your contacts.")
-	case svformat.SlotFIDO2:
-		f.note("The security key plugged in is enrolled: it is asked for its PIN, if it has one, and to be touched.")
-		uv = f.choice("Opening asks", []string{"for its PIN with every touch, if it has one", "for its PIN, always", "for a touch alone"}, 0)
+	parts := make([]*formPart, len(slotKinds))
+	for i, k := range slotKinds {
+		parts[i] = f.part(func() {
+			switch k.typ {
+			case svformat.SlotPassphrase:
+				newPass = f.newPassphrase("Passphrase")
+			case svformat.SlotRecovery:
+				f.note("A recovery key opens the vault on its own, like the passphrase. It is shown once, and kept nowhere.")
+				split = f.check("Split it into shares, for several people to hold", false)
+				shares = widgets.NewNumberField(2, 255, 3, 1, nil)
+				shares.SetAccessibleName("Shares")
+				threshold = widgets.NewNumberField(2, 255, 2, 1, nil)
+				threshold.SetAccessibleName("Shares it takes")
+				f.row("Shares", widgets.NewRow(shares, widgets.NewLabel("of which it takes"), threshold).WithGap(gap).WithAlign(layout.AlignCenter))
+			case svformat.SlotKeyfile:
+				keyfile = f.path("Keyfile", PickSave, "vault.key")
+				create = f.check("Make a new keyfile there (64 random bytes, only yours to read)", false)
+			case svformat.SlotRecipient:
+				recipient = f.path("Recipient", PickOpen, "")
+				f.note("The text of a recipient, a file holding one, or an identity file. Sharing › Share with… offers your contacts.")
+			case svformat.SlotFIDO2:
+				f.note("The security key plugged in is enrolled: it is asked for its PIN, if it has one, and to be touched.")
+				uv = f.choice("Opening asks", []string{"for its PIN with every touch, if it has one", "for its PIN, always", "for a touch alone"}, 0)
+			}
+		})
 	}
+	kind.OnChange = func(i int) {
+		f.fail("") // what was wrong was with another kind
+		f.showPart(parts, i)
+	}
+	f.showPart(parts, kind.Selected())
 	f.show("Add", func() {
+		typ := slotKinds[max(0, kind.Selected())].typ
 		params := svrpc.SlotAddParams{Vault: p.vault, Type: typ, Label: strings.TrimSpace(label.Text)}
 		n, k := 0, 0
 		var keyPath, rcpt string

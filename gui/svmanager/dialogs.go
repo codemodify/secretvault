@@ -23,9 +23,22 @@ type dialog struct {
 
 // showDialog shows a dialog of title over whatever is up. buttons is the
 // row at its foot: a ButtonBox, or a row that holds one.
+//
+// A dialog taller than the window scrolls its body and keeps its buttons
+// at its foot, in view (uitoolkit-gaps.md, 40). It is widgets.DialogContent's
+// arrangement, built here: DialogContent's body takes all the height the
+// window offers, however little it holds, and its foot gives a ButtonBox
+// only its natural width, so the platform's left-hand group (a
+// destructive button, under Mac and GNOME looks) is no longer apart (46).
 func (m *Manager) showDialog(title string, body, buttons, focus widget.Component, onClose func()) *dialog {
 	d := &dialog{}
-	col := widgets.NewColumn(newFixedWidth(body, dialogWidth), buttons).WithGap(16).WithPad(6)
+	scroll := widgets.NewScrollView(body)
+	scroll.ShrinkToContent = true
+	// The width is held outside the scroll view, which takes all the
+	// width it is offered.
+	sized := newFixedWidth(scroll, dialogWidth)
+	col := widgets.NewColumn(sized, buttons).WithGap(16).WithPad(6)
+	col.AddFlex(sized, 1)
 	card := widgets.NewPanel(title, col)
 	card.Window = true
 	card.Raised = true

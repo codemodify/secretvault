@@ -3,6 +3,7 @@ package svmanager
 import (
 	"bytes"
 	"time"
+	"unicode/utf8"
 
 	"github.com/codemodify/paintengine2d"
 	"github.com/codemodify/uitoolkit"
@@ -95,7 +96,11 @@ func (s *secretText) lines() [][]byte {
 
 func (s *secretText) Measure(c layout.Constraints) paintengine2d.Point {
 	f := s.font()
-	lines := s.wrapped()
+	width := float32(-1)
+	if c.HasMaxW() {
+		width = c.MaxW - 2
+	}
+	lines := s.wrapped(width)
 	if lines == nil {
 		return c.Constrain(paintengine2d.Pt(f.Advance(mask)+2, f.Height()))
 	}
@@ -106,26 +111,41 @@ func (s *secretText) Measure(c layout.Constraints) paintengine2d.Point {
 	return c.Constrain(paintengine2d.Pt(w+2, f.Height()*float32(len(lines))))
 }
 
-// wrapAt is how many characters a wrapped line holds: a long key, share
-// or invite fits a dialog in lines of it, whatever a grid offers it
-// (uitoolkit's Grid measures an Auto or Flex column unbounded).
-const wrapAt = 48
+// MinWidth is the narrowest it may be (widget.MinWidther): a text that
+// wraps goes down to the width of its mask, so that showing it does not
+// move the window's floor; one that does not is its longest line.
+func (s *secretText) MinWidth() float32 {
+	if s.wrap {
+		return s.font().Advance(mask) + 2
+	}
+	return widget.MinWidthByProbe(s, s.Measure(layout.Unbounded()))
+}
 
-// wrapped is the lines to draw: the value's lines, broken every wrapAt
-// bytes when the text wraps (what wraps is a key, a share or an invite,
-// one character a byte, in a fixed-width font).
-func (s *secretText) wrapped() [][]byte {
+// wrapped is the lines to draw: the value's lines, and when the text
+// wraps (a key, a share, an invite), each broken before the character
+// that would pass width; a negative width breaks nothing. In a grid it
+// is a widgets.Share column that offers the width (uitoolkit-gaps.md,
+// 39). The lines are slices of the value, not copies.
+func (s *secretText) wrapped(width float32) [][]byte {
 	lines := s.lines()
-	if !s.wrap || lines == nil {
+	if !s.wrap || lines == nil || width < 0 {
 		return lines
 	}
+	f := s.font()
 	var out [][]byte
 	for _, l := range lines {
-		for len(l) > wrapAt {
-			out = append(out, l[:wrapAt])
-			l = l[wrapAt:]
+		start, x := 0, float32(0)
+		for i := 0; i < len(l); {
+			_, n := utf8.DecodeRune(l[i:])
+			adv := f.AdvanceBytes(l[i : i+n])
+			if x+adv > width && i > start {
+				out = append(out, l[start:i])
+				start, x = i, 0
+			}
+			x += adv
+			i += n
 		}
-		out = append(out, l)
+		out = append(out, l[start:])
 	}
 	return out
 }
@@ -139,7 +159,7 @@ func (s *secretText) Paint(ctx *paintengine2d.Context) {
 	col := lk.Palette().Text
 	ctx.Save()
 	ctx.ClipRect(b)
-	lines := s.wrapped()
+	lines := s.wrapped(b.Dx() - 2)
 	if lines == nil {
 		y := b.Min.Y + (b.Dy()-f.Height())*0.5
 		f.Draw(ctx, mask, paintengine2d.Pt(b.Min.X, y), lk.Palette().TextMuted)

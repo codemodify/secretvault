@@ -622,9 +622,9 @@ func (m *Manager) showMyQR() {
 					card.Emails = e
 				}
 				uri := card.URI()
-				m.showText("My contact code", "Its text, the same as the QR code holds (it holds no secret): show the code to someone to scan, "+
-					"or send them the text for Contacts › Import….", uri)
-				m.showQR("contact code", []byte(uri))
+				qr, code := m.qrCode("contact code", []byte(uri), "Scan it with the other device's camera.")
+				m.showTextWith("My contact code", "Its text, the same as the QR code holds (it holds no secret): show the code to someone to scan, "+
+					"or send them the text for Contacts › Import….", uri, qr, code.forget)
 			})
 		})
 	})

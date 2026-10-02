@@ -60,7 +60,55 @@ type formDialog struct {
 	caps    bool // a new passphrase is typed: Caps Lock is said beside the buttons
 	first   widget.Component
 	running bool
-	failed  func() // what the dialog does when what it asked for fails
+	failed  func()    // what the dialog does when what it asked for fails
+	adding  *formPart // what is being added goes in this part too (part)
+}
+
+// formPart is what one choice in a dialog adds to it: rows of the form,
+// and lines under it, shown or hidden together (showPart).
+type formPart struct {
+	rows  []*widgets.FormRow
+	lines []widget.Component
+}
+
+// part runs add, and gathers what it adds to the dialog into a part.
+func (f *formDialog) part(add func()) *formPart {
+	p := &formPart{}
+	f.adding = p
+	add()
+	f.adding = nil
+	return p
+}
+
+// showPart shows the part of parts at i, and hides the others: a hidden
+// row of the form takes no room, and leaves no gap (uitoolkit-gaps.md,
+// 38 and 45).
+func (f *formDialog) showPart(parts []*formPart, i int) {
+	for j, p := range parts {
+		for _, r := range p.rows {
+			r.SetVisible(j == i)
+		}
+		for _, l := range p.lines {
+			l.SetVisible(j == i)
+		}
+	}
+	f.body.RequestLayout()
+}
+
+// addRow adds a row to the form.
+func (f *formDialog) addRow(label string, c widget.Component) {
+	r := f.form.Row(label, c)
+	if f.adding != nil {
+		f.adding.rows = append(f.adding.rows, r)
+	}
+}
+
+// addLine adds a line under the form.
+func (f *formDialog) addLine(c widget.Component) {
+	f.body.Add(c)
+	if f.adding != nil {
+		f.adding.lines = append(f.adding.lines, c)
+	}
 }
 
 // newForm starts a dialog of title.
@@ -83,7 +131,7 @@ func (f *formDialog) focusFirst(c widget.Component) {
 func (f *formDialog) text(label, value, placeholder string) *widgets.TextField {
 	t := widgets.NewTextField(value, placeholder, nil)
 	t.SetAccessibleName(label)
-	f.form.AddRow(label, t)
+	f.addRow(label, t)
 	f.focusFirst(t)
 	return t
 }
@@ -92,7 +140,7 @@ func (f *formDialog) text(label, value, placeholder string) *widgets.TextField {
 func (f *formDialog) secret(label, placeholder string) *widgets.SecretField {
 	s := widgets.NewSecretField(placeholder)
 	s.SetAccessibleName(label)
-	f.form.AddRow(label, s)
+	f.addRow(label, s)
 	f.secrets = append(f.secrets, s)
 	f.caps = true
 	f.focusFirst(s)
@@ -145,7 +193,7 @@ func (f *formDialog) newPassphraseMin(label string, least int) func() ([]byte, b
 func (f *formDialog) secretArea(label, placeholder string) *widgets.SecretArea {
 	s := widgets.NewSecretArea(placeholder)
 	s.SetAccessibleName(label)
-	f.form.AddRow(label, s)
+	f.addRow(label, s)
 	f.areas = append(f.areas, s)
 	f.focusFirst(s)
 	return s
@@ -155,7 +203,7 @@ func (f *formDialog) secretArea(label, placeholder string) *widgets.SecretArea {
 func (f *formDialog) choice(label string, items []string, selected int) *widgets.ComboBox {
 	c := widgets.NewComboBox(items, selected, nil)
 	c.SetAccessibleName(label)
-	f.form.AddRow(label, c)
+	f.addRow(label, c)
 	f.focusFirst(c)
 	return c
 }
@@ -163,13 +211,13 @@ func (f *formDialog) choice(label string, items []string, selected int) *widgets
 // check adds a checkbox under the form.
 func (f *formDialog) check(text string, on bool) *widgets.Checkbox {
 	c := widgets.NewCheckbox(text, on, nil)
-	f.body.Add(c)
+	f.addLine(c)
 	return c
 }
 
 // row adds a field of any kind to the form.
 func (f *formDialog) row(label string, c widget.Component) {
-	f.form.AddRow(label, c)
+	f.addRow(label, c)
 	f.focusFirst(c)
 }
 
@@ -177,7 +225,7 @@ func (f *formDialog) row(label string, c widget.Component) {
 func (f *formDialog) note(text string) *widgets.Label {
 	l := f.m.muted(text)
 	l.Wrap = true
-	f.body.Add(l)
+	f.addLine(l)
 	return l
 }
 
@@ -185,14 +233,14 @@ func (f *formDialog) note(text string) *widgets.Label {
 func (f *formDialog) warn(text string) *widgets.Label {
 	l := toned(text, widgets.ToneWarning)
 	l.Wrap = true
-	f.body.Add(l)
+	f.addLine(l)
 	return l
 }
 
 // path adds a file's path, typed or chosen.
 func (f *formDialog) path(label string, mode PickMode, suggested string) *pathField {
 	p := newPathField(f.m, label, mode, suggested)
-	f.form.AddRow(label, p.row)
+	f.addRow(label, p.row)
 	f.focusFirst(p.field)
 	return p
 }
@@ -364,6 +412,12 @@ func (p *pathField) Path() string { return strings.TrimSpace(p.field.Text) }
 // showText shows text to read, select and copy: a report, a public key,
 // a recipient. Nothing secret goes here: the text becomes a string.
 func (m *Manager) showText(title, intro, text string) {
+	m.showTextWith(title, intro, text, nil, nil)
+}
+
+// showTextWith is showText with below under the text (a QR code of it),
+// and onClose run when the dialog closes.
+func (m *Manager) showTextWith(title, intro, text string, below widget.Component, onClose func()) {
 	col := widgets.NewColumn().WithGap(12)
 	if intro != "" {
 		l := widgets.NewLabel(intro)
@@ -374,13 +428,16 @@ func (m *Manager) showText(title, intro, text string) {
 	view.SetAccessibleName(title)
 	view.MinRows = min(max(strings.Count(text, "\n")+1, 2), 16)
 	col.Add(view)
+	if below != nil {
+		col.Add(below)
+	}
 	var d *dialog
 	ok := widgets.NewButton("Close", func() { d.Close() })
 	buttons := widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept)
 	if text != "" {
 		buttons.AddButton(widgets.NewButton("Copy", func() { m.copyValue([]byte(text), title, "") }), widgets.RoleAction)
 	}
-	d = m.showDialog(title, col, buttons, ok, nil)
+	d = m.showDialog(title, col, buttons, ok, onClose)
 }
 
 // showPlan shows what an operation would change, as the CLI's --dry-run
@@ -423,8 +480,9 @@ type secretShown struct {
 // showSecrets shows secrets once: a recovery key, its shares, an invite.
 // Each is drawn from its bytes, copied from them, and wiped when the
 // dialog closes, and so when the program quits; withQR draws the first as
-// a QR code as well, for another device to scan. They are kept nowhere
-// else, here or in the daemon.
+// a QR code as well, under them, for another device to scan. They are
+// kept nowhere else, here or in the daemon. A dialog too tall for the
+// window scrolls, its buttons in view (uitoolkit-gaps.md, 40).
 func (m *Manager) showSecrets(title, note string, secrets []secretShown, withQR bool, doneLabel string) *dialog {
 	col := widgets.NewColumn().WithGap(12)
 	nl := widgets.NewLabel(note)
@@ -446,27 +504,22 @@ func (m *Manager) showSecrets(title, note string, secrets []secretShown, withQR 
 		list.Add(head)
 		list.Add(t)
 	}
-	if len(secrets) > 4 {
-		// Many shares: a list of its own height, scrolled.
-		col.Add(widgets.NewHeightBox(320, widgets.NewScrollView(list)))
-	} else {
-		col.Add(list)
+	col.Add(list)
+	var code *qrView
+	if withQR && len(secrets) > 0 {
+		var qr widget.Component
+		if qr, code = m.qrCode(secrets[0].label, secrets[0].value,
+			"Or scan it with the other device's camera. It holds the same as the text: keep it as private."); qr != nil {
+			col.Add(qr)
+		}
 	}
 	if doneLabel == "" {
 		doneLabel = "Done"
 	}
 	var d *dialog
-	var qr *dialog
 	done := widgets.NewButton(doneLabel, func() { d.Close() })
-	box := widgets.NewButtonBox().AddButton(done, widgets.RoleAccept)
-	if withQR && len(secrets) > 0 {
-		// The code goes in a dialog of its own, over this one: a dialog
-		// with both would be taller than a small window.
-		first := secrets[0]
-		box.AddButton(widgets.NewButton("Show the QR code", func() { qr = m.showQR(first.label, first.value) }), widgets.RoleAction)
-	}
-	d = m.showDialog(title, col, box, done, func() {
-		qr.Close() // it draws from these bytes
+	d = m.showDialog(title, col, widgets.NewButtonBox().AddButton(done, widgets.RoleAccept), done, func() {
+		code.forget() // it was made from these bytes
 		for _, t := range texts {
 			t.Forget()
 		}
@@ -477,22 +530,18 @@ func (m *Manager) showSecrets(title, note string, secrets []secretShown, withQR 
 	return d
 }
 
-// showQR shows value as a QR code, for another device to scan. The code is
-// wiped when the dialog closes; value is its caller's.
-func (m *Manager) showQR(label string, value []byte) *dialog {
+// qrCode is value as a QR code, for another device to scan, under a line
+// that says so; forget wipes the code. Nothing (said) when value does not
+// fit a code; value stays its caller's.
+func (m *Manager) qrCode(label string, value []byte, note string) (widget.Component, *qrView) {
 	c, err := svqr.Encode(value, svqr.M)
 	if err != nil {
 		m.fail(err)
-		return nil
+		return nil, nil
 	}
 	code := newQRView(c)
 	code.SetAccessibleName("QR code of the " + strings.ToLower(label))
-	col := widgets.NewColumn(m.paragraph("Scan it with the other device's camera. It holds the same as the text: keep it as private."),
-		widgets.NewRow(code).WithJustify(layout.JustifyCenter)).WithGap(12)
-	var d *dialog
-	done := widgets.NewButton("Close", func() { d.Close() })
-	d = m.showDialog("QR code", col, widgets.NewButtonBox().AddButton(done, widgets.RoleAccept), done, code.forget)
-	return d
+	return widgets.NewColumn(m.paragraph(note), widgets.NewRow(code).WithJustify(layout.JustifyCenter)).WithGap(12), code
 }
 
 // qrView draws a QR code from its modules, dark on light whatever the
@@ -552,6 +601,9 @@ func (q *qrView) Describe(n *a11y.Node) {
 
 // forget wipes the code and draws nothing.
 func (q *qrView) forget() {
+	if q == nil {
+		return
+	}
 	if q.code != nil {
 		q.code.Wipe()
 		q.code = nil

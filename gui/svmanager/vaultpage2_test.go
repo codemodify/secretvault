@@ -167,12 +167,11 @@ func TestSyncIsSetUpAndADeviceJoins(t *testing.T) {
 	}
 	invite := string(shown[0].value)
 	held := shown[0].value
-	h.press("Show the QR code")
+	// Its QR code is under it, in the same dialog.
 	code := find(h.overlay(), func(*qrView) bool { return true })
 	if code == nil || code.code == nil {
-		t.Fatal("no QR code")
+		t.Fatal("no QR code under the invite")
 	}
-	h.press("Close")
 	h.press("Done")
 	if !allZero(held) || code.code != nil {
 		t.Fatal("the invite, or its QR code, outlived its dialog")

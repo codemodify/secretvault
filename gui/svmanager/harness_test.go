@@ -590,6 +590,20 @@ func find[T widget.Component](root widget.Component, match func(T) bool) T {
 }
 
 // button is the button labelled text under root.
+// shown reports whether c is on the screen: it and everything it is in
+// visible.
+func shown(c widget.Component) bool {
+	if c == nil {
+		return false
+	}
+	for ; c != nil; c = c.Parent() {
+		if !c.Visible() {
+			return false
+		}
+	}
+	return true
+}
+
 func button(root widget.Component, text string) *widgets.Button {
 	return find(root, func(b *widgets.Button) bool { return b.Text == text })
 }

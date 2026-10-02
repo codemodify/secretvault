@@ -657,7 +657,8 @@ func (m *Manager) showMailReport(rep *svmail.Report, verdicts []svrpc.MailVerdic
 	}
 	var d *dialog
 	ok := widgets.NewButton("Close", func() { d.Close() })
-	d = m.showDialog("The message", widgets.NewHeightBox(460, widgets.NewScrollView(col)), widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept), ok, func() {
+	// The dialog scrolls a message longer than the window (uitoolkit-gaps.md, 40).
+	d = m.showDialog("The message", col, widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept), ok, func() {
 		for _, t := range texts {
 			t.Forget()
 		}
@@ -752,7 +753,15 @@ func (m *Manager) resolveReference() {
 			}
 			vault := r.Vault
 			copyBtn := widgets.NewButton("Copy", func() { m.copyValue(v, "The value", vault) })
-			body := widgets.NewColumn(m.paragraph(r.String()+" names:"), widgets.NewRow(t, show, copyBtn).WithGap(gap)).WithGap(12)
+			// The value wraps to what its column is given, beside its
+			// buttons.
+			value := widgets.NewGrid()
+			value.Cols = []widgets.Track{widgets.Share(1), widgets.Auto(), widgets.Auto()}
+			value.ColGap = gap
+			value.Place(t, 0, 0)
+			value.Place(show, 0, 1)
+			value.Place(copyBtn, 0, 2)
+			body := widgets.NewColumn(m.paragraph(r.String()+" names:"), value).WithGap(12)
 			var d *dialog
 			ok := widgets.NewButton("Close", func() { d.Close() })
 			d = m.showDialog("Resolved", body, widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept), ok, func() {

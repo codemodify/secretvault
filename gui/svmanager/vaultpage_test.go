@@ -1,6 +1,7 @@
 package svmanager
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/uitoolkit/platform"
+	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 )
 
@@ -49,10 +51,43 @@ func TestKeyslotsAreListedAddedAndRemoved(t *testing.T) {
 		t.Fatalf("keyslots: %+v", p.slots)
 	}
 
-	// Another passphrase.
+	// One step: the kind at the head of the form, and under it only what
+	// that kind takes, the rows under it moved up with no gap
+	// (uitoolkit-gaps.md, 38 and 45).
 	h.pressOn("Add…")
+	shows := func(name string) bool {
+		return shown(find(h.overlay(), func(c interface {
+			widget.Component
+			AccessibleName() string
+		}) bool {
+			return c.AccessibleName() == name
+		}))
+	}
+	if !shows("Passphrase") || !shows("Repeat") || shows("Keyfile") || shows("Opening asks") || strings.Contains(h.text(), "Split it into shares") {
+		t.Fatalf("adding a passphrase shows another kind's fields:\n%s", h.text())
+	}
+	// The first row under the label is as far below it whatever the kind
+	// (the dialog itself is centred again for its new height).
+	label := find(h.overlay(), func(f *widgets.TextField) bool { return f.AccessibleName() == "Label" })
+	below := func(c widget.Component) float32 {
+		return widget.DeviceOrigin(c).Y - widget.DeviceOrigin(label).Y - label.Bounds().Dy()
+	}
+	under := below(find(h.overlay(), func(f *widgets.SecretField) bool { return f.AccessibleName() == "Passphrase" }))
+	h.choose("Kind", 4)
+	h.pump()
+	if shows("Passphrase") || !shows("Opening asks") || !strings.Contains(h.text(), "The security key plugged in is enrolled") {
+		t.Fatalf("adding a security key shows another kind's fields:\n%s", h.text())
+	}
+	if got := below(find(h.overlay(), func(c *widgets.ComboBox) bool { return c.AccessibleName() == "Opening asks" })); math.Abs(float64(got-under)) > 1 {
+		t.Fatalf("the security key's row is %v under the label, the passphrase's was %v: hidden rows left a gap", got, under)
+	}
+	if !shown(label) {
+		t.Fatal("the label, which every kind takes, went with the kind")
+	}
+
+	// Another passphrase.
 	h.choose("Kind", 0)
-	h.press("Next")
+	h.pump()
 	h.fill("Label", "spare")
 	h.fill("Passphrase", "spare passphrase 1")
 	h.fill("Repeat", "spare passphrase 2")
@@ -76,7 +111,6 @@ func TestKeyslotsAreListedAddedAndRemoved(t *testing.T) {
 	key := filepath.Join(h.dir, "vault.key")
 	h.pressOn("Add…")
 	h.choose("Kind", 2)
-	h.press("Next")
 	h.fill("Keyfile", key)
 	h.tick("Make a new keyfile there", true)
 	h.press("Add")
@@ -122,7 +156,6 @@ func TestARecoveryKeySplitIntoSharesIsShownOnceAndOpensTheVault(t *testing.T) {
 	h.openVaultPage(tabKeyslots)
 	h.pressOn("Add…")
 	h.choose("Kind", 1)
-	h.press("Next")
 	h.tick("Split it into shares", true)
 	find(h.overlay(), func(f *widgets.NumberField) bool { return f.AccessibleName() == "Shares" }).Value = 3
 	find(h.overlay(), func(f *widgets.NumberField) bool { return f.AccessibleName() == "Shares it takes" }).Value = 2
@@ -249,7 +282,6 @@ func TestASecurityKeyIsAddedAndUnlocks(t *testing.T) {
 	h.openVaultPage(tabKeyslots)
 	h.pressOn("Add…")
 	h.choose("Kind", 4)
-	h.press("Next")
 	h.choose("Opening asks", 2)
 	h.fill("Label", "desk key")
 	h.press("Add")
@@ -275,7 +307,6 @@ func TestThePINOfASecurityKeyIsAskedInItsOwnWindow(t *testing.T) {
 	h.openVaultPage(tabKeyslots)
 	h.pressOn("Add…")
 	h.choose("Kind", 4)
-	h.press("Next")
 	h.press("Add")
 	d := h.asking()
 	if !strings.Contains(windowText(d.win), "Enter the PIN of your security key (YubiKey 5)") {

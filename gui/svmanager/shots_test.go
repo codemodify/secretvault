@@ -3,6 +3,7 @@ package svmanager
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/codemodify/secretvault/svrpc"
@@ -187,6 +188,46 @@ func TestScreenshots(t *testing.T) {
 		h.win().SetSize(1120, 700)
 		h.pump()
 		h.win().Press(platform.KeyEscape)
+
+		// The key revealed in the item: its lines wrap to the values'
+		// column, at the narrowest the window may be.
+		h.open("ssh/laptop")
+		h.win().Press(platform.KeyR, platform.ModCtrl)
+		narrowest, _ = h.win().MinSize()
+		h.win().SetSize(int(narrowest), 700)
+		h.pump()
+		shoot(h.win(), "27-key-wrapped-narrow"+suffix)
+		h.win().SetSize(1120, 700)
+		h.win().Press(platform.KeyR, platform.ModCtrl)
+		h.pump()
+
+		// A keyslot added in one step: the kind at the head, and only
+		// what it takes under it.
+		h.openVaultPage(tabKeyslots)
+		h.pressOn("Add…")
+		shoot(h.win(), "28-keyslot-passphrase"+suffix)
+		h.choose("Kind", 1)
+		h.pump()
+		shoot(h.win(), "29-keyslot-recovery"+suffix)
+		h.choose("Kind", 4)
+		h.pump()
+		shoot(h.win(), "30-keyslot-security-key"+suffix)
+		h.win().Press(platform.KeyEscape)
+		h.win().Press(platform.KeyEscape)
+
+		// An invite and its QR code in one dialog; in a window too short
+		// for both it scrolls, its button in view.
+		invite := []byte("svsync1:" + strings.Repeat("Qm9vdHN0cmFwIGludml0ZSBmb3IgYSBkZXZpY2U", 4))
+		d4 := h.m.showSecrets("Invite a device to personal", "On the new device: File › Join a synced vault…, and paste this invite, or scan it.",
+			[]secretShown{{label: "Invite", value: invite}}, true, "Done")
+		h.pump()
+		shoot(h.win(), "31-invite-qr"+suffix)
+		h.win().SetSize(1120, minWindowHeight)
+		h.pump()
+		shoot(h.win(), "32-invite-qr-short"+suffix)
+		d4.Close()
+		h.win().SetSize(1120, 700)
+		h.pump()
 
 		h.stopDaemon()
 		h.waitText("No connection to secretvaultd")

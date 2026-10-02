@@ -163,13 +163,16 @@ func TestMyQRCodeAndContactsVaultAndDirectories(t *testing.T) {
 	h.m.showMyQR()
 	h.idle()
 	h.press("Show")
+	// The code and its text in one dialog.
 	h.waitText("QR code of the contact code")
-	if find(h.overlay(), func(*qrView) bool { return true }) == nil {
-		t.Fatal("no QR code")
+	code := find(h.overlay(), func(*qrView) bool { return true })
+	if code == nil || !strings.Contains(h.text(), "secretvault-contact:") || len(h.win().Overlays()) != 1 {
+		t.Fatalf("no QR code, or not beside its text, in one dialog (%d up)", len(h.win().Overlays()))
 	}
 	h.press("Close")
-	h.waitText("secretvault-contact:")
-	h.press("Close")
+	if h.overlay() != nil || code.code != nil {
+		t.Fatal("the contact code's dialog stayed, or its QR code outlived it")
+	}
 
 	h.m.contactsVault()
 	h.waitText("Contacts are kept in vault personal now.")

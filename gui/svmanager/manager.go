@@ -163,7 +163,6 @@ type Manager struct {
 	hidden     bool      // the window is hidden in the tray
 	takingOver bool      // the system keyring is being taken over
 	excluded   bool      // the window is kept out of screen captures (syncCapture)
-	floor      float32   // the narrowest the window may be, from its content (restateFloor)
 
 	minimiseHook func() // tests: what minimising the window does
 
@@ -222,13 +221,6 @@ func New(opts Options) (*Manager, error) {
 	m.win = win
 	win.SetIcon(secretui.Icons()...)
 	win.SetOnCloseRequest(m.closeRequested)
-	// A resize by the program can put the window's minimum back to what
-	// it was made with (uitoolkit-gaps.md, 44): the floor is stated again.
-	win.OnResize(func(int, int) {
-		if w, _ := win.MinSize(); w < m.floor {
-			win.SetMinSize(m.floor, minWindowHeight)
-		}
-	})
 	m.build()
 	if opts.Tray {
 		m.startTray()
@@ -326,11 +318,12 @@ func (m *Manager) restateFloor() {
 	if m.ui == nil || m.win.Closed() || m.win.Content() == nil {
 		return
 	}
-	m.floor = float32(math.Ceil(float64(widget.MinWidthOf(m.win.Content()) / m.win.Scale())))
-	if w, h := m.win.Size(); float32(w) < m.floor {
-		m.win.SetSize(int(m.floor), h)
+	floor := float32(math.Ceil(float64(widget.MinWidthOf(m.win.Content()) / m.win.Scale())))
+	if w, h := m.win.Size(); float32(w) < floor {
+		m.win.SetSize(int(floor), h)
 	}
-	m.win.SetMinSize(m.floor, minWindowHeight)
+	// It lasts through resizes (uitoolkit-gaps.md, 44).
+	m.win.SetMinSize(floor, minWindowHeight)
 }
 
 // post runs fn on the interface's goroutine. Everything from the daemon

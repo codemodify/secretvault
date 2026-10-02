@@ -169,7 +169,9 @@ func section(m *Manager, title string) widget.Component {
 func (v *itemView) fieldGrid() widget.Component {
 	m := v.m
 	g := widgets.NewGrid()
-	g.Cols = []widgets.Track{widgets.Auto(), widgets.Flex(1), widgets.Auto()}
+	// The values' column is offered its share to wrap to: a long
+	// password or key shown wraps there rather than running past it.
+	g.Cols = []widgets.Track{widgets.Auto(), widgets.Share(1), widgets.Auto()}
 	g.ColGap, g.RowGap = 16, 6
 	row := 0
 	for i, f := range v.e.Item.Fields {
@@ -220,6 +222,7 @@ func (v *itemView) fieldGrid() widget.Component {
 // button that shows it.
 func (v *itemView) secretCell(g *widgets.Grid, row, i int, f svrpc.Field, key bool) *widgets.Button {
 	text := newSecretText(f.Value)
+	text.wrap = true
 	name := f.Name
 	if key {
 		name += " key"

@@ -731,3 +731,84 @@ func TestTheToolkitDidWhatItWasTold(t *testing.T) {
 		}
 	}
 }
+
+// A dialog taller than the window scrolls its body and keeps its buttons
+// in view (uitoolkit-gaps.md, 40): an invite, wrapped to the dialog's
+// width rather than at a fixed count (39), and its QR code under it, in
+// one dialog, in the shortest window there may be. A short dialog is no
+// taller than what it holds.
+func TestATallDialogKeepsItsButtonsInView(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{})
+	h.unlock()
+	h.m.confirm("Delete?", "Delete it?", "Delete", func() {})
+	h.pump()
+	short := find(h.overlay(), func(p *widgets.Panel) bool { return true })
+	_, ph := h.win().PixelSize()
+	if hgt := widget.DeviceBounds(short).Dy(); hgt > float32(ph)/2 {
+		t.Fatalf("a dialog of one line is %v tall in a window %d tall", hgt, ph)
+	}
+	h.win().Press(platform.KeyEscape)
+
+	h.win().SetSize(1120, minWindowHeight)
+	h.pump()
+	invite := []byte("svsync1:" + strings.Repeat("Qm9vdHN0cmFwIGludml0ZQ", 8))
+	h.m.showSecrets("Invite a device to personal", "Paste it on the new device, or scan it.",
+		[]secretShown{{label: "Invite", value: invite}}, true, "Done")
+	h.pump()
+	_, ph = h.win().PixelSize()
+	done := button(h.overlay(), "Done")
+	if b := widget.DeviceBounds(done); b.Dy() <= 0 || b.Max.Y > float32(ph) {
+		t.Fatalf("the dialog's button is at %v, in a window %d tall", b, ph)
+	}
+	scroll := find(h.overlay(), func(*widgets.ScrollView) bool { return true })
+	if scroll == nil || scroll.MaxOffset() <= 0 || find(h.overlay(), func(*qrView) bool { return true }) == nil {
+		t.Fatal("the invite and its QR code are not in one dialog that scrolls")
+	}
+	text := find(h.overlay(), func(*secretText) bool { return true })
+	lines := text.wrapped(text.Bounds().Dx() - 2)
+	tb, sb := widget.DeviceBounds(text), widget.DeviceBounds(scroll)
+	if len(lines) < 2 || len(lines[0]) <= 48 || tb.Max.X > sb.Max.X {
+		t.Fatalf("the invite is %d lines, the first %d long, ending at %v in a dialog ending at %v", len(lines), len(lines[0]), tb.Max.X, sb.Max.X)
+	}
+	h.click(h.win(), done)
+	if !allZero(invite) || h.overlay() != nil {
+		t.Fatal("the invite outlived its dialog")
+	}
+}
+
+// A long secret shown in an item wraps to the values' column (a
+// widgets.Share column, uitoolkit-gaps.md 39), at the narrowest the window
+// may be: inside the pane, its buttons beside it.
+func TestALongSecretWrapsInItsColumn(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{})
+	h.unlock()
+	h.prove()
+	long := strings.Repeat("correct-horse-battery-staple-", 8)
+	it := svrpc.Item{Kind: "login", Name: "web/long", Fields: []svrpc.Field{
+		{Name: "password", Type: svcore.FieldConcealed, Value: []byte(long)}}}
+	if _, err := h.admin.Put(h.ctx(), "", it); err != nil {
+		t.Fatal(err)
+	}
+	h.waitFor("web/long", func() bool { return h.m.entry("web/long") != nil })
+	h.open("web/long")
+	floor, _ := h.win().MinSize()
+	h.win().SetSize(int(floor), 700)
+	h.pump()
+	h.win().Press(platform.KeyR, platform.ModCtrl)
+	h.pump()
+	text := find(h.m.ui.pane, func(s *secretText) bool { return s.AccessibleName() == "password" })
+	if text == nil || !text.Revealed() {
+		t.Fatal("the password is not shown")
+	}
+	lines := text.wrapped(text.Bounds().Dx() - 2)
+	tb, pb := widget.DeviceBounds(text), widget.DeviceBounds(h.m.ui.pane)
+	hide := widget.DeviceBounds(button(h.m.ui.pane, "Hide"))
+	if len(lines) < 2 || tb.Max.X > pb.Max.X || hide.Min.X < tb.Max.X || hide.Max.X > pb.Max.X {
+		t.Fatalf("a password of %d characters is %d lines, ending at %v, its Hide at %v, in a pane ending at %v", len(long), len(lines), tb.Max.X, hide, pb.Max.X)
+	}
+	if mw, _ := h.win().MinSize(); mw != floor {
+		t.Fatalf("showing the password moved the window's floor from %v to %v", floor, mw)
+	}
+}
