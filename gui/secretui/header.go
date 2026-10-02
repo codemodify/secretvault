@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/codemodify/paintengine2d"
+	"github.com/codemodify/uitoolkit/a11y"
 	"github.com/codemodify/uitoolkit/layout"
 	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widget"
@@ -24,10 +25,37 @@ const Name = "secretvault"
 
 // Header is the band across the top of every secretvault dialog: a
 // padlock, the name, and the dialog's title, which names the vault
-// ("Unlock vault Personal").
+// ("Unlock vault Personal"). While the window holds the keyboard, it says
+// so on the name's line ([Frame] tells it).
 type Header struct {
 	widget.Base
 	Title string
+	held  bool
+}
+
+// keyboardHeldText is what the header says while the keyboard is held.
+const keyboardHeldText = "Keyboard held"
+
+// SetHeld says whether the window holds the keyboard now.
+func (h *Header) SetHeld(held bool) {
+	if h.held == held {
+		return
+	}
+	h.held = held
+	h.Invalidate()
+}
+
+// Held reports whether the header says the keyboard is held.
+func (h *Header) Held() bool { return h.held }
+
+// Describe is the band for assistive technology: the title, and whether
+// the keyboard is held.
+func (h *Header) Describe(n *a11y.Node) {
+	n.Role = a11y.RoleLabel
+	n.Name = h.Title
+	if h.held {
+		n.Description = keyboardHeldText
+	}
 }
 
 // NewHeader is the band with title under the name.
@@ -86,6 +114,13 @@ func (h *Header) Paint(ctx *paintengine2d.Context) {
 	y := inner.Min.Y + max(padY, (inner.Dy()-textH)/2)
 	maxW := b.Max.X - padX - x
 	name.Draw(ctx, Name, paintengine2d.Pt(x, y), BrandText.WithAlpha(0.72))
+	if h.held {
+		// At the right of the name's line, in the name's ink: a fact
+		// about the window, said as quietly as the name.
+		f := lk.Font()
+		held := f.Fit(keyboardHeldText, max(0, maxW-name.Advance(Name)-padX))
+		f.Draw(ctx, held, paintengine2d.Pt(b.Max.X-padX-f.Advance(held), y+(name.Height()-f.Height())/2), BrandText.WithAlpha(0.72))
+	}
 	if h.Title != "" {
 		title.Draw(ctx, title.Fit(h.Title, maxW), paintengine2d.Pt(x, y+name.Height()+gap), BrandText)
 	}

@@ -109,18 +109,21 @@ func (m *Manager) build() {
 	middle.AddFlex(u.items, 1)
 
 	u.pane = newSlot()
+	u.pane.onSet = m.restateFloor
 	right := widgets.NewPad(pad, u.pane)
 
 	// The splitters keep each pane at least as wide as what it holds
 	// (uitoolkit's floors): the pane on the right, the page it shows, so
 	// the editor's fields and their buttons stay in it. The lists get
 	// floors of their own, because a table asks for all its columns and
-	// can do with less.
+	// can do with less. The window is kept as wide as all of that
+	// together (restateFloor).
 	u.browse = widgets.NewSplitter(widgets.SplitColumns, middle, right)
 	u.browse.Ratio = 0.42
 	u.browse.MinA = listFloor
 	// The vault's own page (grants, audit log) takes the place of both.
 	u.main = newSlot()
+	u.main.onSet = m.restateFloor
 	u.main.Set(u.browse)
 	outer := widgets.NewSplitter(widgets.SplitColumns, sidebar, u.main)
 	outer.Ratio = 0.21
@@ -328,6 +331,7 @@ func plural(n int, what string) string {
 // slot shows one page at a time, filling its box: the right-hand pane.
 type slot struct {
 	widget.Base
+	onSet func() // after the page changes: the window's floor follows it
 }
 
 func newSlot() *slot {
@@ -344,6 +348,9 @@ func (s *slot) Set(c widget.Component) {
 	}
 	s.RequestLayout()
 	s.Invalidate()
+	if s.onSet != nil {
+		s.onSet()
+	}
 }
 
 // Page is what the slot shows.

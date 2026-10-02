@@ -30,6 +30,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,6 +40,7 @@ import (
 
 	"github.com/codemodify/uitoolkit/app"
 	"github.com/codemodify/uitoolkit/platform"
+	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
@@ -161,6 +163,7 @@ type Manager struct {
 	hidden     bool      // the window is hidden in the tray
 	takingOver bool      // the system keyring is being taken over
 	excluded   bool      // the window is kept out of screen captures (syncCapture)
+	floor      float32   // the narrowest the window may be, from its content (restateFloor)
 
 	minimiseHook func() // tests: what minimising the window does
 
@@ -209,7 +212,7 @@ func New(opts Options) (*Manager, error) {
 	}
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	win, err := m.app.NewWindow(platform.WindowOptions{
-		Title: "secretvault", Width: 1120, Height: 700, MinWidth: minWindowWidth, MinHeight: 440,
+		Title: "secretvault", Width: 1120, Height: 700, MinHeight: minWindowHeight,
 		Headless: opts.Headless,
 	})
 	if err != nil {
@@ -219,6 +222,13 @@ func New(opts Options) (*Manager, error) {
 	m.win = win
 	win.SetIcon(secretui.Icons()...)
 	win.SetOnCloseRequest(m.closeRequested)
+	// A resize by the program can put the window's minimum back to what
+	// it was made with (uitoolkit-gaps.md, 44): the floor is stated again.
+	win.OnResize(func(int, int) {
+		if w, _ := win.MinSize(); w < m.floor {
+			win.SetMinSize(m.floor, minWindowHeight)
+		}
+	})
 	m.build()
 	if opts.Tray {
 		m.startTray()
@@ -302,14 +312,26 @@ func (m *Manager) quitting() bool {
 	}
 }
 
-// minWindowWidth is the narrowest the window may be, in logical pixels:
-// where the sidebar, the item list and the editor beside them are each at
-// their floor (sidebarFloor, listFloor, and what the editor holds). A test
-// lays the editor out at it. uitoolkit can say the floor
-// (widget.MinWidthOf) but not through a splitter, and a window's minimum
-// is set only as it is made, so this is worked out once, by that test,
-// rather than from the content (uitoolkit-gaps.md, 34).
-const minWindowWidth = 890
+// minWindowHeight is the least the window may be tall, in logical pixels.
+const minWindowHeight = 440
+
+// restateFloor tells the window the narrowest it may be: what its content
+// needs (widget.MinWidthOf, through the splitters to the page shown), so
+// that the sidebar, the item list and the page beside them are each at
+// least at their floor (sidebarFloor, listFloor, and what the page holds).
+// It changes with the page, the editor's being the widest, and is stated
+// whenever the page changes; a window narrower than the new floor is
+// widened to it.
+func (m *Manager) restateFloor() {
+	if m.ui == nil || m.win.Closed() || m.win.Content() == nil {
+		return
+	}
+	m.floor = float32(math.Ceil(float64(widget.MinWidthOf(m.win.Content()) / m.win.Scale())))
+	if w, h := m.win.Size(); float32(w) < m.floor {
+		m.win.SetSize(int(m.floor), h)
+	}
+	m.win.SetMinSize(m.floor, minWindowHeight)
+}
 
 // post runs fn on the interface's goroutine. Everything from the daemon
 // arrives on other goroutines, and widgets may only be touched from that

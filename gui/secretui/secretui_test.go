@@ -64,19 +64,23 @@ func TestADialogIsOpenedAsOne(t *testing.T) {
 		t.Fatalf("the last widget ends at %v in a window %d tall", bottom, h)
 	}
 
-	// The keyboard is held while the secret field has it, and only then.
+	// The keyboard is held while the secret field has it, and only then,
+	// and the header says so while it is.
+	if f.Header().Held() != f.Holding() {
+		t.Fatalf("as it opens, the header says held %v, the frame asked %v", f.Header().Held(), f.Holding())
+	}
 	w.FocusOn(field)
-	if !o.SecureInput() || !f.Holding() {
-		t.Fatal("not held in the secret field")
+	if !o.SecureInput() || !f.Holding() || !f.Header().Held() {
+		t.Fatalf("not held in the secret field (asked %v, header %v)", o.SecureInput(), f.Header().Held())
 	}
 	w.FocusOn(ok)
-	if o.SecureInput() || f.Holding() {
-		t.Fatal("held on a button")
+	if o.SecureInput() || f.Holding() || f.Header().Held() {
+		t.Fatal("held on a button, or the header says so")
 	}
 	w.FocusOn(field)
 	f.Release()
-	if o.SecureInput() {
-		t.Fatal("Release did not let go")
+	if o.SecureInput() || f.Header().Held() {
+		t.Fatal("Release did not let go, or the header still says it is held")
 	}
 	w.Press(platform.KeyEscape)
 	if !escaped {
@@ -173,11 +177,12 @@ func TestTheCapsLockLine(t *testing.T) {
 		t.Fatal("the focused field did not hear Caps Lock")
 	}
 	w.Press(platform.KeyA, platform.ModCapsLock)
-	// Coming back into focus is not Caps Lock going off.
+	// Coming back into focus is not Caps Lock going off, for the line or
+	// the field's own mark.
 	w.Inject(platform.Event{Kind: platform.EventFocusOut})
 	w.Inject(platform.Event{Kind: platform.EventFocusIn})
 	a.PumpOnce()
-	if !caps.On() {
+	if !caps.On() || !other.On() || !field.CapsLockOn() {
 		t.Fatal("hidden when the window came back into focus, with Caps Lock still on")
 	}
 }

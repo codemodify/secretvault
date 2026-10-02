@@ -17,6 +17,12 @@ import (
 //     ([uitoolkit.Window.SetSecureInput]): an X11 keyboard grab, Wayland's
 //     shortcut inhibitor, macOS secure event input. It lets go when the
 //     focus moves to a button, and when the dialog closes ([Frame.Release]).
+//   - The header says "Keyboard held" while the keyboard is held, which is
+//     what is in effect rather than what was asked for
+//     ([uitoolkit.Window.SecureInputHeld]): on X11 the grab is taken once
+//     the window is mapped and has the focus, dropped when it loses it,
+//     and can fail. Nothing is said while it is not held, which is all
+//     there is to say on Windows.
 //   - Escape that nothing under the focus took runs OnEscape.
 //
 // Input methods need nothing from here: uitoolkit turns text input off on
@@ -81,8 +87,9 @@ func (f *Frame) hold(on bool) {
 }
 
 // Holding reports whether the frame has asked its window to hold the
-// keyboard. Whether the desktop agreed is the window's to say, and on
-// Windows, which has nothing to offer, it did not.
+// keyboard. Whether the desktop agreed is the window's to say, and the
+// header's ([Header.Held]); on Windows, which has nothing to offer, it
+// did not.
 func (f *Frame) Holding() bool { return f.held }
 
 // Release lets go of the keyboard. A dialog calls it as it closes, before
@@ -122,6 +129,7 @@ func Open(a *uitoolkit.Application, title string, width int, f *Frame) (*uitoolk
 		return nil, err
 	}
 	f.win = w
+	w.OnSecureInput(f.header.SetHeld)
 	// The desktop shows secretvault's padlock for it, as for the manager:
 	// a question that comes up on its own says whose it is in the task
 	// bar and the window switcher too.

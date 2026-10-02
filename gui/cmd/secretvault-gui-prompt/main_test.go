@@ -326,21 +326,21 @@ func TestANewPassphraseMustBeTypedTheSameTwice(t *testing.T) {
 }
 
 // The keyboard is held while a passphrase field has it, and let go while
-// a button does.
+// a button does; the header says it is held while it is.
 func TestTheKeyboardIsHeldOnlyInTheField(t *testing.T) {
 	h := newHarness(t, uitoolkit.LightLook())
 	h.send("GETPIN")
 	d := h.dialog()
 	o := surface(t, d)
-	if !o.SecureInput() {
-		t.Fatal("not held in the field")
+	if !o.SecureInput() || !d.frame.Header().Held() {
+		t.Fatalf("not held in the field, or not said: %v", d.frame.Header().Held())
 	}
 	d.win.Press(platform.KeyTab)
-	if _, ok := d.win.Focus().(*widgets.Button); !ok || o.SecureInput() {
+	if _, ok := d.win.Focus().(*widgets.Button); !ok || o.SecureInput() || d.frame.Header().Held() {
 		t.Fatalf("on %T the keyboard is held: %v", d.win.Focus(), o.SecureInput())
 	}
 	d.win.FocusOn(d.pin)
-	if !o.SecureInput() {
+	if !o.SecureInput() || !d.frame.Header().Held() {
 		t.Fatal("not held again back in the field")
 	}
 	d.win.Press(platform.KeyEscape)
@@ -638,7 +638,8 @@ func TestOnlyTheFirstAnswerCounts(t *testing.T) {
 
 // Every kind of dialog passes an accessibility audit, and what it says
 // is read aloud: the program asking, not only the word "Program" beside
-// it. The keyboard goes from the field to the second field, OK and
+// it, and in a passphrase dialog that the keyboard is held. The keyboard
+// goes from the field to the second field, OK and
 // Cancel, and round again. And the toolkit did everything it was told.
 func TestTheDialogsAreAccessible(t *testing.T) {
 	h := newHarness(t, nil)
@@ -664,7 +665,14 @@ func TestTheDialogsAreAccessible(t *testing.T) {
 	h.do("RESET", "SETPROMPT Passphrase:", "SETREPEAT Repeat:")
 	h.send("GETPIN")
 	d = h.dialog()
-	a11ytest.Audit(t, "new passphrase", d.win.AccessibleTree())
+	held := false
+	a11ytest.Audit(t, "new passphrase", d.win.AccessibleTree()).Walk(func(n *a11y.Node) bool {
+		held = held || n.Description == "Keyboard held"
+		return true
+	})
+	if !held {
+		t.Error("a screen reader is not told the keyboard is held")
+	}
 	order := []widget.Component{d.pin, d.repeat, d.buttons["ok"], d.buttons["cancel"], d.pin}
 	for i, want := range order {
 		if d.win.Focus() != want {

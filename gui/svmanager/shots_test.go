@@ -180,7 +180,8 @@ func TestScreenshots(t *testing.T) {
 		shoot(h.win(), "25-key-editor-shown"+suffix)
 		h.win().Press(platform.KeyR, platform.ModCtrl)
 		// The narrowest the window may be.
-		h.win().SetSize(minWindowWidth, 700)
+		narrowest, _ := h.win().MinSize()
+		h.win().SetSize(int(narrowest), 700)
 		h.pump()
 		shoot(h.win(), "26-key-editor-narrow"+suffix)
 		h.win().SetSize(1120, 700)

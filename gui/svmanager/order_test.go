@@ -2,6 +2,7 @@ package svmanager
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -650,21 +651,36 @@ func TestTheWindowHidesOnlyInATrayThatIsShown(t *testing.T) {
 }
 
 // At the narrowest the window may be, the editor fits beside the lists:
-// the splitters keep the pane at least as wide as the editor needs
-// (widget.MinWidthOf), and every field and its button is inside the
-// window.
+// the window's minimum is what its content needs (widget.MinWidthOf),
+// stated as the editor opens, the splitters keep the pane at least as
+// wide as the editor needs, and every field and its button is inside the
+// window. A window narrower than that when the editor opens is widened,
+// and a resize does not take the minimum away (uitoolkit-gaps.md, 44).
 func TestTheEditorFitsTheNarrowestWindow(t *testing.T) {
 	h := newHarness(t)
 	h.start(Options{})
 	h.unlock()
 	h.selectItem("web/github.com")
+	browsing, _ := h.win().MinSize()
+	h.win().SetSize(int(browsing), 700)
+	h.pump()
 	h.win().Press(platform.KeyE, platform.ModCtrl)
 	h.waitFor("the editor", func() bool { return h.m.editor != nil })
 	h.idle()
-	for _, w := range []int{1120, minWindowWidth} {
+	floor, _ := h.win().MinSize()
+	if need := float32(math.Ceil(float64(widget.MinWidthOf(h.win().Content()) / h.win().Scale()))); floor != need || floor <= browsing {
+		t.Fatalf("with the editor up the window's minimum is %v, its content's %v, the items' %v", floor, need, browsing)
+	}
+	if w, _ := h.win().Size(); float32(w) < floor {
+		t.Fatalf("the window is %d wide, under the editor's %v", w, floor)
+	}
+	for _, w := range []int{1120, int(floor)} {
 		h.win().SetSize(w, 700)
 		h.pump()
 		h.pump()
+		if mw, _ := h.win().MinSize(); mw != floor {
+			t.Errorf("%d wide: the window's minimum is %v after the resize", w, mw)
+		}
 		pane := h.m.ui.pane
 		if need := widget.MinWidthOf(h.m.editor.page); pane.Bounds().Dx() < need {
 			t.Errorf("%d wide: the pane is %v, the editor needs %v", w, pane.Bounds().Dx(), need)
