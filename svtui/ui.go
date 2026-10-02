@@ -460,6 +460,8 @@ func (u *UI) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.showSharing()
 	case 'D':
 		u.showDevices()
+	case 'C':
+		u.showContacts()
 	case 'S':
 		u.showSync()
 	case 'I':

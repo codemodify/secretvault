@@ -121,6 +121,15 @@ func (u *UI) menu() []menuEntry {
 				u.syncInvite(u.vault)
 			}
 		}},
+		{"Contacts", "Contacts: people, their keys, how each was verified", "C", u.showContacts},
+		{"Contacts", "Add a contact…", "", func() { u.addContact(nil) }},
+		{"Contacts", "Import keys, or a QR code you scanned…", "", func() { u.importContacts(nil) }},
+		{"Contacts", "Look up keys (WKD, keyservers, directories)…", "", func() { u.lookupContact(nil) }},
+		{"Contacts", "Show my QR code…", "", u.showMyCard},
+		{"Contacts", "Keep contacts in…", "", func() { u.chooseContactsVault(nil) }},
+		{"Contacts", "Directories: add, remove", "", u.showDirectories},
+		{"Contacts", "Check a signer…", "", u.checkSigner},
+		{"Contacts", "Record a key seen in mail…", "", func() { u.keySeen(nil) }},
 		{"Help", "Keys", "?", u.showHelp},
 		{"Help", "About secretvault: versions, the daemon's status", "", u.showStatus},
 	}

@@ -58,6 +58,10 @@ var helpKeys = strings.TrimSpace(`
   D                      devices: who signs what is written; naming,
                          vouching for and removing one; whether only
                          signed revisions count
+  C                      contacts: people and their keys; adding, importing
+                         (a scanned QR code too), looking up, verifying,
+                         removing; my QR code; checking a signer; keys seen
+                         in mail; the directories; where contacts live
   G                      grants: what programs may do; allowing or denying
                          one ahead of time, revoking a decision
   A                      the audit log: who accessed what

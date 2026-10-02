@@ -172,6 +172,17 @@ func (v *onceView) InputHandler() func(event *tcell.EventKey, setFocus func(p tv
 // the view, having been told it is the only time. The secrets are wiped
 // then.
 func (u *UI) showOnce(title string, lines []onceLine, qr *svqr.Code) {
+	u.showLines(title, lines, qr, true)
+}
+
+// showCode shows lines and a QR code that can be shown again (your own
+// contact card): the lines to copy are copyable, and it closes without
+// asking.
+func (u *UI) showCode(title string, lines []onceLine, qr *svqr.Code) {
+	u.showLines(title, lines, qr, false)
+}
+
+func (u *UI) showLines(title string, lines []onceLine, qr *svqr.Code, once bool) {
 	v := newOnceView(lines, qr)
 	hasSecret := v.selected >= 0
 	v.SetBorder(true).SetBorderPadding(1, 1, 2, 2)
@@ -191,7 +202,7 @@ func (u *UI) showOnce(title string, lines []onceLine, qr *svqr.Code) {
 	v.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
 		switch {
 		case ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyEnter || ev.Rune() == 'q':
-			if !hasSecret {
+			if !hasSecret || !once {
 				closeNow()
 				return nil
 			}

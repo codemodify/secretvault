@@ -134,7 +134,7 @@ func (p *panel) row(ref any, cells ...string) {
 		} else {
 			text = tview.Escape(text)
 		}
-		c := tview.NewTableCell(text).SetMaxWidth(60)
+		c := tview.NewTableCell(text).SetMaxWidth(80)
 		if i == 0 {
 			c.SetReference(ref)
 		}
@@ -270,7 +270,7 @@ func (p *panel) run(a panelAct) {
 	}
 	ref := p.selected()
 	if ref == nil || !a.on(ref) {
-		p.u.say("Choose a row that can be %s first.", strings.ToLower(strings.TrimSuffix(a.label, "…")))
+		p.u.say("Select a row to %s.", strings.ToLower(strings.TrimSuffix(a.label, "…")))
 		return
 	}
 	a.do(ref)
