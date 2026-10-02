@@ -13,19 +13,20 @@ import (
 // panel's foot; Enter on a row offers the row's actions as a menu, so no
 // key needs remembering; and ':' opens the menu of every operation.
 type panel struct {
-	u      *UI
-	page   string
-	title  string
-	vault  string // the vault it shows, "" when it shows none: it closes when that vault locks
-	head   *tview.TextView
-	t      *tview.Table
-	foot   *tview.TextView
-	frame  *tview.Flex
-	acts   []panelAct
-	enter  func(ref any) // Enter on a row; nil: the row's actions, as a menu
-	reload func()
-	cols   int
-	at     int // the row selected before a refill
+	u       *UI
+	page    string
+	title   string
+	vault   string // the vault it shows, "" when it shows none: it closes when that vault locks
+	head    *tview.TextView
+	t       *tview.Table
+	foot    *tview.TextView
+	frame   *tview.Flex
+	acts    []panelAct
+	enter   func(ref any) // Enter on a row; nil: the row's actions, as a menu
+	onClose func()        // runs when it closes
+	reload  func()
+	cols    int
+	at      int // the row selected before a refill
 }
 
 // panelAct is something a panel can do: to the row selected (on says
@@ -184,7 +185,11 @@ func (p *panel) drawFoot() {
 	for _, a := range p.acts {
 		parts = append(parts, fmt.Sprintf("[yellow]%c[-] %s", a.key, tview.Escape(a.label)))
 	}
-	parts = append(parts, "[yellow]Enter[-] more", "[yellow]:[-] every action", "[yellow]Esc[-] close")
+	enter := "more"
+	if p.enter != nil {
+		enter = "open"
+	}
+	parts = append(parts, "[yellow]Enter[-] "+enter, "[yellow]:[-] every action", "[yellow]Esc[-] close")
 	text := strings.Join(parts, "  ")
 	p.foot.SetText(text)
 	p.frame.ResizeItem(p.foot, wrappedLines(stripTags(text), 110), 0)
@@ -211,6 +216,9 @@ func (p *panel) refresh() {
 func (p *panel) close() {
 	if p.u.panels[p.page] == p {
 		p.u.closePage(p.page)
+		if p.onClose != nil {
+			p.onClose()
+		}
 	}
 }
 

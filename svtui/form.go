@@ -13,7 +13,7 @@ import (
 
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svcore"
-	"github.com/codemodify/secretvault/svcrypto"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -457,11 +457,7 @@ func (u *UI) showGenerator(use func([]byte)) {
 	preview := newSecretInput("Password")
 	preview.reveal = true
 	regenerate := func() {
-		classes := []string{svcrypto.Lower, svcrypto.Upper, svcrypto.Digits, svcrypto.Symbols}
-		if !symbols {
-			classes = classes[:3]
-		}
-		p, err := svcrypto.Password(length, classes...)
+		p, err := svops.GeneratePassword(length, symbols)
 		if err != nil {
 			u.fail(err)
 			return

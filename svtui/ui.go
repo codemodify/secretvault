@@ -450,6 +450,14 @@ func (u *UI) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.newVault()
 	case 'V':
 		u.showVaults()
+	case 'f':
+		u.showFiles()
+	case 'R':
+		u.showDeleted()
+	case 'I':
+		u.importFile()
+	case 'X':
+		u.exportFile()
 	default:
 		return ev
 	}

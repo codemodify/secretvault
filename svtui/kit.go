@@ -265,8 +265,9 @@ func (u *UI) showText(title, body string) {
 }
 
 // showPlan shows what an operation is about to do, and does it only when
-// the person says so: the TUI's --dry-run. Nothing is done on Escape.
-func (u *UI) showPlan(title, body, action string, do func()) {
+// the person says so: the TUI's --dry-run. Nothing is done on Escape but
+// cancelled, if given.
+func (u *UI) showPlan(title, body, action string, do func(), cancelled ...func()) {
 	view := tview.NewTextView().SetDynamicColors(true).SetScrollable(true).SetWrap(true).SetWordWrap(true)
 	view.SetText(body)
 	buttons := tview.NewForm().SetButtonsAlign(tview.AlignCenter)
@@ -276,6 +277,9 @@ func (u *UI) showPlan(title, body, action string, do func()) {
 		if !closed {
 			closed = true
 			u.closePage(pageDialog)
+			for _, f := range cancelled {
+				f()
+			}
 		}
 	}
 	buttons.AddButton("Cancel", cancel).AddButton(action, func() {

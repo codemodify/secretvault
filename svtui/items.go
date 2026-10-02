@@ -11,6 +11,7 @@ import (
 
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svotp"
 	"github.com/codemodify/secretvault/svrpc"
 )
@@ -334,11 +335,7 @@ func (u *UI) drawItem() {
 	u.detail.SetTitle(" " + tview.Escape(u.cur.Item.Name) + " ")
 }
 
-func wipeItem(it *svrpc.Item) {
-	for i := range it.Fields {
-		clear(it.Fields[i].Value)
-	}
-}
+func wipeItem(it *svrpc.Item) { svops.Wipe(it) }
 
 func (u *UI) toggleReveal() {
 	name := u.targetName()
@@ -457,22 +454,8 @@ func (u *UI) copyValue(v []byte) {
 	})
 }
 
-// secretField is the item's primary secret, as svcore.Item.Secret picks it.
-func secretField(it *svrpc.Item) (svrpc.Field, bool) {
-	for _, n := range []string{"password", "secret"} {
-		for _, f := range it.Fields {
-			if f.Name == n {
-				return f, true
-			}
-		}
-	}
-	for _, f := range it.Fields {
-		if f.Type == svcore.FieldConcealed || f.Type == svcore.FieldKey {
-			return f, true
-		}
-	}
-	return svrpc.Field{}, false
-}
+// secretField is the item's primary secret (svops.SecretField).
+func secretField(it *svrpc.Item) (svrpc.Field, bool) { return svops.SecretField(it) }
 
 // usernameField is the field that holds the item's username: one named
 // so, else the first email field.

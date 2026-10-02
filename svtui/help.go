@@ -27,13 +27,19 @@ var helpKeys = strings.TrimSpace(`
   r                      reveal or hide its concealed values
   e                      edit it                 n    make a new item
   d                      delete it (asks first)  m    rename it
-  h                      its history: every revision, each viewable
+  h                      its history: every revision, who signed it, each
+                         viewable; R makes one current, k keeps a
+                         conflicting version on every device
+  f                      its files: attach, save, remove
   g                      the password generator
 
 [::b]Vaults[::-]
   l                      lock this vault         L    lock every vault
   U                      unlock the vault (asks for its passphrase)
   N                      a new vault
+  R                      the deleted items: bring one back
+  I                      import another password manager's export
+  X                      export to KeePass (KDBX) or CXF
   V                      the vaults: paths, when each locks, the default,
                          forgetting one, opening at login, verifying,
                          unlocking with a keyfile, recovery key or security key
