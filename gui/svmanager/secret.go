@@ -243,9 +243,11 @@ func wipeEntries(es []svrpc.Entry) {
 	}
 }
 
-// Clipboard is where copies go. The real one is the toolkit's secret
-// clipboard (uitoolkit.ClipboardSetSecret); tests put a fake in its place,
-// so that nothing they copy reaches the desktop.
+// Clipboard is where copies go. The real one is the CLI's (clip.go) on
+// Linux and the BSDs, and the toolkit's secret clipboard
+// (uitoolkit.ClipboardSetSecret) elsewhere, and where the CLI cannot copy;
+// tests put a fake in its place, so that nothing they copy reaches the
+// desktop.
 type Clipboard interface {
 	// SetSecret copies data, taking ownership of it, and clears it again
 	// after ttl. The copy is wiped when it is cleared.

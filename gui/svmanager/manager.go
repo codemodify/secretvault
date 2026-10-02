@@ -69,7 +69,8 @@ type Options struct {
 	// point it at a daemon of their own.
 	Connect func(secretvault.Options) (*secretvault.Client, error)
 
-	// Clipboard takes copies: the desktop's, through uitoolkit, when nil.
+	// Clipboard takes copies: the desktop's when nil, through the CLI
+	// beside this program or through uitoolkit (systemClipboard).
 	Clipboard Clipboard
 
 	// ClipTTL is how long a copy stays on the clipboard (30 seconds when
@@ -204,7 +205,7 @@ func New(opts Options) (*Manager, error) {
 		m.now = time.Now
 	}
 	if m.clip == nil {
-		m.clip = desktopClipboard{}
+		m.clip = systemClipboard()
 	}
 	if m.ttl == 0 {
 		m.ttl = clipTTL

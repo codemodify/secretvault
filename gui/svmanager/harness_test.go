@@ -42,6 +42,10 @@ import (
 // ~/.docker: DOCKER_CONFIG is theirs too), and a daemon of their own on a
 // temporary socket, with a temporary home.
 func TestMain(m *testing.M) {
+	if how := os.Getenv("SVMANAGER_FAKE_CLIP"); how != "" {
+		// Run by a test as the CLI's clipboard helper (clip_test.go).
+		os.Exit(fakeClipHelper(how))
+	}
 	for _, k := range []string{"DISPLAY", "WAYLAND_DISPLAY", "AT_SPI_BUS_ADDRESS", "DBUS_SYSTEM_BUS_ADDRESS",
 		"SECRETVAULT_SOCK", "SECRETVAULT_HOME", "SECRETVAULT_VAULT", "SECRETVAULT_HOST", "GNUPGHOME",
 		"UITK_THEME", "UITK_NATIVE_DIALOGS"} {
