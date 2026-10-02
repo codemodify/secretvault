@@ -39,12 +39,16 @@ same calls the same function. The table's "Operation" column names it.
   `--identity`, `--recovery`, `--shares`, `--fido2`. Every command also
   takes `--vault NAME` and `--host`.
 - **GUI**: where it lives in the desktop manager. The window has a menu bar
-  (File, Edit, Vault, Help today), the vaults down the left, the items and
-  the open item, and the vault's page (Vault › Grants and audit log,
-  [`consent.go`](../gui/svmanager/consent.go)) with its tabs. Places that do
-  not exist yet are named where they belong: new menus (Keys, Contacts,
-  Tools, Desktop), new tabs on the vault's page (Keyslots, Devices,
-  Sharing, Containers, Settings) and new dialogs.
+  (File, Edit, Vault, Keys, Contacts, Tools, Desktop, Help), the vaults
+  down the left, the items and the open item, and pages that take the
+  items' place, each a row of tabs filled from the daemon as they are
+  shown ([`tabbed.go`](../gui/svmanager/tabbed.go)): the vault's page
+  (Keyslots, Devices, Sharing, Sync, Containers, Grants, Audit log,
+  Settings; [`consent.go`](../gui/svmanager/consent.go)), the keys' page,
+  the contacts' page and the desktop's page. Every tab is also reached
+  from its menu. A change to the desktop is a plan shown first, and a
+  secret shown once is drawn from its bytes and wiped with its dialog
+  ([`kit.go`](../gui/svmanager/kit.go)).
 - **TUI**: the key, panel or dialog in the terminal manager. Its keys today
   are listed under `?` ([`svtui/ui.go`](../svtui/ui.go)). New panels get
   capital letters that are free (`K` keyslots, `D` devices, `S` sync, `E`
@@ -290,9 +294,9 @@ What the managers need to know, beyond the table:
   operation does, and its code shows the order the steps go in (for the
   keyring takeover: plan; import; `ApplyTakeover`; `ServeKeyring(true)`;
   `RestartUnits`). Where a manager already has its own copy, replace it:
-  the GUI's attach should use `svops.ReadAttachment` (it sets no media
-  type today), and both managers' history should say who signed each
-  revision with `svops.Author`.
+  the GUI's attach uses `svops.ReadAttachment` and its history says who
+  signed each revision with `svops.Author`; the terminal manager's
+  history should do the same.
 - **Programs named to other programs are the CLI.** The browsers' manifest
   (`PlanBrowserInstall`, `BrowserStatus`) and gpg.conf's agent-program
   (`GnuPGOptions.CLI`) must name the `secretvault` CLI, not the manager:
@@ -309,7 +313,14 @@ What the managers need to know, beyond the table:
   --force"), as the CLI has always said them. A manager shows its own
   words where they would mislead: the errors are plain values
   (`svops.StoreError` keeps the daemon's in `Err`), or the condition is
-  one the manager checks first.
+  one the manager checks first. Those a manager tells apart are named,
+  their texts unchanged: `ErrNoOwnKeys`, `ErrNoDefaultVault`,
+  `ErrNoAgeIdentity`, `ErrNotOneSecretKey`, `ErrKeyExists`,
+  `ErrNoGnuPGKey`, `ErrUninstallFirst` (with `errors.Is`), and
+  `SkipAlreadyDone` and `SkipChanged` (a browser plan's `Skip`);
+  `ImportOptions.Skipped` words the warning for an item that exists. The
+  GUI's words for them are in `Manager.describe`
+  ([`manager.go`](../gui/svmanager/manager.go)).
 - **Asking stays with you.** svops takes passphrases already asked for, or
   a callback for the one it finds it needs (`PGPImportItem`,
   `ProtectPGPKey`, `PassphraseIdentity`, `AgeIdentityOptions`), and
@@ -322,7 +333,12 @@ What the managers need to know, beyond the table:
   `XDG_DATA_HOME` and `SECRETVAULT_HOME` at a temporary directory (as
   `cmd/secretvault`'s browser and keyring tests do), replace
   `svops.CommandRunner`, give `HostInitOptions.SystemdCreds`, and never
-  run an install or a takeover for real.
+  run an install or a takeover for real. The GUI's harness
+  ([`harness_test.go`](../gui/svmanager/harness_test.go)) does all of
+  that for every test, and points both buses, `SECRETVAULT_HOST_DATA` and
+  `SECRETVAULT_HOST_RUNTIME` nowhere real; its daemon has software
+  security keys (`internal/fidotest`), a sealer of its own and no network.
+  Containers run against `internal/udiskstest` on a private bus.
 - **Keep this page true.** A command added to the CLI fails the parity
   test until it has a row; when a manager gains an operation, change its
   state here in the same commit.

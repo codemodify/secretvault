@@ -809,3 +809,92 @@ func TestItem37SecureInputAnswer(t *testing.T) {
 		t.Fatal("X11 secure input tells a window that is not mapped yet apart, or reports, now: see uitoolkit-gaps.md item 37")
 	}
 }
+
+// Found while bringing the manager level with the CLI.
+
+// 38. A Form's rows can only be added: a row shown for one choice and not
+// another (what a keyslot of each kind takes) cannot be hidden with its
+// caption, so the manager asks for the kind first, in a dialog of its
+// own.
+func TestItem38AFormRowCannotBeHidden(t *testing.T) {
+	for _, m := range []string{"SetRowVisible", "HideRow", "RemoveRow", "Row"} {
+		if _, ok := reflect.TypeOf(&widgets.Form{}).MethodByName(m); ok {
+			t.Fatalf("Form has %s now: see uitoolkit-gaps.md item 38, and the manager's two-step Add… dialogs", m)
+		}
+	}
+	a := headless(t, 1)
+	form := widgets.NewForm()
+	field := widgets.NewTextField("", "", nil)
+	form.AddRow("Keyfile", field)
+	field.SetVisible(false)
+	w := window(t, a, 400, 80, form)
+	if !strings.Contains(treeText(w), "Keyfile") {
+		t.Fatal("hiding a form's field hides its caption now: see uitoolkit-gaps.md item 38")
+	}
+}
+
+// probe records the widths it is offered.
+type probe struct {
+	widget.Base
+	unbounded bool
+	height    float32 // what it asks for, whatever it is offered (0: what it is offered)
+}
+
+func newProbe() *probe {
+	p := &probe{}
+	p.Init(p)
+	return p
+}
+
+func (p *probe) Measure(c layout.Constraints) paintengine2d.Point {
+	if !c.HasMaxW() {
+		p.unbounded = true
+	}
+	if p.height > 0 {
+		return paintengine2d.Pt(100, p.height)
+	}
+	return c.Constrain(paintengine2d.Pt(600, 20))
+}
+
+func (p *probe) Arrange(r paintengine2d.Rect) { p.SetBounds(r) }
+
+// 39. A Grid measures what is in an Auto or Flex column with no width to
+// keep to, however narrow the grid: a cell that wraps to the width it is
+// offered (the manager's secret text, drawn from bytes) cannot, so the
+// manager breaks a long key at a fixed number of characters.
+func TestItem39AGridCellIsOfferedNoWidth(t *testing.T) {
+	a := headless(t, 1)
+	p := newProbe()
+	g := widgets.NewGrid()
+	g.Cols = []widgets.Track{widgets.Auto(), widgets.Flex(1)}
+	g.Place(widgets.NewLabel("Share 1"), 0, 0)
+	g.Place(p, 0, 1)
+	window(t, a, 300, 100, widgets.NewColumn(g))
+	if !p.unbounded {
+		t.Fatal("a Grid offers its Flex cells a width now: see uitoolkit-gaps.md item 39, and the manager's wrapAt")
+	}
+}
+
+// 40. A dialog taller than its window is not scrolled: its card is held
+// to the window, and what does not fit in it is drawn on past its foot,
+// over the buttons there, with nothing to scroll. So the manager keeps
+// dialogs short: a QR code in a dialog of its own, long lists in a box of
+// their own height.
+func TestItem40ADialogTallerThanItsWindow(t *testing.T) {
+	a := headless(t, 1)
+	col := widgets.NewColumn()
+	window(t, a, 400, 300, col)
+	tall := newProbe()
+	tall.height = 600 // as a QR code is: it does not shrink
+	ok := widgets.NewButton("Done", nil)
+	card := widgets.NewPanel("Tall", widgets.NewColumn(tall, ok))
+	card.Window = true
+	o := widgets.NewOverlay(card)
+	o.Modal = true
+	widget.ShowOverlay(col, o)
+	a.PumpOnce()
+	body, button := widget.DeviceBounds(tall), widget.DeviceBounds(ok)
+	if body.Max.Y <= button.Min.Y && button.Max.Y <= 300 {
+		t.Fatalf("a tall dialog keeps its buttons in view now (body %v, button %v): see uitoolkit-gaps.md item 40", body, button)
+	}
+}

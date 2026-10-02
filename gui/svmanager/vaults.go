@@ -509,6 +509,9 @@ func (m *Manager) showKeys() {
 		{"Ctrl+U, Ctrl+L", "unlock, lock the vault"},
 		{"Ctrl+Shift+L", "lock every vault"},
 		{"Ctrl+Shift+G", "the vault's grants and audit log"},
+		{"Ctrl+Shift+K", "the contacts"},
+		{"Escape", "from a page (the vault's, the keys', the contacts', the desktop's) back to the items"},
+		{"Alt+V, K, C, T, D", "the Vault, Keys, Contacts, Tools and Desktop menus"},
 		{"Ctrl+W, Ctrl+Q", "close the window (to the tray), quit"},
 	}
 	g := widgets.NewGrid()

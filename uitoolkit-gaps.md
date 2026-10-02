@@ -4,7 +4,7 @@ This list is for [uitoolkit](https://github.com/codemodify/uitoolkit)'s
 maintainers.
 
 **Does uitoolkit v0.23.0 address all of secretvault's needs? No, not
-yet.** It covers nearly all of them: of the 37 items, 26 are satisfactory
+yet.** It covers nearly all of them: of the 40 items, 26 are satisfactory
 and one (11) is declined by design. What is left touches the passphrase
 itself:
 
@@ -15,16 +15,19 @@ itself:
 - 8 and 33: a hidden `SecretLabel` holds a copy of the secret;
 - 12 and 28: Caps Lock reads as off after a focus-in on every backend;
 
-and two that do not: 34 (a window's floor from its content) and 36 (a
-form value read aloud as its caption). secretvault works around 8, 12,
-28, 34 and 36 in its own code; 3, 7, 35 and 37 it cannot.
+and five that do not: 34 (a window's floor from its content), 36 (a
+form value read aloud as its caption), 38 (a form's rows shown or
+hidden), 39 (a grid cell offered no width) and 40 (a dialog taller than
+its window). secretvault works around 8, 12, 28, 34, 36, 38, 39 and 40 in
+its own code; 3, 7, 35 and 37 it cannot.
 
 - `secretvault-gui-prompt` asks for passphrases and consent, and
   `secretvault-gui` is the manager; both are built on uitoolkit.
 - Items 1–11 were asked for before either was built, 12–17 while building
   the prompt, 18–24 while building the manager, and 25–37 while moving
   through the releases since (25–29 at v0.22.1, 30–32 at v0.22.2, 33–34 at
-  v0.22.5, 35–37 in the audit of v0.23.0).
+  v0.22.5, 35–37 in the audit of v0.23.0), and 38–40 while bringing the
+  manager level with the CLI, on v0.23.0.
 - **The audit of v0.23.0** re-read every item from scratch, not only the
   open ones, and re-read the code paths of the ones a passphrase goes
   through (1, 3, 4, 5, 7, 8, 12, 18, 19, 28, 33). None regressed: of the
@@ -108,6 +111,9 @@ their pins read uitoolkit's source as the test is built against it.
 | 35 | A secret on the Linux clipboard as a string | (new) | **Open** |
 | 36 | A form value read aloud as its caption | (new) | **Open**; worked around in the prompt |
 | 37 | Secure input's answer, and its first attempt | (new) | **Open** |
+| 38 | A form's rows shown or hidden | (new) | **Open**; worked around with dialogs in two steps |
+| 39 | A grid cell offered no width | (new) | **Open**; worked around with a fixed wrap |
+| 40 | A dialog taller than its window | (new) | **Open**; worked around by keeping dialogs short |
 
 The first findings come from reading uitoolkit's source at v0.20.x (file
 references are to that tree); 12–24 come from building on it after v0.21.0,
@@ -1435,6 +1441,72 @@ themselves; it is part of 34 with the other two.
   no wait, holds the keyboard once it has the focus, and an application
   can say truthfully whether it does. `TestItem37SecureInputAnswer` pins
   today's code.
+
+---
+
+## Found while bringing the manager level with the CLI
+
+The manager now does whatever the CLI does: the vault's keyslots,
+devices, sharing, sync, containers and settings, the keys, the contacts,
+the tools and the desktop's setup, in pages of tabs and some sixty
+dialogs. Building them on v0.23.0 found three things, none about a
+passphrase.
+
+### 38. A form's rows shown or hidden
+
+- **Today** (`widgets/grid.go`, `Form`). A `Form` has `AddRow` and
+  `AddWide`, and nothing to hide a row: hiding the field leaves its
+  caption, and there is no handle on the row to hide both. A form whose
+  fields depend on a choice (what a keyslot of each kind takes: a
+  passphrase, a keyfile, shares, a security key's PIN policy) either
+  shows every field, most of them irrelevant, or is torn down and built
+  again.
+- **Workaround.** The manager asks for the choice first, in a dialog of
+  its own (Add… › the kind › Next), and then builds the form for it.
+- **Proposal.** `Form.AddRow` returning a `*FormRow` with `SetVisible`,
+  hiding the caption with the field and closing the gap; or
+  `Form.SetRowVisible(field, bool)`.
+- **Done when:** a form with a choice at its head shows only the rows
+  that choice takes, with no gaps. `TestItem38AFormRowCannotBeHidden`
+  pins today's behaviour.
+
+### 39. A grid cell offered no width
+
+- **Today** (`widgets/grid.go`). A `Grid` measures what is in an `Auto`
+  or `Flex` column with no maximum width, however narrow the grid, and
+  arranges it in its column's share afterwards. A cell that wraps to the
+  width it is offered (the manager's secret text, which draws a long key,
+  a recovery share or an invite from its bytes, and so cannot be a
+  wrapping `Label`) is told it has all the room it likes, measures one
+  long line, and is then cut off at the column's edge.
+- **Workaround.** The manager breaks a long secret every 48 characters
+  (`wrapAt`), whatever it is offered, and puts each secret under its
+  label rather than beside it.
+- **Proposal.** Measure a `Flex` column's cells, once the `Auto` columns
+  are measured, with the width left for it (as `FlexBox` does for its
+  flexible children); or a `Track` for "measure at the share".
+- **Done when:** a widget in a `Flex` column of a narrow grid is measured
+  with a bounded width. `TestItem39AGridCellIsOfferedNoWidth` pins today's
+  behaviour.
+
+### 40. A dialog taller than its window
+
+- **Today** (`widgets/dialog.go`, `Overlay`). A dialog's card is held to
+  the window, but its body is not scrolled: what does not fit is laid out
+  past the card's foot, over the buttons there, or pushes them below the
+  window's edge, with nothing to scroll them back. A dialog that shows a
+  secret and its QR code, or a plan of many lines, can lose its buttons
+  in a small window, which also takes them out of reach of the keyboard's
+  Tab order as the person sees it.
+- **Workaround.** The manager keeps dialogs short: a QR code goes in a
+  dialog of its own over the one with the text, long lists and plans in a
+  box of their own height (`HeightBox`, a read-only `TextArea`).
+- **Proposal.** An `Overlay` card taller than its window scrolls its body
+  and keeps its button row in view (the `ButtonBox` at the foot stays put),
+  as the platforms' own dialogs do.
+- **Done when:** a dialog with a 600-pixel body in a 300-pixel window has
+  its buttons in view, and its body scrolls.
+  `TestItem40ADialogTallerThanItsWindow` pins today's behaviour.
 
 ---
 

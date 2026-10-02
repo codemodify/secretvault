@@ -5,6 +5,16 @@
 // history and conflicts, grants and the audit log, and a tray icon to open
 // it, search, and lock every vault from anywhere.
 //
+// It does whatever the secretvault CLI does, through the same daemon
+// methods and svops functions (docs/interfaces.md maps each command to
+// its place here): each vault's keyslots, devices, sharing and emergency
+// access, sync, encrypted containers and settings on the vault's page;
+// OpenPGP, S/MIME and age keys, identity files and security keys under
+// Keys; contacts and the trust store under Contacts; signing, encrypting,
+// mail and references under Tools; and the system keyring, browsers,
+// GnuPG, the helper programs and the host daemon under Desktop, where
+// every change is shown as a plan before it is made.
+//
 // It is a client of secretvaultd, which it starts if it is not running,
 // and holds no keys itself. When the daemon needs to know it is you, it
 // asks here, in a window of its own, for the vault's passphrase, as it asks
@@ -26,6 +36,8 @@
 //	F2  Delete       rename, delete (asks first)
 //	Ctrl+H  Ctrl+G   history, password generator
 //	Ctrl+U  Ctrl+L   unlock, lock; Ctrl+Shift+L locks every vault
+//	Ctrl+Shift+G     the vault's grants and audit log; Ctrl+Shift+K the contacts
+//	Escape           from a page back to the items
 //	Ctrl+W  Ctrl+Q   close the window (to the tray, if there is one), quit
 //
 // Environment: SECRETVAULT_VAULT names the vault to show first,
