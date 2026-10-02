@@ -17,10 +17,12 @@ import (
 )
 
 // Setting up the helpers other programs run: the links git, docker and
-// age look for beside the secretvault CLI (as scripts/install.sh makes
-// them), git's credential.helper, and docker's credsStore. A plan says
-// what would change; Apply makes the changes, and Undo takes away what
-// is secretvault's, leaving everything else as it is.
+// age look for beside the secretvault CLI (as scripts/install.sh also
+// makes them), git's credential.helper, and docker's credsStore. A plan
+// says what would change; Apply makes the changes, and Undo takes away
+// what is secretvault's, leaving everything else as it is. Every
+// interface says it in these words: the CLI's helpers command, and the
+// managers' Program helpers.
 
 // HelperProgramNames are the links to set up, by the program that runs
 // them.
@@ -238,6 +240,64 @@ func (p *HelpersPlan) Apply() ([]string, error) {
 	return done, nil
 }
 
+// HelpersSetupIntro introduces SetupLines, naming the CLI the links lead
+// to.
+func HelpersSetupIntro(cli string) string {
+	return "Setting the helpers up, as links to " + cli + ", would:"
+}
+
+// HelpersUndoIntro introduces UndoLines.
+const HelpersUndoIntro = "Undoing the helpers would:"
+
+// HelpersNothingToUndo is all UndoLines says when there is nothing to
+// undo.
+const HelpersNothingToUndo = "Nothing: no helper is set up for secretvault."
+
+// StatusRows say what is there now, as a helper and its state: a row per
+// link, in the order of Links, then git's credential helpers, then
+// docker's credsStore.
+func (p *HelpersPlan) StatusRows() [][2]string {
+	var out [][2]string
+	for _, l := range p.Links {
+		state := "not there"
+		switch {
+		case l.Ours:
+			state = "a link to " + p.CLI
+		case l.Exists:
+			state = l.Other + " (not secretvault's)"
+		}
+		out = append(out, [2]string{l.Name, state})
+	}
+	git := "secretvault is not among git's credential helpers"
+	switch {
+	case p.GitErr != nil:
+		git = p.GitErr.Error()
+	case p.GitHas:
+		git = "credential.helper includes secretvault"
+	}
+	out = append(out, [2]string{"git", git})
+	docker := "credsStore is not secretvault"
+	switch {
+	case p.DockerErr != nil:
+		docker = p.DockerErr.Error()
+	case p.DockerStore == helperStore:
+		docker = "credsStore is secretvault (" + p.DockerConfig + ")"
+	case p.DockerStore != "":
+		docker = "credsStore is " + p.DockerStore
+	}
+	return append(out, [2]string{"docker", docker})
+}
+
+// Undoable reports whether Undo has anything to take away.
+func (p *HelpersPlan) Undoable() bool {
+	for _, l := range p.Links {
+		if l.Ours {
+			return true
+		}
+	}
+	return (p.GitErr == nil && p.GitHas) || (p.DockerErr == nil && p.DockerStore == helperStore)
+}
+
 // UndoLines say what Undo would do.
 func (p *HelpersPlan) UndoLines() []string {
 	var out []string
@@ -257,7 +317,7 @@ func (p *HelpersPlan) UndoLines() []string {
 		}
 	}
 	if len(out) == 0 {
-		out = append(out, "Nothing: no helper is set up for secretvault.")
+		out = append(out, HelpersNothingToUndo)
 	}
 	return out
 }

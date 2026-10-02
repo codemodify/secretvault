@@ -20,8 +20,8 @@ import (
 
 // Helpers are the names the CLI answers to when linked under them, and
 // the command each stands for. They are links to the secretvault program
-// (scripts/install.sh makes them), so the daemon still knows the program
-// for secretvault's own.
+// (PlanHelpers and scripts/install.sh make them), so the daemon still
+// knows the program for secretvault's own.
 var Helpers = map[string]string{
 	"git-credential-secretvault":    "git-credential",
 	"docker-credential-secretvault": "docker-credential",
@@ -87,8 +87,8 @@ type HelperLink struct {
 
 // HelperLinks says, helper by helper (in the order of their names), where
 // its link to the CLI at cli is, whether it is there and is the CLI, and
-// where PATH finds it. An interface shows it; scripts/install.sh makes
-// the links.
+// where PATH finds it. An interface shows it; PlanHelpers (every
+// interface's helpers setup) and scripts/install.sh make the links.
 func HelperLinks(cli string) []HelperLink {
 	names := make([]string, 0, len(Helpers))
 	for n := range Helpers {

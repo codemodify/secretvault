@@ -619,34 +619,13 @@ func (p *panel) fillHelpers(plan *svops.HelpersPlan, err error) {
 		p.done()
 		return
 	}
-	for _, l := range plan.Links {
-		state := "not there"
-		switch {
-		case l.Ours:
-			state = "a link to " + plan.CLI
-		case l.Exists:
-			state = l.Other + " (not secretvault's)"
+	for i, r := range plan.StatusRows() {
+		var ref any
+		if i < len(plan.Links) {
+			ref = helperRef{plan.Links[i]}
 		}
-		p.row(helperRef{l}, l.Name, state)
+		p.row(ref, r[0], r[1])
 	}
-	git := "secretvault is not among git's credential helpers"
-	switch {
-	case plan.GitErr != nil:
-		git = plan.GitErr.Error()
-	case plan.GitHas:
-		git = "credential.helper includes secretvault"
-	}
-	p.row(nil, "git", git)
-	docker := "credsStore is not secretvault"
-	switch {
-	case plan.DockerErr != nil:
-		docker = plan.DockerErr.Error()
-	case plan.DockerStore == "secretvault":
-		docker = "credsStore is secretvault (" + plan.DockerConfig + ")"
-	case plan.DockerStore != "":
-		docker = "credsStore is " + plan.DockerStore
-	}
-	p.row(nil, "docker", docker)
 	p.done()
 }
 
@@ -663,10 +642,15 @@ func (u *UI) helpersPlan(setup bool, then func()) {
 			u.fail(err)
 			return
 		}
-		title, body, action, doneTitle, do := "Set the helpers up", plan.SetupLines(), "Set up", "Helpers set up", plan.Apply
+		title, intro, body, action, doneTitle, do := "Set the helpers up", svops.HelpersSetupIntro(plan.CLI), plan.SetupLines(), "Set up", "Helpers set up", plan.Apply
 		if !setup {
-			title, body, action, doneTitle, do = "Undo the helpers", plan.UndoLines(), "Undo", "Helpers undone", plan.Undo
+			if !plan.Undoable() {
+				u.say("%s", svops.HelpersNothingToUndo)
+				return
+			}
+			title, intro, body, action, doneTitle, do = "Undo the helpers", svops.HelpersUndoIntro, plan.UndoLines(), "Undo", "Helpers undone", plan.Undo
 		}
+		body = append([]string{intro, ""}, body...)
 		u.showPlan(title, lines(body), action, func() {
 			var done []string
 			u.call(func(context.Context, *secretvault.Client) (err error) {

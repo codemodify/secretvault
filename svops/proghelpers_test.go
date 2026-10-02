@@ -57,6 +57,9 @@ func TestHelpersAreSetUpAndUndoneLeavingTheRestAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if p.Undoable() || !slices.Equal(p.UndoLines(), []string{HelpersNothingToUndo}) {
+		t.Fatalf("nothing set up, and yet undoable: %q", p.UndoLines())
+	}
 	lines := strings.Join(p.SetupLines(), "\n")
 	for _, want := range []string{"link " + filepath.Join(dir, "bin", "git-credential-secretvault"), "a file, not a link, left alone", "after cache", `in place of "desktop"`} {
 		if !strings.Contains(lines, want) {
@@ -94,6 +97,11 @@ func TestHelpersAreSetUpAndUndoneLeavingTheRestAlone(t *testing.T) {
 	p, err = PlanHelpers(cli)
 	if err != nil || !p.GitHas || p.DockerStore != "secretvault" {
 		t.Fatalf("after: %+v %v", p, err)
+	}
+	if rows := p.StatusRows(); len(rows) != len(p.Links)+2 || rows[0] != [2]string{"git-credential-secretvault", "a link to " + cli} ||
+		rows[2][1] != "a file, not a link (not secretvault's)" || rows[3] != [2]string{"git", "credential.helper includes secretvault"} ||
+		!strings.HasPrefix(rows[4][1], "credsStore is secretvault (") || !p.Undoable() {
+		t.Fatalf("the status after: %q", rows)
 	}
 	if _, err := p.Undo(); err != nil {
 		t.Fatal(err)
