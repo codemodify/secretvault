@@ -97,7 +97,8 @@ func TestScreenshots(t *testing.T) {
 		h.waitFor("the vault page", h.m.showingVaultPage)
 		h.idle()
 		shoot(h.win(), "11-grants"+suffix)
-		h.m.vpage.tabs.Select(1)
+		h.m.vpage.tabs.Select(tabAudit)
+		h.idle()
 		shoot(h.win(), "12-audit"+suffix)
 		h.win().Press(platform.KeyEscape)
 

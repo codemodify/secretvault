@@ -44,7 +44,18 @@ type promptDialog struct {
 // program quitting.
 func (m *Manager) prompt(ctx context.Context, q svrpc.PromptAsk) (svrpc.PromptAnswer, error) {
 	switch q.Kind {
-	case svrpc.PromptPassphrase, svrpc.PromptNewPassphrase:
+	case svrpc.PromptPassphrase, svrpc.PromptNewPassphrase, svrpc.PromptPIN:
+	case svrpc.PromptNotice:
+		// "Touch your security key": said in the status bar while the
+		// daemon waits on the key rather than on this program, and
+		// answered at once, as the CLI and the terminal manager answer
+		// it.
+		text := strings.Join(strings.Fields(q.Description), " ")
+		if text == "" {
+			text = strings.TrimSpace(q.Title)
+		}
+		m.post(func() { m.say("%s", text) })
+		return svrpc.PromptAnswer{}, nil
 	case svrpc.PromptChoose:
 		// Not asked of secretvault's own programs today; answered all
 		// the same.
@@ -154,6 +165,9 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan svrpc.PromptAnswer) 
 		form := widgets.NewForm()
 		form.AddRow(promptLabel(q.Prompt, "Passphrase"), first)
 		ok := widgets.NewButton("Unlock", nil)
+		if q.Kind == svrpc.PromptPIN {
+			ok.Text = "OK" // a security key's PIN, asked for with each touch
+		}
 		submit := func() {
 			if first.Empty() {
 				return

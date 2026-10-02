@@ -77,20 +77,20 @@ place, or a state.
 
 | CLI | Operation | GUI | GUI state | TUI | TUI state |
 | --- | --- | --- | --- | --- | --- |
-| `secretvault init`, `secretvault vault create`, `secretvault vault init` --name --path --suite --recovery --passphrase-file | `vault.create` | File › New vault… (name, suite, passphrase, recovery key shown once); a folder of one's own (--path) is missing | partial | `N` New vault dialog | missing |
-| `secretvault unlock [VAULT]` UNLOCK | `vault.unlock`; shares: `svops.ShareCollector` | Vault › Unlock (Ctrl+U), the locked vault's "Unlock…": the daemon asks for the passphrase or a security key's PIN. Missing: Vault › Unlock with… (keyfile, identity file, recovery key, recovery shares) | partial | `U`, passphrase only; `U` then "with…" for the rest | partial |
+| `secretvault init`, `secretvault vault create`, `secretvault vault init` --name --path --suite --recovery --passphrase-file | `vault.create` | File › New vault… (name, suite, passphrase, a folder of one's own or the data folder, the recovery key shown once) | done | `N` New vault dialog | missing |
+| `secretvault unlock [VAULT]` UNLOCK | `vault.unlock`; shares: `svops.ShareCollector` | Vault › Unlock (Ctrl+U), the locked vault's "Unlock…": the daemon asks for the passphrase or a security key's PIN, in a window of its own; Vault › Unlock with…: the recovery key, recovery shares typed one at a time (`svops.ShareCollector`), a keyfile, an identity file, the security key plugged in | done | `U`, passphrase only; `U` then "with…" for the rest | partial |
 | `secretvault lock [VAULT]` --all | `vault.lock` | Vault › Lock (Ctrl+L), Lock all vaults (Ctrl+Shift+L), the tray's Lock all vaults | done | `l`, `L` | done |
-| `secretvault status` | `daemon.status` | Help › About secretvault: the daemon's version, data and socket, the prompter, the keyring, the SSH and gpg agents; emergency requests in the status bar. Today only the vaults and their states show | partial | `?` help shows the daemon's status; emergency requests on the status line. Today only the vaults pane | partial |
-| `secretvault vault list`, `secretvault vault ls` | `vault.list` | The vaults list on the left (name, state); the path and when it locks are missing | partial | The vaults pane; the path and when it locks are missing | partial |
-| `secretvault vault add NAME DIR` | `vault.add` | File › Add vault folder… (a folder chooser) | missing | `V` vault panel: add | missing |
-| `secretvault vault forget NAME` | `vault.forget` | Vault page › Settings tab: Forget this vault… (the folder stays) | missing | `V` vault panel: forget | missing |
-| `secretvault vault default NAME` | `vault.default` | Vault › Make default | done | `V` vault panel: make default | missing |
-| `secretvault vault rotate` --new-recovery --new-passphrase-file UNLOCK | `vault.rotate` | Vault page › Keyslots tab: Rotate the key… | missing | `K` keyslots panel: rotate | missing |
-| `secretvault vault signatures [required\|optional]` UNLOCK | `vault.signatures` | Vault page › Devices tab: "Count only signed revisions" | missing | `D` devices panel: signatures | missing |
-| `secretvault vault login on\|off` UNLOCK | `vault.login` | Vault page › Settings tab: "Open when I log in" | missing | `V` vault panel: login | missing |
-| `secretvault verify` UNLOCK | `vault.verify` | Vault page › Settings tab: Verify every file… (the report) | missing | `V` vault panel: verify | missing |
-| `secretvault passwd` --new-passphrase-file UNLOCK | `vault.passwd` | Vault page › Keyslots tab: Change the passphrase… | missing | `K` keyslots panel: passphrase | missing |
-| `secretvault version` | `secretvault.Version`; `daemon.status` for the daemon's | Help › About secretvault | missing | `?` help, at its head | missing |
+| `secretvault status` | `daemon.status` | Help › About secretvault: the daemon's version, process, data and socket, the prompter, the keyring, the SSH and gpg agents, emergency requests, and every vault with its state, when it locks and its folder; emergency requests also in the status bar (`emergency.changed`) | done | `?` help shows the daemon's status; emergency requests on the status line. Today only the vaults pane | partial |
+| `secretvault vault list`, `secretvault vault ls` | `vault.list` | The vaults list on the left (name, state, the default starred); the folder and when it locks on Vault page › Settings, and for every vault in Help › About secretvault | done | The vaults pane; the path and when it locks are missing | partial |
+| `secretvault vault add NAME DIR` | `vault.add` | File › Add vault folder… (a folder chooser and a name) | done | `V` vault panel: add | missing |
+| `secretvault vault forget NAME` | `vault.forget` | Vault page › Settings tab: Forget this vault… (the folder stays) | done | `V` vault panel: forget | missing |
+| `secretvault vault default NAME` | `vault.default` | Vault › Make default; Vault page › Settings tab: Make default | done | `V` vault panel: make default | missing |
+| `secretvault vault rotate` --new-recovery --new-passphrase-file UNLOCK | `vault.rotate` | Vault page › Keyslots tab: Rotate the key… (proves itself first, as the CLI does; the passphrase, a new recovery key shown once, and a report of what opens it now) | done | `K` keyslots panel: rotate | missing |
+| `secretvault vault signatures [required\|optional]` UNLOCK | `vault.signatures` | Vault page › Devices tab: "Count only signed revisions" | done | `D` devices panel: signatures | missing |
+| `secretvault vault login on\|off` UNLOCK | `vault.login` | Vault page › Settings tab: "Open when I log in" | done | `V` vault panel: login | missing |
+| `secretvault verify` UNLOCK | `vault.verify` | Vault page › Settings tab: Verify every file… (the report) | done | `V` vault panel: verify | missing |
+| `secretvault passwd` --new-passphrase-file UNLOCK | `vault.passwd` | Vault page › Keyslots tab: Change the passphrase… (proves itself first, then asks for the new one) | done | `K` keyslots panel: passphrase | missing |
+| `secretvault version` | `secretvault.Version`; `daemon.status` for the daemon's | Help › About secretvault: this program's version and the daemon's | done | `?` help, at its head | missing |
 
 ## Items
 
@@ -102,12 +102,12 @@ place, or a state.
 | `secretvault ls --deleted` | `item.deleted` | Edit › Show deleted items (each with Restore…) | missing | `R` deleted items panel | missing |
 | `secretvault mv FROM TO` UNLOCK | `item.rename` | Edit › Rename… (F2) | done | `m` | done |
 | `secretvault rm NAME` UNLOCK | `item.delete` | Edit › Delete… (Delete) | done | `d` | done |
-| `secretvault history NAME` --show UNLOCK | `item.history`; `svops.Author` | Edit › History (Ctrl+H): every revision, viewable. Who signed each (`svops.Author`) is missing: it shows the device's ID | partial | `h`: every revision, viewable; who signed each is missing | partial |
+| `secretvault history NAME` --show UNLOCK | `item.history`; `svops.Author` | Edit › History (Ctrl+H): every revision, viewable, with who signed each (`svops.Author`) and the revisions a vault that requires signatures ignores; the item page's foot says who signed it | done | `h`: every revision, viewable; who signed each is missing | partial |
 | `secretvault restore NAME [REV]` UNLOCK | `item.restore` | History page: "Make this revision current…"; deleted items: Restore… | missing | History panel: `R` on a revision; deleted items panel: Enter | missing |
 | `secretvault resolve NAME` --keep UNLOCK | `svops.Conflicts`, `item.restore` | History page: conflicting versions are marked, and viewable; "Keep this version on every device…" is missing | partial | `h` marks them; `k` keeps one is missing | partial |
-| `secretvault attach ITEM FILE\|-` --name --type UNLOCK | `svops.ReadAttachment`, `file.attach` | Item page › Files: Add file… (it does not set the media type yet: use `svops.ReadAttachment`) | done | `f` files panel: attach | missing |
+| `secretvault attach ITEM FILE\|-` --name --type UNLOCK | `svops.ReadAttachment`, `file.attach` | Item page › Files: Add file… (read with `svops.ReadAttachment`: its own name, and its extension's media type) | done | `f` files panel: attach | missing |
 | `secretvault file list ITEM`, `secretvault file ls ITEM` UNLOCK | `item.get` (the item's files) | Item page › Files | done | `f` files panel | missing |
-| `secretvault file get ITEM NAME` -o --force UNLOCK | `file.get`; `svops.SaveFile` | Item page › Files: Save… | done | `f` files panel: save | missing |
+| `secretvault file get ITEM NAME` -o --force UNLOCK | `file.get`; `svops.SaveFile` | Item page › Files: Save… (the file dialog asks before replacing a file; written with `svops.WriteReplacing`, mode 0600, as a replaced file must not stay as readable as it was) | done | `f` files panel: save | missing |
 | `secretvault file rm ITEM NAME`, `secretvault file remove ITEM NAME` UNLOCK | `file.remove` | Item page › Files: Remove… | done | `f` files panel: remove | missing |
 | `secretvault gen` --length --no-symbols --clip | `svops.GeneratePassword` (`svcrypto.Password`) | File › Password generator… (Ctrl+G): characters or words | done | `g` | done |
 
@@ -122,55 +122,55 @@ place, or a state.
 
 | CLI | Operation | GUI | GUI state | TUI | TUI state |
 | --- | --- | --- | --- | --- | --- |
-| `secretvault slot list`, `secretvault slot ls` | `slot.list` | Vault page › Keyslots tab | missing | `K` keyslots panel | missing |
-| `secretvault slot add passphrase\|recovery\|keyfile\|recipient\|fido2` --label --new-passphrase-file --create --split --threshold --uv --no-uv UNLOCK | `slot.add`; `svops.CreateKeyfile`, `svops.RecipientArg`, `svops.SplitThreshold`, `svops.SplitLabel`, `svops.SplitRecoveryKey` | Keyslots tab: Add…: a passphrase, a recovery key (shown once, or as shares), a keyfile (made here or chosen), a recipient or identity file, a security key | missing | `K` keyslots panel: `a` | missing |
-| `secretvault slot rm ID`, `secretvault slot remove ID` UNLOCK | `slot.remove` | Keyslots tab: Remove… | missing | `K` keyslots panel: `x` | missing |
+| `secretvault slot list`, `secretvault slot ls` | `slot.list` | Vault page › Keyslots tab | done | `K` keyslots panel | missing |
+| `secretvault slot add passphrase\|recovery\|keyfile\|recipient\|fido2` --label --new-passphrase-file --create --split --threshold --uv --no-uv UNLOCK | `slot.add`; `svops.CreateKeyfile`, `svops.RecipientArg`, `svops.SplitThreshold`, `svops.SplitLabel`, `svops.SplitRecoveryKey` | Keyslots tab: Add…: the kind, then what it takes: a passphrase; a recovery key shown once, or split into shares shown once; a keyfile, made there or chosen; a recipient, its file or an identity file; the security key plugged in (its PIN with every touch, always, or a touch alone; the PIN asked in its own window, the touches in the status bar) | done | `K` keyslots panel: `a` | missing |
+| `secretvault slot rm ID`, `secretvault slot remove ID` UNLOCK | `slot.remove` | Keyslots tab: Remove… (asks first, and says it is not revocation) | done | `K` keyslots panel: `x` | missing |
 | `secretvault fido2 list`, `secretvault fido2 ls` | `fido2.list` | Keys › Security keys: those plugged in, and what each can do | missing | `K` keyslots panel: the security keys plugged in | missing |
 
 ## Sharing and emergency access
 
 | CLI | Operation | GUI | GUI state | TUI | TUI state |
 | --- | --- | --- | --- | --- | --- |
-| `secretvault share RECIPIENT\|FILE` --label UNLOCK | `svops.RecipientArg`, `slot.add` (a recipient keyslot) | Vault page › Sharing tab: Share with…: a contact's secretvault key, a recipient, or an identity file | missing | `E` sharing panel: share | missing |
-| `secretvault unshare SLOT-ID...` --new-recovery --new-passphrase-file UNLOCK | `vault.rotate` (dropping the slots) | Sharing tab: Cut off… (which rotates the key, and says what opens it now) | missing | `E` sharing panel: cut off | missing |
-| `secretvault emergency grant CONTACT\|RECIPIENT` --wait --fingerprint --name UNLOCK | `svops.ParseWait`, `emergency.grant` | Sharing tab › Emergency access: Grant…, then the invite to send (copied, or as a QR code) | missing | `E` panel: grant | missing |
-| `secretvault emergency list`, `secretvault emergency ls` UNLOCK | `emergency.list`; `svops.WaitText` | Sharing tab › Emergency access: the grants given and the access held; a request also shows in the status bar | missing | `E` panel | missing |
-| `secretvault emergency deny GRANT` UNLOCK | `emergency.deny` | Emergency access: Deny… | missing | `E` panel: deny | missing |
-| `secretvault emergency revoke GRANT` --rotate --new-recovery --new-passphrase-file UNLOCK | `emergency.revoke`, then `vault.rotate` | Emergency access: Revoke… (with "rotate the key too") | missing | `E` panel: revoke | missing |
-| `secretvault emergency accept INVITE\|-` --identity --as --label | `emergency.accept` | File › Emergency access › Accept an invite… (the invite pasted, the identity file chosen) | missing | `E` panel: accept | missing |
-| `secretvault emergency request NAME` | `emergency.request` | File › Emergency access: Ask for access… | missing | `E` panel: request | missing |
-| `secretvault emergency open NAME` --identity --path | `emergency.open` | File › Emergency access: Open the vault… (after the wait) | missing | `E` panel: open | missing |
+| `secretvault share RECIPIENT\|FILE` --label UNLOCK | `svops.RecipientArg`, `slot.add` (a recipient keyslot) | Vault page › Sharing tab: Share with…: a contact's secretvault key, a recipient, a file holding one, or an identity file (all through `svops.RecipientArg`) | done | `E` sharing panel: share | missing |
+| `secretvault unshare SLOT-ID...` --new-recovery --new-passphrase-file UNLOCK | `vault.rotate` (dropping the slots) | Sharing tab: Cut off… (the keyslot chosen; the key rotated without it, a new recovery key if asked, and what opens it now) | done | `E` sharing panel: cut off | missing |
+| `secretvault emergency grant CONTACT\|RECIPIENT` --wait --fingerprint --name UNLOCK | `svops.ParseWait`, `emergency.grant` | Sharing tab › Emergency access: Grant… (a contact, or a recipient; the wait read by `svops.ParseWait`), then the invite to send, to copy or as a QR code | done | `E` panel: grant | missing |
+| `secretvault emergency list`, `secretvault emergency ls` UNLOCK | `emergency.list`; `svops.WaitText` | Sharing tab › Emergency access: the grants given and the access held here; requests also in the status bar, in the GUI's own words | done | `E` panel | missing |
+| `secretvault emergency deny GRANT` UNLOCK | `emergency.deny` | Emergency access: Deny… | done | `E` panel: deny | missing |
+| `secretvault emergency revoke GRANT` --rotate --new-recovery --new-passphrase-file UNLOCK | `emergency.revoke`, then `vault.rotate` | Emergency access: Revoke… (with "rotate the key too", ticked when they were given it) | done | `E` panel: revoke | missing |
+| `secretvault emergency accept INVITE\|-` --identity --as --label | `emergency.accept` | File › Emergency access › Accept an invite… (the invite pasted, the identity file chosen, its name here, this device's label) | done | `E` panel: accept | missing |
+| `secretvault emergency request NAME` | `emergency.request` | File › Emergency access › Ask for access… (the access held chosen, or its name typed when it cannot be listed) | done | `E` panel: request | missing |
+| `secretvault emergency open NAME` --identity --path | `emergency.open` | File › Emergency access › Open the vault… (after the wait; the identity file, and a folder of one's own if wanted) | done | `E` panel: open | missing |
 
 ## Sync
 
 | CLI | Operation | GUI | GUI state | TUI | TUI state |
 | --- | --- | --- | --- | --- | --- |
-| `secretvault sync setup URL` --fingerprint --admin-token-file --label UNLOCK | `sync.setup` | Vault page › Sync tab: Set up… | missing | `S` sync panel: set up | missing |
-| `secretvault sync join INVITE\|-` --name --path --label | `sync.join` | File › Join a synced vault… (the invite pasted) | missing | `S` sync panel: join | missing |
-| `secretvault sync invite` --qr --light UNLOCK | `sync.invite`; `svqr` | Sync tab: Invite a device… (the invite to copy, and its QR code) | missing | `S` sync panel: invite (with the QR code) | missing |
+| `secretvault sync setup URL` --fingerprint --admin-token-file --label UNLOCK | `sync.setup` | Vault page › Sync tab: Set up… (the server, its fingerprint, the admin token, this device's label) | done | `S` sync panel: set up | missing |
+| `secretvault sync join INVITE\|-` --name --path --label | `sync.join` | File › Join a synced vault… (the invite pasted into a secret field, the name here, a folder of one's own, this device's label) | done | `S` sync panel: join | missing |
+| `secretvault sync invite` --qr --light UNLOCK | `sync.invite`; `svqr` | Sync tab: Invite a device… (the invite shown once, to copy, and its QR code in a dialog of its own; both wiped when they close) | done | `S` sync panel: invite (with the QR code) | missing |
 | `secretvault sync status`, `secretvault sync st` | `sync.status` | Vault page › Sync tab, and the status bar, for the vault shown | done | `S` sync panel | missing |
-| `secretvault sync now` UNLOCK | `sync.now` | Sync tab: Sync now | missing | `S` sync panel: now | missing |
-| `secretvault sync devices` UNLOCK | `sync.devices` | Sync tab: the devices that sync | missing | `S` sync panel: devices | missing |
-| `secretvault sync rm-device KEY` UNLOCK | `sync.remove` | Sync tab: Remove a device… | missing | `S` sync panel: remove a device | missing |
-| `secretvault sync off` UNLOCK | `sync.off` | Sync tab: Stop syncing… | missing | `S` sync panel: off | missing |
+| `secretvault sync now` UNLOCK | `sync.now` | Sync tab: Sync now | done | `S` sync panel: now | missing |
+| `secretvault sync devices` UNLOCK | `sync.devices` | Sync tab: the devices that sync (once the vault is unlocked) | done | `S` sync panel: devices | missing |
+| `secretvault sync rm-device KEY` UNLOCK | `sync.remove` | Sync tab: Remove a device… | done | `S` sync panel: remove a device | missing |
+| `secretvault sync off` UNLOCK | `sync.off` | Sync tab: Stop syncing… | done | `S` sync panel: off | missing |
 
 ## Devices
 
 | CLI | Operation | GUI | GUI state | TUI | TUI state |
 | --- | --- | --- | --- | --- | --- |
-| `secretvault device list`, `secretvault device ls` UNLOCK | `device.list`; `svops.DeviceStanding` | Vault page › Devices tab: each device, its key ID, its standing | missing | `D` devices panel | missing |
-| `secretvault device label [DEVICE] NAME` UNLOCK | `device.label` | Devices tab: Rename… | missing | `D` panel: label | missing |
-| `secretvault device rm DEVICE`, `secretvault device remove DEVICE` UNLOCK | `device.remove` | Devices tab: Remove… | missing | `D` panel: remove | missing |
-| `secretvault device vouch DEVICE` --withdraw UNLOCK | `device.vouch` | Devices tab: Vouch for it / Withdraw | missing | `D` panel: vouch | missing |
+| `secretvault device list`, `secretvault device ls` UNLOCK | `device.list`; `svops.DeviceStanding` | Vault page › Devices tab: each device, its key ID, its label, when it registered, its standing (`svops.DeviceStanding`) | done | `D` devices panel | missing |
+| `secretvault device label [DEVICE] NAME` UNLOCK | `device.label` | Devices tab: Rename… | done | `D` panel: label | missing |
+| `secretvault device rm DEVICE`, `secretvault device remove DEVICE` UNLOCK | `device.remove` | Devices tab: Remove… (says it does not cut the device off) | done | `D` panel: remove | missing |
+| `secretvault device vouch DEVICE` --withdraw UNLOCK | `device.vouch` | Devices tab: Vouch for it (asks first, showing the key to compare) / Withdraw | done | `D` panel: vouch | missing |
 
 ## Grants and the audit log
 
 | CLI | Operation | GUI | GUI state | TUI | TUI state |
 | --- | --- | --- | --- | --- | --- |
-| `secretvault grant list`, `secretvault grant ls` UNLOCK | `grant.list` | Vault › Grants and audit log (Ctrl+Shift+G) › Grants | done | `G` | done |
-| `secretvault grant allow PROGRAM`, `secretvault grant deny PROGRAM` --item --contacts --ops --until-lock UNLOCK | `grant.add` | Grants tab: Allow a program… / Deny a program… (a program chosen, an item or the contacts, the operations) | missing | `G` panel: allow, deny | missing |
+| `secretvault grant list`, `secretvault grant ls` UNLOCK | `grant.list` | Vault › Grants and audit log (Ctrl+Shift+G) › Grants tab | done | `G` | done |
+| `secretvault grant allow PROGRAM`, `secretvault grant deny PROGRAM` --item --contacts --ops --until-lock UNLOCK | `grant.add` | Grants tab: Allow a program… / Deny a program… (the program chosen or typed as flatpak:APP or snap:NAME; the whole vault, an item or the contacts; the operations; allow until the vault locks) | done | `G` panel: allow, deny | missing |
 | `secretvault grant revoke ID`, `secretvault grant rm ID` UNLOCK | `grant.revoke` | Grants tab: Revoke… (Delete) | done | `G` panel: `x` or Delete | done |
-| `secretvault audit` --limit UNLOCK | `audit.list` | Vault page › Audit log | done | `A` | done |
+| `secretvault audit` --limit UNLOCK | `audit.list` | Vault page › Audit log tab (the newest 500) | done | `A` | done |
 
 ## Keys and identities
 
@@ -224,12 +224,12 @@ place, or a state.
 
 | CLI | Operation | GUI | GUI state | TUI | TUI state |
 | --- | --- | --- | --- | --- | --- |
-| `secretvault container create FILE` --size --fs --label --item --passphrase --new-passphrase-file --sector-size --mount-options UNLOCK | `svops.MountsHere`, `svops.ParseSize`, `svops.ContainerItemName`, `container.create` | Vault page › Containers tab: New container… | missing | `M` containers panel: new | missing |
-| `secretvault container open FILE` --item --mount-options UNLOCK | `svops.ExistingImage`, `container.open` | Containers tab: Open (mount), and open the folder | missing | `M` panel: open | missing |
-| `secretvault container close FILE\|MOUNTPOINT` | `container.close` | Containers tab: Close | missing | `M` panel: close | missing |
-| `secretvault container list`, `secretvault container ls` UNLOCK | `container.list` | Containers tab | missing | `M` panel | missing |
-| `secretvault container header-backup FILE OUT` | `svcontainer.BackupHeader` | Containers tab: Back up the header… | missing | `M` panel: header backup | missing |
-| `secretvault container passwd FILE` --item --remove --new-passphrase-file UNLOCK | `svops.ExistingImage`, `container.passwd` | Containers tab: Passphrase… (set or remove its own passphrase) | missing | `M` panel: passphrase | missing |
+| `secretvault container create FILE` --size --fs --label --item --passphrase --new-passphrase-file --sector-size --mount-options UNLOCK | `svops.MountsHere`, `svops.ParseSize`, `svops.ContainerItemName`, `container.create` | Vault page › Containers tab: New container… (the image, its size read by `svops.ParseSize`, the filesystem, its label, the key item, the sector size, mount options, and a passphrase of its own if wanted) | done | `M` containers panel: new | missing |
+| `secretvault container open FILE` --item --mount-options UNLOCK | `svops.ExistingImage`, `container.open` | Containers tab: Open (the one chosen), Open another file… (any image, with the item and mount options); Copy the folder's path | done | `M` panel: open | missing |
+| `secretvault container close FILE\|MOUNTPOINT` | `container.close` | Containers tab: Close | done | `M` panel: close | missing |
+| `secretvault container list`, `secretvault container ls` UNLOCK | `container.list` | Vault page › Containers tab | done | `M` panel | missing |
+| `secretvault container header-backup FILE OUT` | `svcontainer.BackupHeader` | Containers tab: Back up the header… (where, chosen) | done | `M` panel: header backup | missing |
+| `secretvault container passwd FILE` --item --remove --new-passphrase-file UNLOCK | `svops.ExistingImage`, `container.passwd` | Containers tab: Passphrase… (set, change or remove its own passphrase) | done | `M` panel: passphrase | missing |
 
 ## The desktop
 

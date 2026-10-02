@@ -841,15 +841,15 @@ func TestGrantsAreListedAndRevoked(t *testing.T) {
 	if len(p.grants) != 1 || p.gtable.RowCount != 1 || p.gtable.CellText(0, 0) != "allow-always" || p.gtable.CellText(0, 2) != "web/github.com" {
 		t.Fatalf("grants: %+v", p.grants)
 	}
+	p.tabs.Select(tabAudit)
+	h.idle()
 	if len(p.audit) == 0 {
 		t.Fatal("the audit log is empty")
 	}
-	p.tabs.Select(1)
-	h.pump()
 	if !strings.Contains(h.text(), "presented a key on this connection") {
 		t.Fatalf("the audit log does not show:\n%s", h.text())
 	}
-	p.tabs.Select(0)
+	p.tabs.Select(tabGrants)
 	h.pump()
 	h.win().FocusOn(p.gtable)
 	h.win().Press(platform.KeyDelete)
@@ -891,8 +891,8 @@ func TestSyncStatusIsShown(t *testing.T) {
 	h.waitText("personal: unlocked, 4 items; synced")
 	h.win().Press(platform.KeyG, platform.ModCtrl|platform.ModShift)
 	h.waitFor("the vault's page", h.m.showingVaultPage)
-	h.m.vpage.tabs.Select(2)
-	h.pump()
+	h.m.vpage.tabs.Select(tabSync)
+	h.idle()
 	for _, want := range []string{srv.URL, "Last good sync", "pushed"} {
 		if !strings.Contains(h.text(), want) {
 			t.Errorf("the sync tab lacks %q", want)

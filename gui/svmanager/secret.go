@@ -41,6 +41,7 @@ type secretText struct {
 	value  []byte
 	reveal bool
 	mono   bool
+	wrap   bool // long lines are broken to fit, as a long key or share is
 }
 
 func newSecretText(value []byte) *secretText {
@@ -94,7 +95,7 @@ func (s *secretText) lines() [][]byte {
 
 func (s *secretText) Measure(c layout.Constraints) paintengine2d.Point {
 	f := s.font()
-	lines := s.lines()
+	lines := s.wrapped()
 	if lines == nil {
 		return c.Constrain(paintengine2d.Pt(f.Advance(mask)+2, f.Height()))
 	}
@@ -103,6 +104,30 @@ func (s *secretText) Measure(c layout.Constraints) paintengine2d.Point {
 		w = max(w, f.AdvanceBytes(l))
 	}
 	return c.Constrain(paintengine2d.Pt(w+2, f.Height()*float32(len(lines))))
+}
+
+// wrapAt is how many characters a wrapped line holds: a long key, share
+// or invite fits a dialog in lines of it, whatever a grid offers it
+// (uitoolkit's Grid measures an Auto or Flex column unbounded).
+const wrapAt = 48
+
+// wrapped is the lines to draw: the value's lines, broken every wrapAt
+// bytes when the text wraps (what wraps is a key, a share or an invite,
+// one character a byte, in a fixed-width font).
+func (s *secretText) wrapped() [][]byte {
+	lines := s.lines()
+	if !s.wrap || lines == nil {
+		return lines
+	}
+	var out [][]byte
+	for _, l := range lines {
+		for len(l) > wrapAt {
+			out = append(out, l[:wrapAt])
+			l = l[wrapAt:]
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 func (s *secretText) Arrange(r paintengine2d.Rect) { s.SetBounds(r) }
@@ -114,7 +139,7 @@ func (s *secretText) Paint(ctx *paintengine2d.Context) {
 	col := lk.Palette().Text
 	ctx.Save()
 	ctx.ClipRect(b)
-	lines := s.lines()
+	lines := s.wrapped()
 	if lines == nil {
 		y := b.Min.Y + (b.Dy()-f.Height())*0.5
 		f.Draw(ctx, mask, paintengine2d.Pt(b.Min.X, y), lk.Palette().TextMuted)

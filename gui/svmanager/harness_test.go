@@ -1,8 +1,11 @@
 package svmanager
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,10 +22,13 @@ import (
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/internal/fidotest"
 	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svcrypto"
 	"github.com/codemodify/secretvault/svd"
+	"github.com/codemodify/secretvault/svfido"
 	"github.com/codemodify/secretvault/svformat"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/secretvault/svstore"
@@ -30,11 +36,14 @@ import (
 
 // Nothing in these tests reaches the machine they run on: no display (the
 // windows are headless), no session bus, no keyring, no clipboard (a fake
-// takes the copies), no tray (uitoolkit's fake), and a daemon of their own
-// on a temporary socket, with a temporary home.
+// takes the copies), no tray (uitoolkit's fake), no system command (svops's
+// CommandRunner is a fake that refuses), a home of their own (so no
+// ~/.gnupg, no browser profile, no ~/.local/share/secretvault), and a
+// daemon of their own on a temporary socket, with a temporary home.
 func TestMain(m *testing.M) {
 	for _, k := range []string{"DISPLAY", "WAYLAND_DISPLAY", "AT_SPI_BUS_ADDRESS", "DBUS_SYSTEM_BUS_ADDRESS",
-		"SECRETVAULT_SOCK", "SECRETVAULT_HOME", "UITK_THEME", "UITK_NATIVE_DIALOGS"} {
+		"SECRETVAULT_SOCK", "SECRETVAULT_HOME", "SECRETVAULT_VAULT", "SECRETVAULT_HOST", "GNUPGHOME",
+		"UITK_THEME", "UITK_NATIVE_DIALOGS"} {
 		os.Unsetenv(k)
 	}
 	dir, err := os.MkdirTemp("", "svgui-env")
@@ -44,12 +53,36 @@ func TestMain(m *testing.M) {
 	// Every bus address leads nowhere, and so does the runtime directory
 	// a client falls back to for one ($XDG_RUNTIME_DIR/bus).
 	os.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/svgui-test")
+	os.Setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/nonexistent/svgui-test-system")
 	os.Setenv("XDG_RUNTIME_DIR", filepath.Join(dir, "run"))
 	os.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	os.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
+	os.Setenv("XDG_CACHE_HOME", filepath.Join(dir, "cache"))
+	os.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
+	os.Setenv("HOME", filepath.Join(dir, "home"))
+	os.Setenv("SECRETVAULT_HOME", filepath.Join(dir, "secretvault"))
+	os.Setenv("SECRETVAULT_SOCK", filepath.Join(dir, "nowhere.sock"))
 	os.Setenv("UITK_TRAY", "fake")
+	svops.CommandRunner = commands.run
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
+}
+
+// commands records the system commands svops would have run, and runs
+// none: each fails, as a command that is not there does.
+var commands = &fakeCommands{}
+
+type fakeCommands struct {
+	mu   sync.Mutex
+	runs []string
+}
+
+func (f *fakeCommands) run(name string, args ...string) ([]byte, error) {
+	f.mu.Lock()
+	f.runs = append(f.runs, strings.Join(append([]string{name}, args...), " "))
+	f.mu.Unlock()
+	return nil, errors.New("not run in tests: " + name)
 }
 
 var pass = "correct horse battery staple"
@@ -163,9 +196,64 @@ type harness struct {
 
 	picks      []string // the paths the next file dialogs answer with
 	daemonStop func()
+
+	tweaks []func(*svd.Options) // to the daemon's options
+
+	keysMu sync.Mutex
+	keys   []*fidotest.Authenticator // the security keys plugged in
 }
 
-func newHarness(t *testing.T) *harness {
+// plug plugs in a software security key.
+func (h *harness) plug(o fidotest.Options) *fidotest.Authenticator {
+	a := fidotest.New(o)
+	h.t.Cleanup(a.Stop)
+	h.keysMu.Lock()
+	h.keys = append(h.keys, a)
+	h.keysMu.Unlock()
+	return a
+}
+
+// openKeys is the daemon's way to the security keys: software ones only.
+func (h *harness) openKeys(ctx context.Context) ([]*svfido.Device, error) {
+	h.keysMu.Lock()
+	keys := append([]*fidotest.Authenticator(nil), h.keys...)
+	h.keysMu.Unlock()
+	var out []*svfido.Device
+	for _, a := range keys {
+		d, err := svfido.NewDevice(ctx, a.Transport(), a.Name())
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+// fakeSealer seals login keys in the clear, marked, as the OS would seal
+// them to the user.
+type fakeSealer struct{}
+
+func (fakeSealer) Name() string     { return "test sealer" }
+func (fakeSealer) Available() error { return nil }
+func (fakeSealer) Seal(name string, secret []byte) ([]byte, error) {
+	return append([]byte(name+":"), secret...), nil
+}
+func (fakeSealer) Unseal(name string, sealed []byte) ([]byte, error) {
+	b, ok := bytes.CutPrefix(sealed, []byte(name+":"))
+	if !ok {
+		return nil, errors.New("sealed for something else")
+	}
+	return append([]byte(nil), b...), nil
+}
+
+// noNetwork refuses every request: contact lookups go nowhere.
+type noNetwork struct{}
+
+func (noNetwork) RoundTrip(r *http.Request) (*http.Response, error) {
+	return nil, errors.New("no network in tests: " + r.URL.Host)
+}
+
+func newHarness(t *testing.T, tweaks ...func(*svd.Options)) *harness {
 	t.Helper()
 	a := svcrypto.DefaultArgon2
 	svcrypto.DefaultArgon2 = svcrypto.KDFParams{Alg: svcrypto.Argon2id, Time: 1, MemoryKiB: 64, Threads: 1}
@@ -177,7 +265,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	h := &harness{t: t, dir: dir, sock: filepath.Join(dir, "s", "d.sock"), clip: &fakeClipboard{},
-		now: time.Date(2026, 9, 29, 12, 0, 10, 0, time.UTC)}
+		now: time.Date(2026, 9, 29, 12, 0, 10, 0, time.UTC), tweaks: tweaks}
 	h.startDaemon()
 	t.Cleanup(func() { h.stopDaemon() })
 	c := h.ctx()
@@ -211,15 +299,25 @@ func (h *harness) startDaemon() {
 	// is to a daemon installed beside it; the GUI is the windowed one.
 	var mu sync.Mutex
 	var conns []net.Conn
-	d, err := svd.New(svd.Options{Home: filepath.Join(h.dir, "home"), Socket: h.sock, Desktop: nobody{},
+	opts := svd.Options{Home: filepath.Join(h.dir, "home"), Socket: h.sock, Desktop: nobody{},
 		IsCLI:      func(*svpeer.Process) bool { return true },
 		IsWindowed: func(*svpeer.Process) bool { return true },
+		// Software security keys only, a sealer of its own, and no
+		// network: nothing reaches the machine's keys, its OS sealing or
+		// the internet.
+		SecurityKeys: h.openKeys,
+		Sealer:       fakeSealer{},
+		HTTP:         &http.Client{Transport: noNetwork{}},
 		Peer: func(c net.Conn) (*svpeer.Process, error) {
 			mu.Lock()
 			conns = append(conns, c)
 			mu.Unlock()
 			return svpeer.FromConn(c)
-		}})
+		}}
+	for _, tweak := range h.tweaks {
+		tweak(&opts)
+	}
+	d, err := svd.New(opts)
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -322,7 +420,7 @@ func (h *harness) start(opts Options) {
 	if opts.Clipboard == nil {
 		opts.Clipboard = h.clip
 	}
-	opts.PickFile = func(save bool, suggested string, done func(string)) {
+	opts.PickFile = func(_ PickMode, _ string, done func(string)) {
 		if len(h.picks) == 0 {
 			done("")
 			return

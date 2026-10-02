@@ -566,3 +566,11 @@ func runPenalty(runs []int) int {
 	}
 	return p
 }
+
+// Wipe forgets the symbol's modules: a code of a secret (an invite) is
+// as much the secret as its text. Every module reads light afterwards.
+func (c *Code) Wipe() {
+	clear(c.dark)
+	c.dark = nil
+	c.Size = 0
+}

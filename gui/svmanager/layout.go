@@ -144,10 +144,24 @@ func (m *Manager) buildMenu() *widgets.MenuBar {
 		}
 		return it
 	}
+	vault := func(text string, tab int) *widgets.MenuItem {
+		return item(u.vaultMenu, text, "", func() { m.showVaultPage(tab) })
+	}
 	return widgets.NewMenuBar(
 		widgets.NewMenu("&File",
 			item(u.vaultMenu, "New item", "Ctrl+N", func() { m.newItem(nil) }),
 			item(nil, "New vault…", "", m.newVault),
+			item(nil, "Add vault folder…", "", m.addVaultFolder),
+			item(nil, "Join a synced vault…", "", m.joinSynced),
+			widgets.Sep(),
+			item(u.vaultMenu, "Import…", "", m.importItems),
+			item(u.vaultMenu, "Export…", "", m.exportItems),
+			widgets.Sep(),
+			&widgets.MenuItem{Text: "Emergency access", Submenu: []*widgets.MenuItem{
+				item(nil, "Accept an invite…", "", m.acceptEmergency),
+				item(nil, "Ask for access…", "", m.requestEmergency),
+				item(nil, "Open the vault…", "", m.openEmergency),
+			}},
 			widgets.Sep(),
 			item(nil, "Password generator…", "Ctrl+G", m.openGenerator),
 			widgets.Sep(),
@@ -161,6 +175,7 @@ func (m *Manager) buildMenu() *widgets.MenuBar {
 			item(u.itemMenu, "Copy username", "Ctrl+B", m.copyUsername),
 			item(u.itemMenu, "Copy one-time code", "Ctrl+T", m.copyCode),
 			item(u.itemMenu, "Copy password and minimise", "Ctrl+Shift+C", m.copyAndMinimise),
+			item(u.itemMenu, "Copy reference", "", m.copyReference),
 			widgets.Sep(),
 			item(u.itemMenu, "Open", "", m.openSelected),
 			item(u.itemMenu, "Edit item", "Ctrl+E", m.editItem),
@@ -168,17 +183,72 @@ func (m *Manager) buildMenu() *widgets.MenuBar {
 			item(u.itemMenu, "Rename…", "F2", m.renameItem),
 			item(u.itemMenu, "Delete…", "Delete", m.deleteItem),
 			item(u.itemMenu, "History", "Ctrl+H", m.showHistory),
+			widgets.Sep(),
+			item(u.vaultMenu, "Deleted items", "", m.showDeleted),
 		),
 		widgets.NewMenu("&Vault",
 			item(u.vaultMenu, "Unlock", "Ctrl+U", func() { m.unlockVault("") }),
+			item(u.vaultMenu, "Unlock with…", "", m.unlockWith),
 			item(u.vaultMenu, "Lock", "Ctrl+L", func() { m.lockVault(false) }),
 			item(nil, "Lock all vaults", "Ctrl+Shift+L", func() { m.lockVault(true) }),
 			widgets.Sep(),
 			item(u.vaultMenu, "Make default", "", m.makeDefault),
-			item(u.vaultMenu, "Grants and audit log", "Ctrl+Shift+G", func() { m.showVaultPage(0) }),
+			widgets.Sep(),
+			vault("Keyslots", tabKeyslots),
+			vault("Devices", tabDevices),
+			vault("Sharing and emergency access", tabSharing),
+			vault("Sync", tabSync),
+			vault("Containers", tabContainers),
+			item(u.vaultMenu, "Grants and audit log", "Ctrl+Shift+G", func() { m.showVaultPage(tabGrants) }),
+			vault("Settings", tabSettings),
+		),
+		widgets.NewMenu("&Keys",
+			item(u.vaultMenu, "OpenPGP keys", "", func() { m.showKeysPage(tabPGP) }),
+			item(u.vaultMenu, "S/MIME keys", "", func() { m.showKeysPage(tabSMIME) }),
+			item(u.vaultMenu, "age identities", "", func() { m.showKeysPage(tabAge) }),
+			widgets.Sep(),
+			item(nil, "Identity files", "", func() { m.showKeysPage(tabIdentities) }),
+			item(nil, "Security keys", "", func() { m.showKeysPage(tabSecurityKeys) }),
+		),
+		widgets.NewMenu("&Contacts",
+			item(nil, "Contacts", "Ctrl+Shift+K", func() { m.showContactsPage(tabPeople) }),
+			widgets.Sep(),
+			item(nil, "Add…", "", m.addContact),
+			item(nil, "Import…", "", m.importContacts),
+			item(nil, "Look up…", "", m.lookupContact),
+			item(nil, "Show my QR code…", "", m.showMyQR),
+			widgets.Sep(),
+			item(nil, "Check a signer…", "", m.checkSigner),
+			item(nil, "Record a key seen in mail…", "", m.recordSeen),
+			widgets.Sep(),
+			item(nil, "Keep contacts in…", "", m.contactsVault),
+			item(nil, "Directories", "", func() { m.showContactsPage(tabDirectories) }),
+		),
+		widgets.NewMenu("&Tools",
+			item(nil, "Sign a file…", "", m.signFile),
+			item(nil, "Check a signature…", "", m.verifyFile),
+			item(nil, "Decrypt a file (OpenPGP)…", "", m.decryptPGPFile),
+			widgets.Sep(),
+			item(nil, "Encrypt a file (age)…", "", m.encryptAgeFile),
+			item(nil, "Decrypt a file (age)…", "", m.decryptAgeFile),
+			widgets.Sep(),
+			item(nil, "Inspect a message…", "", m.inspectMessage),
+			item(nil, "Sign and encrypt a message…", "", m.composeMessage),
+			widgets.Sep(),
+			item(nil, "Resolve a reference…", "", m.resolveReference),
+			item(nil, "Check an env file…", "", m.checkEnvFile),
+			item(nil, "Check a template…", "", m.checkTemplate),
+		),
+		widgets.NewMenu("&Desktop",
+			item(nil, "System keyring", "", func() { m.showDesktopPage(tabKeyring) }),
+			item(nil, "Browsers", "", func() { m.showDesktopPage(tabBrowsers) }),
+			item(nil, "GnuPG", "", func() { m.showDesktopPage(tabGnuPG) }),
+			item(nil, "Program helpers", "", func() { m.showDesktopPage(tabHelpers) }),
+			item(nil, "Host daemon", "", func() { m.showDesktopPage(tabHost) }),
 		),
 		widgets.NewMenu("&Help",
 			item(nil, "Keys", "F1", m.showKeys),
+			item(nil, "About secretvault", "", m.showAbout),
 		),
 	)
 }
@@ -235,6 +305,9 @@ func (m *Manager) drawStatus() {
 		if s, ok := m.syncs[v.Name]; ok {
 			b.WriteString(syncLine(s))
 		}
+	}
+	if !m.gone {
+		b.WriteString(m.emergencyLine())
 	}
 	if m.busy > 0 {
 		b.WriteString("  …")

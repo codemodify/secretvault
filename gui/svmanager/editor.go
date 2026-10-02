@@ -341,7 +341,7 @@ func (ed *editor) layoutFields() {
 // replaceFromFile replaces a key, or a value kept as it is, with a file's
 // contents, read straight into bytes.
 func (ed *editor) replaceFromFile(fe *fieldEditor) {
-	cancel := ed.m.pickFile(false, "", func(path string) {
+	cancel := ed.m.pickFile(PickOpen, "", func(path string) {
 		if path == "" || ed.closed || !slices.Contains(ed.fields, fe) {
 			return
 		}

@@ -169,11 +169,12 @@ func (m *Manager) showing(kind string) bool {
 	return ok && p.kind == kind
 }
 
-// showingVaultPage reports whether the vault's page is up, in place of the
-// items.
+// showingVaultPage reports whether a page is up in place of the items:
+// the vault's, or the keys', the contacts' or the desktop's (tabbed.go).
+// Whatever acts on an item waits while one is.
 func (m *Manager) showingVaultPage() bool {
-	p, ok := m.ui.main.Page().(*page)
-	return ok && p.kind == pageVault
+	_, ok := m.ui.main.Page().(*page)
+	return ok
 }
 
 func (m *Manager) showingHistory() bool { return m.showing(pageHistory) }

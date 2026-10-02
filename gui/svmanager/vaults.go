@@ -50,6 +50,7 @@ func (m *Manager) start() {
 			name = vs[0].Name
 		}
 		m.loadSyncs()
+		m.loadEmergency()
 		if name == "" {
 			m.drawVaults()
 			m.showNoVaults()
@@ -349,6 +350,11 @@ func (m *Manager) event(method string, ev svrpc.VaultEvent) {
 			m.reloadVaults()
 		case svrpc.EVaultUnlocked:
 			m.reloadVaults()
+		case svrpc.EEmergency:
+			m.loadEmergency()
+			if p := m.vpage; p != nil && p.vault == ev.Vault {
+				m.refreshTab(p, tabSharing)
+			}
 		case svrpc.EItemChanged:
 			if ev.Vault != m.vault || !m.listed {
 				return
@@ -378,6 +384,7 @@ func (m *Manager) newVault() {
 	suite.SetAccessibleName("Cipher suite")
 	pass := widgets.NewSecretField("At least 8 characters")
 	again := widgets.NewSecretField("The same again")
+	folder := newPathField(m, "Folder", PickFolder, "")
 	recovery := widgets.NewCheckbox("Make a recovery key, shown once", true, nil)
 	problem := toned("", widgets.ToneDanger)
 	problem.Wrap = true
@@ -387,7 +394,9 @@ func (m *Manager) newVault() {
 	form.AddRow("Cipher suite", suite)
 	form.AddRow("Passphrase", pass)
 	form.AddRow("Repeat", again)
+	form.AddRow("Folder", folder.row)
 	body := widgets.NewColumn(form,
+		m.paragraph("Folder: leave it empty to keep the vault in secretvault's data folder, or choose one of your own (a synced folder, say)."),
 		widgets.NewTip("A key to write down, which opens the vault if the passphrase is lost", recovery),
 		problem).WithGap(gap)
 
@@ -417,7 +426,13 @@ func (m *Manager) newVault() {
 			m.win.RequestFocus(pass)
 			return
 		}
-		params := svrpc.VaultCreateParams{Name: n, Suite: suites[max(0, suite.Selected)], Passphrase: p, Recovery: recovery.Checked}
+		dir, err := absPath(folder.Path())
+		if err != nil {
+			clear(p)
+			problem.SetText(sentence(err.Error()))
+			return
+		}
+		params := svrpc.VaultCreateParams{Name: n, Path: dir, Suite: suites[max(0, suite.Selected)], Passphrase: p, Recovery: recovery.Checked}
 		d.Close()
 		var res svrpc.VaultCreateResult
 		m.call(func(ctx context.Context, c *secretvault.Client) (err error) {

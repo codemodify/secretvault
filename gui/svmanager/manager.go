@@ -77,14 +77,24 @@ type Options struct {
 	// closing the window hides it there instead of quitting.
 	Tray bool
 
-	// PickFile asks where to save a file (save) or which file to attach,
-	// and calls done with the path, or "" when the person changed their
-	// mind. The toolkit's file dialog asks when nil.
-	PickFile func(save bool, suggested string, done func(path string))
+	// PickFile asks which file to read (PickOpen), where to save one
+	// (PickSave) or which folder (PickFolder), and calls done with the
+	// path, or "" when the person changed their mind. The toolkit's file
+	// dialog asks when nil.
+	PickFile func(mode PickMode, suggested string, done func(path string))
 
 	// Now is the clock for one-time codes (time.Now when nil).
 	Now func() time.Time
 }
+
+// PickMode is what a file dialog picks.
+type PickMode int
+
+const (
+	PickOpen   PickMode = iota // a file to read
+	PickSave                   // where to write one
+	PickFolder                 // a folder
+)
 
 // clipTTL is how long a copy stays on the clipboard, unless Options say.
 const clipTTL = 30 * time.Second
@@ -115,6 +125,7 @@ type Manager struct {
 
 	vaults     []svrpc.VaultInfo
 	syncs      map[string]svrpc.SyncStatus // by vault, for the vaults that sync
+	emergency  []svrpc.EmergencyNotice     // emergency requests waiting, or released
 	vault      string                      // the vault whose items are shown
 	listed     bool                        // its items have been listed
 	listing    bool                        // and are being listed
@@ -136,7 +147,11 @@ type Manager struct {
 	copiedFrom string // the vault it came from
 
 	hist    *history      // the history page, with its revisions' fields
-	vpage   *vaultPage    // the vault page: grants, audit log, sync
+	page    *tabbedPage   // the page up over the items, if one is
+	vpage   *vaultPage    // the vault's page, when it is the one up
+	kpage   *keysPage     // the keys' page, when it is
+	cpage   *contactsPage // the contacts' page, when it is
+	dpage   *desktopPage  // the desktop's page, when it is
 	editor  *editor       // the open item editor
 	asking  *promptDialog // the daemon's question on the screen
 	promptN int

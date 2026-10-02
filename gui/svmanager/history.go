@@ -10,6 +10,7 @@ import (
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -75,9 +76,9 @@ func (m *Manager) showHistory() {
 func (m *Manager) drawHistory() {
 	h := m.hist
 	h.table = widgets.NewTableView([]widgets.TableColumn{
-		{Title: "When", Width: 170},
+		{Title: "When", Width: 150},
 		{Title: "Revision", Width: 110},
-		{Title: "Device", Width: 90},
+		{Title: "Signed by", Width: 190},
 		{Title: ""},
 	}, len(h.entries), func(row, col int) string {
 		if row < 0 || row >= len(h.entries) {
@@ -90,10 +91,9 @@ func (m *Manager) drawHistory() {
 		case 1:
 			return short(e.Rev)
 		case 2:
-			if len(e.Device) >= 8 {
-				return e.Device[:8]
-			}
-			return "-"
+			// Who wrote it, as far as its signature tells: as the CLI's
+			// history says it.
+			return svops.Author(e)
 		}
 		var note []string
 		switch {
@@ -104,6 +104,9 @@ func (m *Manager) drawHistory() {
 		}
 		if e.Deleted {
 			note = append(note, "deleted")
+		}
+		if e.Ignored {
+			note = append(note, "ignored: the vault requires signatures")
 		}
 		return strings.Join(note, ", ")
 	}, func(i int) { m.openRevision(i) })

@@ -331,7 +331,7 @@ func TestWhatTheEditorOpenedGoesWithIt(t *testing.T) {
 	h.waitFor("the editor", func() bool { return h.m.editor != nil })
 	ed = h.m.editor
 	var pick func(string)
-	h.m.opts.PickFile = func(_ bool, _ string, done func(string)) { pick = done }
+	h.m.opts.PickFile = func(_ PickMode, _ string, done func(string)) { pick = done }
 	h.click(h.win(), button(h.m.ui.pane, "Replace from file…"))
 	if pick == nil {
 		t.Fatal("no file was asked for")
@@ -388,7 +388,7 @@ func TestAKeyIsEditedInASecretArea(t *testing.T) {
 
 	// Read from a file into the area.
 	var pick func(string)
-	h.m.opts.PickFile = func(_ bool, _ string, done func(string)) { pick = done }
+	h.m.opts.PickFile = func(_ PickMode, _ string, done func(string)) { pick = done }
 	h.click(h.win(), button(h.m.ui.pane, "Replace from file…"))
 	next := "-----BEGIN KEY-----\nCCCC\n-----END KEY-----\n"
 	in := filepath.Join(h.dir, "next-key")
@@ -609,7 +609,7 @@ func TestADialogOverAnotherLeavesItAsItWas(t *testing.T) {
 
 	h.m.opts.PickFile = nil // uitoolkit's own chooser
 	t.Setenv("HOME", t.TempDir())
-	cancel := h.m.pickFile(false, "", func(string) {})
+	cancel := h.m.pickFile(PickOpen, "", func(string) {})
 	h.pump()
 	if n := len(h.win().Overlays()); n != 2 {
 		t.Fatalf("%d dialogs up with the file chooser", n)

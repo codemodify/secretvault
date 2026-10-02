@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -19,21 +19,25 @@ import (
 // are wiped once written. The item shows its files as they are once the
 // daemon says the item changed (item.changed), as it does for any change.
 
-// pickFile asks for a file to save to (save) or to read, and calls done
-// with its path, or "" for none. It returns a function that takes the
-// question down unanswered, for a caller that goes away first.
-func (m *Manager) pickFile(save bool, suggested string, done func(string)) (cancel func()) {
+// pickFile asks for a file to read, a file to save to, or a folder, and
+// calls done with its path, or "" for none. It returns a function that
+// takes the question down unanswered, for a caller that goes away first.
+func (m *Manager) pickFile(mode PickMode, suggested string, done func(string)) (cancel func()) {
 	if m.opts.PickFile != nil {
-		m.opts.PickFile(save, suggested, done)
+		m.opts.PickFile(mode, suggested, done)
 		return func() {}
 	}
 	home, _ := os.UserHomeDir()
 	opts := widgets.FileDialogOptions{Path: home, OnPick: done, OnCancel: func() { done("") }}
-	if save {
+	switch mode {
+	case PickSave:
 		opts.Mode = widgets.FileSave
 		opts.Name = suggested
 		opts.Title = "Save " + suggested
-	} else {
+	case PickFolder:
+		opts.Mode = widgets.FileOpenFolder
+		opts.Title = "Choose a folder"
+	default:
 		opts.Mode = widgets.FileOpen
 		opts.Title = "Choose a file"
 	}
@@ -50,7 +54,7 @@ func (m *Manager) pickFile(save bool, suggested string, done func(string)) (canc
 // saveFile writes an item's file to disk, where the person says.
 func (m *Manager) saveFile(item, name string) {
 	vault := m.vault
-	m.pickFile(true, name, func(path string) {
+	m.pickFile(PickSave, name, func(path string) {
 		if path == "" {
 			return
 		}
@@ -71,55 +75,33 @@ func (m *Manager) saveFile(item, name string) {
 	})
 }
 
-// writeFile puts data at path in a file only its owner can read. It is
-// written beside path under another name and then renamed over it, so a
-// file that was there is replaced whole, mode and all, rather than
-// truncated and left as readable as it was.
-func writeFile(path string, data []byte) error {
-	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	ok := false
-	defer func() {
-		if !ok {
-			f.Close()
-			os.Remove(tmp)
-		}
-	}()
-	if err := f.Chmod(0o600); err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return err
-	}
-	ok = true
-	return nil
-}
+// writeFile puts data at path in a file only its owner can read
+// (svops.WriteReplacing, as the CLI writes what it must not leave half
+// written). It is written beside path under another name and then renamed
+// over it, so a file that was there is replaced whole, mode and all,
+// rather than truncated and left as readable as it was. The file dialog
+// has asked before a file is replaced.
+func writeFile(path string, data []byte) error { return svops.WriteReplacing(path, data, 0o600) }
 
 // attachFile attaches a file from disk to an item, replacing one of the
-// same name.
+// same name. It is read as the CLI's attach reads it
+// (svops.ReadAttachment): under its own name, with the media type of its
+// extension.
 func (m *Manager) attachFile(item string) {
 	vault := m.vault
-	m.pickFile(false, "", func(path string) {
+	m.pickFile(PickOpen, "", func(path string) {
 		if path == "" {
 			return
 		}
-		data, err := readFile(path)
-		if err != nil {
-			m.fail(err)
-			return
-		}
-		name := filepath.Base(path)
+		name := ""
 		m.call(func(ctx context.Context, c *secretvault.Client) error {
-			_, err := c.Attach(ctx, svrpc.FileAttachParams{Vault: vault, Item: item, Name: name, Data: data})
+			p, err := svops.ReadAttachment(path, nil, "", "")
+			if err != nil {
+				return err
+			}
+			defer clear(p.Data)
+			p.Vault, p.Item, name = vault, item, p.Name
+			_, err = c.Attach(ctx, p)
 			return err
 		}, func(err error) {
 			if err != nil {
@@ -127,7 +109,7 @@ func (m *Manager) attachFile(item string) {
 				return
 			}
 			m.say("Attached %s to %s.", name, item)
-		}, data)
+		})
 	})
 }
 

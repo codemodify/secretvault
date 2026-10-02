@@ -10,6 +10,7 @@ import (
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svotp"
 	"github.com/codemodify/secretvault/svrpc"
 )
@@ -139,8 +140,8 @@ func (m *Manager) newItemView(e *svrpc.Entry, mode viewMode, keys map[int]*svotp
 
 	if !e.Time.IsZero() {
 		foot := "Changed " + e.Time.Local().Format("2006-01-02 15:04") + " · revision " + short(e.Rev)
-		if len(e.Device) >= 8 {
-			foot += " · device " + e.Device[:8]
+		if e.Signature.Status != "" || len(e.Device) >= 8 {
+			foot += " · " + svops.Author(*e)
 		}
 		fl := m.muted(foot)
 		fl.Wrap = true

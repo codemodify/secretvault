@@ -2,10 +2,10 @@ package svmanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/codemodify/paintengine2d"
 	"github.com/codemodify/uitoolkit/platform"
@@ -17,66 +17,104 @@ import (
 	"github.com/codemodify/secretvault/svrpc"
 )
 
-// A vault's page: what programs may do with it (its grants, which can be
-// revoked), what they have done (its audit log), and how its sync is
-// doing, if it syncs.
+// A vault's page: the ways it opens (its keyslots), the devices that write
+// to it, who it is shared with and who may ask for it in an emergency, its
+// sync, its encrypted containers, what programs may do with it (its
+// grants) and what they have done (its audit log), and its settings.
+
+// The vault page's tabs.
+const (
+	tabKeyslots = iota
+	tabDevices
+	tabSharing
+	tabSync
+	tabContainers
+	tabGrants
+	tabAudit
+	tabSettings
+)
 
 // vaultPage is the vault page's state.
 type vaultPage struct {
-	vault  string
-	tabs   *widgets.TabView
+	*tabbedPage
+
 	grants []svrpc.Grant
 	gtable *widgets.TableView
 	audit  []svrpc.AuditEntry
 	sync   *svrpc.SyncStatus
+
+	slots     []svrpc.SlotInfo
+	stable    *widgets.TableView
+	devices   []svrpc.Device
+	policy    svrpc.SignaturePolicy
+	dtable    *widgets.TableView
+	shared    []svrpc.SlotInfo // the recipient keyslots
+	shtable   *widgets.TableView
+	emergency svrpc.EmergencyList
+	etable    *widgets.TableView
+	syncDevs  []svrpc.SyncDevice
+	sdtable   *widgets.TableView
+	boxes     []svrpc.ContainerInfo
+	ctable    *widgets.TableView
+	info      *svrpc.VaultInfo
 }
 
-// showVaultPage shows the vault's page, open at tab (0 grants, 1 audit
-// log, 2 sync).
+// showVaultPage shows the vault's page, open at tab.
 func (m *Manager) showVaultPage(tab int) {
 	if m.editor != nil {
 		m.say("Save or cancel the edit first.")
 		return
 	}
-	vault, gen := m.vault, m.listGen
-	if vault == "" {
+	vault := m.vault
+	if vault == "" || m.gone {
 		return
 	}
+	if m.vpage != nil && m.vpage.vault == vault && m.up(m.vpage.tabbedPage) {
+		m.selectTab(m.vpage.tabbedPage, tab)
+		return
+	}
+	m.closeVaultPage()
+	p := &vaultPage{tabbedPage: &tabbedPage{kind: pageVault, vault: vault, title: "Vault " + vault}}
+	p.panes = []*pane{
+		newPane("Keyslots", func(pn *pane) { m.fillSlots(p, pn) }),
+		newPane("Devices", func(pn *pane) { m.fillDevices(p, pn) }),
+		newPane("Sharing", func(pn *pane) { m.fillSharing(p, pn) }),
+		newPane("Sync", func(pn *pane) { m.fillSync(p, pn) }),
+		newPane("Containers", func(pn *pane) { m.fillContainers(p, pn) }),
+		newPane("Grants", func(pn *pane) { m.fillGrants(p, pn) }),
+		newPane("Audit log", func(pn *pane) { m.fillAudit(p, pn) }),
+		newPane("Settings", func(pn *pane) { m.fillSettings(p, pn) }),
+	}
+	p.keys = func(e widget.KeyEvent) bool {
+		if e.Key == platform.KeyDelete && p.gtable != nil && m.win.Focus() == widget.Component(p.gtable) {
+			m.revokeGrant()
+			return true
+		}
+		return false
+	}
+	m.vpage = p
+	m.openPage(p.tabbedPage, tab)
+}
+
+// refreshTab fills a tab of the vault page again, if it is still up.
+func (m *Manager) refreshTab(p *vaultPage, tab int) {
+	if p != nil && m.up(p.tabbedPage) && p.panes[tab].filled {
+		p.panes[tab].refresh()
+	}
+}
+
+func (m *Manager) fillGrants(p *vaultPage, pn *pane) {
 	var grants []svrpc.Grant
-	var audit []svrpc.AuditEntry
-	var syncs []svrpc.SyncStatus
-	m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
-		if grants, err = c.Grants(ctx, vault); err != nil {
-			return err
-		}
-		if audit, err = c.Audit(ctx, vault, 500); err != nil {
-			return err
-		}
-		syncs, _ = c.SyncStatus(ctx, vault)
-		return nil
-	}, func(err error) {
-		if err != nil {
-			m.fail(err)
-			m.reloadVaults()
-			return
-		}
-		if vault != m.vault || gen != m.listGen || m.editor != nil {
-			return // the vault shown changed or locked, or an edit began
-		}
-		m.leaveHistory()
-		m.closeItem()
-		p := &vaultPage{vault: vault, grants: grants, audit: audit}
-		if len(syncs) > 0 {
-			p.sync = &syncs[0]
-		}
-		m.vpage = p
-		m.drawVaultPage(tab)
-		m.reloadVaults() // asking may have unlocked it
+	m.load(pn, func(ctx context.Context, c *secretvault.Client) (err error) {
+		grants, err = c.Grants(ctx, p.vault)
+		return err
+	}, func() widget.Component {
+		p.grants = grants
+		return m.drawGrants(p, pn)
 	})
 }
 
-func (m *Manager) drawVaultPage(tab int) {
-	p := m.vpage
+func (m *Manager) drawGrants(p *vaultPage, pn *pane) widget.Component {
 	p.gtable = widgets.NewTableView([]widgets.TableColumn{
 		{Title: "Decision", Width: 130},
 		{Title: "Program"},
@@ -122,15 +160,28 @@ func (m *Manager) drawVaultPage(tab int) {
 	}
 	revoke := tip(widgets.NewButton("Revoke…", m.revokeGrant), "Delete")
 	revoke.SetEnabled(len(p.grants) > 0)
+	allow := widgets.NewButton("Allow a program…", func() { m.decideGrant(p, true) })
+	deny := widgets.NewButton("Deny a program…", func() { m.decideGrant(p, false) })
 	gnote := "What has been decided about programs using this vault. Revoking a decision means the program is asked again."
 	if len(p.grants) == 0 {
 		gnote = "No program has a remembered decision about this vault."
 	}
-	gn := m.muted(gnote)
-	gn.Wrap = true
-	grants := widgets.NewColumn(gn, p.gtable, widgets.NewRow(revoke)).WithGap(gap).WithPad(gap)
-	grants.AddFlex(p.gtable, 1)
+	pn.focus = p.gtable
+	return m.paneColumn(gnote, p.gtable, allow, deny, revoke)
+}
 
+func (m *Manager) fillAudit(p *vaultPage, pn *pane) {
+	var audit []svrpc.AuditEntry
+	m.load(pn, func(ctx context.Context, c *secretvault.Client) (err error) {
+		audit, err = c.Audit(ctx, p.vault, 500)
+		return err
+	}, func() widget.Component {
+		p.audit = audit
+		return m.drawAudit(p, pn)
+	})
+}
+
+func (m *Manager) drawAudit(p *vaultPage, pn *pane) widget.Component {
 	// The audit log, newest first.
 	entries := slices.Clone(p.audit)
 	slices.Reverse(entries)
@@ -183,82 +234,10 @@ func (m *Manager) drawVaultPage(tab int) {
 	if len(entries) == 1 {
 		n = "1 entry"
 	}
-	an := m.muted("Every access to this vault on this device, allowed or not: " + n + ", newest first. " +
-		"The log is sealed so that only an unlocked vault can read it, and chained so that a removed line shows.")
-	an.Wrap = true
-	audit := widgets.NewColumn(an, atable).WithGap(gap).WithPad(gap)
-	audit.AddFlex(atable, 1)
-
-	p.tabs = widgets.NewTabView(
-		widgets.Tab{Title: "Grants", Content: grants},
-		widgets.Tab{Title: "Audit log", Content: audit},
-		widgets.Tab{Title: "Sync", Content: m.syncTab(p)},
-	)
-	p.tabs.Select(tab)
-	back := tip(widgets.NewButton("Back to the items", m.closeVaultPage), "Escape")
-	col := widgets.NewColumn(heading("Vault "+p.vault), p.tabs, widgets.NewRow(back)).WithGap(gap).WithPad(pad)
-	col.AddFlex(p.tabs, 1)
-	m.ui.main.Set(newPage(pageVault, col, func(e widget.KeyEvent) bool {
-		switch {
-		case e.Key == platform.KeyEscape:
-			m.closeVaultPage()
-		case e.Key == platform.KeyDelete && m.win.Focus() == widget.Component(p.gtable):
-			m.revokeGrant()
-		default:
-			return false
-		}
-		return true
-	}))
-	if tab == 0 {
-		m.win.RequestFocus(p.gtable)
-	} else if tab == 1 {
-		m.win.RequestFocus(atable)
-	}
-	m.enableMenus()
-}
-
-// syncTab says how the vault's sync is doing. It is for reading: setting
-// sync up and joining devices are the CLI's (secretvault sync).
-func (m *Manager) syncTab(p *vaultPage) widget.Component {
-	s := p.sync
-	if s == nil {
-		n := m.muted("This vault does not sync. 'secretvault sync setup' keeps it in step with a sync server of your own.")
-		n.Wrap = true
-		return widgets.NewColumn(n).WithPad(gap)
-	}
-	when := func(t time.Time) string {
-		if t.IsZero() {
-			return "never"
-		}
-		return t.Local().Format("2006-01-02 15:04:05")
-	}
-	rows := [][2]string{
-		{"Server", s.URL},
-		{"Vault on the server", s.ServerVault},
-		{"This device", s.Device},
-		{"Last sync", when(s.Last)},
-		{"Last good sync", when(s.LastOK)},
-		{"Since the daemon started", fmt.Sprintf("%d pulled, %d pushed, %d removed", s.Pulled, s.Pushed, s.Removed)},
-	}
-	g := widgets.NewGrid()
-	g.Cols = []widgets.Track{widgets.Auto(), widgets.Flex(1)}
-	g.ColGap = 16
-	for i, r := range rows {
-		g.Place(m.muted(r[0]), i, 0)
-		g.Place(widgets.NewLabel(r[1]), i, 1)
-	}
-	col := widgets.NewColumn(g).WithGap(gap).WithPad(gap)
-	if s.Error != "" {
-		e := toned("The last sync failed: "+s.Error, widgets.ToneDanger)
-		e.Wrap = true
-		col.Add(e)
-	}
-	if s.Kept > 0 {
-		k := toned(fmt.Sprintf("%d keyslot removals were refused, because they would have left the vault with no key.", s.Kept), widgets.ToneWarning)
-		k.Wrap = true
-		col.Add(k)
-	}
-	return col
+	pn.focus = atable
+	refresh := widgets.NewButton("Refresh", pn.refresh)
+	return m.paneColumn("Every access to this vault on this device, allowed or not: "+n+", newest first. "+
+		"The log is sealed so that only an unlocked vault can read it, and chained so that a removed line shows.", atable, refresh)
 }
 
 // revokeGrant forgets the decision selected, after asking.
@@ -267,41 +246,116 @@ func (m *Manager) revokeGrant() {
 	if p == nil || p.gtable == nil {
 		return
 	}
-	i := p.gtable.Selected
+	i := selected(p.gtable)
 	if i < 0 || i >= len(p.grants) {
 		return
 	}
 	g := p.grants[i]
 	vault := p.vault
 	m.confirm("Revoke?", fmt.Sprintf("Forget that %s is %s?\n\nIt will be asked about again.", g.Program, g.Decision), "Revoke", func() {
-		var left []svrpc.Grant
 		m.call(func(ctx context.Context, c *secretvault.Client) error {
-			if err := c.Revoke(ctx, vault, g.ID); err != nil {
-				return err
-			}
-			var err error
-			left, err = c.Grants(ctx, vault)
-			return err
+			return c.Revoke(ctx, vault, g.ID)
 		}, func(err error) {
 			if err != nil {
 				m.fail(err)
 				return
 			}
 			m.say("Revoked the decision about %s.", g.Program)
-			if m.vpage == p && m.showingVaultPage() {
-				p.grants = left
-				m.drawVaultPage(0)
-			}
+			m.refreshTab(p, tabGrants)
 		})
 	})
 }
 
+// grantOps are the operations a decision can be about, as grant.add takes
+// them.
+var grantOps = []string{"read", "list", "write", "delete", "manage", "sign", "decrypt", "mount"}
+
+// decideGrant decides ahead of time about a program (the CLI's grant
+// allow and grant deny): the program, the whole vault, an item or its
+// contacts, and what it may do.
+func (m *Manager) decideGrant(p *vaultPage, allow bool) {
+	title := "Deny a program"
+	if allow {
+		title = "Allow a program"
+	}
+	f := m.newForm(title)
+	prog := f.path("Program", PickOpen, "")
+	f.note("The program's path; a Flatpak app as flatpak:APP, a Snap as snap:NAME.")
+	scope := f.choice("About", []string{"the whole vault", "one item", "the vault's contacts"}, 0)
+	item := f.text("Item", m.targetName(), "web/example.com")
+	opsRow := widgets.NewWrap()
+	boxes := make([]*widgets.Checkbox, len(grantOps))
+	for i, op := range grantOps {
+		boxes[i] = widgets.NewCheckbox(op, op == "read", nil)
+		opsRow.Add(boxes[i])
+	}
+	f.row("Operations", opsRow)
+	var untilLock *widgets.Checkbox
+	if allow {
+		untilLock = f.check("Only until the vault next locks", false)
+	}
+	f.show(strings.SplitN(title, " ", 2)[0], func() {
+		program := prog.Path()
+		if program == "" {
+			f.fail("Choose the program.")
+			return
+		}
+		params := svrpc.GrantAddParams{Vault: p.vault, Program: program, Decision: "deny-always"}
+		switch scope.Selected {
+		case 1:
+			params.Item = strings.TrimSpace(item.Text)
+			if err := checkName(params.Item); err != nil {
+				f.fail(sentence(err.Error()))
+				return
+			}
+		case 2:
+			params.Contacts = true
+		}
+		for i, b := range boxes {
+			if b.Checked {
+				params.Ops = append(params.Ops, grantOps[i])
+			}
+		}
+		if len(params.Ops) == 0 {
+			f.fail("Choose at least one operation.")
+			return
+		}
+		if allow {
+			params.Decision = "allow-always"
+			if untilLock.Checked {
+				params.Decision = "allow-until-lock"
+			}
+		}
+		var g svrpc.Grant
+		f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
+			g, err = c.Grant(ctx, params)
+			return err
+		}, func() {
+			what := "the whole vault"
+			if g.Item != "" {
+				what = g.Item
+			}
+			m.say("%s: %s may %s %s.", g.Decision, g.Program, strings.Join(g.Ops, ", "), what)
+			m.refreshTab(p, tabGrants)
+		})
+	})
+}
+
+// closeVaultPage takes down whatever page is up over the items, and shows
+// them again.
 func (m *Manager) closeVaultPage() {
-	m.vpage = nil
+	m.vpage, m.kpage, m.cpage, m.dpage = nil, nil, nil, nil
+	if m.page != nil {
+		m.page = nil
+	}
 	if m.showingVaultPage() {
 		m.ui.main.Set(m.ui.browse)
 		m.showSelected()
 		m.win.RequestFocus(m.ui.items)
 		m.enableMenus()
+		m.syncCapture()
 	}
 }
+
+// errNoVault is an operation on the vault shown when none is.
+var errNoVault = errors.New("choose a vault first")
