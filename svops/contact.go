@@ -21,6 +21,10 @@ func IsContactURI(s string) bool {
 	return strings.HasPrefix(l, svtrust.ContactScheme+":") || strings.HasPrefix(l, "openpgp4fpr:")
 }
 
+// ErrNoOwnKeys is OwnCard finding no key to show. Its text is the CLI's;
+// a manager says it in its own words.
+var ErrNoOwnKeys = errors.New("no keys to show: make one with 'secretvault pgp new', or name them with --key or --recipient")
+
 // OwnCard gathers the fingerprints of your own keys, for a QR code
 // (svtrust.Card.URI, drawn with svqr): the key items named (OpenPGP or
 // SSH keys), else every OpenPGP key in the vault, and the recipients
@@ -92,7 +96,7 @@ func OwnCard(ctx context.Context, cl *secretvault.Client, vault string, items, r
 		card.Keys = append(card.Keys, svtrust.CardKey{Type: svtrust.Secretvault, Fingerprint: k.Fingerprint})
 	}
 	if len(card.Keys) == 0 {
-		return nil, errors.New("no keys to show: make one with 'secretvault pgp new', or name them with --key or --recipient")
+		return nil, ErrNoOwnKeys
 	}
 	name, addr := svtrust.SplitUserID(firstUID)
 	card.Name = name

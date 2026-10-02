@@ -216,6 +216,10 @@ func RelinkGnuPG(ctx context.Context, connect func() (*secretvault.Client, error
 	return err
 }
 
+// ErrNoGnuPGKey is a vault with no OpenPGP key gpg can use. Its text is
+// the CLI's; a manager says it in its own words.
+var ErrNoGnuPGKey = errors.New("the vault holds no OpenPGP key gpg can use: make one with 'secretvault pgp new --v4', or 'secretvault pgp import' one")
+
 // GnuPGKeys are the public keys of the vault's OpenPGP keys that gpg can
 // use, and what was left out and why.
 func GnuPGKeys(ctx context.Context, cl *secretvault.Client, vault string) ([]svrpc.PGPKey, []string, error) {
@@ -240,7 +244,7 @@ func GnuPGKeys(ctx context.Context, cl *secretvault.Client, vault string) ([]svr
 		keys = append(keys, k)
 	}
 	if len(keys) == 0 {
-		return nil, skipped, errors.New("the vault holds no OpenPGP key gpg can use: make one with 'secretvault pgp new --v4', or 'secretvault pgp import' one")
+		return nil, skipped, ErrNoGnuPGKey
 	}
 	return keys, skipped, nil
 }

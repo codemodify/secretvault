@@ -125,7 +125,7 @@ place, or a state.
 | `secretvault slot list`, `secretvault slot ls` | `slot.list` | Vault page › Keyslots tab | done | `K` keyslots panel | missing |
 | `secretvault slot add passphrase\|recovery\|keyfile\|recipient\|fido2` --label --new-passphrase-file --create --split --threshold --uv --no-uv UNLOCK | `slot.add`; `svops.CreateKeyfile`, `svops.RecipientArg`, `svops.SplitThreshold`, `svops.SplitLabel`, `svops.SplitRecoveryKey` | Keyslots tab: Add…: the kind, then what it takes: a passphrase; a recovery key shown once, or split into shares shown once; a keyfile, made there or chosen; a recipient, its file or an identity file; the security key plugged in (its PIN with every touch, always, or a touch alone; the PIN asked in its own window, the touches in the status bar) | done | `K` keyslots panel: `a` | missing |
 | `secretvault slot rm ID`, `secretvault slot remove ID` UNLOCK | `slot.remove` | Keyslots tab: Remove… (asks first, and says it is not revocation) | done | `K` keyslots panel: `x` | missing |
-| `secretvault fido2 list`, `secretvault fido2 ls` | `fido2.list` | Keys › Security keys: those plugged in, and what each can do | missing | `K` keyslots panel: the security keys plugged in | missing |
+| `secretvault fido2 list`, `secretvault fido2 ls` | `fido2.list` | Keys › Security keys: those plugged in, and what each can do (its PIN and the tries left, hmac-secret, a problem); Refresh | done | `K` keyslots panel: the security keys plugged in | missing |
 
 ## Sharing and emergency access
 
@@ -176,21 +176,21 @@ place, or a state.
 
 | CLI | Operation | GUI | GUI state | TUI | TUI state |
 | --- | --- | --- | --- | --- | --- |
-| `secretvault identity new` --out --suite | `svops.NewIdentity`, `svops.WriteNew` | Keys › Identity files: New… (saved to a file chosen) | missing | `P` keys panel: new identity | missing |
-| `secretvault identity pub FILE` | `svops.IdentityRecipient` | Keys › Identity files: Show the recipient… | missing | `P` keys panel: recipient of a file | missing |
-| `secretvault pgp list`, `secretvault pgp ls` UNLOCK | `item.list`; `svops.PGPKeyEntries` | Keys › OpenPGP keys | missing | `P` keys panel › OpenPGP | missing |
-| `secretvault pgp new` --name --email --v4 --item --expires UNLOCK | `pgp.generate` | OpenPGP keys: New… | missing | `P` › OpenPGP: new | missing |
-| `secretvault pgp import FILE\|-` --item --key-passphrase-file UNLOCK | `svops.PGPImportItem`, `svops.StorePGPKey` | OpenPGP keys: Import… (the key's passphrase asked for if it has one) | missing | `P` › OpenPGP: import | missing |
-| `secretvault pgp export [KEY]` --secret --unprotected --new-passphrase-file -o UNLOCK | `pgp.public`; with --secret `item.get`, `svops.ProtectPGPKey`; `svops.CreateAtomic` | OpenPGP keys: Export… (public, or secret under a new passphrase) | missing | `P` › OpenPGP: export | missing |
-| `secretvault pgp pub [KEY]` -o UNLOCK | `pgp.public` | OpenPGP keys: Copy the public key | missing | `P` › OpenPGP: `c` copies the public key | missing |
+| `secretvault identity new` --out --suite | `svops.NewIdentity`, `svops.WriteNew` | Keys › Identity files: New… (the cipher suite, a new file only its owner reads; its recipient shown) | done | `P` keys panel: new identity | missing |
+| `secretvault identity pub FILE` | `svops.IdentityRecipient` | Keys › Identity files: Show the recipient of a file… | done | `P` keys panel: recipient of a file | missing |
+| `secretvault pgp list`, `secretvault pgp ls` UNLOCK | `item.list`; `svops.PGPKeyEntries` | Keys › OpenPGP keys (`svops.PGPKeyEntries`): item, fingerprint, user ID | done | `P` keys panel › OpenPGP | missing |
+| `secretvault pgp new` --name --email --v4 --item --expires UNLOCK | `pgp.generate` | OpenPGP keys: New… (name, addresses, item, expiry, version 4 or 6) | done | `P` › OpenPGP: new | missing |
+| `secretvault pgp import FILE\|-` --item --key-passphrase-file UNLOCK | `svops.PGPImportItem`, `svops.StorePGPKey` | OpenPGP keys: Import… (a key file; its passphrase asked for in a dialog when `svops.PGPImportItem` finds it protected; a name taken said in the GUI's words, `svops.ErrKeyExists`) | done | `P` › OpenPGP: import | missing |
+| `secretvault pgp export [KEY]` --secret --unprotected --new-passphrase-file -o UNLOCK | `pgp.public`; with --secret `item.get`, `svops.ProtectPGPKey`; `svops.CreateAtomic` | OpenPGP keys: Export… (the public key, the secret key under a new passphrase asked for when `svops.ProtectPGPKey` needs it, or the secret key as kept), to a file that appears whole, mode 0600 | done | `P` › OpenPGP: export | missing |
+| `secretvault pgp pub [KEY]` -o UNLOCK | `pgp.public` | OpenPGP keys: Copy the public key | done | `P` › OpenPGP: `c` copies the public key | missing |
 | `secretvault pgp sign [IN]` --key --inline --clear -a --text -o UNLOCK | `pgp.sign` | Tools › Sign a file… | missing | `:` Sign a file | missing |
 | `secretvault pgp decrypt [IN]` --key --verify --from -o UNLOCK | `pgp.decrypt` | Tools › Decrypt a file (OpenPGP)… | missing | `:` Decrypt a file | missing |
 | `secretvault pgp verify [IN]` --signature --from -o UNLOCK | `pgp.verify` | Tools › Check a signature… (the verdict against the contacts) | missing | `:` Check a signature | missing |
-| `secretvault smime import FILE.p12` --password-file --item UNLOCK | `smime.import` | Keys › S/MIME keys: Import… | missing | `P` › S/MIME: import | missing |
-| `secretvault smime list`, `secretvault smime ls` UNLOCK | `smime.list` | Keys › S/MIME keys | missing | `P` › S/MIME | missing |
-| `secretvault age keygen` --name --pq -o UNLOCK | `svops.GenerateAgeIdentity`, `svops.StoreAgeIdentity` (both: `svops.AgeKeygen`) | Keys › age identities: New… (the identity line to copy or save) | missing | `P` › age: new | missing |
-| `secretvault age recipient ITEM` UNLOCK | `svops.AgeItemRecipient` | age identities: Copy the recipient | missing | `P` › age: copy the recipient | missing |
-| `secretvault age identity ITEM` UNLOCK | `svops.VaultName`, `svops.AgePluginIdentity` | age identities: Copy the identity line (for age and SOPS) | missing | `P` › age: copy the identity line | missing |
+| `secretvault smime import FILE.p12` --password-file --item UNLOCK | `smime.import` | Keys › S/MIME keys: Import… (the .p12 file, its password, the item) | done | `P` › S/MIME: import | missing |
+| `secretvault smime list`, `secretvault smime ls` UNLOCK | `smime.list` | Keys › S/MIME keys: item, addresses, certificate, expiry | done | `P` › S/MIME | missing |
+| `secretvault age keygen` --name --pq -o UNLOCK | `svops.GenerateAgeIdentity`, `svops.StoreAgeIdentity` (both: `svops.AgeKeygen`) | Keys › age identities: New… (the item, post-quantum or not, and a file for the identity line if wanted); its recipient and identity line shown | done | `P` › age: new | missing |
+| `secretvault age recipient ITEM` UNLOCK | `svops.AgeItemRecipient` | age identities (`svops.AgeKeyEntries`): Copy the recipient | done | `P` › age: copy the recipient | missing |
+| `secretvault age identity ITEM` UNLOCK | `svops.VaultName`, `svops.AgePluginIdentity` | age identities: Copy the identity line (for age and SOPS) | done | `P` › age: copy the identity line | missing |
 | `secretvault age encrypt [IN]` -r -R -p -a -o --allow-mixed-pq UNLOCK | `svops.AgeRecipient`, `svops.EachKeyLine`, `svops.AgeEncrypt`, `svops.CreateAtomic` | Tools › Encrypt a file (age)… (recipients: vault identities, contacts, typed; or a passphrase) | missing | `:` Encrypt a file | missing |
 | `secretvault age decrypt [IN]` -i -o UNLOCK | `svops.AgeIdentities`, `svops.VaultIdentity`, `svops.PassphraseIdentity`, `svops.AgeDecrypt` | Tools › Decrypt a file (age)… | missing | `:` Decrypt a file | missing |
 

@@ -17,6 +17,16 @@ import (
 // makes them, signs and decrypts with them; taking one in from a file,
 // and protecting one taken out, happen here.
 
+// The errors below keep the CLI's words, which name its commands and
+// flags; a manager tells them apart with errors.Is and says them in its
+// own.
+var (
+	// ErrNotOneSecretKey is a file to import that is not one secret key.
+	ErrNotOneSecretKey = errors.New("someone's public key goes to 'secretvault contact add'")
+	// ErrKeyExists is a key to store under a name already taken.
+	ErrKeyExists = errors.New("a key is never replaced")
+)
+
 // PGPKeyEntries are the entries of a listing that are OpenPGP keys.
 func PGPKeyEntries(entries []svrpc.Entry) []svrpc.Entry {
 	var out []svrpc.Entry
@@ -42,7 +52,7 @@ func PGPImportItem(data []byte, source, item string, passphrase func() ([]byte, 
 		for _, k := range keys {
 			k.Close()
 		}
-		return svrpc.Item{}, "", fmt.Errorf("%s does not hold exactly one secret key (someone's public key goes to 'secretvault contact add')", source)
+		return svrpc.Item{}, "", fmt.Errorf("%s does not hold exactly one secret key (%w)", source, ErrNotOneSecretKey)
 	}
 	k := keys[0]
 	defer k.Close()
@@ -100,7 +110,7 @@ func StorePGPKey(ctx context.Context, cl *secretvault.Client, vault string, it s
 	if found, _, err := FindItem(ctx, cl, vault, it.Name); err != nil {
 		return err
 	} else if found {
-		return fmt.Errorf("%s already exists; pick another name with --item (a key is never replaced)", it.Name)
+		return fmt.Errorf("%s already exists; pick another name with --item (%w)", it.Name, ErrKeyExists)
 	}
 	_, err := cl.Put(ctx, vault, it)
 	return err

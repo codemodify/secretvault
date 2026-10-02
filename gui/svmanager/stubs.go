@@ -1,16 +1,7 @@
 package svmanager
 
-type keysPage struct{ *tabbedPage }
 type contactsPage struct{ *tabbedPage }
 type desktopPage struct{ *tabbedPage }
-
-const (
-	tabPGP = iota
-	tabSMIME
-	tabAge
-	tabIdentities
-	tabSecurityKeys
-)
 
 const (
 	tabPeople = iota
@@ -25,7 +16,6 @@ const (
 	tabHost
 )
 
-func (m *Manager) showKeysPage(int)     {}
 func (m *Manager) showContactsPage(int) {}
 func (m *Manager) addContact()          {}
 func (m *Manager) importContacts()      {}

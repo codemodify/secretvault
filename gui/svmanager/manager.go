@@ -43,6 +43,7 @@ import (
 
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/gui/secretui"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svotp"
 	"github.com/codemodify/secretvault/svrpc"
 )
@@ -488,6 +489,22 @@ func (m *Manager) describe(err error) string {
 		return "secretvaultd took too long to answer."
 	case errors.Is(err, context.Canceled):
 		return "Canceled."
+	// svops says these in the CLI's words, which name its commands and
+	// flags: here they are said in this program's.
+	case errors.Is(err, svops.ErrNoOwnKeys):
+		return "There is no key of yours to show: make an OpenPGP key in Keys › OpenPGP keys, or choose a recipient."
+	case errors.Is(err, svops.ErrNoDefaultVault):
+		return "There is no default vault: File › New vault… makes one, and Vault › Make default chooses one."
+	case errors.Is(err, svops.ErrNoAgeIdentity):
+		return "That item holds no age identity: Keys › age identities › New… makes one."
+	case errors.Is(err, svops.ErrNotOneSecretKey):
+		return "That file does not hold exactly one secret key. Someone else's public key goes to Contacts › Add…"
+	case errors.Is(err, svops.ErrKeyExists):
+		return "There is an item of that name already: give the key another name (a key is never replaced)."
+	case errors.Is(err, svops.ErrNoGnuPGKey):
+		return "The vault holds no OpenPGP key gpg can use: make one in Keys › OpenPGP keys (version 4), or import one."
+	case errors.Is(err, svops.ErrNoCLI):
+		return "The secretvault program is not installed beside this one, so other programs cannot be set up to start it."
 	case errors.As(err, &e):
 		return sentence(e.Message)
 	}

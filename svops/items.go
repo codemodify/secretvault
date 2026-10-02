@@ -186,8 +186,12 @@ func VaultName(ctx context.Context, cl *secretvault.Client, vault string) (strin
 			return v.Name, nil
 		}
 	}
-	return "", errors.New("there is no default vault; create one with 'secretvault init'")
+	return "", ErrNoDefaultVault
 }
+
+// ErrNoDefaultVault is VaultName finding no default vault. Its text is the
+// CLI's; a manager says it in its own words.
+var ErrNoDefaultVault = errors.New("there is no default vault; create one with 'secretvault init'")
 
 // Conflict is an item changed on two devices at once: the version shown
 // now, and every version still standing (the current one among them),

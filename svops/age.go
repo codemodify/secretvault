@@ -45,6 +45,18 @@ func AgeItemRef(vault, arg string) (svrpc.Ref, error) {
 	return svrpc.Ref{Vault: vault, Item: arg}, nil
 }
 
+// AgeKeyEntries are the entries of a listing that hold age identities
+// made by StoreAgeIdentity (an item with the recipient attribute).
+func AgeKeyEntries(entries []svrpc.Entry) []svrpc.Entry {
+	var out []svrpc.Entry
+	for _, e := range entries {
+		if e.Item.Attrs[AgeRecipientName] != "" {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 // AgePluginIdentity is the AGE-PLUGIN-SECRETVAULT-1... string naming an
 // item.
 func AgePluginIdentity(vault, item string) (string, error) {
@@ -181,6 +193,10 @@ func AgeItemRecipient(ctx context.Context, cl *secretvault.Client, r svrpc.Ref) 
 	return "", fmt.Errorf("%s does not hold an age identity", r.Item)
 }
 
+// ErrNoAgeIdentity is an item without the field an age identity is kept
+// in. Its text is the CLI's advice; a manager gives its own.
+var ErrNoAgeIdentity = errors.New("make one with 'secretvault age keygen'")
+
 // LoadAgeIdentity reads the age identity in an item (its age_identity
 // field, or r.Field), wiping the item once it is parsed.
 func LoadAgeIdentity(ctx context.Context, cl *secretvault.Client, r svrpc.Ref) (svage.Identity, error) {
@@ -195,7 +211,7 @@ func LoadAgeIdentity(ctx context.Context, cl *secretvault.Client, r svrpc.Ref) (
 	}
 	f, ok := Field(&e.Item, name)
 	if !ok {
-		return nil, fmt.Errorf("%s has no field %q (make one with 'secretvault age keygen')", r.Item, name)
+		return nil, fmt.Errorf("%s has no field %q (%w)", r.Item, name, ErrNoAgeIdentity)
 	}
 	id, err := svage.ParseIdentityBytes(f.Value)
 	if err != nil {
