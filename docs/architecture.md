@@ -639,8 +639,8 @@ answer only after asking the person, through the same program.
   daemon's questions are asked in [`gui/secretui`](../gui/secretui)'s
   dialog window, as `secretvault-gui-prompt` asks its own: out of captures
   where the platform allows, holding the keyboard while the passphrase
-  field has it, and saying when Caps Lock is on. A new vault's passphrase
-  dialog says so too.
+  field has it and saying so while it is held, and saying when Caps Lock
+  is on. A new vault's passphrase dialog says so too.
 
 - **Secrets shown once** (a recovery key, its shares, a sync invite, an
   emergency access invite) are drawn from their bytes in a dialog that
@@ -671,7 +671,8 @@ Where a secret still becomes a Go string:
 - the values of fields that are not secret (text, URLs, e-mail);
 - what JSON encoding and decoding make on the way to and from the daemon,
   as for every client;
-- on X11, the copy uitoolkit serves the clipboard from while it owns it.
+- on Wayland, what uitoolkit answers each paste of a copy from, while it
+  owns the clipboard (it holds the copy itself as bytes, and zeroes them).
 
 A key can also be replaced from a file, read straight into bytes. A value
 no field can show (binary, or text with control characters in it) is kept
