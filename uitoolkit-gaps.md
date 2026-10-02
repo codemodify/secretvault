@@ -3,100 +3,117 @@
 This list is for [uitoolkit](https://github.com/codemodify/uitoolkit)'s
 maintainers.
 
-- `secretvault-gui-prompt` asks for passphrases and consent. Items 1–6
-  blocked it; uitoolkit now has all six, and the prompt is built on them.
-- `secretvault-gui`, the manager, needed items 1, 2 and 7–11. It is built,
-  on items 1–4, 6, 7 and 9, and on the folder-picking file dialog and the
-  virtualised tables below. It still works around item 8.
-- Items 12–17 were found while building the prompt, items 18–24 while
-  building the manager, 25–29 while moving to v0.22.1 and 30–32 while
-  moving to v0.22.2. uitoolkit v0.22.1 provided 13–17; v0.22.2 provided
-  18–22 and 24–27, and parts of 23, 28 and 29; v0.22.3 fixes 29 (through
-  31), 30, 31 and 32; v0.22.4 and v0.22.5 (649af18) answer 8, 23 and 28
-  and give the narrow-form lever. Both programs use them in place of their
-  own workarounds. Items 33 and 34 are new, found moving to v0.22.5. None
-  of what is left blocks either program; each open item says what the
-  program does in the meantime.
+**Does uitoolkit v0.23.0 address all of secretvault's needs? No, not
+yet.** It covers nearly all of them: of the 37 items, 26 are satisfactory
+and one (11) is declined by design. What is left touches the passphrase
+itself:
 
-Two voices below. **"After v0.22.x"** paragraphs are secretvault's own
+- 3 and 37: secure input's answer is not what is in effect, and on X11 a
+  prompt's first grab is attempted before its window is mapped;
+- 7 and 35: on Linux a secret on the clipboard, copied or pasted, is a Go
+  string that cannot be wiped;
+- 8 and 33: a hidden `SecretLabel` holds a copy of the secret;
+- 12 and 28: Caps Lock reads as off after a focus-in on every backend;
+
+and two that do not: 34 (a window's floor from its content) and 36 (a
+form value read aloud as its caption). secretvault works around 8, 12,
+28, 34 and 36 in its own code; 3, 7, 35 and 37 it cannot.
+
+- `secretvault-gui-prompt` asks for passphrases and consent, and
+  `secretvault-gui` is the manager; both are built on uitoolkit.
+- Items 1–11 were asked for before either was built, 12–17 while building
+  the prompt, 18–24 while building the manager, and 25–37 while moving
+  through the releases since (25–29 at v0.22.1, 30–32 at v0.22.2, 33–34 at
+  v0.22.5, 35–37 in the audit of v0.23.0).
+- **The audit of v0.23.0** re-read every item from scratch, not only the
+  open ones, and re-read the code paths of the ones a passphrase goes
+  through (1, 3, 4, 5, 7, 8, 12, 18, 19, 28, 33). None regressed: of the
+  files those paths run through, v0.22.5 to v0.23.0 changed only
+  `app/window.go` (the caption's shape) and the X11 and Wayland window
+  creation (the application's identity), and every pin passes. Reading
+  them again found three things the list never had: 35, 36 and 37.
+- **What v0.23.0 gave that the list never asked for**, and both programs
+  now use: an application identity per program (`platform.SetAppID`;
+  before, every uitoolkit program was "uitoolkit" to a Linux desktop, the
+  prompt and the manager one task-bar entry), set to `secretvault-gui`
+  and `secretvault-gui-prompt`; and diagnostics (`uitoolkit.Diagnostics`),
+  which the tests of both programs now check hold no warning. The
+  accessibility audit (`a11y/a11ytest`) is what found 36. On our side, the
+  prompt's windows now wear the padlock the manager's do; neither program
+  ships a `.desktop` file yet, which is secretvault's to do.
+
+Two voices below. **"After v0.2x.y"** paragraphs are secretvault's own
 checks, each pinned by a test in `gui/uitoolkit_test.go`. **"Closed in
 0.22.x"** paragraphs are uitoolkit's maintainers' notes on the same items.
 The maintainers count all of 18–32 closed by 0.22.3, and 8, 23 and 28
-closed by 0.22.5 (649af18, "the three secretvault said were still open,
-and all three were"). secretvault's checks of 0.22.5 agree on 23. They
+closed by 0.22.5. secretvault's checks agree on 18–27, 29–32 and 23, and
 disagree on:
 
 - 8: the length no longer leaks, but a hidden `SecretLabel` holds a copy
-  of the secret that nothing wipes when it leaves the window (33); the
-  manager keeps its own label, which holds no copy;
-- 12 and 28: a field now asks the window as it takes the focus, but the
-  focus-in that follows, which carries no modifiers on any backend, is now
-  *reported* to every watcher as Caps Lock going off; the field's mark
-  comes and goes, and the window's own state is wrong after it. The
-  manager and the prompt keep their Caps Lock line;
-- the narrow-form floor: `MinWidthOf` does not see through a `Splitter`,
-  a `TextField` has no `PreferredWidth`, and a window's minimum can only be
-  given as the window is made (34).
+  of the secret that nothing wipes when it leaves the window (33);
+- 12 and 28: a focus-in, which carries no modifiers on any backend, is
+  reported to every watcher as Caps Lock going off;
+- 30: `DismissOverlay` from outside closes the *top* dialog only, so the
+  manager keeps `SetOverlay(nil)` at quit, which closes them all;
+- 34: their corrected note is right that `WindowOptions.MinWidth` exists
+  and reaches every backend, but it is given as the window is made,
+  before the content that decides it, and `MinWidthOf` stops at a
+  `Splitter`; the manager's minimum is a constant its test keeps true.
 
-Still standing from 0.22.3:
-
-- 30: closed, but the note's last sentence is not: `DismissOverlay` from
-  outside closes the *top* dialog only, so the manager keeps
-  `SetOverlay(nil)` at quit, which closes every dialog in the stack. It
-  is the right call rather than a workaround.
-
-After 0.22.2 the checks also disagreed on 29 (the readable colour lost its
-hue, item 31), and after 0.22.3 on 23; 0.22.3 and 0.22.5 settle those.
-
-The GUIs build against uitoolkit v0.22.5 from the module proxy
+The GUIs build against uitoolkit v0.23.0 from the module proxy
 (`gui/go.mod`). `gui/uitoolkit_test.go` checks every item from 8 on
 against it, headless, a test per item (`TestItem12CapsLock` and so on): a
-provided item's test pins what secretvault now relies on, and an open
-item's test pins the gap, so it fails on the uitoolkit release that closes
-it. (Item 23's other half is pinned in `gui/svmanager/tray_test.go`, on a
-private session bus.)
+provided item's test pins what secretvault relies on, and an open item's
+test pins the gap, so it fails on the uitoolkit release that closes it.
+Item 23's tray half is pinned in `gui/svmanager/tray_test.go` on a private
+session bus; 35 and 37 are about code no headless window reaches, and
+their pins read uitoolkit's source as the test is built against it.
 
-| # | Item | State in uitoolkit (after v0.22.3) |
-| --- | --- | --- |
-| 1 | A secret field that does not leak | **Provided**: `widgets.SecretField` (65463cc) |
-| 2 | A dialog window | **Provided**: `WindowOptions` `Role`, `Center`, `KeepAbove`; `Window.Activate` (3fa3094) |
-| 3 | Holding the keyboard | **Provided**: `Window.SetSecureInput`, `platform.SecureInputAvailable` (b87afe0). Windows has nothing to offer. |
-| 4 | Out of screenshots | **Provided**: `Window.SetExcludeFromCapture` (b87afe0). Windows and macOS only. |
-| 5 | No input method in secret fields | **Provided**: a `SecretField` is not an input-method target, so text input is off while it has the focus (65463cc); it is a `widget.SecretTarget` too (fc42680) |
-| 6 | Headless driving for tests | **Provided**: `Window.Type`, `Press`, `ClickComponent`, `FocusOn` (a0bd1d7) |
-| 7 | A clipboard that can hold a secret | **Provided**: `ClipboardSetSecret`, `ClipboardClear`, `ClipboardGetSecret` (7020c65); `SecretClip.OnCleared` (58140ea). The X11 owner still serves its copy from a string. |
-| 8 | Showing a secret without a string | **Provided, not satisfactory**: `SecretLabel.MaskLen`, `Lines`, a `Describe` that says "concealed" (649af18). Hidden, it still copies the secret, and nothing wipes the copy when it leaves the window (33); the manager keeps its own. |
-| 9 | A tray menu on macOS | **Provided**: `SetMenu` builds an NSMenu (9f360ec) |
-| 10 | Search-as-you-type suggestions | **Provided**: `widget.SetPopupKeysPass` (5285f3e) |
-| 11 | Symbol and emoji fallback | **Declined** for text: no font fallback, by contract (`docs/contracts.md`, 1fa27f0; declined again in v0.22.2). Marks are icons (954da57), which the manager uses. |
-| 12 | Caps Lock state | **Partly provided**: `platform.ModCapsLock`, `Window.LockKeys`, `Window.OnLockKeys` (923fab0). Through v0.22.5 a focus-in reads as the lock off, and since 649af18 that is reported to every watcher; Wayland and macOS cannot tell before the first key. |
-| 13 | A dark desktop with no saved look | **Provided**: `DefaultAppearance` follows the desktop, and Plastik has `plastik-night` (c98f83b) |
-| 14 | Spacing that follows the display scale | **Provided**: `FlexBox` and `Grid` (so `Form`) lengths are 1x, with `RawSpacing` to opt out (201bbd6); `Pad` and `Spacer` too (36685fe, 25) |
-| 15 | A window as tall as its content | **Provided**: `WindowOptions.FitContent`, `Window.FitToContent` (923fab0), centred for the fitted height (58140ea, 27) |
-| 16 | A default button that looks it | **Provided**: every pack marks `Primary`, measured per pack (`style.PrimaryFaceOf`, `style.DrawDefaultMark`, 256978b) |
-| 17 | A wrapping label measured at its own width | **Provided**: `Font.Wrap` breaks only where `Font.Advance` overflows (256978b) |
-| 18 | Giving a secret field a value | **Provided**: `SecretField.SetBytes` (58140ea), which takes the buffer over rather than copying it |
-| 19 | A secret text area | **Provided**: `widgets.SecretArea` (fc42680) |
-| 20 | Dialogs that stack | **Provided**: `ShowOverlay` pushes, `DismissOverlay` pops (fc42680); from outside every dialog it closes the top one (6e1d4f9, 30) |
-| 21 | A wrapping label's height in a column | **Provided** for dialogs: `Overlay` settles its card's width before its height, `Grid` measures rows at the widths it uses, `Wrap` flows at whole pixels (91133b2). A column handed a narrower box than it measured is the caller's, by design. |
-| 22 | Clicking something scrolled out of view, in a test | **Provided**: `ClickComponent` and `FocusOn` scroll to the target (5e7a6cc) |
-| 23 | Knowing that the tray icon is shown | **Provided**: `StatusItem.Shown`, `SetOnShownChange` (58140ea); no watcher on the bus is no tray (649af18). The manager's own query is gone. |
-| 24 | A widget taken out of the tree still has its window | **Provided**: `Remove` and `ClearChildren` clear the host (58140ea); `Label.Tone` (fc42680), readable in colour since 6e1d4f9 |
-| 25 | Pad, Spacer and ProgressBar lengths that follow the display scale | **Provided** (36685fe) |
-| 26 | `UITK_FONT` turns following the desktop off | **Provided**: fixed (58140ea) |
-| 27 | A fitted dialog centred for the height it opens at | **Provided**: `recenterIfCentred` (58140ea) |
-| 28 | Caps Lock for more than one listener, and in the field itself | **Provided, not satisfactory**: a field asks as it takes the focus (`widget.LockKeysOf`, 649af18), and the focus-in after it turns the mark off (12). The Caps Lock line stays. |
-| 29 | Readable status colours in `plastik-night` | **Provided**: `Palette.Ink`, `DangerInk`, `Label.Tone` (36685fe, fc42680), in colour since 6e1d4f9 (31) |
-| 30 | Closing a dialog from outside every dialog | **Provided**: closes the top one (6e1d4f9). All of them is still `SetOverlay(nil)`. |
-| 31 | Status ink that keeps its colour | **Provided**: `ReadableInk` walks lightness in percent (6e1d4f9) |
-| 32 | A SecretArea in a narrow form | **Provided**: it takes the width offered, 180 when none (6e1d4f9); `PreferredWidth`, `widget.MinWidthOf`, splitter floors (0.22.4, 0.22.5), with what is missing in 34 |
-| 33 | A hidden SecretLabel's copy of the secret | Open (new) |
-| 34 | A window's floor from its content | Open (new; the maintainers note the window half themselves) |
+| # | Item | After v0.23.0 | Verdict |
+| --- | --- | --- | --- |
+| 1 | A secret field that does not leak | `widgets.SecretField` (65463cc): a byte buffer edited in place, zeroed when outgrown or shortened, copy, cut, drag and PRIMARY refused, no string made of it | **Satisfactory**, but for a paste from another program, which arrives as a string (35) |
+| 2 | A dialog window | `Role`, `Center`, `KeepAbove`, `Activate` (3fa3094) | **Satisfactory** |
+| 3 | Holding the keyboard | `Window.SetSecureInput`, `SecureInputAvailable` (b87afe0) | **Not satisfactory**: its answer is not what is in effect, and on X11 the first attempt is made before the window is mapped (37) |
+| 4 | Out of screenshots | `Window.SetExcludeFromCapture` (b87afe0); Windows and macOS only | **Satisfactory** where a platform can; X11 and Wayland cannot, by the platform |
+| 5 | No input method in secret fields | input method off while a `SecretTarget` has the focus (`app/window.go`, `syncIMECursor`) | **Satisfactory** |
+| 6 | Headless driving for tests | `Type`, `Press`, `ClickComponent`, `FocusOn` (a0bd1d7) | **Satisfactory** |
+| 7 | A clipboard that can hold a secret | `ClipboardSetSecret` and the rest (7020c65), `OnCleared` (58140ea) | **Not satisfactory on Linux**: X11 *and* Wayland serve the secret from a Go string (35) |
+| 8 | Showing a secret without a string | `SecretLabel.MaskLen`, `Lines`, `Describe` (649af18) | **Not satisfactory**: a hidden label copies the secret (33); the manager keeps its own |
+| 9 | A tray menu on macOS | `SetMenu` builds an NSMenu (9f360ec) | **Satisfactory** (not run on macOS here) |
+| 10 | Search-as-you-type suggestions | `widget.SetPopupKeysPass` (5285f3e) | **Satisfactory** (unused) |
+| 11 | Symbol and emoji fallback | no font fallback, by contract (`docs/contracts.md`) | **Declined**; marks are icons, which the manager uses |
+| 12 | Caps Lock state | `ModCapsLock`, `LockKeys`, `OnLockKeys` (923fab0) | **Not satisfactory**: a focus-in reads as the lock off; Wayland cannot tell before the first key. The Caps Lock line stays |
+| 13 | A dark desktop with no saved look | `FollowDesktop` by default, `plastik-night` (c98f83b) | **Satisfactory** |
+| 14 | Spacing that follows the display scale | 1x lengths (201bbd6, 36685fe) | **Satisfactory** |
+| 15 | A window as tall as its content | `FitContent` (923fab0), re-centred (58140ea) | **Satisfactory** |
+| 16 | A default button that looks it | measured per pack (256978b) | **Satisfactory** |
+| 17 | A wrapping label measured at its own width | `Font.Wrap` (256978b) | **Satisfactory** |
+| 18 | Giving a secret field a value | `SecretField.SetBytes` (58140ea), taking ownership | **Satisfactory** |
+| 19 | A secret text area | `widgets.SecretArea` (fc42680) | **Satisfactory**, with 35 for a paste |
+| 20 | Dialogs that stack | (fc42680) | **Satisfactory** |
+| 21 | A wrapping label's height in a column | for dialogs (91133b2); a column is the caller's | **Satisfactory** |
+| 22 | Clicking something scrolled out of view | (5e7a6cc) | **Satisfactory** |
+| 23 | Knowing that the tray icon is shown | `Shown`, `SetOnShownChange` (58140ea, 649af18) | **Satisfactory** |
+| 24 | A widget taken out of the tree still has its window | (58140ea) | **Satisfactory** |
+| 25 | Pad, Spacer and ProgressBar lengths | (36685fe) | **Satisfactory** |
+| 26 | `UITK_FONT` turns following the desktop off | (58140ea) | **Satisfactory** |
+| 27 | A fitted dialog centred | (58140ea) | **Satisfactory** |
+| 28 | Caps Lock in the field itself | `LockKeysWatcher`, `CapsHint`, `LockKeysOf` (5e7a6cc, 649af18) | **Not satisfactory**: the mark goes at the focus-in (12) |
+| 29 | Readable status colours | `Ink`, `Label.Tone` (36685fe, 6e1d4f9) | **Satisfactory** |
+| 30 | Closing a dialog from outside every dialog | the top one (6e1d4f9) | **Satisfactory**; all of them is `SetOverlay(nil)` |
+| 31 | Status ink that keeps its colour | (6e1d4f9) | **Satisfactory** |
+| 32 | A SecretArea in a narrow form | (6e1d4f9), `PreferredWidth` | **Satisfactory** |
+| 33 | A hidden SecretLabel's copy of the secret | unchanged | **Open** |
+| 34 | A window's floor from its content | `WindowOptions.MinWidth` at creation; no `Splitter.MinWidth` | **Open**, partly |
+| 35 | A secret on the Linux clipboard as a string | (new) | **Open** |
+| 36 | A form value read aloud as its caption | (new) | **Open**; worked around in the prompt |
+| 37 | Secure input's answer, and its first attempt | (new) | **Open** |
 
 The first findings come from reading uitoolkit's source at v0.20.x (file
 references are to that tree); 12–24 come from building on it after v0.21.0,
-25–29 from moving to v0.22.1, 30–32 from moving to v0.22.2 and 33–34
-from moving to v0.22.5 (references to those trees). Each item says where the gap is, proposes an API in
+25–29 from moving to v0.22.1, 30–32 from moving to v0.22.2, 33–34 from
+moving to v0.22.5 and 35–37 from the audit of v0.23.0 (references to
+those trees). Each item says where the gap is, proposes an API in
 uitoolkit's own style, and gives a "done when" check. The names are
 suggestions; the behaviour is the requirement.
 
@@ -149,6 +166,18 @@ relies on.
   - After `Wipe` the backing array is all zero.
   - `grep` finds no `string(` conversion of the buffer in the widget.
 
+**After v0.23.0 (item 1): satisfactory, but for a paste.** Read again:
+`widgets/secretfield.go` makes no string of the buffer (the only strings
+are the bullets); `replace` zeroes the old array when it grows and the
+tail when it shortens; `Bytes` is a copy; Ctrl+C and Ctrl+X are consumed
+and refused, and nothing goes to PRIMARY. A paste reads
+`platform.ClipboardGetSecret`, which is byte for byte when the secret is
+this program's own copy, and otherwise `[]byte(ClipboardGet())`: the
+other program's passphrase is a string in this process first (35). Its
+accessible value is a bullet per rune, so a screen reader can say how
+much has been typed, which is what an editable field is expected to
+say.
+
 ### 2. A dialog window
 
 - **Today** (`platform/event.go`, `WindowOptions`): there is no dialog role,
@@ -199,6 +228,18 @@ relies on.
 - **Done when:** on X11, `xinput test` from another client sees no keys while
   the prompt has focus. On macOS, the menu-bar lock indicator shows.
 
+**After v0.23.0: not satisfactory (37).** `platform/x11_secure_linux.go`
+tries `XGrabKeyboard` for a quarter of a second and answers whether it
+held; the grab is dropped at a focus-out and retaken at a focus-in, once,
+without telling anybody whether that worked. A prompt asks as its
+passphrase field takes the focus, which is at its first layout, before an
+X11 window is mapped: the grab cannot succeed then, so the first frame
+waits a quarter of a second and the answer is false, and the grab that
+does hold comes later at the focus-in. So `SetSecureInput`'s answer
+cannot be used to tell the person the keyboard is not held: on X11 it
+would say so every time. None of it is reported through the new
+diagnostics (35e0ff9) either. secretvault records nothing from it.
+
 ### 4. Keeping the prompt out of screenshots and screen shares
 
 - **Proposal.** `win.SetExcludeFromCapture(true)`, and
@@ -208,6 +249,13 @@ relies on.
   - Linux: not available, reported as such.
 - **Done when:** on Windows and macOS, a screenshot of the desktop shows the
   prompt as blank or absent.
+
+**After v0.23.0: satisfactory where a platform can.** Windows
+(`SetWindowDisplayAffinity`) and macOS (`sharingType = .none`) answer what
+they did; X11 and Wayland cannot keep a window out of a capture, and
+`CaptureExclusionAvailable` says so in advance. The prompt asks on every
+platform and does not tell the person on X11 and Wayland, where the
+answer is always no.
 
 ### 5. No input method in secret fields
 
@@ -222,6 +270,11 @@ relies on.
   - macOS: secure input (item 3) already covers it.
 - **Done when:** with an IME active (fcitx5 or ibus), typing into the field
   shows no preedit or candidate window, and the IME's history gains nothing.
+
+**After v0.23.0: satisfactory.** `app/window.go`, `syncIMECursor`, turns
+text input off whenever the focus is a `widget.SecretTarget`, which
+`SecretField` and so `SecretArea` declare; the backends unset the input
+context (X11), stop text input (Wayland) and dissociate it (Windows).
 
 ### 6. Headless driving for tests
 
@@ -289,6 +342,15 @@ selection from a Go string while it holds it. Since v0.22.2 the status bar
 says when a copy has gone at its timeout (`SecretClip.OnCleared`,
 58140ea).
 
+**After v0.23.0: not satisfactory on Linux (35).** Read again, the limit
+the toolkit states is narrower than the code: `clipboard_secret_linux.go`
+makes one string of the secret (`s := string(b)`) and hands it to the
+Wayland data source *and* the X11 owner, and each serves from it for as
+long as it owns the selection; clearing drops the reference
+(`wipeClipLocked` sets it to ""), which zeroes nothing. Windows and macOS
+hand it to the system and keep no copy. CLIPBOARD only, the password
+manager hint and the timeout are as they were.
+
 ### 8. Showing a secret without making it a string
 
 - **Proposal.** `widgets.NewSecretLabel(value func() []byte)`:
@@ -348,6 +410,9 @@ label that leaves the window keeps it, unwiped, until the collector. The
 manager's `secretText` holds the caller's bytes and no copy, so adopting
 `SecretLabel` would add a copy of every secret on screen. That is 33.
 `TestItem08SecretLabel` now checks what 649af18 fixed.
+
+**After v0.23.0: unchanged, and still not satisfactory (33).**
+`widgets/secretlabel.go` is as it was in v0.22.5.
 
 ### 9. A tray menu on macOS
 
@@ -488,6 +553,11 @@ it is told of a change, and so stays right on X11 and Windows through the
 focus-in; it stays beside the field's mark. `TestItem12CapsLock` and
 `TestItem28LockKeysWatchers` pin it. The proposal above stands: modifiers
 on a focus-in, or no lock state noted from an event that has none.
+
+**After v0.23.0: unchanged, not satisfactory.** `app/lockkeys.go`, the
+backends' focus-in events and `widget.LockKeysOf` are as they were in
+v0.22.5; `TestItem12CapsLock` and `TestItem28LockKeysWatchers` still pin
+it. The Caps Lock line stays.
 
 ### 13. A dark desktop with no saved look
 
@@ -653,6 +723,10 @@ control character could not go in. `TestItem18SecretFieldSetBytes`.
 
 **Closed in 0.22.2. `SecretField.SetBytes` takes the buffer over rather than copying it — a copy would leave the caller holding the original, and two buffers to wipe instead of one — and wipes what it replaces.**
 
+**After v0.23.0: satisfactory.** `SetBytes` takes the slice over and
+wipes what it replaces; the editor hands it a copy it makes for the
+purpose, and so never shares a buffer with the field.
+
 ### 19. A secret text area
 
 - **Today.** Some secrets are several lines: PEM and OpenSSH private keys.
@@ -681,6 +755,10 @@ it is. `TestItem19SecretArea`, and the manager's
 narrow form cannot give it: 32.
 
 **Closed in 0.22.2. `widgets.NewSecretArea`, which is `SecretField` over several lines rather than a second implementation: the buffer, the wipes, the refusals and the source test all belong to the embedded field. A pasted key keeps its lines and CRLF is normalised in place.**
+
+**After v0.23.0: satisfactory.** A `SecretArea` is the same widget as a
+`SecretField`, so item 1's reading covers it; a paste normalises CRLF in
+place, and comes in through the same string as item 1's (35).
 
 ### 20. Dialogs that stack
 
@@ -1040,6 +1118,8 @@ moment and wrong from then until the next key; `TestItem28LockKeysWatchers`
 shows it with the focus-in every backend sends. The line beside the
 buttons stays.
 
+**After v0.23.0: unchanged.** As 12.
+
 ### 29. Readable status colours in `plastik-night`
 
 - **Today** (`style/enginekit_kde3.go`, `kde3Scheme.palette`). Every KDE 3
@@ -1194,6 +1274,16 @@ it already existed, and the note here that said otherwise was wrong. The
 window system is told on every backend, so a window cannot be dragged
 below what its own content needs.
 
+**After v0.23.0: agreed that it exists, and it does not close 34.**
+`WindowOptions.MinWidth` reaches every backend, and the manager gives it
+one (890). But it is given as the window is made, and the content whose
+floor it should be is built into that window afterwards; `MinWidthOf` of
+that content stops at its outer `Splitter`, which still does not answer
+it; and the floor changes with the page shown (the editor's is the
+widest), which a value fixed at creation cannot follow. So the manager's
+minimum is a constant, and `TestTheEditorFitsTheNarrowestWindow` keeps it
+true. `TestItem34AWindowFloorFromItsContent` still pins it.
+
 **After v0.22.5: the lever helps the manager where it reaches, and it
 does not reach far enough (34).** The manager's editor sits in the
 right-hand pane of two splitters. What it now does:
@@ -1270,6 +1360,81 @@ themselves; it is part of 34 with the other two.
 - **Done when:** `window.SetMinSize(widget.MinWidthOf(content)/scale, …)`
   on the manager's window keeps its editor inside it, with no constant.
   `TestItem34AWindowFloorFromItsContent` pins today's behaviour.
+
+---
+
+## Found in the audit of v0.23.0
+
+### 35. A secret on the Linux clipboard as a string
+
+- **Today.** Two places, both on Linux.
+  - **Copying** (`platform/clipboard_secret_linux.go`,
+    `clipboardNativeSetSecret`): `s := string(b)`, handed to the Wayland
+    data source and to the X11 owner, which serve from it while they own
+    the selection. Clearing drops the reference and zeroes nothing.
+    Item 7 says only that the X11 owner does this.
+  - **Pasting** (`platform/clipboard_secret.go`, `ClipboardGetSecret`):
+    when the clipboard holds another program's secret (a passphrase
+    copied from a terminal, or from another password manager), it is read
+    with `ClipboardGet`, a string, and converted. The doc comment calls
+    the string "the session's"; it is in this process's heap all the
+    same, unwipeable. A `SecretField` or `SecretArea` paste takes this
+    path.
+- **Proposal.** Serve and read selections as `[]byte`: the X11 owner
+  writes the bytes to the requestor's property from a `[]byte` it zeroes
+  when it loses the selection or is cleared; the Wayland source writes
+  them to the pipe from the same; the readers read the property or the
+  pipe into a `[]byte` (`C.GoBytes` already does it for X11's own
+  pastes, `x11_linux.go`) and never convert.
+- **Done when:** no `string(` of a secret's bytes on the Linux secret
+  clipboard path, and the served copy is zero after a clear, a timeout
+  and the loss of the selection. `TestItem35ClipboardSecretsAsStrings`
+  pins today's code.
+
+### 36. A form value read aloud as its caption
+
+- **Today** (`widgets/grid.go`, `Form.AddRow`; `widgets/a11y.go`,
+  `Label.Describe`). `AddRow` names the field beside a caption after the
+  caption, Qt's buddy, for anything with `SetAccessibleName` and no name
+  yet, and a `Label` has one. `Label.Describe` takes the name over its
+  text. So a form row of caption and value, the way the prompt sets out
+  the program asking ("Program: /usr/bin/mail"), is read aloud as
+  "Program:", "Program": the program, which is what a consent prompt
+  exists to say, is not read at all. `a11y.Check` does not notice.
+- **Workaround.** The prompt names each value after itself before adding
+  the row; its `TestTheDialogsAreAccessible` checks a screen reader hears
+  the program and the process.
+- **Proposal.** `AddRow` names only what can take input (a
+  `widget.Focusable`, or not a `Label`); and `a11y.Check` flags a label
+  whose name is not its text.
+- **Done when:** a `Form` row of two labels is read as both.
+  `TestItem36AFormValueIsReadAsItsCaption` pins today's behaviour.
+
+### 37. Secure input's answer, and its first attempt
+
+- **Today** (`platform/x11_secure_linux.go`; `app/secure.go`).
+  - **The first attempt comes too early.** A dialog's passphrase field
+    takes the focus at the window's first layout, and that is where an
+    application asks for secure input; an X11 window is mapped at its
+    first present, after that layout. `XGrabKeyboard` on a window that is
+    not viewable fails (`GrabNotViewable`, which the helper counts as
+    "somebody else has it"), so it is retried for a quarter of a second,
+    which holds up the first frame, and the answer is false.
+  - **What is in effect is never reported.** The grab is retaken at the
+    focus-in, once, and dropped at the focus-out; whether the retake
+    worked, and whether a window manager that does not give the focus at
+    all left the window without it, is told to nobody, and none of it is
+    a diagnostic (35e0ff9). So an application cannot tell a person "the
+    keyboard is not held" without being wrong on X11 every time.
+- **Proposal.** `SetSecureInput` on a window not yet mapped records the
+  wish and grabs at the map, answering "pending" rather than false;
+  `Window.SecureInputHeld() bool` and an `OnSecureInput(func(held bool))`
+  for what is in effect, called on every change; and a warn-level
+  diagnostic when a wanted grab fails.
+- **Done when:** on X11 a dialog that asks at its first layout opens with
+  no wait, holds the keyboard once it has the focus, and an application
+  can say truthfully whether it does. `TestItem37SecureInputAnswer` pins
+  today's code.
 
 ---
 
