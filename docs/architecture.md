@@ -626,10 +626,15 @@ answer only after asking the person, through the same program.
   meanwhile, is dropped and wiped, as is a newer one's elder; what a
   request would have sent is wiped when it is sent, or at once if there is
   no daemon to send it to.
-- **Copies** go to uitoolkit's secret clipboard: CLIPBOARD only, marked for
-  clipboard managers not to keep, cleared after 30 seconds and on quit, and
-  taken back when the vault they came from locks. The status bar says when
-  one has gone.
+- **Copies** go, on Linux and the BSDs, through the CLI beside the manager
+  (`secretvault __clip`, as the CLI and the TUI copy: svclip, in a process
+  of its own), and elsewhere, or where the CLI cannot reach a clipboard,
+  to uitoolkit's secret clipboard: CLIPBOARD only, marked for clipboard
+  managers not to keep, cleared after 30 seconds and on quit, and taken
+  back when the vault they came from locks. The status bar says when one
+  has gone. (uitoolkit's falls short on Wayland, where it answers the
+  clipboard managers' hint with the secret, and in clearing whatever is on
+  the clipboard by then: `uitoolkit-gaps.md`, 47 and 48.)
 - **Dialogs stack.** One raised over another (a recovery key arriving, the
   keys list, a file chooser) goes over it, and the one underneath is there
   as it was, its fields still holding what was typed. Quitting closes them
@@ -644,8 +649,9 @@ answer only after asking the person, through the same program.
 
 - **Secrets shown once** (a recovery key, its shares, a sync invite, an
   emergency access invite) are drawn from their bytes in a dialog that
-  wipes them as it closes, and offer a QR code in a dialog of its own,
-  whose modules are wiped with it (`svqr.Code.Wipe`). Passphrases asked in
+  wipes them as it closes, with a QR code under them where another device
+  is to scan it, whose modules are wiped with it (`svqr.Code.Wipe`). A
+  dialog taller than the window scrolls, its buttons in view. Passphrases asked in
   the middle of local work (an OpenPGP key's own, an age file's, an SSH
   key's) are asked in a dialog from the worker's goroutine, and wiped
   once used. Decrypted files are written only whole, and only their

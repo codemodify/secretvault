@@ -3,30 +3,42 @@
 This list is for [uitoolkit](https://github.com/codemodify/uitoolkit)'s
 maintainers.
 
-**Does uitoolkit v0.23.1 address all of secretvault's needs? No, not
-yet.** It closes most of what v0.23.0 left: of the 45 items, 33 are
-satisfactory and one (11) is declined by design. Caps Lock through a
-focus-in (12, 28), a hidden `SecretLabel`'s copy (8, 33), a window's
-floor from its content (34), a form value read aloud (36) and secure
-input's answer (3, 37) hold, and secretvault has taken out its
-workarounds for them. What is left:
+**Does uitoolkit v0.23.2 address all of secretvault's needs? No, not
+yet.** It closes most of what v0.23.1 left: of the 49 items, 42 are
+satisfactory and one (11) is declined by design. The Wayland owner
+serving a secret from a string (41), the copies a pasted passphrase left
+(42, on every platform now), X11 reading its own copy (43), a window's
+stated minimum (44), a hidden form row's gap (38, 45), a grid cell
+offered no width (39) and a dialog taller than its window (40) hold, and
+secretvault has taken out its workarounds for them: a keyslot is added in
+one step, a long key wraps to the width it is given, a QR code is shown
+under its invite again, every dialog scrolls with its buttons in view, and
+the manager no longer states its floor again after a resize. What is
+left:
 
-- touching the passphrase, on the clipboard: 7 and 35 hold on X11, but
-  the Wayland owner still makes a string of a copied secret at every
-  paste (41), and a secret pasted from another program still leaves
-  copies nothing wipes (42);
+- touching the passphrase, on the clipboard, all found in this audit and
+  all older than v0.23.2:
+  - on Wayland the password-manager hint is answered with the passphrase
+    itself, so KDE's Klipper keeps it in its history (47);
+  - a copied secret outlives the clipboard: once something else is
+    copied, a paste into a `SecretField` still takes the old secret, and
+    the clear at the timeout, a lock or the quit empties whatever is on
+    the clipboard by then on Windows, macOS and Wayland (48);
+  - a pasted secret longer than one read (a private key) leaves the
+    buffers it outgrew, on Wayland and in X11's INCR transfer (49);
 - touching the passphrase, on Wayland: a prompt opened with Caps Lock on
-  still cannot say so before the first key (12);
-- new in v0.23.1, on X11: a paste of the program's own copy reads the
-  last paste from elsewhere instead (43);
-- and five that do not touch a secret: 38 and 45 (a form row hidden
-  keeps its gap, and waits for a layout), 39 (a grid cell offered no
-  width, which the maintainers list as not done), 40 (a dialog taller
-  than its window: fixed for `DialogCard` only) and 44 (a window's
-  minimum stated after it is made does not last).
+  still cannot say so before the first key (12). v0.23.2 says the
+  protocol does not allow it; it does;
+- and one that does not touch a secret: `widgets.DialogContent`, the
+  piece v0.23.2 gives for 40, sizes its card to the window rather than to
+  what it holds, and squeezes a `ButtonBox` to its natural width (46).
 
-secretvault works around 38/45, 39, 40 and 44 in its own code; 7, 12
-(on Wayland), 35, 41, 42 and 43 it cannot.
+secretvault works around 46 in its own code (its dialogs are built the
+same way with a body that sizes to its content), and 47 and 48 on Linux
+and the BSDs, where the manager now copies through the CLI beside it
+(`secretvault __clip`, svclip), as the CLI and the TUI do; on Windows and
+macOS it still copies through uitoolkit, and 48 stands there. 12 and 49 it
+cannot.
 
 - `secretvault-gui-prompt` asks for passphrases and consent, and
   `secretvault-gui` is the manager; both are built on uitoolkit.
@@ -34,87 +46,109 @@ secretvault works around 38/45, 39, 40 and 44 in its own code; 7, 12
   the prompt, 18–24 while building the manager, and 25–37 while moving
   through the releases since (25–29 at v0.22.1, 30–32 at v0.22.2, 33–34 at
   v0.22.5, 35–37 in the audit of v0.23.0), 38–40 while bringing the
-  manager level with the CLI, on v0.23.0, and 41–45 in the audit of
-  v0.23.1.
-- **The audit of v0.23.1** re-read every item from scratch against the
+  manager level with the CLI, on v0.23.0, 41–45 in the audit of v0.23.1,
+  and 46–49 in the audit of v0.23.2.
+- **The audit of v0.23.2** re-read every item from scratch against the
   release as the module proxy serves it (the same tree as uitoolkit's
-  checkout at the tag). Of the files the items' code paths run through,
-  v0.23.1 changed the clipboard (`clipboard_secret*.go`, the X11 and
-  Wayland owners and readers, `wlstate.go`), secure input
-  (`x11_secure_linux.go`, `app/secure.go`), the lock keys
-  (`app/window.go`), size limits (every backend, `app/sizelimits.go`),
-  `SecretLabel`, `Form`, `Splitter`, `TextField`, `Stack` and
-  `DialogCard`; the others are as they were in v0.23.0, and their pins
-  pass. Every changed path was read through to the platform backends,
-  Windows and macOS included, and each fix checked against the need as
-  stated, not against its own description: that is what found 41–45.
-  The pins now test the behaviour where a headless window can show it
-  (33, 34, 36, 37, 38, 40, 44, 45), and read uitoolkit's functions, parsed
-  rather than grepped, where it cannot (35, 37, 41–43).
-- **What v0.23.1 gave that the list never asked for**, none of which
-  closes a gap of ours, so none is taken up: `Stack.MinWidth` (the
-  manager's pane is a slot of its own, which answers its floor already);
-  `TextField.PreferredWidth` beyond the floor, which could narrow the
-  editor's column below its 180; `DialogCard`'s scrolling body, which
-  the manager's text-only confirmations could use if they were
-  `DialogCard`s (they are `ButtonBox` dialogs, laid out as the platform
-  lays its buttons); the window-menu button that `look.json` can turn off,
-  which is the person's choice; and the skin, `HeaderBar` and browser-tab
-  fixes, which secretvault does not use. v0.23.1 also removes public API
-  (`skingen`'s player plans and the `skingen/panel` package); secretvault
-  imports neither.
+  checkout at the tag). v0.23.2 changed the secret clipboard
+  (`clipboard_secret*.go` on all three platforms, the Wayland owner and
+  reader, X11's reader and the property it frees), size limits (every
+  backend's `SetSizeLimits`, `platform/sizing.go`), `widget.MinWidthOf`,
+  `Grid`, `FormRow`, `DialogCard`, `IconButton` and `BrowserTabs`; the
+  others are as they were in v0.23.1, and their pins pass. Every changed
+  path was read through to the platform backends, Windows and macOS
+  included, error paths too, and each fix checked against the need as
+  stated, not against its own description. The clipboard was read once
+  more end to end, not only where it changed: that found 47 and 48, which
+  every audit before this one missed. The pins test the behaviour where a
+  headless window can show it (7, 34, 38–40, 44–46, 48), and read
+  uitoolkit's functions, parsed rather than grepped, where it cannot (12,
+  35, 37, 41–43, 47–49).
+- **The manager's clipboard.** On Linux and the BSDs the manager copies
+  through the CLI beside it (`gui/svmanager/clip.go`): `secretvault
+  __clip SECONDS`, the secret on its stdin, takes the clipboard in a
+  process of its own through svclip (Wayland's data control, or X11, as
+  XWayland on GNOME), offers the hint as "secret", and clears the
+  clipboard at its time only if the clipboard is still its own; a copy
+  taken back (its vault locked, the program quitting) ends the helper, and
+  its selection goes with it, only if it still has it. Security: Klipper
+  honours the hint (47), nobody else's copy is cleared (48), and the
+  manager's own heap holds no copy while the secret is on the clipboard.
+  UX: the same, the status line saying when the copy has gone; a paste
+  into the program's own `SecretField` reads the clipboard itself, not a
+  stale copy (48). Complexity: a hundred lines and a headless test (the
+  test binary standing in for the CLI); where there is no CLI beside the
+  program, or it cannot reach a clipboard, the copy goes to uitoolkit's
+  as before. Not on Windows, where an ended helper leaves its copy on the
+  clipboard so a lock could not take it back, nor on macOS, where svclip
+  has no pasteboard yet. When uitoolkit closes 47 and 48 the manager can
+  go back to `ClipboardSetSecret` everywhere.
+- **What v0.23.2 gave that the list never asked for.** `BrowserTabs.Align`,
+  the selected browser tab's merge, `style.TabLabelInkOf` and
+  `TabContentInsetOf`: secretvault has no browser tabs. An `IconButton`'s
+  mark at the look's icon size (`style.IconSizeOf`): the manager's marks
+  are on buttons, table cells and tree nodes, not `IconButton`s. And
+  `widget.MinWidthOf`'s rule that a component holding one thing is never
+  narrower than it: the manager's wrappers (`page`, `shortcutRoot`,
+  `slot`) keep answering `MinWidther` themselves, which gives exactly
+  their child's floor rather than the larger of the probe's guess and
+  the child's.
 
 Two voices below. **"After v0.2x.y"** paragraphs are secretvault's own
 checks, each pinned by a test in `gui/uitoolkit_test.go`. **"Closed in
 0.2x.y"** paragraphs are uitoolkit's maintainers' notes on the same items;
-those for 0.23.1 are their release notes' words ("What secretvault asked
-for"), copied verbatim. The maintainers count all of 18–32 closed by
-0.22.3, 8, 23 and 28 closed by 0.22.5, and 12, 33–38 and 40 closed by
-0.23.1. secretvault's checks agree on 8, 18–29, 31–34, 36 and 37 (on
-34, with 44 found beside it), and disagree on:
+those for 0.23.1 and 0.23.2 are their release notes' words, copied
+verbatim (for 0.23.2, the commit's where the release notes say less). The
+maintainers count all of 18–32 closed by 0.22.3, 8, 23 and 28 closed by
+0.22.5, 12, 33–38 and 40 closed by 0.23.1, and 39 and 41–45 closed by
+0.23.2, with 12's other half "still open" as the protocol's. secretvault's
+checks agree on 8, 18–29, 31–39, 41–45, and on 40 for the need, and
+disagree on:
 
-- 12: on Wayland a prompt still cannot say Caps Lock is on before the
-  first key;
+- 7: on Wayland the hint is answered with the secret (47), and a copied
+  secret outlives the clipboard on every platform (48);
+- 12: on Wayland the state is there before the first key: the compositor
+  sends `wl_keyboard.modifiers` right after `enter`, and the backend
+  keeps it;
 - 30: `DismissOverlay` from outside closes the *top* dialog only, so the
   manager keeps `SetOverlay(nil)` at quit, which closes them all;
-- 35: the Wayland owner serves the secret through a string (41), a
-  pasted secret leaves copies (42), and X11's read of its own copy broke
-  on the way (43);
-- 38: a hidden row keeps its gap, and is hidden only at the next layout
-  (45);
-- 40: only `DialogCard` keeps its buttons; the Overlay of any other card
-  does not.
+- 40: `DialogContent` keeps the buttons in view, but its card is as tall
+  as the window allows whatever it holds, and a `ButtonBox` in its foot
+  loses the platform's layout (46);
+- 42: the buffers named hold; a paste longer than one read leaves the
+  ones it outgrew (49).
 
-The GUIs build against uitoolkit v0.23.1 from the module proxy
-(`gui/go.mod`). `gui/uitoolkit_test.go` checks every item from 8 on
+The GUIs build against uitoolkit v0.23.2 from the module proxy
+(`gui/go.mod`). `gui/uitoolkit_test.go` checks every item from 7 on
 against it, headless, a test per item (`TestItem12CapsLock` and so on): a
 provided item's test pins what secretvault relies on, and an open item's
 test pins the gap, so it fails on the uitoolkit release that closes it.
 Item 23's tray half is pinned in `gui/svmanager/tray_test.go` on a private
-session bus; 35, 37 and 41–43 are about code no headless window reaches,
-and their pins read uitoolkit's source as the test is built against it.
+session bus; 12, 35, 37, 41–43 and 47–49 are about code no headless window
+reaches, and their pins read uitoolkit's source as the test is built
+against it.
 
-| # | Item | After v0.23.1 | Verdict |
+| # | Item | After v0.23.2 | Verdict |
 | --- | --- | --- | --- |
-| 1 | A secret field that does not leak | `widgets.SecretField` (65463cc): a byte buffer edited in place, zeroed when outgrown or shortened, copy, cut, drag and PRIMARY refused, no string made of it; a paste is bytes on Linux (e54cba4) | **Satisfactory**, but for what a paste leaves (42) |
+| 1 | A secret field that does not leak | `widgets.SecretField` (65463cc): a byte buffer edited in place, zeroed when outgrown or shortened, copy, cut, drag and PRIMARY refused, no string made of it; a paste is bytes on every platform (e54cba4, 18a98d9) | **Satisfactory**; a long paste: 49 |
 | 2 | A dialog window | `Role`, `Center`, `KeepAbove`, `Activate` (3fa3094) | **Satisfactory** |
 | 3 | Holding the keyboard | `SetSecureInput`, and since 3c3c2c7 `SecureInputHeld`, `OnSecureInput`, the X11 grab taken at the map | **Satisfactory** (37); the prompts say "Keyboard held" |
 | 4 | Out of screenshots | `Window.SetExcludeFromCapture` (b87afe0); Windows and macOS only | **Satisfactory** where a platform can; X11 and Wayland cannot, by the platform |
 | 5 | No input method in secret fields | input method off while a `SecretTarget` has the focus (`app/window.go`, `syncIMECursor`) | **Satisfactory** |
 | 6 | Headless driving for tests | `Type`, `Press`, `ClickComponent`, `FocusOn` (a0bd1d7) | **Satisfactory** |
-| 7 | A clipboard that can hold a secret | `ClipboardSetSecret` and the rest (7020c65), `OnCleared` (58140ea); bytes to both Linux owners (e54cba4) | **Satisfactory on X11, not on Wayland** (41) |
+| 7 | A clipboard that can hold a secret | `ClipboardSetSecret` and the rest (7020c65), `OnCleared` (58140ea); bytes everywhere (e54cba4, d9356f0); wiped before it is said gone (9e7e1c6) | **Satisfactory on X11 only** (47, 48); the manager copies through the CLI on Linux |
 | 8 | Showing a secret without a string | `SecretLabel.MaskLen`, `Lines`, `Describe` (649af18); no copy masked (6126bcd) | **Satisfactory**; the manager keeps its own, which holds no copy revealed either |
 | 9 | A tray menu on macOS | `SetMenu` builds an NSMenu (9f360ec) | **Satisfactory** (not run on macOS here) |
 | 10 | Search-as-you-type suggestions | `widget.SetPopupKeysPass` (5285f3e) | **Satisfactory** (unused) |
 | 11 | Symbol and emoji fallback | no font fallback, by contract (`docs/contracts.md`) | **Declined**; marks are icons, which the manager uses |
-| 12 | Caps Lock state | `ModCapsLock`, `LockKeys`, `OnLockKeys` (923fab0); a focus-in left alone (285b6b7) | **Partly**: X11 and Windows; on Wayland nothing before the first key |
+| 12 | Caps Lock state | `ModCapsLock`, `LockKeys`, `OnLockKeys` (923fab0); a focus-in left alone (285b6b7) | **Partly**: X11 and Windows; on Wayland (and macOS) nothing before the first key |
 | 13 | A dark desktop with no saved look | `FollowDesktop` by default, `plastik-night` (c98f83b) | **Satisfactory** |
 | 14 | Spacing that follows the display scale | 1x lengths (201bbd6, 36685fe) | **Satisfactory** |
 | 15 | A window as tall as its content | `FitContent` (923fab0), re-centred (58140ea) | **Satisfactory** |
 | 16 | A default button that looks it | measured per pack (256978b) | **Satisfactory** |
 | 17 | A wrapping label measured at its own width | `Font.Wrap` (256978b) | **Satisfactory** |
 | 18 | Giving a secret field a value | `SecretField.SetBytes` (58140ea), taking ownership | **Satisfactory** |
-| 19 | A secret text area | `widgets.SecretArea` (fc42680) | **Satisfactory**, with 42 for a paste |
+| 19 | A secret text area | `widgets.SecretArea` (fc42680) | **Satisfactory**; a long paste: 49 |
 | 20 | Dialogs that stack | (fc42680) | **Satisfactory** |
 | 21 | A wrapping label's height in a column | for dialogs (91133b2); a column is the caller's | **Satisfactory** |
 | 22 | Clicking something scrolled out of view | (5e7a6cc) | **Satisfactory** |
@@ -129,24 +163,29 @@ and their pins read uitoolkit's source as the test is built against it.
 | 31 | Status ink that keeps its colour | (6e1d4f9) | **Satisfactory** |
 | 32 | A SecretArea in a narrow form | (6e1d4f9), `PreferredWidth` | **Satisfactory** |
 | 33 | A hidden SecretLabel's copy of the secret | (6126bcd) | **Satisfactory** |
-| 34 | A window's floor from its content | `Window.SetMinSize`, `Splitter.MinWidth`, `TextField.PreferredWidth` (afa38a3, 3a0fba6) | **Satisfactory**; the manager's constant is gone. It does not last: 44 |
-| 35 | A secret on the Linux clipboard as a string | (e54cba4) | **Partly**: X11 holds; 41, 42 and 43 |
+| 34 | A window's floor from its content | `Window.SetMinSize`, `Splitter.MinWidth`, `TextField.PreferredWidth` (afa38a3, 3a0fba6); a one-child wrapper (99e0c22) | **Satisfactory**; it lasts (44) |
+| 35 | A secret on the Linux clipboard as a string | (e54cba4, d9356f0, 99e0c22) | **Satisfactory**; what is left is 47–49 |
 | 36 | A form value read aloud as its caption | (570438f) | **Satisfactory**; the prompt's workaround is gone |
 | 37 | Secure input's answer, and its first attempt | (3c3c2c7) | **Satisfactory**; a failed grab is no diagnostic, which secretvault does not need |
-| 38 | A form's rows shown or hidden | `Form.Row`, `FormRow` (021593b) | **Not satisfactory** (45); the two-step Add… stays |
-| 39 | A grid cell offered no width | "Known not done" in the release notes | **Open**; worked around with a fixed wrap |
-| 40 | A dialog taller than its window | `DialogCard` only (bba1c63) | **Open** for any other card; worked around by keeping dialogs short |
-| 41 | The Wayland owner serves a secret from a string | (new) | **Open** |
-| 42 | What a pasted secret leaves behind | (new) | **Open** |
-| 43 | X11 reads its own copy as the last paste | (new, a regression in v0.23.1) | **Open** |
-| 44 | A window's stated minimum does not last | (new) | **Open**; the manager states it again |
-| 45 | A hidden form row keeps its gap | (new) | **Open**; the two-step Add… stays |
+| 38 | A form's rows shown or hidden | `Form.Row`, `FormRow` (021593b); no gap (d9356f0) | **Satisfactory**; Add… for a keyslot is one step |
+| 39 | A grid cell offered no width | `widgets.Share` (e011659) | **Satisfactory**; the manager's fixed wrap is gone |
+| 40 | A dialog taller than its window | `DialogCard` (bba1c63), `DialogContent` (dbb2644) | **Satisfactory** for the need; `DialogContent` itself: 46. The QR code is back under its invite |
+| 41 | The Wayland owner serves a secret from a string | (d9356f0) | **Satisfactory** |
+| 42 | What a pasted secret leaves behind | (d9356f0, 18a98d9) | **Satisfactory** for a passphrase; a long paste: 49 |
+| 43 | X11 reads its own copy as the last paste | (99e0c22) | **Satisfactory** |
+| 44 | A window's stated minimum does not last | (99e0c22) | **Satisfactory**; the manager no longer states it again |
+| 45 | A hidden form row keeps its gap | (d9356f0) | **Satisfactory** |
+| 46 | `DialogContent` fills the window, and squeezes a `ButtonBox` | (new) | **Open**; the manager builds the arrangement itself |
+| 47 | Wayland answers the password-manager hint with the secret | (new, older than v0.23.1) | **Open**; the manager copies through the CLI on Linux |
+| 48 | A copied secret outlives the clipboard | (new, older than v0.23.1) | **Open**; the manager copies through the CLI on Linux |
+| 49 | What a long pasted secret leaves behind | (new) | **Open** |
 
 The first findings come from reading uitoolkit's source at v0.20.x (file
 references are to that tree); 12–24 come from building on it after v0.21.0,
 25–29 from moving to v0.22.1, 30–32 from moving to v0.22.2, 33–34 from
-moving to v0.22.5, 35–37 from the audit of v0.23.0 and 41–45 from the
-audit of v0.23.1 (references to those trees). Each item says where the
+moving to v0.22.5, 35–37 from the audit of v0.23.0, 41–45 from the
+audit of v0.23.1 and 46–49 from the audit of v0.23.2 (references to
+those trees). Each item says where the
 gap is, proposes an API in uitoolkit's own style, and gives a "done when"
 check. The names are suggestions; the behaviour is the requirement.
 
@@ -218,6 +257,17 @@ property (`C.GoBytes`) or the Wayland pipe into bytes and hands them over
 without a string (e54cba4). What a paste still leaves is 42: when that
 read fails it is made again as a string, the readers' own buffers are not
 zeroed, and Windows and macOS have no bytes path at all.
+
+**After v0.23.2 (item 1): satisfactory; a long paste leaves what it
+outgrew (49).** `widgets/secretfield.go` is as it was. A paste of another
+program's secret is bytes on every platform now: X11's property and the
+Wayland pipe (e54cba4), Windows' `CF_UNICODETEXT` and the macOS pasteboard
+(18a98d9), each through buffers zeroed once read, and a read that fails
+is not made again as a string where a bytes path exists (42). What is left
+is 49: a paste longer than one read of the Wayland pipe, or than X11
+sends at once, leaves the buffers it outgrew. The comment on `paste`
+still says another program's secret comes in as a string; it no longer
+does.
 
 ### 2. A dialog window
 
@@ -426,6 +476,42 @@ they were. The same change broke X11's reading of its own selection
 (43), which reaches a `SecretField` pasting the program's own ordinary
 copy.
 
+**Closed in 0.23.2** (the release notes, verbatim): **A secret was still in the heap after the clipboard said it was gone.** `SecretClip.Clear` dropped the clipboard's reference first — so `ClipboardHoldsSecret` answered false at once — then told the window system, which is a round trip to a compositor, an X server or the Windows clipboard, and only after that zeroed the bytes. For the whole of that trip the passphrase was in the heap while every way of asking said nothing was held. It had been on the flaky-test list for weeks. It was never flaky: a quiet Linux box wins the race, a loaded Windows VM loses it every time, and nobody had looked at why. The copy is zeroed first now, before anything slow happens, and the application's callback runs last — so "it is gone" means the clipboard and not only this copy. **A secret never becomes a Go string on any platform.** 0.23.1 did Linux. Windows decoded `CF_UNICODETEXT` through `syscall.UTF16ToString`, which builds a string on the way to bytes; macOS read `C.GoString` of a `strdup`'d buffer and then `free`d it without clearing, leaving a second copy for whatever got that allocation next. Both have a bytes path now, each zeroing what it worked through. The Wayland *serving* side is bytes too: every paste another client asked for used to go out through a string and back, two copies per paste.
+
+**After v0.23.2: satisfactory on X11; on Wayland, Windows and macOS not
+(47, 48); the manager copies through the CLI on Linux.** Read once more
+end to end, every backend, and not only where it changed. The fix holds:
+`SecretClip.Clear` zeroes the toolkit's copy before it tells the window
+system (`wipe`, then `clipboardNativeClear`), and calls back last;
+`TestItem07ASecretOnTheClipboard` checks it headless, with the callback
+seeing the bytes zeroed and nothing held. The owners' own copies (X11's
+`clipData`, the Wayland cache) are zeroed by `clipboardNativeClear` as
+before, and Windows and macOS keep none. `ClipboardClear`, which a lock
+and the quit run, still calls back before it tells the clipboard; nothing
+of secretvault's waits on that. CLIPBOARD only and the timeout are as they
+were. Two things fall short of the item as asked, both older than
+v0.23.1 and missed by every audit before this one:
+
+- on Wayland the owner offers `x-kde-passwordManagerHint` and answers it,
+  like every type it offers, with the clipboard's bytes: Klipper reads the
+  passphrase where it looks for "secret", and keeps it in its history,
+  which it saves to disk (47). X11 answers the hint with "secret";
+- the item's clear is "if the clipboard still holds our data", and
+  nothing tells a `SecretClip` that the clipboard has moved on: the clear
+  at the timeout, at a lock and at the quit empties whatever is there by
+  then on Windows (`EmptyClipboard`), macOS (`clearContents`) and Wayland
+  (an empty offer, which takes the primary selection too); X11 checks it
+  owns the selection, but its own later ordinary copy it does own; and a
+  paste into a `SecretField` takes the old secret rather than what is on
+  the clipboard (48).
+
+So the manager, on Linux and the BSDs, copies through the CLI beside it
+(`gui/svmanager/clip.go`: `secretvault __clip SECONDS`, which serves the
+clipboard with svclip, honours the hint and clears only its own), and
+through `ClipboardSetSecret` where there is no CLI or it cannot reach a
+clipboard, and on Windows and macOS. `TestCopiesGoThroughTheCLI` pins it
+headless, the test binary standing in for the CLI.
+
 ### 8. Showing a secret without making it a string
 
 - **Proposal.** `widgets.NewSecretLabel(value func() []byte)`:
@@ -538,6 +624,9 @@ secretvault types itself (`…`, `·`, `•`); an emoji in an item's name
 still draws as a box, and will. `TestItem11SymbolFallback` checks both.
 Nothing more is asked here. v0.22.2's release notes decline font fallback
 again, for message content.
+
+**After v0.23.2: unchanged.** "Font fallback remains declined" (the
+release notes' "Still open"); `TestItem11SymbolFallback` passes.
 
 ---
 
@@ -661,6 +750,21 @@ until the first key or pointer event. A lock changed in another window is
 learnt at the next event in this one that carries the modifiers, which is
 all a focus-in leaves to go on. `TestItem12CapsLock` pins the
 focus-in and the Wayland surface.
+
+**Not done in 0.23.2** (the release notes' "Still open", verbatim): Caps Lock cannot be reported before the first key on Wayland: a surface cannot be asked, and the state arrives with the first key event. That is the protocol.
+
+**After v0.23.2: unchanged, and the reason given does not hold.** The
+state does not arrive with the first key: the compositor sends
+`wl_keyboard.modifiers` right after `wl_keyboard.enter` (wayland.xml asks
+it of the compositor, and Mutter, KWin and wlroots do it), before any key.
+uitoolkit's backend already takes it: `uitkWlKeyMods` folds it into its
+xkb state and `c.mods`, and stops there, telling no window. A `wlSurface`
+that answered `LockKeys` from `c.mods` (a `LockKeysSurface`), or a
+modifiers event that reached the window as one, would let a Wayland prompt
+say Caps Lock is on before the first key. An AppKit surface is no
+`LockKeysSurface` either (`NSEvent.modifierFlags` can be asked at any
+time). `TestItem12CapsLock` pins both, and that `uitkWlKeyMods` keeps
+the state.
 
 ### 13. A dark desktop with no saved look
 
@@ -862,6 +966,10 @@ narrow form cannot give it: 32.
 **After v0.23.0: satisfactory.** A `SecretArea` is the same widget as a
 `SecretField`, so item 1's reading covers it; a paste normalises CRLF in
 place, and comes in through the same string as item 1's (35).
+
+**After v0.23.2: satisfactory; a long paste: 49.** A paste comes in as
+item 1's, bytes on every platform. A key is the paste most likely to be
+longer than one read of the Wayland pipe, which is where 49 is.
 
 ### 20. Dialogs that stack
 
@@ -1497,6 +1605,17 @@ their own floors (the lists keep their splitter floors). What is needed is
 next resize by the program on Windows and headless, and at a change of
 resize policy everywhere, so the manager states it again after a resize.
 
+**Closed in 0.23.2** (the release notes, verbatim): `widget.MinWidthOf` is meant to let a program size a window from what is in it. Three things stopped it, and all three are fixed: a **wrapper** that holds one thing and passes everything through answered whatever that thing measured — 320 for a splitter, against the 848 its panes needed, and `SetMinSize`'s own doc recommends that line; a **stated minimum did not last**: every backend recomputes its limits from the options the window was made with, on a resize, a change of resize policy, or a Wayland window being rolled up; **`Splitter` and `TextField`** did not answer for themselves.
+
+**After v0.23.2: satisfactory, and it lasts (44).** `MinWidthOf` of a
+component with one child is now at least that child's floor (99e0c22);
+`TestItem34AWindowFloorFromItsContent` checks it of a wrapper round a
+splitter. The manager's wrappers (`page`, `shortcutRoot`, `slot`) keep
+their own `MinWidth`, which answers exactly their child's floor; the new
+rule answers the larger of the probe's guess and the child's. The manager
+states its floor whenever the page changes, and no longer again after a
+resize.
+
 ---
 
 ## Found in the audit of v0.23.0
@@ -1541,6 +1660,17 @@ copies nothing wipes, and falls back to a string when the bytes read
 fails (42); and the X11 change broke the program's reading of its own
 selection (43). `TestItem35TheLinuxSecretClipboardIsBytes` pins what
 holds.
+
+**Closed in 0.23.2** (the release notes, verbatim): **A secret never becomes a Go string on any platform.** 0.23.1 did Linux. Windows decoded `CF_UNICODETEXT` through `syscall.UTF16ToString`, which builds a string on the way to bytes; macOS read `C.GoString` of a `strdup`'d buffer and then `free`d it without clearing, leaving a second copy for whatever got that allocation next. Both have a bytes path now, each zeroing what it worked through. The Wayland *serving* side is bytes too: every paste another client asked for used to go out through a string and back, two copies per paste. And: **X11 read its own copy as the last paste** — a regression 0.23.1 introduced, and the reason to read a release's own report.
+
+**After v0.23.2: satisfactory; what is left is 47–49.** No string of a
+secret anywhere on the Linux secret clipboard: the owners hold bytes and
+zero them (7), the Wayland owner serves from them (41), the readers read
+into bytes and zero their buffers, with no second try as a string (42),
+and X11 reads its own copy again (43). `TestItem35TheLinuxSecretClipboardIsBytes`
+pins the owners; 41–43 pin the rest. What the item did not ask, and is
+not so: what the hint is answered with on Wayland (47), whose clipboard a
+clear empties (48), and the buffers a long paste outgrows (49).
 
 ### 36. A form value read aloud as its caption
 
@@ -1652,6 +1782,21 @@ else asks for a layout; and laid out again, the hidden row keeps its
 three of them showing for a security key, and five gaps too many between
 them: worse than asking for the kind first. That is 45.
 
+**Closed in 0.23.2** (the release notes, verbatim): A **hidden form row** kept its gap: the grid counted the row among its tracks, so a form of eight rows showing three had five gaps too many. `FormRow.SetVisible` also asks for a layout rather than only a repaint.
+
+**After v0.23.2: satisfactory; Add… is one step.** Hiding a row moves
+the rows under it at once, to where they are in a form that never had it
+(45). The manager's keyslot dialog is one form now: the kind at its head,
+the label, and under them only the rows and lines of the kind chosen
+(`formDialog.part` and `showPart`); choosing another kind shows its own.
+The lines under a form are the manager's (`widget.Base.SetVisible` only
+repaints, so `showPart` asks the dialog for a layout itself).
+`TestItem38AFormRowShownOrHidden` now hides and shows a row with no layout
+asked for, and `TestKeyslotsAreListedAddedAndRemoved` checks the dialog.
+Vault › Unlock with… still asks for the kind first: three of its kinds
+open a flow of their own (a window for the passphrase, the security key at
+once, shares one at a time).
+
 ### 39. A grid cell offered no width
 
 - **Today** (`widgets/grid.go`). A `Grid` measures what is in an `Auto`
@@ -1680,6 +1825,23 @@ is still one long line. A secret drawn to the width it is offered would
 report that line as its width wherever it is not stretched, as in a row
 beside its buttons (the resolved reference) or a grid's column, so the
 manager keeps `wrapAt`.
+
+**Closed in 0.23.2** (the release notes, verbatim): `widgets.Share(weight)` is a grid column for cells that wrap to the width they are given: flexible when space is divided, never asked what it would like to be. The obvious fix is not available — `Measure` ends in `Constrain`, so a bounded answer cannot be told from a clamped one, and a button in such a column came back a third of its width.
+
+**After v0.23.2: satisfactory; the fixed wrap is gone.** A cell in a
+`Share` column is asked for its width only through `widget.MinWidthOf`
+(a `MinWidther` is asked; anything else is measured unbounded and at a
+quarter of that, so a cell that cannot fold keeps its natural width as
+its floor: `Share` is for cells that wrap, as its name says) and laid out
+at the column's share; `Flex` is as it was. The manager's `secretText`
+says its floor (the mask's width, so showing a secret does not move the
+window's) and wraps to the width it is offered, at a character's
+boundary, rather than every 48 bytes (`wrapAt`, gone). Shares and invites
+wrap to their dialog; a value shown in an item wraps in the fields grid,
+whose values' column is a `Share` column now, where it used to run past
+its column; a resolved reference's value wraps in a `Share` column beside
+its buttons. `TestItem39AShareColumnOffersItsWidth`, and the manager's
+`TestALongSecretWrapsInItsColumn`.
 
 ### 40. A dialog taller than its window
 
@@ -1715,6 +1877,26 @@ card, as the platforms' dialogs do it; and a QR code scrolled in its
 dialog is no better than one in a dialog of its own. The QR code stays
 where it is.
 
+**Closed in 0.23.2** (the release notes, verbatim): **A tall dialog keeps its buttons**, and `widgets.DialogContent` is that arrangement on its own, for a card an application builds itself.
+
+**After v0.23.2: satisfactory for the need, through the manager's own
+arrangement (46).** `DialogContent(body, actions...)` is `DialogCard`'s
+body in a `ScrollView`, flexed in a column over the action row, so a card
+built of it keeps its buttons in view and scrolls its body;
+`TestItem40ADialogTallerThanItsWindow` checks it with a body 600 tall in a
+window 300 tall. It cannot be used as it is, though (46): its card is as
+tall as the window allows whatever it holds (a dialog of one line is most
+of the window), and its foot gives a `ButtonBox` only its natural width.
+The manager's `showDialog` builds the same arrangement with a
+`ScrollView` that shrinks to its content, inside the dialog's fixed
+width, over its `ButtonBox`, so every dialog sizes to what it holds and
+scrolls when that is more than the window. With that, the workarounds
+go: a QR code is shown under its invite again (and under the contact
+code's text), many recovery shares are in the dialog rather than in a box
+of their own height, and the decrypted message's dialog has no height of
+its own. `TestATallDialogKeepsItsButtonsInView` checks the invite in the
+shortest window the manager allows.
+
 ---
 
 ## Found in the audit of v0.23.1
@@ -1744,6 +1926,16 @@ for 35 broke, and two in fixes that hold as far as they go.
   outside the cache. `TestItem41WaylandServesASecretFromAString` pins
   today's code.
 
+**Closed in 0.23.2** (the release notes, verbatim): The Wayland *serving* side is bytes too: every paste another client asked for used to go out through a string and back, two copies per paste.
+
+**After v0.23.2: satisfactory.** `uitkWlDataSend` and `uitkWlPrimSend`
+read the cache with `getBytes`, its own slice, and `wlSendSelection`
+takes `[]byte` and writes it to the pipe from there: no string, no copy
+(d9356f0). The paste is served on the event loop's thread outside
+`wlMu`, while the timeout's clear zeroes the cache from the timer's
+goroutine: at worst a paste of zeros, not a copy. What is served for the
+password-manager hint is 47. `TestItem41WaylandServesASecretFromItsBytes`.
+
 ### 42. What a pasted secret leaves behind
 
 - **Today.** A secret pasted from another program into a `SecretField`
@@ -1771,6 +1963,23 @@ for 35 broke, and two in fixes that hold as far as they go.
   intermediate buffer zeroed. `TestItem42APastedSecretLeavesCopies` pins
   each of the five.
 
+**Closed in 0.23.2** (the release notes, verbatim): 0.23.1 did Linux. Windows decoded `CF_UNICODETEXT` through `syscall.UTF16ToString`, which builds a string on the way to bytes; macOS read `C.GoString` of a `strdup`'d buffer and then `free`d it without clearing, leaving a second copy for whatever got that allocation next. Both have a bytes path now, each zeroing what it worked through. (And the commit, d9356f0, verbatim: no fallback to the string reader where a bytes path exists, so a read that fails is a failed read rather than one that succeeds the second time and leaves a string behind. Only where there is a display: with no compositor and no X server the clipboard is this process's own buffer, and refusing to read it would be a paste that silently did nothing; the Wayland pipe's 4 KiB staging buffer is zeroed on the way out, and a partial read is zeroed before it is dropped; X11's selection property is zeroed before XFree, which does not clear it — the same reason this file stopped handing C.CString a secret on the serving side. Through a volatile pointer, so the compiler cannot drop a write to memory it can see is being freed.)
+
+**After v0.23.2: satisfactory for a passphrase; a longer paste: 49.**
+Each of the five holds, on every path read: `ClipboardGetSecret` returns
+nothing when the bytes read fails where a bytes path exists (Linux with a
+display, Windows, macOS); `wlReadLoop` zeroes its staging buffer however
+it ends, and `wlReadFDBytes` zeroes a partial read; `handleSelNotify`
+zeroes the property through a volatile pointer before `XFree`; Windows
+decodes into a slice sized never to grow and zeroes its UTF-16 copy and
+the runes; macOS copies out of a buffer it zeroes before freeing. What
+remains in this process is the platform's own, out of reach: Windows'
+clipboard memory, the pasteboard's `NSString` and the UTF-8 buffer AppKit
+hands back from it. Headless, with no display, a paste still reads the
+in-process buffer as a string, which holds only an ordinary copy this
+program made (a secret copy empties it). What does not hold is a paste
+longer than one read: 49. `TestItem42APastedSecretLeavesNoString`.
+
 ### 43. X11 reads its own copy as the last paste
 
 - **Today** (`platform/x11_linux.go`, `readSelection`,
@@ -1790,6 +1999,16 @@ for 35 broke, and two in fixes that hold as far as they go.
 - **Done when:** on X11 a program that copies text pastes that text back.
   `TestItem43X11ReadsItsOwnCopyAsTheLastPaste` pins today's code.
 
+**Closed in 0.23.2** (the release notes, verbatim): **X11 read its own copy as the last paste** — a regression 0.23.1 introduced, and the reason to read a release's own report.
+
+**After v0.23.2: satisfactory.** `readSelection` answers a selection this
+program owns, CLIPBOARD or PRIMARY, by putting a copy of what it serves in
+`pasteData` under the lock (99e0c22); `readSelectionString` makes its
+string of that, as an ordinary paste always did, and `x11ClipGetBytes`
+hands it over. PRIMARY serves the same bytes, and a secret copy gives
+PRIMARY up, so PRIMARY never serves a secret.
+`TestItem43X11ReadsItsOwnCopy`.
+
 ### 44. A window's stated minimum does not last
 
 - **Today.** `Window.SetMinSize` (34) restates the surface's limits, but
@@ -1807,6 +2026,21 @@ for 35 broke, and two in fixes that hold as far as they go.
 - **Done when:** after `SetMinSize`, `SetSize` and `SetSizing` leave
   `MinSize` as stated. `TestItem44AStatedMinimumDoesNotLast` pins today's
   behaviour.
+
+**Closed in 0.23.2** (the release notes, verbatim): a **stated minimum did not last**: every backend recomputes its limits from the options the window was made with, on a resize, a change of resize policy, or a Wayland window being rolled up;
+
+**After v0.23.2: satisfactory; the manager's workaround is gone.** Every
+surface's `SetSizeLimits` (X11, Wayland's `sizeOpts`, Windows, AppKit,
+offscreen) writes what it is told back into the options `limitsFor`
+recomputes from, at a resize by the program, a change of resize policy
+(`syncLimits`) and a Wayland roll-up. `TestItem44AStatedMinimumLasts`
+checks a resize and a change of policy headless, and each backend's
+`SetSizeLimits`. One edge the manager does not reach: a fixed window that
+states a minimum writes its fixed maximum into the options too, which it
+keeps if it is made resizable later. The manager no longer states its
+floor again after a resize (`Window.OnResize` is gone);
+`TestTheEditorFitsTheNarrowestWindow` still resizes it and finds the
+floor there.
 
 ### 45. A hidden form row keeps its gap
 
@@ -1827,6 +2061,145 @@ for 35 broke, and two in fixes that hold as far as they go.
 - **Done when:** in a laid-out form, hiding a row moves the rows under it
   up at once, to where they are in a form that never had it.
   `TestItem45AHiddenFormRowKeepsItsGap` pins today's behaviour.
+
+**Closed in 0.23.2** (the release notes, verbatim): A **hidden form row** kept its gap: the grid counted the row among its tracks, so a form of eight rows showing three had five gaps too many. `FormRow.SetVisible` also asks for a layout rather than only a repaint.
+
+**After v0.23.2: satisfactory.** `FormRow.SetVisible` asks for a layout,
+and the grid gives a track nothing visible is in neither room nor a gap,
+rows and columns alike (d9356f0): in a laid-out form, hiding a row moves
+the next at once to where it is in a form that never had it.
+`TestItem45AHiddenFormRowLeavesNoGap`. (A visible row of no height loses
+its gap too, which no form of secretvault's has.) The keyslot's Add… is
+one step (38).
+
+---
+
+## Found in the audit of v0.23.2
+
+Reading the fixes through to the backends, against the needs as stated,
+and the secret clipboard once more end to end, found four things: one in
+the piece v0.23.2 gives for 40, two in the secret clipboard that are
+older than v0.23.1 and that every audit before this one missed, and one
+in a fix that holds as far as it goes.
+
+### 46. `DialogContent` fills the window, and squeezes a `ButtonBox`
+
+- **Today** (`widgets/dialog.go`, `DialogContent`; `widgets/scroll.go`).
+  `DialogContent` puts the body in a `ScrollView` flexed in a column over
+  a row of the actions, and `DialogCard` is made of it. Two things keep an
+  application from building its dialogs of it:
+  - the `ScrollView` is not told to shrink to its content
+    (`ShrinkToContent`), and a scroll view offered a height takes all of
+    it: the `Overlay` measures its card in 0.8 of the window, so a card
+    built of `DialogContent`, or a `DialogCard`, is that tall whatever it
+    holds. A confirmation of one line is 560 pixels tall in a window 700
+    tall;
+  - the actions go in a row justified to the end, each at its natural
+    width. A `ButtonBox`, which is how a dialog's buttons are laid out as
+    the look's platform lays them out (the toolkit's own message boxes
+    use one), handed to it as the action is squeezed to its natural width
+    at the right, and its left-hand group (Help, and a destructive button
+    under Mac and GNOME looks) is no longer apart.
+- **Workaround.** The manager builds the arrangement itself
+  (`showDialog`): a `ScrollView` with `ShrinkToContent`, inside the
+  dialog's fixed width (a scroll view takes all the width it is offered
+  too), flexed in a column over its `ButtonBox` at the column's full
+  width.
+- **Proposal.** `DialogContent`'s scroll view shrinks to its content
+  (the column already caps it to the card); and an action that is a
+  `ButtonBox` is given the row's width, or `DialogContent` takes the foot
+  as one component (`DialogContent(body, foot widget.Component)`).
+- **Done when:** a `DialogCard` of one line is no taller than its text
+  and its button, and a `ButtonBox` in `DialogContent` keeps a destructive
+  button apart under a GNOME look. `TestItem46DialogContentFillsTheWindow`
+  pins today's behaviour.
+
+### 47. Wayland answers the password-manager hint with the secret
+
+- **Today** (`platform/wayland_linux.go`, `uitk_dsrc_send` and
+  `uitkWlDataSend`). A secret copy offers `x-kde-passwordManagerHint`
+  beside the text types, as item 7 asked, so that clipboard managers do
+  not record it: the convention, as KeePassXC writes it and Klipper reads
+  it, is that the hint's *value* is "secret". But the data source's send
+  handler drops the type it was asked for (`(void)mime;`), and
+  `uitkWlDataSend` writes the clipboard's bytes for every request. Klipper
+  asks for the hint, reads the passphrase where it looks for "secret",
+  takes the copy for an ordinary one, and keeps it in its history, which
+  it saves to disk by default. Every reader that asks for the hint gets
+  the passphrase once more too. X11 answers the hint target with "secret"
+  (`handleSelReq`), as the toolkit's own comment there says it must. This
+  is older than v0.23.1; the audits before this one checked that the hint
+  was offered, not what it was answered with.
+- **Workaround.** On Linux and the BSDs the manager copies through the
+  CLI beside it (`secretvault __clip`), whose svclip offers the hint as
+  "secret" on Wayland (data control) and X11; through uitoolkit only where
+  there is no CLI or it cannot reach a clipboard.
+- **Proposal.** Pass the mime type through to `uitkWlDataSend` (and
+  `uitkWlPrimSend`), answer `x-kde-passwordManagerHint` with "secret" while
+  the selection is a secret, the text types with the bytes, and nothing
+  else with nothing.
+- **Done when:** on Wayland a request for the hint is answered "secret",
+  and Klipper does not record a secret copy.
+  `TestItem47WaylandAnswersTheHintWithTheSecret` pins today's code.
+
+### 48. A copied secret outlives the clipboard
+
+- **Today** (`platform/clipboard_secret*.go`). A `SecretClip` is held
+  (`secretHeld`) from `ClipboardSetSecret` until it is cleared, and
+  nothing ends it when the clipboard moves on: not another program's copy
+  (X11's `SelectionClear`, Wayland's `cancelled`, Windows and macOS, which
+  are not even asked), and not the program's own ordinary copy
+  (`ClipboardSet`). For the rest of its time, 30 seconds in the manager:
+  - a paste into a `SecretField` or `SecretArea` reads the old secret
+    (`ClipboardGetSecret` serves `secretHeld` first) rather than what is on
+    the clipboard: copy a passphrase from another program into a new
+    vault's "Passphrase" and "Repeat", and the vault gets the item copied
+    before;
+  - `ClipboardHoldsSecret` says a secret is held;
+  - the clear at its timeout, at a lock (`SecretClip.Clear`) and at the
+    quit (`ClipboardClearSecret`) empties whatever the clipboard holds by
+    then, with nothing to check it is still this copy: Windows
+    `EmptyClipboard`s, macOS `clearContents`, and Wayland sets an empty
+    offer on CLIPBOARD and on the primary selection (where the compositor
+    lets it). The item's own words were "if the clipboard still holds our
+    data, clear it", and the type's comment says it "does nothing if
+    something else has since taken the clipboard". X11 checks it owns the
+    selection before it gives it up, but the program's own later ordinary
+    copy it does own, and drops.
+- **Workaround.** As 47: on Linux and the BSDs the CLI's helper holds the
+  copy and clears only its own (svclip: a data-control source that was not
+  cancelled, an X11 selection still owned, a Windows clipboard sequence
+  number unchanged), and a paste reads the clipboard itself. On Windows and
+  macOS the manager still copies through uitoolkit, and this stands.
+- **Proposal.** End the held secret when the selection is lost (X11's
+  `SelectionClear`, Wayland's `cancelled`) or replaced by any copy of the
+  program's; on Windows note `GetClipboardSequenceNumber` after the copy
+  and clear only while it is unchanged, on macOS the pasteboard's
+  `changeCount` the same; and on Wayland clear by destroying the source
+  that is still the selection rather than setting an empty one.
+- **Done when:** after another copy, a secret paste reads that copy,
+  `ClipboardHoldsSecret` is false, and the clear at the timeout leaves the
+  clipboard as it is, on all four backends.
+  `TestItem48ACopiedSecretOutlivesTheClipboard` pins today's behaviour
+  headless (the program's own copy), and the backends' code.
+
+### 49. What a long pasted secret leaves behind
+
+- **Today.** 42 holds for a secret that fits one read. One that does not
+  (a private key pasted into a `SecretArea`, the paste most likely to be
+  long) leaves copies nothing wipes:
+  - the Wayland reader appends each 4 KiB it reads to what it has
+    (`wlReadLoop`: `out = append(out, buf[:n]...)`), so every array the
+    paste outgrew is dropped unzeroed;
+  - X11's INCR transfer, for a selection larger than its owner sends at
+    once, frees each piece Xlib read with `XFree` and no `ui_zero`, and
+    grows its buffer by append (`handleProperty`, `AppendINCRPiece`),
+    leaving the arrays it outgrew; the whole is zeroed once copied out.
+- **Proposal.** Grow by hand, zeroing the array outgrown (or read into a
+  buffer sized from what the owner announces, as INCR does); zero each
+  INCR piece before `XFree`.
+- **Done when:** a paste of 20 KiB leaves no copy outside the bytes
+  handed over. `TestItem49ALongPasteLeavesWhatItOutgrew` pins today's code.
 
 ---
 
