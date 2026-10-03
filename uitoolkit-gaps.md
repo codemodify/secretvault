@@ -29,9 +29,13 @@ left:
 - touching the passphrase, on Wayland: a prompt opened with Caps Lock on
   still cannot say so before the first key (12). v0.23.2 says the
   protocol does not allow it; it does;
-- and one that does not touch a secret: `widgets.DialogContent`, the
+- and two that do not touch a secret: `widgets.DialogContent`, the
   piece v0.23.2 gives for 40, sizes its card to the window rather than to
-  what it holds, and squeezes a `ButtonBox` to its natural width (46).
+  what it holds, and squeezes a `ButtonBox` to its natural width (46);
+  and a text view a few rows tall, in the default look, squeezes its
+  scroll bar's three step buttons into a bar that cannot show a position,
+  and runs its lines under it (50, found after the audit, in a plain-
+  language pass over the manager's dialogs).
 
 secretvault works around 46 in its own code (its dialogs are built the
 same way with a body that sizes to its content), and 47 and 48 on Linux
@@ -47,7 +51,7 @@ cannot.
   through the releases since (25–29 at v0.22.1, 30–32 at v0.22.2, 33–34 at
   v0.22.5, 35–37 in the audit of v0.23.0), 38–40 while bringing the
   manager level with the CLI, on v0.23.0, 41–45 in the audit of v0.23.1,
-  and 46–49 in the audit of v0.23.2.
+  46–49 in the audit of v0.23.2, and 50 since, on v0.23.2.
 - **The audit of v0.23.2** re-read every item from scratch against the
   release as the module proxy serves it (the same tree as uitoolkit's
   checkout at the tag). v0.23.2 changed the secret clipboard
@@ -132,7 +136,7 @@ against it.
 | --- | --- | --- | --- |
 | 1 | A secret field that does not leak | `widgets.SecretField` (65463cc): a byte buffer edited in place, zeroed when outgrown or shortened, copy, cut, drag and PRIMARY refused, no string made of it; a paste is bytes on every platform (e54cba4, 18a98d9) | **Satisfactory**; a long paste: 49 |
 | 2 | A dialog window | `Role`, `Center`, `KeepAbove`, `Activate` (3fa3094) | **Satisfactory** |
-| 3 | Holding the keyboard | `SetSecureInput`, and since 3c3c2c7 `SecureInputHeld`, `OnSecureInput`, the X11 grab taken at the map | **Satisfactory** (37); the prompts say "Keyboard held" |
+| 3 | Holding the keyboard | `SetSecureInput`, and since 3c3c2c7 `SecureInputHeld`, `OnSecureInput`, the X11 grab taken at the map | **Satisfactory** (37); the prompts say "Typing is private" |
 | 4 | Out of screenshots | `Window.SetExcludeFromCapture` (b87afe0); Windows and macOS only | **Satisfactory** where a platform can; X11 and Wayland cannot, by the platform |
 | 5 | No input method in secret fields | input method off while a `SecretTarget` has the focus (`app/window.go`, `syncIMECursor`) | **Satisfactory** |
 | 6 | Headless driving for tests | `Type`, `Press`, `ClickComponent`, `FocusOn` (a0bd1d7) | **Satisfactory** |
@@ -179,6 +183,7 @@ against it.
 | 47 | Wayland answers the password-manager hint with the secret | (new, older than v0.23.1) | **Open**; the manager copies through the CLI on Linux |
 | 48 | A copied secret outlives the clipboard | (new, older than v0.23.1) | **Open**; the manager copies through the CLI on Linux |
 | 49 | What a long pasted secret leaves behind | (new) | **Open** |
+| 50 | A short text view's scroll bar is squeezed, and its lines run under it | (new, found after v0.23.2) | **Open**; the manager shows no text in a small box |
 
 The first findings come from reading uitoolkit's source at v0.20.x (file
 references are to that tree); 12–24 come from building on it after v0.21.0,
@@ -339,7 +344,7 @@ grab is taken at the map, and again at each focus-in before the window
 hears of the focus, so `Window.SecureInputHeld` and `OnSecureInput` say
 what is in effect (`x11Surface.secureHeld`). secretui's frame follows
 `OnSecureInput`: the header of every secretvault dialog, the prompt's and
-the manager's passphrase question, says "Keyboard held" while it is, and
+the manager's passphrase question, says "Typing is private" while it is, and
 tells a screen reader so, and says nothing while it is not, which on
 Windows is always. On Wayland "held" is the inhibitor having been made:
 the compositor's `active` and `inactive` events are not followed, which
@@ -2200,6 +2205,58 @@ in a fix that holds as far as it goes.
   INCR piece before `XFree`.
 - **Done when:** a paste of 20 KiB leaves no copy outside the bytes
   handed over. `TestItem49ALongPasteLeavesWhatItOutgrew` pins today's code.
+
+## Found in the plain-language pass
+
+A person setting up Firefox got a plan in a text view two rows tall, its
+important line cut off, with "odd stacked arrows" beside it: ▲ at the
+top, ▲▼ squeezed at the foot. They are Plastik's three step buttons,
+which is right for the look; what is wrong is what a short bar does with
+them, and what the text does beside it.
+
+### 50. A short text view's scroll bar is squeezed, and its lines run under it
+
+- **Today** (`widgets/textarea.go`, `vparts`, `wrapWidth`;
+  `style/engine.go`, `ScrollGeometry`). In the default look (Plastik, and
+  Keramik and KDE 2 too: `ArrowsTripleEnd`):
+  - a `TextArea`'s vertical bar is as long as its rows, inside the
+    field's padding: 47 pixels for `MinRows = 2` at 1x. `ScrollGeometry`
+    wants three buttons of 16 and a track; short of that it shrinks the
+    buttons (`a = (along-8)/buttons`) to 13 each, leaving a track of 8,
+    shorter than the look's smallest thumb (20). The thumb is clamped to
+    the track, so it fills it, and it is in the same place at every
+    offset (`lo+(span-th)*(offset/maxOff)` with `span == th`): the bar
+    says neither that there is more nor where the view is, and the thumb
+    cannot be dragged. What is left are three small arrows, one apart
+    from the other two, which is what the person saw;
+  - the lines wrap to the field's whole inner width (`wrapWidth` is
+    `inner().Dx()`), and the bar is painted over the field's right edge,
+    so the end of every full line runs under the bar: "io.gith" and the
+    rest of the name hidden;
+  - and a word longer than the line (a path) is broken wherever the line
+    ends (`lastWrap` breaks at spaces and tabs only), here in the middle
+    of a file name. `style.Font.Wrap`, which labels use, does the same.
+  A minimal reproduction, headless: a `NewMonoTextView` of three lines of
+  text, `MinRows = 2`, in a window of the Plastik look
+  (`style.LoadTheme("plastik")`), drawn with `WritePNG`.
+- **Workaround.** The manager shows no text in a small box: a plan's
+  lines, a report and a key are a `detailText` of its own
+  (`gui/svmanager/plain.go`), as tall as its lines in a dialog that
+  scrolls as a whole, wrapped at spaces and, in a word too long for the
+  line, after a path separator; a plan's lines are folded under "Show
+  details" below its summary in plain words. The TUI was never affected.
+- **Proposal.** Give a bar too short for its buttons and its smallest
+  thumb fewer buttons (one at each end, then none), as Qt's styles do,
+  and hide a thumb that cannot move rather than fill the track with it;
+  let a `TextArea` that shows its bar wrap to the width the bar leaves;
+  and break a word too long for a line after a `/`, `\`, `-` or `.`
+  before breaking it anywhere, in `lastWrap` and `Font.Wrap` alike.
+- **Done when:** a two-row text view in Plastik shows a bar whose thumb
+  moves with the text (or no bar's buttons it cannot fit), no text under
+  it, and a path broken after a separator.
+  `TestItem50AShortTextViewsScrollBar` pins today's behaviour: the
+  squeezed buttons, the thumb in one place at both ends, and a line under
+  the bar.
 
 ---
 
