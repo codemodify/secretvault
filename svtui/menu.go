@@ -26,7 +26,7 @@ func (u *UI) menu() []menuEntry {
 	return []menuEntry{
 		{"File", "New vault…", "N", u.newVault},
 		{"File", "Add a vault folder…", "", u.addVault},
-		{"File", "Import another password manager's export…", "I", u.importFile},
+		{"File", "Import from a browser or another password manager…", "I", u.importFile},
 		{"File", "Export to KeePass (KDBX) or CXF…", "X", u.exportFile},
 		{"File", "Join a synced vault…", "", u.syncJoin},
 		{"File", "Emergency access: accept an invite…", "", func() { u.acceptEmergency(nil) }},

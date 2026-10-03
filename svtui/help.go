@@ -45,7 +45,7 @@ var helpKeys = strings.TrimSpace(`
                          the passphrase; rotating the key; the security
                          keys plugged in
   R                      the deleted items: bring one back
-  I                      import another password manager's export
+  I                      import from a browser or another password manager
   X                      export to KeePass (KDBX) or CXF
   V                      the vaults: paths, when each locks, the default,
                          forgetting one, opening at login, verifying,

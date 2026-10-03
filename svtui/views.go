@@ -17,7 +17,12 @@ import (
 // confirm asks before doing something that cannot be taken back. y, or
 // the action's button, does it; n, Escape or Cancel does not.
 func (u *UI) confirm(title, text, action string, do func()) {
-	m := tview.NewModal().SetText(text).AddButtons([]string{"Cancel", action})
+	u.confirmWith(title, text, "Cancel", action, do)
+}
+
+// confirmWith is confirm with its own word for not doing it ("Keep it").
+func (u *UI) confirmWith(title, text, cancel, action string, do func()) {
+	m := tview.NewModal().SetText(text).AddButtons([]string{cancel, action})
 	m.SetTitle(" " + tview.Escape(title) + " ")
 	m.SetDoneFunc(func(_ int, label string) {
 		u.closePage(pageDialog)

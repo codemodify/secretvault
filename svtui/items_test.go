@@ -215,13 +215,15 @@ func TestImportShowsTheNamesFirstThenStores(t *testing.T) {
 	h.start(Options{}, "")
 	h.unlock()
 	h.typeText("I")
-	h.waitFor("Import into personal")
-	h.typeText(file)
-	h.tabs(2)
-	h.typeText("imported/chrome")
-	h.tabs(4) // replace, passphrase, key file, Read it
+	h.waitFor("Where are your passwords now?")
+	h.key(tcell.KeyDown) // Chrome, after Firefox
 	h.key(tcell.KeyEnter)
-	h.waitFor("Reading " + file + " as csv")
+	h.waitFor("chrome://password-manager/settings")
+	h.typeText(file)
+	h.tabs(1)
+	h.typeText("imported/chrome")
+	h.tabs(2) // replace, Read it
+	h.key(tcell.KeyEnter)
 	h.waitFor("2 items to import into personal")
 	h.waitFor("imported/chrome/github.com")
 	if _, err := h.get("imported/chrome/github.com"); err == nil {
@@ -233,6 +235,14 @@ func TestImportShowsTheNamesFirstThenStores(t *testing.T) {
 	h.waitFor("Imported 2 items, skipped 0")
 	if e, err := h.get("imported/chrome/github.com"); err != nil || field(e, "password") != "gh-p4ss" {
 		t.Fatalf("imported: %v %+v", err, e.Item)
+	}
+	// The file held them in the clear: deleting it is offered, and
+	// declined here.
+	h.waitFor("Delete Chrome Passwords.csv?")
+	h.typeText("n")
+	h.waitGone("Delete Chrome Passwords.csv?")
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("kept, but: %v", err)
 	}
 }
 

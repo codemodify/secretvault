@@ -2,6 +2,7 @@ package svtui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,40 +27,74 @@ func (u *UI) newCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(u.ctx, callTimeout)
 }
 
-// importFile is 'secretvault import FORMAT FILE'.
-func (u *UI) importFile() {
+// importFile is 'secretvault import SOURCE FILE', in steps, as the GUI's
+// File › Import… is: where the passwords are now (svops.ImportSources),
+// then how to export them from there and only what that export needs,
+// then the names (the dry run), and only then the import. An export that
+// was not encrypted is offered for deletion once it is in.
+func (u *UI) importFile() { u.chooseImportSource(0) }
+
+// importQuestion is the first step's question.
+const importQuestion = "Where are your passwords now?"
+
+// chooseImportSource asks where the passwords come from, at source at.
+func (u *UI) chooseImportSource(at int) {
 	if !u.needVault() {
 		return
 	}
 	vault := u.vault
-	formats := []string{"auto"}
-	for _, f := range svimport.Formats {
-		formats = append(formats, string(f))
+	labels := make([]string, len(svops.ImportSources))
+	for i, s := range svops.ImportSources {
+		labels[i] = s.Label
 	}
-	f := u.newForm("Import into "+vault, "Another password manager's export. Its names are shown before anything is stored. pass and gopass stores are not read yet.")
-	path := f.path("File", "", "")
-	format := f.choice("Format", formats, 0)
-	prefix := f.text("Folder", "", "put every item under it, like imported/keepass (optional)")
+	u.chooseAt(importQuestion, labels, at, func(i int) { u.importFrom(vault, i) })
+}
+
+// importFrom is the second step: source i's steps for its export, the
+// file, and only what that export needs; Back returns to the list.
+func (u *UI) importFrom(vault string, i int) {
+	src := svops.ImportSources[i]
+	var b strings.Builder
+	b.WriteString("[::b]What to do in " + tview.Escape(src.Program) + "[::-]\n")
+	for _, st := range src.NumberedSteps() {
+		b.WriteString(tview.Escape(st) + "\n")
+	}
+	if note := src.UnencryptedNote(); note != "" {
+		b.WriteString("[yellow]" + tview.Escape(note) + "[-]\n")
+	}
+	b.WriteString("\nThen give the export file. Nothing is stored until you have seen the names it would make.")
+	f := u.newForm("Import from "+src.Label, b.String())
+	path := f.path("Export file", "", "its path, like ~/Downloads/"+src.File)
+	var srcPass *secretInput
+	if src.Passphrase != "" {
+		srcPass = f.secret(src.Passphrase)
+	}
+	var srcKey *tview.InputField
+	if src.Keyfile {
+		srcKey = f.path("Key file", "", "only if you use one")
+	}
+	prefix := f.text("Put them in a folder", "", "optional, like imported/"+src.Name)
 	overwrite := f.check("Replace items that exist", false)
-	srcPass := f.secret("Its passphrase")
-	srcKey := f.path("KeePass key file", "", "(optional)")
+	f.back = func() { u.chooseImportSource(i) }
 	f.show("Read it", func() string {
 		p := filePath(path)
 		if p == "" {
-			return "Give the export's path."
+			return "Give the export file's path."
 		}
 		opts := svimport.Options{Prefix: strings.TrimSpace(trimmed(prefix))}
-		if k := filePath(srcKey); k != "" {
-			b, err := os.ReadFile(k)
-			if err != nil {
-				return err.Error()
+		if srcKey != nil {
+			if k := filePath(srcKey); k != "" {
+				b, err := os.ReadFile(k)
+				if err != nil {
+					return err.Error()
+				}
+				opts.Keyfile = b
 			}
-			opts.Keyfile = b
 		}
-		if len(srcPass.buf) > 0 {
+		if srcPass != nil && len(srcPass.buf) > 0 {
 			opts.Passphrase = srcPass.value()
 		}
-		u.readExport(vault, p, option(format), opts, overwrite.IsChecked(), 0)
+		u.readExport(vault, p, src.Name, opts, overwrite.IsChecked(), 0)
 		return ""
 	})
 }
@@ -80,6 +115,9 @@ func (u *UI) readExport(vault, path, format string, opts svimport.Options, overw
 			return err
 		}
 		res, err = svimport.Import(f, data, opts)
+		if src, ok := svops.FindImportSource(format); ok && errors.Is(err, svimport.ErrFormat) {
+			return fmt.Errorf("%s does not look like an export from %s: check its steps, or go back and choose where it comes from", filepath.Base(path), src.Program)
+		}
 		return err
 	}, func(err error) {
 		wipe := func() { clear(opts.Passphrase); clear(opts.Keyfile) }
@@ -123,15 +161,17 @@ func (u *UI) readExport(vault, path, format string, opts svimport.Options, overw
 		} else {
 			b.WriteString("\n\nItems that exist already are skipped.")
 		}
+		plain := !res.Encrypted
 		u.showPlan("Import "+filepath.Base(path), b.String(), fmt.Sprintf("Import %d items", len(res.Items)), func() {
-			u.storeImport(vault, res, opts.Prefix, overwrite)
+			u.storeImport(vault, path, res, opts.Prefix, overwrite, plain)
 		}, res.Wipe)
 	})
 }
 
 // storeImport stores what was read (svops.StoreImport), and says how it
-// went.
-func (u *UI) storeImport(vault string, res *svimport.Result, prefix string, overwrite bool) {
+// went; an export that was not encrypted (plain) is then offered for
+// deletion.
+func (u *UI) storeImport(vault, path string, res *svimport.Result, prefix string, overwrite, plain bool) {
 	var rep *svops.ImportReport
 	u.call(func(_ context.Context, c *secretvault.Client) (err error) {
 		defer res.Wipe()
@@ -157,9 +197,25 @@ func (u *UI) storeImport(vault string, res *svimport.Result, prefix string, over
 			u.say("Imported %d items into %s", rep.Imported, vault)
 		}
 		u.showText("Import", b.String())
+		if err == nil && plain {
+			u.offerDeleteExport(path, vault)
+		}
 		if vault == u.vault {
 			u.loadItems()
 		}
+	})
+}
+
+// offerDeleteExport offers to delete an export that held the passwords
+// unencrypted, now that they are in vault: a plain remove
+// (svops.RemoveExport), and said to be no more than that.
+func (u *UI) offerDeleteExport(path, vault string) {
+	u.confirmWith("Delete "+filepath.Base(path)+"?", svops.DeleteExportNote(path, vault), "Keep it", "Delete it", func() {
+		if err := svops.RemoveExport(path); err != nil {
+			u.fail(err)
+			return
+		}
+		u.say("Deleted %s", path)
 	})
 }
 

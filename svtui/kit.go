@@ -41,6 +41,10 @@ type formDialog struct {
 
 	// onCancel runs when the dialog is cancelled rather than submitted.
 	onCancel func()
+
+	// back, when set, is a Back button's: the dialog is cancelled, and
+	// back shows the step before.
+	back func()
 }
 
 // newForm starts a dialog. intro, if not "", is said above the fields.
@@ -158,6 +162,12 @@ func (f *formDialog) show(action string, ok func() string) {
 		}
 	}
 	f.form.AddButton(action, submit).AddButton("Cancel", f.cancel)
+	if back := f.back; back != nil {
+		f.form.AddButton("Back", func() {
+			f.cancel()
+			back()
+		})
+	}
 	f.form.SetCancelFunc(f.cancel)
 	h := 0
 	for _, x := range f.heights {
@@ -320,6 +330,11 @@ func (u *UI) showPlan(title, body, action string, do func(), cancelled ...func()
 
 // choose asks which of options; done gets its index.
 func (u *UI) choose(title string, options []string, done func(int)) {
+	u.chooseAt(title, options, 0, done)
+}
+
+// chooseAt is choose, starting at option at.
+func (u *UI) chooseAt(title string, options []string, at int, done func(int)) {
 	list := tview.NewList().ShowSecondaryText(false).SetHighlightFullLine(true)
 	for i, o := range options {
 		list.AddItem(tview.Escape(o), "", 0, func() {
@@ -327,6 +342,7 @@ func (u *UI) choose(title string, options []string, done func(int)) {
 			done(i)
 		})
 	}
+	list.SetCurrentItem(at)
 	list.SetDoneFunc(func() { u.closePage(pageDialog) })
 	list.SetBorder(true).SetTitle(" " + tview.Escape(title) + " — Esc cancels ")
 	width := len(title) + 20
