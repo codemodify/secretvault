@@ -9,8 +9,9 @@ await import(new URL("lib/psl.js", ext));
 await import(new URL("lib/origin.js", ext));
 await import(new URL("lib/protocol.js", ext));
 await import(new URL("lib/forms.js", ext));
+await import(new URL("lib/style.js", ext));
 
-export const { SVPSL, SVOrigin, SVProtocol, SVForms } = globalThis;
+export const { SVPSL, SVOrigin, SVProtocol, SVForms, SVStyle } = globalThis;
 
 export const list = SVPSL.parse(readFileSync(fileURLToPath(new URL("data/public_suffix_list.dat", ext)), "utf8"));
 

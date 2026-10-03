@@ -48,7 +48,7 @@
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["lib/forms.js", "content.js"],
+      "js": ["lib/forms.js", "lib/style.js", "content.js"],
       "all_frames": true,
       "run_at": "document_idle"
     }

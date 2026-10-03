@@ -142,6 +142,13 @@ func (b *extSession) decide(ctx context.Context, mv *managedVault, item, itemNam
 // it was saved for.
 func (b *extSession) confirm(ctx context.Context, mv *managedVault, item, itemName string, op svbroker.Op, why string) error {
 	record := b.d.recorder(b.app, mv, itemName, op)
+	// A remembered no still holds; only a yes is asked again.
+	if dec, found, err := b.d.broker.Check(mv.v, b.app, b.app.identity(), item, op); err != nil {
+		return b.fail(err)
+	} else if found && !dec.Allows() {
+		record("denied", "remembered decision")
+		return b.fail(denied(mv))
+	}
 	why += "\n(It was saved for another host of this site, so this is asked every time.)"
 	if err := b.d.ask(ctx, b.app, mv, item, itemName, op, why, record, true); err != nil {
 		return b.fail(err)

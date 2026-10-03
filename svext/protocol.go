@@ -130,18 +130,19 @@ func ParseRequest(frame []byte) (*Request, error) {
 	}
 	var m map[string]json.RawMessage
 	d := json.NewDecoder(bytes.NewReader(frame))
-	if err := d.Decode(&m); err != nil || m == nil {
+	err := d.Decode(&m)
+	defer func() {
+		for _, v := range m {
+			clear(v)
+		}
+	}()
+	if err != nil || m == nil {
 		return nil, Errorf(CodeBadRequest, "a request is one JSON object")
 	}
 	if _, err := d.Token(); err != io.EOF {
 		// Anything after the object, even a stray } or ].
 		return nil, Errorf(CodeBadRequest, "a request is one JSON object, and nothing after it")
 	}
-	defer func() {
-		for _, v := range m {
-			clear(v)
-		}
-	}()
 	r := &Request{}
 	idErr := str(m, "id", &r.ID, MaxID)
 	if idErr == nil && !validID(r.ID) {
@@ -172,7 +173,7 @@ func ParseRequest(frame []byte) (*Request, error) {
 			return r, Errorf(CodeBadRequest, "%s needs %q", r.Op, k)
 		}
 	}
-	err := r.read(m)
+	err = r.read(m)
 	if err != nil {
 		r.Wipe()
 	}

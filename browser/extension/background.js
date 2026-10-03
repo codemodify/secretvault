@@ -326,6 +326,20 @@ async function where(msg, sender) {
   return { tabId: tab.id, frameId: null, origin: O.originOf(tab.url), handle: null, mode: "popup", incognito: tab.incognito === true };
 }
 
+// verified checks, for a panel in a page, that the page had not altered,
+// moved or covered it when the person chose in it: the content script
+// that put it there says. The toolbar popup is the browser's own.
+async function verified(w) {
+  if (!w.token) return;
+  let r = null;
+  try {
+    r = await ext.tabs.sendMessage(w.tabId, { type: "panel:verify" }, { frameId: w.frameId });
+  } catch {
+    // The frame is gone.
+  }
+  if (!r || r.ok !== true) throw fail("denied", "the page tampered with the panel: use the toolbar button");
+}
+
 // stillThere checks the tab still shows the origin a panel was for.
 async function stillThere(w) {
   const tab = await ext.tabs.get(w.tabId);
@@ -408,6 +422,7 @@ const fromPages = {
   async "panel:fill"(msg, sender) {
     const w = await where(msg, sender);
     const l = shown(w, msg.login);
+    await verified(w);
     const totp = msg.what === "totp";
     if (totp && !l.totp) throw fail("not-found", "that login has no one-time code");
     await stillThere(w);
@@ -431,6 +446,7 @@ const fromPages = {
   async "panel:generate"(msg, sender) {
     const w = await where(msg, sender);
     if (!w.origin) throw fail("no-page", "no page");
+    await verified(w);
     await stillThere(w);
     let g = await call("generate", { length: 24, symbols: true }, QUICK);
     const fill = { type: "fill", what: "new", origin: w.origin, handle: w.handle, password: String(g.password || "") };
@@ -488,9 +504,21 @@ ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender.id !== ext.runtime.id || !msg || typeof msg.type !== "string") return false;
   const table = isOurPage(sender) ? fromPages : fromContent;
   if (!Object.hasOwn(table, msg.type)) return false;
+  // A panel waiting on the person (a prompt of secretvault's) is in use:
+  // its idle time counts from when the answer came.
+  const touch = () => {
+    const p = typeof msg.token === "string" ? panels.get(msg.token) : null;
+    if (p) p.until = Date.now() + PANEL_IDLE;
+  };
   table[msg.type](msg, sender).then(
-    (r) => sendResponse({ ok: true, ...r }),
-    (e) => sendResponse({ ok: false, error: (e && e.code) || "failed", message: (e && e.message) || "" }),
+    (r) => {
+      touch();
+      sendResponse({ ok: true, ...r });
+    },
+    (e) => {
+      touch();
+      sendResponse({ ok: false, error: (e && e.code) || "failed", message: (e && e.message) || "" });
+    },
   );
   return true;
 });

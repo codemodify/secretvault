@@ -44,7 +44,7 @@ func TestTheExtensionsModulesPassTheirTestsUnderNode(t *testing.T) {
 func TestTheExtensionIsEmbeddedWhole(t *testing.T) {
 	ext := Extension()
 	for _, f := range []string{"manifest.json", "background.js", "content.js", "panel.html", "panel.js", "panel.css",
-		"lib/psl.js", "lib/origin.js", "lib/protocol.js", "lib/forms.js", PSLPath, "icons/128.png"} {
+		"lib/psl.js", "lib/origin.js", "lib/protocol.js", "lib/forms.js", "lib/style.js", PSLPath, "icons/128.png"} {
 		if _, err := fs.Stat(ext, f); err != nil {
 			t.Errorf("%s is not embedded: %v", f, err)
 		}

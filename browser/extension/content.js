@@ -25,7 +25,9 @@
 
   const ext = globalThis.browser ?? globalThis.chrome;
   const F = globalThis.SVForms;
-  if (!ext || !ext.runtime || !F) return;
+  const S = globalThis.SVStyle;
+  if (!ext || !ext.runtime || !F || !S) return;
+  const { alpha, hides } = S;
 
   const MARK = 20;
   const PANEL_W = 320;
@@ -37,20 +39,32 @@
   const fields = new Map(); // handle -> input
   const handles = new WeakMap(); // input -> handle
   const marks = new Map(); // handle -> {host, el, at, movedAt}
-  const spoiled = new WeakSet(); // fields whose mark the page touched: not marked again
+  const spoiled = new WeakMap(); // field -> how often the page touched its mark; at 3 it is not marked again
   let panel = null; // {host, handle, rect}
   let reported = "";
 
   // ---------------------------------------------------- our elements
 
+  const popovers = typeof HTMLElement.prototype.showPopover === "function";
   const ours = new WeakSet(); // the elements that hold the marks and the panel
+  const leaving = new WeakSet(); // those this script takes away itself
   const wanted = new WeakMap(); // host -> {props, css}: its style, as set here
+  let raising = false; // this script is putting a host in the top layer again
+
+  // A host whose attributes change, but for its style as set here, is
+  // the page's doing.
   const guard = new MutationObserver((records) => {
     for (const r of records) {
       const host = r.target;
       const w = wanted.get(host);
       if (!w || !host.isConnected) continue;
       if (r.attributeName !== "style" || host.getAttribute("style") !== w.css) tampered(host);
+    }
+  });
+  // So is one taken out of <html> (to be put somewhere see-through, say).
+  const roots = new MutationObserver((records) => {
+    for (const r of records) {
+      for (const n of r.removedNodes) if (ours.has(n) && !leaving.has(n)) tampered(n);
     }
   });
 
@@ -71,17 +85,20 @@
   }
 
   // shadowHost is an element of ours in the page, its insides in a
-  // closed shadow root, in the top layer where the browser has one.
+  // closed shadow root, in the top layer where the browser has one. It is
+  // shown only once it is there.
   function shadowHost(props) {
     const host = document.createElement("span");
     ours.add(host);
-    wanted.set(host, { props: { all: "initial", position: "fixed", "z-index": "2147483647", display: "block", margin: "0", padding: "0", border: "0", overflow: "visible", ...props }, css: "" });
+    wanted.set(host, { props: { all: "initial", position: "fixed", "z-index": "2147483647", display: "none", margin: "0", padding: "0", border: "0", overflow: "visible", ...props }, css: "" });
     restyle(host, {});
     const root = host.attachShadow({ mode: "closed" });
-    try {
+    if (popovers) {
       host.setAttribute("popover", "manual");
-    } catch {
-      // No popovers here: the z-index is all there is.
+      // Out of the top layer is the page's doing, unless it is ours.
+      host.addEventListener("beforetoggle", (e) => {
+        if (e.newState === "closed" && !raising && !leaving.has(host)) setTimeout(() => tampered(host), 0);
+      });
     }
     document.documentElement.append(host);
     raise(host);
@@ -89,24 +106,40 @@
     return { host, root };
   }
 
+  // raise puts host in the top layer (again: above the page's own).
   function raise(host) {
+    if (!popovers) return;
+    raising = true;
     try {
       if (host.matches(":popover-open")) host.hidePopover();
       host.showPopover();
     } catch {
-      // Not in the top layer; still above most of the page.
+      // It stays shut, and so not shown.
+    } finally {
+      raising = false;
     }
+  }
+
+  // up reports whether host is where it was put: a child of <html>, in
+  // the top layer (where there is one).
+  function up(host) {
+    return host.isConnected && host.parentNode === document.documentElement && (!popovers || host.matches(":popover-open"));
+  }
+
+  function drop(host) {
+    leaving.add(host);
+    host.remove();
   }
 
   function tampered(host) {
     for (const [h, m] of marks) {
       if (m.host === host) {
-        spoiled.add(m.el);
+        spoiled.set(m.el, (spoiled.get(m.el) || 0) + 1);
         marks.delete(h);
       }
     }
     if (panel && panel.host === host) panel = null;
-    host.remove();
+    drop(host);
   }
 
   // ---------------------------------------------------------- the fields
@@ -130,24 +163,6 @@
     };
   }
 
-  // hides reports whether a CSS filter all but hides what it is on.
-  function hides(filter) {
-    if (!filter || filter === "none") return false;
-    for (const m of filter.matchAll(/(opacity|brightness|contrast)\(\s*([\d.]+)(%?)\s*\)/g)) {
-      const v = parseFloat(m[2]) / (m[3] ? 100 : 1);
-      if ((m[1] === "opacity" && v < 0.5) || (m[1] !== "opacity" && v < 0.3)) return true;
-    }
-    const blur = filter.match(/blur\(\s*([\d.]+)px\s*\)/);
-    return !!(blur && parseFloat(blur[1]) > 2);
-  }
-
-  function alpha(color) {
-    const m = /rgba?\(([^)]*)\)/.exec(color || "");
-    if (!m) return 1;
-    const parts = m[1].split(/[\s,/]+/).filter(Boolean);
-    return parts.length >= 4 ? parseFloat(parts[3]) : 1;
-  }
-
   // visible: the field is there to be seen: in the page, not hidden by
   // CSS, not see-through, not clipped or masked away, its text not
   // transparent, not shrunk to nothing.
@@ -160,12 +175,13 @@
       return false;
     }
     const own = getComputedStyle(el);
-    if (own.clipPath !== "none" || alpha(own.color) < 0.2) return false;
+    if (own.clipPath !== "none" || (own.maskImage && own.maskImage !== "none")) return false;
+    if (alpha(own.color) < 0.2 || alpha(own.getPropertyValue("-webkit-text-fill-color") || own.color) < 0.2) return false;
     let opacity = 1;
     for (let e = el; e && e.nodeType === 1; e = e.parentElement) {
       const s = getComputedStyle(e);
       if (s.display === "none" || s.visibility === "hidden" || s.visibility === "collapse") return false;
-      if (hides(s.filter) || (s.maskImage && s.maskImage !== "none")) return false;
+      if (hides(s.filter)) return false;
       const o = parseFloat(s.opacity);
       opacity *= Number.isFinite(o) ? o : 1;
       if (opacity < 0.2) return false;
@@ -257,14 +273,10 @@
     return svg;
   }
 
-  function overlaps(a, b) {
-    return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-  }
-
-  // covered reports whether something of the page's own in the top layer
-  // (a popover, a modal dialog, a full-screen element) is over host.
-  function covered(host) {
-    const r = host.getBoundingClientRect();
+  // covered reports whether the page has something of its own in the top
+  // layer (a popover, a modal dialog, a full-screen element): wherever it
+  // is, its ::backdrop may lie over the whole window, ours included.
+  function covered() {
     for (const sel of [":popover-open", "dialog:modal", ":fullscreen"]) {
       let list = [];
       try {
@@ -272,11 +284,16 @@
       } catch {
         continue;
       }
-      for (const el of list) {
-        if (!ours.has(el) && overlaps(r, el.getBoundingClientRect())) return true;
-      }
+      for (const el of list) if (!ours.has(el)) return true;
     }
     return false;
+  }
+
+  // intact reports whether one of our hosts is as it was put: in <html>,
+  // in the top layer, styled as set, shown as it is, nothing over it.
+  function intact(host) {
+    const w = wanted.get(host);
+    return !!w && up(host) && host.getAttribute("style") === w.css && plain(host) && plain(document.documentElement) && !covered();
   }
 
   // plain reports whether an element's style shows what is in it as it is.
@@ -291,19 +308,16 @@
   // nothing covers and nothing has restyled.
   function trusted(m, e) {
     if (!e.isTrusted || performance.now() - m.movedAt < SETTLE_MS) return false;
-    const w = wanted.get(m.host);
-    if (!m.host.isConnected || !w || m.host.getAttribute("style") !== w.css) return false;
-    if (!plain(m.host) || !plain(document.documentElement)) return false;
-    // A click with the pointer must land on the mark itself; one from the
-    // keyboard (detail 0) comes from the person tabbing to it, which the
-    // page cannot do for them.
-    if (e.detail !== 0 && document.elementFromPoint(e.clientX, e.clientY) !== m.host) return false;
-    if (covered(m.host)) {
-      raise(m.host); // above the page's again; the next click counts
+    if (covered()) {
+      raise(m.host); // above the page's again; a later click may count
       m.movedAt = performance.now();
       return false;
     }
-    return true;
+    if (!intact(m.host)) return false;
+    // A click with the pointer must land on the mark itself; one from the
+    // keyboard (detail 0) comes from the person tabbing to it, which the
+    // page cannot do for them.
+    return e.detail === 0 || document.elementFromPoint(e.clientX, e.clientY) === m.host;
   }
 
   function addMark(el, handle) {
@@ -343,7 +357,7 @@
       return;
     }
     const [left, top] = at.split(",");
-    restyle(m.host, { display: "block", left: left + "px", top: top + "px" });
+    restyle(m.host, { display: up(m.host) ? "block" : "none", left: left + "px", top: top + "px" });
   }
 
   // placePanel puts the panel under its field (or above, if there is no
@@ -384,7 +398,7 @@
       if (!a.kind) continue;
       forms.add(a.kind);
       for (const i of [a.username, a.password, ...a.newPasswords, a.otp]) {
-        if (i < 0 || spoiled.has(vis[i])) continue;
+        if (i < 0 || (spoiled.get(vis[i]) || 0) >= 3) continue;
         const h = handleOf(vis[i]);
         keep.add(h);
         if (!marks.has(h)) addMark(vis[i], h);
@@ -392,7 +406,7 @@
     }
     for (const [h, m] of marks) {
       if (!keep.has(h)) {
-        m.host.remove();
+        drop(m.host);
         marks.delete(h);
       }
     }
@@ -442,11 +456,12 @@
     root.append(f);
     panel = { host, handle, rect: null };
     placePanel(panel);
+    if (panel) restyle(host, { display: up(host) ? "block" : "none" });
   }
 
   function closePanel() {
     if (panel) {
-      panel.host.remove();
+      drop(panel.host);
       panel = null;
     }
   }
@@ -585,6 +600,7 @@
       childList: true, subtree: true, attributes: true, attributeFilter: ["type", "hidden", "style", "class", "disabled"],
     });
     document.addEventListener("focusin", later, true);
+    roots.observe(document.documentElement, { childList: true });
   }
 
   ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -597,6 +613,11 @@
         return false;
       case "panel:close":
         closePanel();
+        return false;
+      case "panel:verify":
+        // Asked before a choice made in the panel is acted on: was the
+        // panel the page showed as it was put, when the person chose?
+        sendResponse({ ok: !!panel && intact(panel.host) });
         return false;
     }
     return false;

@@ -294,6 +294,12 @@ func TestTheExtensionIsAskedAboutTheLoginsOfAPage(t *testing.T) {
 	if got := h.ok("", h.with("get", "web/github.com")...); got != "hunter2\n" {
 		t.Fatalf("the password became %q", got)
 	}
+	// A remembered no holds there too: nobody is asked.
+	h.ok("", h.with("grant", "deny", "/usr/lib/firefox/firefox", "--item", "web/github.com", "--ops", "read")...)
+	asked = h.desk.count()
+	if r := x.ask("fill", sibling); refused(r) != svext.CodeDenied || h.desk.count() != asked {
+		t.Fatalf("a fill denied ahead of time, on another host of the site: %v (%d prompts)", r, h.desk.count()-asked)
+	}
 
 	audit := h.ok("", h.with("audit", "--limit", "0")...)
 	for _, want := range []string{`allowed\s+read web/github.com\s+firefox \(/usr/lib/firefox/firefox\)`, `denied\s+read web/github.com\s+firefox`, `allowed\s+list\s+.*firefox`} {

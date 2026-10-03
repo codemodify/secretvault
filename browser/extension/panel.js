@@ -43,8 +43,8 @@ if (inPage) {
           unobscured = e.isVisible;
         }
       },
-      { threshold: [1.0], trackVisibility: true, delay: 100 },
-    ).observe(document.body);
+      { threshold: [0], trackVisibility: true, delay: 100 },
+    ).observe(document.getElementById("sentinel"));
   }
 }
 

@@ -26,6 +26,9 @@
 
 * { box-sizing: border-box; }
 
+/* The whole panel, for telling whether anything lies over it. */
+#sentinel { position: fixed; inset: 0; pointer-events: none; }
+
 body {
   margin: 0;
   min-width: 300px;

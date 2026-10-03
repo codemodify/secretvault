@@ -28,6 +28,7 @@ test("requests the host would refuse are not sent", () => {
     ["r", "save", { origin, password: "x".repeat(4097) }, "bad-request"],
     ["r", "save", { origin, password: "é".repeat(2049) }, "bad-request"],
     ["r", "save", { origin, password: "\ud800" }, "bad-request"],
+    ["r", "save", { origin, password: "x\ufffd" }, "bad-request"],
     ["r", "save", { origin, password: "x", username: "a\u0000b" }, "bad-request"],
     ["r", "save", { origin, password: "x", username: "u".repeat(1025) }, "bad-request"],
     ["r", "save", { origin, password: "x", title: "a\nb" }, "bad-request"],

@@ -59,8 +59,9 @@
     origin: (v) => root.SVOrigin.parseOrigin(v) !== null,
     login: (v) => typeof v === "string" && /^[0-9a-f]{32}$/.test(v),
     username: (v) => text(v, LIMITS.username),
-    // Lone surrogates would not survive UTF-8.
-    password: (v) => typeof v === "string" && v.length > 0 && v.isWellFormed() && bytes(v) <= LIMITS.password,
+    // Lone surrogates would not survive UTF-8, and U+FFFD is what they
+    // would become: the host refuses both.
+    password: (v) => typeof v === "string" && v.length > 0 && v.isWellFormed() && !v.includes("�") && bytes(v) <= LIMITS.password,
     title: (v) => text(v, LIMITS.title),
     length: (v) => Number.isInteger(v) && v >= LIMITS.generateMin && v <= LIMITS.generateMax,
     symbols: (v) => typeof v === "boolean",
