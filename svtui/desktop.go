@@ -377,7 +377,7 @@ func (u *UI) browserInstall(then func()) {
 		if i > 0 {
 			names = []string{svops.BrowserNames[i-1]}
 		}
-		plan, err := svops.PlanBrowserInstall(names, cli)
+		plan, err := svops.PlanBrowserInstall(svops.ExtensionHost, names, cli)
 		if err != nil {
 			u.fail(err)
 			return
@@ -440,7 +440,7 @@ func (u *UI) browserInstall(then func()) {
 // browserUninstall is 'secretvault browser uninstall': its dry run, then
 // the undoing.
 func (u *UI) browserUninstall(then func()) {
-	planned, err := svops.UninstallBrowsers(true)
+	planned, err := svops.UninstallBrowsers(nil, true)
 	if errors.Is(err, svops.ErrNoBrowserInstall) {
 		u.say("%s", sentence(err.Error()))
 		return
@@ -460,7 +460,7 @@ func (u *UI) browserUninstall(then func()) {
 	u.showPlan("Uninstall from browsers", lines(ls), "Uninstall", func() {
 		var done []svops.Uninstalled
 		u.call(func(context.Context, *secretvault.Client) (err error) {
-			done, err = svops.UninstallBrowsers(false)
+			done, err = svops.UninstallBrowsers(nil, false)
 			return err
 		}, func(err error) {
 			var out []string

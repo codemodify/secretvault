@@ -103,6 +103,46 @@ func BrowserStateLine(b BrowserState, host string) string {
 	return line
 }
 
+// NativeHostHeading names a native host over its browsers' lines.
+func NativeHostHeading(h NativeHost) string {
+	if h.Legacy {
+		return "KeePassXC-Browser, the legacy link (" + h.Name + ")"
+	}
+	return "secretvault's own extension (" + h.Name + ")"
+}
+
+// StatesOf are the states of host h's browsers, of all BrowserStatus
+// says.
+func StatesOf(states []BrowserState, h NativeHost) []BrowserState {
+	var out []BrowserState
+	for _, s := range states {
+		if s.Spot.Host == h.Name {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// ExtensionWrittenLines say what to do with the extension once written
+// (to file, the package; a folder for Chromium when dir).
+func ExtensionWrittenLines(file string, dir bool) []string {
+	if dir {
+		return []string{
+			fmt.Sprintf("Wrote the secretvault extension %s into %s (%d files).", ExtensionVersion(), file, ExtensionFileCount()),
+			"To try it in Chrome, Chromium, Brave, Edge or Vivaldi: open chrome://extensions, turn on Developer mode,",
+			"choose Load unpacked, and choose that folder.",
+			"The browsers must start secretvault for it too: secretvault browser install.",
+		}
+	}
+	return []string{
+		fmt.Sprintf("Wrote the secretvault extension %s to %s.", ExtensionVersion(), file),
+		"To try it in Firefox: open about:debugging, choose This Firefox, then Load Temporary Add-on…,",
+		"and choose that file. Firefox forgets it when it restarts.",
+		"To keep it, Mozilla must sign it (docs/browser.md says how).",
+		"The browsers must start secretvault for it too: secretvault browser install.",
+	}
+}
+
 // TakeoverLines say what a takeover would do: importing the keyring's
 // secrets first (when importFirst and exe holds the keyring), then the
 // plan.

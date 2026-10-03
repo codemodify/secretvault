@@ -12,22 +12,28 @@ import (
 
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svbrowser"
+	"github.com/codemodify/secretvault/svext"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
-// Browsers: secretvault in KeePassXC's place behind the KeePassXC-Browser
-// extension (svbrowser, svd/browser.go).
+// Browsers: secretvault's own extension (svext, browser_ext.go,
+// svd/browser_ext.go), and the legacy link, secretvault in KeePassXC's
+// place behind the KeePassXC-Browser extension (svbrowser,
+// svd/browser.go), which goes once the extension has replaced it.
 //
 //	secretvault-browser             the native-messaging host the browser starts
 //	secretvault browser install     make the browsers start it (browser_install.go)
 //	secretvault browser uninstall   undo install exactly
 //	secretvault browser status      which host each browser starts
-//	secretvault browser ls | rm     the extensions connected to a vault
+//	secretvault browser extension   write the extension out, to load it
+//	secretvault browser ls | rm     the KeePassXC-Browser extensions connected to a vault
 //
 // The host is this program, named secretvault-browser (a link to it) or
-// recognised by the arguments browsers start hosts with. It is a relay and
-// nothing else: it passes each message to secretvaultd and the answers
-// back, and holds no key. The daemon works out which browser started it.
+// recognised by the arguments browsers start hosts with, which say which
+// extension it was started for: secretvault's own gets its protocol, and
+// any other KeePassXC's. For KeePassXC-Browser it is a relay and nothing
+// else: it passes each message to secretvaultd and the answers back, and
+// holds no key. Either way, the daemon works out which browser started it.
 
 // browserOrigin is the extension a browser started the host for, from
 // the host's arguments: Chrome and its kin pass the extension's origin
@@ -50,6 +56,14 @@ func browserOrigin(args []string) (string, bool) {
 // a prompt does not hold up the others.
 func (c *cli) cmdBrowserHost(args []string) error {
 	origin, _ := browserOrigin(args)
+	switch {
+	case svext.Ours(origin):
+		return c.extensionHost(origin)
+	case ourManifest(args):
+		// secretvault's host serves secretvault's extension alone; the
+		// manifest says so to the browser, and this says it again.
+		return fmt.Errorf("the host %s serves the secretvault extension only, not %q", svext.HostName, origin)
+	}
 	var wmu sync.Mutex
 	write := func(frame []byte) {
 		wmu.Lock()
@@ -121,12 +135,14 @@ func (c *cli) cmdBrowser(args []string) error {
 		return c.browserUninstall(args[1:])
 	case "status":
 		return c.browserStatus(args[1:])
+	case "extension":
+		return c.browserExtension(args[1:])
 	case "ls", "list":
 		return c.browserList(args[1:])
 	case "rm", "remove":
 		return c.browserRemove(args[1:])
 	}
-	fmt.Fprintf(c.stderr, "secretvault browser: unknown subcommand %q (install, uninstall, status, ls, rm)\n", args[0])
+	fmt.Fprintf(c.stderr, "secretvault browser: unknown subcommand %q (install, uninstall, status, extension, ls, rm)\n", args[0])
 	return errUsage
 }
 

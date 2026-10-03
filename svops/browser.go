@@ -17,28 +17,73 @@ import (
 
 	"github.com/codemodify/secretvault/svbrowser"
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svext"
 )
 
-// Making browsers start secretvault's host for KeePassXC-Browser, where
-// they would start KeePassXC's keepassxc-proxy: PlanBrowserInstall and
-// its Apply, UninstallBrowsers, and BrowserStatus.
+// Making browsers start secretvault's native-messaging hosts:
+// PlanBrowserInstall and its Apply, UninstallBrowsers, and BrowserStatus.
+// There are two hosts (NativeHosts), both the secretvault CLI:
 //
-// A browser finds the host by a manifest named for it,
-// org.keepassxc.keepassxc_browser.json: in a directory of its own for each
-// user on Linux and macOS, or wherever a registry key under
-// HKEY_CURRENT_USER says on Windows. Installing writes secretvault's
-// manifest there. A manifest already there (KeePassXC's, usually) is first
-// copied into secretvault's own directory, and everything done is recorded
-// in browser-install.json, so that uninstalling undoes it exactly: the old
-// manifest comes back byte for byte with its mode and time (or as the
-// link it was), and directories the install made go if they are empty.
+//   - io.github.codemodify.secretvault, for secretvault's own extension
+//     (browser/extension, svext): what `secretvault browser install`
+//     sets up.
+//   - org.keepassxc.keepassxc_browser, for KeePassXC-Browser, where the
+//     browsers would start KeePassXC's keepassxc-proxy: the legacy link
+//     (`install --keepassxc`), kept until the extension has replaced it
+//     (docs/browser.md says how it goes).
+//
+// A browser finds a host by a manifest named for it (the host's name and
+// .json): in a directory of its own for each user on Linux and macOS, or
+// wherever a registry key under HKEY_CURRENT_USER says on Windows.
+// Installing writes secretvault's manifest there. A manifest already there
+// (KeePassXC's, usually) is first copied into secretvault's own directory,
+// and everything done is recorded in browser-install.json, so that
+// uninstalling undoes it exactly: the old manifest comes back byte for
+// byte with its mode and time (or as the link it was), and directories
+// the install made go if they are empty.
 //
 // A manifest changed since the install is not ours any more: uninstalling
 // leaves it alone and keeps the backup, and installing will not write over
 // it. KeePassXC does that change: when it starts with browser integration
 // on, it writes its manifests back.
 
-// BrowserSpot is where one browser looks for the host.
+// NativeHost is a native-messaging host secretvault can be.
+type NativeHost struct {
+	Name        string   // the host's name; its manifest is Name.json
+	Title       string   // for people
+	Description string   // the manifest's
+	Firefox     []string // the extensions it serves in Firefox (allowed_extensions)
+	Chrome      []string // and in Chromium's family (allowed_origins)
+	Legacy      bool     // KeePassXC-Browser's, which is to go
+}
+
+var (
+	// ExtensionHost is secretvault's own extension's host.
+	ExtensionHost = NativeHost{Name: svext.HostName, Title: "the secretvault extension",
+		Description: "secretvault, for its browser extension", Firefox: []string{svext.FirefoxID}, Chrome: []string{svext.ChromeOrigin}}
+
+	// KeePassXCHost is the legacy link: secretvault in KeePassXC's place
+	// behind KeePassXC-Browser.
+	KeePassXCHost = NativeHost{Name: svbrowser.HostName, Title: "KeePassXC-Browser (legacy)",
+		Description: "secretvault, standing in for KeePassXC behind KeePassXC-Browser",
+		Firefox:     svbrowser.FirefoxExtensions, Chrome: svbrowser.ChromeOrigins, Legacy: true}
+
+	// NativeHosts are both, the extension's first.
+	NativeHosts = []NativeHost{ExtensionHost, KeePassXCHost}
+)
+
+// NativeHostNamed is the host of a name; KeePassXC's for "", as the
+// records of installs made before there were two name none.
+func NativeHostNamed(name string) NativeHost {
+	for _, h := range NativeHosts {
+		if h.Name == name {
+			return h
+		}
+	}
+	return KeePassXCHost
+}
+
+// BrowserSpot is where one browser looks for one host.
 type BrowserSpot struct {
 	Name     string // as --browser takes it
 	Title    string
@@ -46,23 +91,32 @@ type BrowserSpot struct {
 	Profile  string // a directory whose presence says the browser is used here
 	RegKey   string // Windows: the key under HKEY_CURRENT_USER naming the manifest
 	Firefox  bool   // allowed_extensions, where the others take allowed_origins
+	Host     string // the host's name (NativeHost.Name)
 }
 
 // BrowserNames are the browsers secretvault installs for.
 var BrowserNames = []string{"firefox", "chrome", "chromium", "brave", "edge", "vivaldi"}
 
-// BrowserSpots are the browsers' per-user places here.
-func BrowserSpots() ([]BrowserSpot, error) { return BrowserSpotsOn(runtime.GOOS) }
+// BrowserSpots are the browsers' per-user places here, for host h.
+func BrowserSpots(h NativeHost) ([]BrowserSpot, error) { return BrowserSpotsOn(runtime.GOOS, h) }
 
-// BrowserSpotsOn are the browsers' per-user places on an OS, from the
-// environment (HOME, XDG_CONFIG_HOME, LOCALAPPDATA, APPDATA), which tests
-// point elsewhere.
-func BrowserSpotsOn(goos string) ([]BrowserSpot, error) {
+// BrowserSpotsOn are the browsers' per-user places on an OS for host h,
+// from the environment (HOME, XDG_CONFIG_HOME, LOCALAPPDATA, APPDATA),
+// which tests point elsewhere.
+func BrowserSpotsOn(goos string, h NativeHost) ([]BrowserSpot, error) {
+	spots, err := spotsOn(goos, h.Name)
+	for i := range spots {
+		spots[i].Host = h.Name
+	}
+	return spots, err
+}
+
+func spotsOn(goos, hostName string) ([]BrowserSpot, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	file := svbrowser.HostName + ".json"
+	file := hostName + ".json"
 	switch goos {
 	case "windows":
 		svHome, err := svcore.Home()
@@ -71,24 +125,24 @@ func BrowserSpotsOn(goos string) ([]BrowserSpot, error) {
 		}
 		local, roaming := os.Getenv("LOCALAPPDATA"), os.Getenv("APPDATA")
 		key := func(vendor string) string {
-			return `Software\` + vendor + `\NativeMessagingHosts\` + svbrowser.HostName
+			return `Software\` + vendor + `\NativeMessagingHosts\` + hostName
 		}
 		manifest := func(owner string) string {
-			return filepath.Join(svHome, "browser", svbrowser.HostName+"_"+owner+".json")
+			return filepath.Join(svHome, "browser", hostName+"_"+owner+".json")
 		}
 		// Brave and Vivaldi read Chrome's key.
 		return []BrowserSpot{
-			{"firefox", "Firefox", manifest("firefox"), filepath.Join(roaming, "Mozilla", "Firefox"), key("Mozilla"), true},
-			{"chrome", "Google Chrome", manifest("chrome"), filepath.Join(local, "Google", "Chrome", "User Data"), key(`Google\Chrome`), false},
-			{"chromium", "Chromium", manifest("chromium"), filepath.Join(local, "Chromium", "User Data"), key("Chromium"), false},
-			{"brave", "Brave", manifest("chrome"), filepath.Join(local, "BraveSoftware", "Brave-Browser", "User Data"), key(`Google\Chrome`), false},
-			{"edge", "Microsoft Edge", manifest("edge"), filepath.Join(local, "Microsoft", "Edge", "User Data"), key(`Microsoft\Edge`), false},
-			{"vivaldi", "Vivaldi", manifest("chrome"), filepath.Join(local, "Vivaldi", "User Data"), key(`Google\Chrome`), false},
+			{"firefox", "Firefox", manifest("firefox"), filepath.Join(roaming, "Mozilla", "Firefox"), key("Mozilla"), true, hostName},
+			{"chrome", "Google Chrome", manifest("chrome"), filepath.Join(local, "Google", "Chrome", "User Data"), key(`Google\Chrome`), false, hostName},
+			{"chromium", "Chromium", manifest("chromium"), filepath.Join(local, "Chromium", "User Data"), key("Chromium"), false, hostName},
+			{"brave", "Brave", manifest("chrome"), filepath.Join(local, "BraveSoftware", "Brave-Browser", "User Data"), key(`Google\Chrome`), false, hostName},
+			{"edge", "Microsoft Edge", manifest("edge"), filepath.Join(local, "Microsoft", "Edge", "User Data"), key(`Microsoft\Edge`), false, hostName},
+			{"vivaldi", "Vivaldi", manifest("chrome"), filepath.Join(local, "Vivaldi", "User Data"), key(`Google\Chrome`), false, hostName},
 		}, nil
 	case "darwin":
 		lib := filepath.Join(home, "Library", "Application Support")
 		spot := func(name, title, dir, profile string, firefox bool) BrowserSpot {
-			return BrowserSpot{name, title, filepath.Join(lib, dir, "NativeMessagingHosts", file), filepath.Join(lib, profile), "", firefox}
+			return BrowserSpot{name, title, filepath.Join(lib, dir, "NativeMessagingHosts", file), filepath.Join(lib, profile), "", firefox, hostName}
 		}
 		return []BrowserSpot{
 			spot("firefox", "Firefox", "Mozilla", "Firefox", true),
@@ -101,10 +155,10 @@ func BrowserSpotsOn(goos string) ([]BrowserSpot, error) {
 	}
 	config := userDir("XDG_CONFIG_HOME", ".config")
 	spot := func(name, title, dir string) BrowserSpot {
-		return BrowserSpot{name, title, filepath.Join(config, dir, "NativeMessagingHosts", file), filepath.Join(config, dir), "", false}
+		return BrowserSpot{name, title, filepath.Join(config, dir, "NativeMessagingHosts", file), filepath.Join(config, dir), "", false, hostName}
 	}
 	return []BrowserSpot{
-		{"firefox", "Firefox", filepath.Join(home, ".mozilla", "native-messaging-hosts", file), filepath.Join(home, ".mozilla"), "", true},
+		{"firefox", "Firefox", filepath.Join(home, ".mozilla", "native-messaging-hosts", file), filepath.Join(home, ".mozilla"), "", true, hostName},
 		spot("chrome", "Google Chrome", "google-chrome"),
 		spot("chromium", "Chromium", "chromium"),
 		spot("brave", "Brave", "BraveSoftware/Brave-Browser"),
@@ -130,14 +184,16 @@ type NativeManifest struct {
 	AllowedOrigins    []string `json:"allowed_origins,omitempty"`
 }
 
-// ManifestFor is secretvault's manifest for a browser, naming host.
+// ManifestFor is secretvault's manifest for a browser's spot, naming the
+// program host. It lets only the extensions the spot's host serves start
+// it.
 func ManifestFor(s BrowserSpot, host string) []byte {
-	m := NativeManifest{Name: svbrowser.HostName, Description: "secretvault, standing in for KeePassXC behind KeePassXC-Browser",
-		Path: host, Type: "stdio"}
+	h := NativeHostNamed(s.Host)
+	m := NativeManifest{Name: h.Name, Description: h.Description, Path: host, Type: "stdio"}
 	if s.Firefox {
-		m.AllowedExtensions = svbrowser.FirefoxExtensions
+		m.AllowedExtensions = h.Firefox
 	} else {
-		m.AllowedOrigins = svbrowser.ChromeOrigins
+		m.AllowedOrigins = h.Chrome
 	}
 	b, _ := json.MarshalIndent(m, "", "    ")
 	return append(b, '\n')
@@ -181,8 +237,12 @@ type InstalledHost struct {
 	Backup   *ManifestBackup `json:"backup,omitempty"`
 	MadeDirs []string        `json:"made_dirs,omitempty"` // outermost first
 	RegKey   string          `json:"reg_key,omitempty"`
-	RegPrev  *string         `json:"reg_prev,omitempty"` // the key's value before; nil when there was no key
+	RegPrev  *string         `json:"reg_prev,omitempty"`  // the key's value before; nil when there was no key
+	HostName string          `json:"host_name,omitempty"` // the native host's; "" (records made before there were two) is KeePassXC's
 }
+
+// NativeHost is the host the manifest is for.
+func (r InstalledHost) NativeHost() NativeHost { return NativeHostNamed(r.HostName) }
 
 // ManifestBackup is the manifest an install replaced.
 type ManifestBackup struct {
@@ -367,17 +427,18 @@ func (p *HostPlan) MakesDirs() []string { return missingDirs(filepath.Dir(p.Spot
 // BrowserInstallPlan is what an install would do: one HostPlan per
 // manifest (on Windows, Brave and Vivaldi share Chrome's).
 type BrowserInstallPlan struct {
-	Host      string // the program the manifests name
+	Native    NativeHost // the native host installed
+	Host      string     // the program the manifests name
 	Hosts     []*HostPlan
 	KeePassXC bool // a manifest to replace names KeePassXC, which writes its own back
 	state     *BrowserInstall
 }
 
-// PlanBrowserInstall works out an install for the browsers named (those
-// used here when none are), for the CLI at cli ("" for this program).
-// It changes nothing.
-func PlanBrowserInstall(names []string, cli string) (*BrowserInstallPlan, error) {
-	spots, err := BrowserSpots()
+// PlanBrowserInstall works out an install of the native host h for the
+// browsers named (those used here when none are), for the CLI at cli. It
+// changes nothing.
+func PlanBrowserInstall(h NativeHost, names []string, cli string) (*BrowserInstallPlan, error) {
+	spots, err := BrowserSpots(h)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +459,7 @@ func PlanBrowserInstall(names []string, cli string) (*BrowserInstallPlan, error)
 	case state.Host != host:
 		return nil, fmt.Errorf("the browsers were set up for %s; %w", state.Host, ErrUninstallFirst)
 	}
-	plan := &BrowserInstallPlan{Host: host, state: state}
+	plan := &BrowserInstallPlan{Native: h, Host: host, state: state}
 	byManifest := map[string]*HostPlan{}
 	for _, s := range chosen {
 		if p := byManifest[s.Manifest]; p != nil {
@@ -489,7 +550,7 @@ func missingDirs(dir string) []string {
 // (as far as it got, when it fails).
 func installHost(p *HostPlan, host string) (*InstalledHost, error) {
 	s := p.Spot
-	rec := &InstalledHost{Browsers: p.Browsers, Manifest: s.Manifest, RegKey: s.RegKey}
+	rec := &InstalledHost{Browsers: p.Browsers, Manifest: s.Manifest, RegKey: s.RegKey, HostName: s.Host}
 	data := ManifestFor(s, host)
 	sum := sha256.Sum256(data)
 	rec.Sum = hex.EncodeToString(sum[:])
@@ -582,10 +643,11 @@ type Uninstalled struct {
 // Label names the browsers the manifest is for.
 func (u *Uninstalled) Label() string { return strings.Join(u.Browsers, ", ") }
 
-// UninstallBrowsers undoes the install, every manifest that is still as
-// it left it, and forgets it; with dryRun it changes nothing, and says
-// what it would do. It returns what it did, as far as it got.
-func UninstallBrowsers(dryRun bool) ([]Uninstalled, error) {
+// UninstallBrowsers undoes the install of the native host only (every
+// host when nil): every manifest that is still as it left it, and
+// forgets it; with dryRun it changes nothing, and says what it would do.
+// It returns what it did, as far as it got.
+func UninstallBrowsers(only *NativeHost, dryRun bool) ([]Uninstalled, error) {
 	state, err := LoadBrowserInstall()
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, ErrNoBrowserInstall
@@ -594,7 +656,12 @@ func UninstallBrowsers(dryRun bool) ([]Uninstalled, error) {
 		return nil, err
 	}
 	var done []Uninstalled
+	var kept []InstalledHost
 	for i, rec := range state.Hosts {
+		if only != nil && rec.NativeHost().Name != only.Name {
+			kept = append(kept, rec)
+			continue
+		}
 		ours, err := StillOurs(rec)
 		if err != nil {
 			return done, err
@@ -602,17 +669,20 @@ func UninstallBrowsers(dryRun bool) ([]Uninstalled, error) {
 		u := Uninstalled{InstalledHost: rec, Host: state.Host, Changed: !ours}
 		if ours && !dryRun {
 			if err := uninstallHost(rec); err != nil {
-				state.Hosts = state.Hosts[i:]
+				state.Hosts = append(kept, state.Hosts[i:]...)
 				state.Save()
 				return done, fmt.Errorf("%s: %w", u.Label(), err)
 			}
 		}
 		done = append(done, u)
 	}
+	if len(done) == 0 {
+		return nil, ErrNoBrowserInstall
+	}
 	if dryRun {
 		return done, nil
 	}
-	state.Hosts = nil
+	state.Hosts = kept
 	if err := state.Save(); err != nil {
 		return done, err
 	}
@@ -704,15 +774,20 @@ type BrowserState struct {
 	Backup  *ManifestBackup // what the install replaced, kept to put back
 }
 
-// BrowserStatus says which host each browser starts, with the record of
-// the install (nil when there is none) and the program secretvault's
-// manifests name (the install's, else BrowserHostProgram(cli)). When a
-// registry key cannot be read (Windows), the error comes with what was
-// found before it.
+// BrowserStatus says which program each browser starts for each native
+// host (the extension's first, then the legacy KeePassXC one: the
+// state's Spot.Host says which), with the record of the install (nil
+// when there is none) and the program secretvault's manifests name (the
+// install's, else BrowserHostProgram(cli)). When a registry key cannot be
+// read (Windows), the error comes with what was found before it.
 func BrowserStatus(cli string) (*BrowserInstall, string, []BrowserState, error) {
-	spots, err := BrowserSpots()
-	if err != nil {
-		return nil, "", nil, err
+	var spots []BrowserSpot
+	for _, h := range NativeHosts {
+		s, err := BrowserSpots(h)
+		if err != nil {
+			return nil, "", nil, err
+		}
+		spots = append(spots, s...)
 	}
 	host, err := BrowserHostProgram(cli)
 	if err != nil {

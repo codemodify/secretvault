@@ -37,7 +37,7 @@
 //	grant list|allow|deny|revoke  decide what programs may do
 //	audit                      show who accessed what
 //	keyring status|import|takeover|restore   be the desktop's keyring (Linux)
-//	browser install|uninstall|status|ls|rm   fill logins in browsers through KeePassXC-Browser
+//	browser install|uninstall|status|extension|ls|rm   fill logins in browsers, with secretvault's own extension
 //	helpers status|setup|undo  link git's, docker's and age's helpers, and set git and docker to use them
 //	read sv://VAULT/ITEM[#FIELD]            print one value ("-" is the default vault)
 //	run [--env-file F] -- CMD               run CMD with sv:// references in its environment resolved
@@ -57,7 +57,8 @@
 // (symlinks to this program), it is git's or docker's credential helper;
 // as age-plugin-secretvault, the age plugin for identities kept in vaults;
 // as secretvault-browser (or when a browser starts it by its manifest),
-// the native-messaging host KeePassXC-Browser talks to. gpg starts it as
+// the native-messaging host secretvault's own browser extension talks to
+// (and, by the legacy link, KeePassXC-Browser). gpg starts it as
 // its agent-program in a GnuPG home 'pgp gpg-setup' pointed at the
 // daemon, to start the daemon and link the agent socket again.
 //
@@ -231,7 +232,7 @@ func init() {
 		{"grant", "decide what programs may do: list, allow, deny, revoke", (*cli).cmdGrant},
 		{"audit", "show who accessed what", (*cli).cmdAudit},
 		{"keyring", "be the desktop's keyring: status, import, takeover, restore", (*cli).cmdKeyring},
-		{"browser", "fill logins in browsers through KeePassXC-Browser: install, uninstall, status, ls, rm", (*cli).cmdBrowser},
+		{"browser", "fill logins in browsers, with secretvault's own extension: install, uninstall, status, extension, ls, rm", (*cli).cmdBrowser},
 		{"browser-host", "the browsers' native-messaging host (run as secretvault-browser)", (*cli).cmdBrowserHost},
 		{"helpers", "the helpers git, docker and age start: status, setup, undo", (*cli).cmdHelpers},
 		{"read", "print one value: sv://VAULT/ITEM[#FIELD]", (*cli).cmdRead},

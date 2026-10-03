@@ -519,7 +519,7 @@ func (m *Manager) installBrowsers(p *desktopPage, states []svops.BrowserState) {
 		}
 		var plan *svops.BrowserInstallPlan
 		f.work(func() (err error) {
-			plan, err = svops.PlanBrowserInstall(names, cli)
+			plan, err = svops.PlanBrowserInstall(svops.ExtensionHost, names, cli)
 			return err
 		}, func() {
 			var lines []string
@@ -593,7 +593,7 @@ func hostPlanLines(p *svops.HostPlan, host string) []string {
 func (m *Manager) uninstallBrowsers(p *desktopPage) {
 	var would []svops.Uninstalled
 	m.work(func() (err error) {
-		would, err = svops.UninstallBrowsers(true)
+		would, err = svops.UninstallBrowsers(nil, true)
 		return err
 	}, func(err error) {
 		if errors.Is(err, svops.ErrNoBrowserInstall) {
@@ -611,7 +611,7 @@ func (m *Manager) uninstallBrowsers(p *desktopPage) {
 		m.showPlan("Undo the browsers' setup", "Undoing would:", lines, "Undo", func() {
 			var done []svops.Uninstalled
 			m.work(func() (err error) {
-				done, err = svops.UninstallBrowsers(false)
+				done, err = svops.UninstallBrowsers(nil, false)
 				return err
 			}, func(err error) {
 				var report []string
