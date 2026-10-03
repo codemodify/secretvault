@@ -66,11 +66,8 @@ var helpKeys = strings.TrimSpace(`
   Y                      the system keyring: importing its secrets, taking
                          it over, giving it back (each shown first)
   B                      browsers: which host each starts, for secretvault's
-                         own extension and for the legacy KeePassXC-Browser
-                         link; setting either up and undoing it (shown
-                         first); writing the extension out to load; the
-                         KeePassXC-Browser extensions connected,
-                         disconnecting one
+                         own extension; setting it up and undoing it (shown
+                         first); writing the extension out to load
   P                      keys: your OpenPGP keys (new, import, export, copy
                          the public key), S/MIME keys, age identities,
                          identity files; letting gpg use them

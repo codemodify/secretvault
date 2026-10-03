@@ -15,15 +15,16 @@ import (
 	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svext"
 	"github.com/codemodify/secretvault/svformat"
+	"github.com/codemodify/secretvault/svotp"
 	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
-// The secretvault extension's face (svext; the extension is
-// browser/extension). It is reached the way the KeePassXC-Browser face is
-// (browser.go): the browser starts the host, secretvault-browser, which
-// opens a session here with browser.open naming svext.Protocol, then hands
-// over the extension's requests with browser.message.
+// The browser face: the secretvault extension's (svext; the extension is
+// browser/extension). The browser starts the host, secretvault-browser,
+// which opens a session here with browser.open naming svext.Protocol,
+// then hands over the extension's requests with browser.message. The host
+// is only a pipe, and only secretvault's own program may be it.
 //
 // Who asks is the browser that started the host, as the daemon finds it
 // (Options.Launcher), never what the host or the extension says. What
@@ -40,12 +41,52 @@ import (
 //   - Checking whether a login a page sent is new is listing the vault
 //     too: the comparison is made here, and nothing stored leaves.
 //   - Saving is a write; the browser may then read, change and delete
-//     the login it saved, as with KeePassXC-Browser.
+//     the login it saved.
 //   - Unlocking is the daemon's own passphrase prompt: the extension
 //     never sees a passphrase.
 //
-// Unlike KeePassXC-Browser, the extension makes no association: the
-// browser lets only it start this host, and each decision is the broker's.
+// The extension makes no association: the browser lets only it start
+// this host, and each decision is the broker's.
+
+func init() {
+	registerMethod(svrpc.MBrowserOpen, (*Daemon).browserOpen)
+	registerMethod(svrpc.MBrowserMessage, (*Daemon).browserMessage)
+}
+
+// defaultFolder is where a login the extension saves goes.
+const defaultFolder = "web"
+
+func (d *Daemon) browserOpen(ctx context.Context, cl *client, decode func(any) error) (any, error) {
+	var p svrpc.BrowserOpenParams
+	if err := decode(&p); err != nil {
+		return nil, err
+	}
+	if !cl.cli {
+		return nil, svrpc.Errorf(svrpc.CodeDenied, "only secretvault-browser, the host a browser starts, may open a browser session")
+	}
+	proc, err := d.opts.Launcher(cl.proc)
+	if err != nil {
+		return nil, svrpc.Errorf(svrpc.CodeDenied, "the program that started secretvault-browser could not be identified: %v", err)
+	}
+	if p.Protocol != svext.Protocol {
+		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "no browser protocol %q", p.Protocol)
+	}
+	return d.extOpen(cl, p, proc)
+}
+
+func (d *Daemon) browserMessage(ctx context.Context, cl *client, decode func(any) error) (any, error) {
+	var p svrpc.BrowserFrame
+	if err := decode(&p); err != nil {
+		return nil, err
+	}
+	d.mu.Lock()
+	x, _ := cl.face.(*extSession)
+	d.mu.Unlock()
+	if x == nil {
+		return nil, svrpc.Errorf(svrpc.CodeInvalidRequest, "open a browser session first (%s)", svrpc.MBrowserOpen)
+	}
+	return svrpc.BrowserFrame{Frame: x.proto.Handle(ctx, p.Frame)}, nil
+}
 
 // extSession is one browser's secretvault extension.
 type extSession struct {
@@ -506,6 +547,102 @@ func (b *extSession) update(ctx context.Context, mv *managedVault, o svext.Origi
 	ne.Item.Wipe()
 	b.d.notify(svrpc.EItemChanged, svrpc.VaultEvent{Vault: mv.cfg.Name, Item: name})
 	return ne.ID.String(), false, nil
+}
+
+// loginURLs are the URLs a login is kept for: its URL fields (by type, or
+// named url, url2..., website) and its url attributes (url, *_url).
+func loginURLs(it *svcore.Item) []string {
+	var out []string
+	for _, f := range it.Fields {
+		n := strings.ToLower(f.Name)
+		if f.Type == svcore.FieldURL || n == "website" || strings.HasPrefix(n, "url") && strings.Trim(n[3:], "0123456789 ()") == "" {
+			out = append(out, string(f.Value))
+		}
+	}
+	for k, v := range it.Attrs {
+		if k = strings.ToLower(k); k == "url" || strings.HasSuffix(k, "_url") {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// username is a login's user name.
+func username(it *svcore.Item) (field, value string) {
+	for _, n := range []string{"username", "login", "user", "email"} {
+		if f, ok := it.Field(n); ok {
+			return f.Name, string(f.Value)
+		}
+	}
+	for _, f := range it.Fields {
+		if f.Type == svcore.FieldEmail {
+			return f.Name, string(f.Value)
+		}
+	}
+	return "", ""
+}
+
+// totpKey is a login's TOTP key, if it has one. HOTP keys are left out:
+// filling one in would need its counter moved on.
+func totpKey(it *svcore.Item) *svotp.Key {
+	for _, f := range it.Fields {
+		n := strings.ToLower(f.Name)
+		if f.Type != svcore.FieldOTP && n != "otp" && n != "totp" {
+			continue
+		}
+		if k, err := svotp.ParseField(f.Value); err == nil {
+			if k.Type == "totp" {
+				return k
+			}
+			k.Wipe()
+		}
+	}
+	return nil
+}
+
+// segment makes text usable as one part of an item name.
+func segment(s string) string {
+	s = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if r == '/' || r < 0x20 || r == 0x7f {
+			return '_'
+		}
+		return r
+	}, s))
+	if len(s) > 200 {
+		s = strings.ToValidUTF8(s[:200], "")
+	}
+	if s == "" || s == "." || s == ".." {
+		return "unnamed"
+	}
+	return s
+}
+
+// freeName is a name for a new login for host in folder, not yet taken.
+func freeName(mv *managedVault, folder, host, login string) string {
+	base := segment(host)
+	if folder != "" {
+		base = folder + "/" + base
+	}
+	free := func(n string) bool {
+		e, err := mv.v.Get(n)
+		if err == nil {
+			e.Item.Wipe()
+		}
+		return err != nil
+	}
+	if free(base) {
+		return base
+	}
+	if login != "" {
+		if n := base + " (" + segment(login) + ")"; free(n) {
+			return n
+		}
+	}
+	for i := 2; ; i++ {
+		if n := fmt.Sprintf("%s (%d)", base, i); free(n) {
+			return n
+		}
+	}
 }
 
 // An extSession is the svext backend.

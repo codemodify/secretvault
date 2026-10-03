@@ -15,15 +15,8 @@ func HostPlanLines(p *HostPlan, host string) []string {
 	label := p.Label()
 	switch {
 	case p.Spot.RegKey != "":
-		out := []string{fmt.Sprintf("%s: write %s", label, p.Spot.Manifest)}
-		if p.RegPrev != nil {
-			return append(out, fmt.Sprintf("    point HKEY_CURRENT_USER\\%s at it; it names %s now, to put back on uninstall",
-				p.Spot.RegKey, DescribeHost(p.Current.Host, host)))
-		}
-		return append(out, fmt.Sprintf("    make HKEY_CURRENT_USER\\%s, naming it", p.Spot.RegKey))
-	case p.Current.Exists:
-		return []string{fmt.Sprintf("%s: replace %s", label, p.Spot.Manifest),
-			fmt.Sprintf("    it names %s now; a copy is kept, to put back on uninstall", DescribeHost(p.Current.Host, host))}
+		return []string{fmt.Sprintf("%s: write %s", label, p.Spot.Manifest),
+			fmt.Sprintf("    make HKEY_CURRENT_USER\\%s, naming it", p.Spot.RegKey)}
 	}
 	out := []string{fmt.Sprintf("%s: write %s", label, p.Spot.Manifest)}
 	if made := p.MakesDirs(); len(made) > 0 {
@@ -37,14 +30,8 @@ func UndoLines(rec InstalledHost) []string {
 	label := strings.Join(rec.Browsers, ", ")
 	var out []string
 	switch {
-	case rec.RegKey != "" && rec.RegPrev != nil:
-		out = append(out, fmt.Sprintf("%s: point HKEY_CURRENT_USER\\%s back at %s, and remove %s", label, rec.RegKey, *rec.RegPrev, rec.Manifest))
 	case rec.RegKey != "":
 		out = append(out, fmt.Sprintf("%s: remove HKEY_CURRENT_USER\\%s and %s", label, rec.RegKey, rec.Manifest))
-	case rec.Backup != nil && rec.Backup.Link != "":
-		out = append(out, fmt.Sprintf("%s: make %s a link to %s again", label, rec.Manifest, rec.Backup.Link))
-	case rec.Backup != nil:
-		out = append(out, fmt.Sprintf("%s: put back %s as it was, from %s", label, rec.Manifest, rec.Backup.Copy))
 	default:
 		out = append(out, fmt.Sprintf("%s: remove %s", label, rec.Manifest))
 	}
@@ -59,17 +46,9 @@ func UninstalledLines(u Uninstalled) []string {
 	label := u.Label()
 	switch {
 	case u.Changed:
-		out := []string{fmt.Sprintf("%s: %s changed since secretvault installed it: left as it is", label, u.Manifest)}
-		if u.Backup != nil && u.Backup.Copy != "" {
-			out = append(out, fmt.Sprintf("  the manifest it replaced is still in %s", u.Backup.Copy))
-		}
-		return out
-	case u.RegKey != "" && u.RegPrev != nil:
-		return []string{fmt.Sprintf("%s: HKEY_CURRENT_USER\\%s names %s again", label, u.RegKey, *u.RegPrev)}
+		return []string{fmt.Sprintf("%s: %s changed since secretvault installed it: left as it is", label, u.Manifest)}
 	case u.RegKey != "":
 		return []string{fmt.Sprintf("%s: removed HKEY_CURRENT_USER\\%s", label, u.RegKey)}
-	case u.Backup != nil:
-		return []string{fmt.Sprintf("%s: put back the manifest naming %s, at %s", label, DescribeHost(u.Backup.Host, u.Host), u.Manifest)}
 	}
 	return []string{fmt.Sprintf("%s: removed %s", label, u.Manifest)}
 }
@@ -94,20 +73,14 @@ func BrowserStateLine(b BrowserState, host string) string {
 	default:
 		line += DescribeHost(b.Current.Host, host)
 	}
-	switch {
-	case b.Changed:
+	if b.Changed {
 		line += "; changed since secretvault installed it"
-	case b.Ours && b.Backup != nil:
-		line += "; " + DescribeHost(b.Backup.Host, host) + " kept, to put back"
 	}
 	return line
 }
 
 // NativeHostHeading names a native host over its browsers' lines.
 func NativeHostHeading(h NativeHost) string {
-	if h.Legacy {
-		return "KeePassXC-Browser, the legacy link (" + h.Name + ")"
-	}
 	return "secretvault's own extension (" + h.Name + ")"
 }
 

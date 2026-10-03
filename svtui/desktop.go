@@ -295,30 +295,21 @@ func (u *UI) keyringRestore(then func()) {
 type browserRow struct{ svops.BrowserState }
 
 // showBrowsers is the browsers panel: which program each browser starts
-// for secretvault's own extension, then for the legacy KeePassXC-Browser
-// link ('secretvault browser status'), and the KeePassXC-Browser
-// extensions connected to the vault ('browser ls'); installing and
-// uninstalling either, writing the extension out, disconnecting.
+// for secretvault's own extension ('secretvault browser status');
+// installing and uninstalling its host, writing the extension out.
 func (u *UI) showBrowsers() {
-	vault := u.vault
 	p := u.newPanel("Browsers", "BROWSER", "STARTS", "")
 	p.reload = func() {
 		var state *svops.BrowserInstall
 		var host string
 		var browsers []svops.BrowserState
 		var statusErr error
-		var assoc []svrpc.BrowserAssociation
-		var assocErr error
 		cli := u.cliProgram()
-		u.call(func(ctx context.Context, c *secretvault.Client) error {
+		u.call(func(context.Context, *secretvault.Client) error {
 			state, host, browsers, statusErr = svops.BrowserStatus(cli)
-			if vault != "" {
-				assoc, assocErr = c.BrowserAssociations(ctx, vault)
-			}
 			return nil
 		}, func(error) {
-			head := "secretvault's own extension fills logins: i sets its host up in the browsers, e writes the extension out to load, u undoes the setup. " +
-				"The legacy link, secretvault behind KeePassXC-Browser, goes once the extension has replaced it: k sets it up, l undoes it."
+			head := "secretvault's own extension fills logins: i sets its host up in the browsers, e writes the extension out to load, u undoes the setup."
 			if cli == "" {
 				head = "[yellow]" + tview.Escape(sentence(svops.ErrNoCLI.Error())) + "[-] Setting the browsers up needs it; e still writes the extension out."
 			} else if state != nil {
@@ -336,46 +327,17 @@ func (u *UI) showBrowsers() {
 					p.row(browserRow{b}, b.Spot.Name, strings.TrimSpace(strings.TrimPrefix(line, b.Spot.Name)))
 				}
 			}
-			p.heading("KeePassXC-Browser in " + vault)
-			switch {
-			case vault == "":
-			case assocErr != nil:
-				p.none(u.describe(assocErr))
-			case len(assoc) == 0:
-				p.none("None connected.")
-			}
-			for _, a := range assoc {
-				p.row(a, a.Name, a.Program+" · "+a.Extension, "since "+a.Created.Local().Format("2006-01-02"))
-			}
 			p.done()
 		})
 	}
 	p.act('i', "Set up…", func() { u.browserInstall(svops.ExtensionHost, p.refresh) })
 	p.act('u', "Undo…", func() { u.browserUninstall(&svops.ExtensionHost, p.refresh) })
 	p.act('e', "Write the extension out…", u.browserExtension)
-	p.act('k', "Set up the legacy link…", func() { u.browserInstall(svops.KeePassXCHost, p.refresh) })
-	p.act('l', "Undo the legacy link…", func() { u.browserUninstall(&svops.KeePassXCHost, p.refresh) })
-	p.rowAct('x', "Disconnect it…", is[svrpc.BrowserAssociation], func(ref any) {
-		a := ref.(svrpc.BrowserAssociation)
-		u.confirm("Disconnect?", fmt.Sprintf("Disconnect %s (%s)? Its extension must ask to connect again.", a.Name, a.Program), "Disconnect", func() {
-			u.call(func(ctx context.Context, c *secretvault.Client) error {
-				return c.RemoveBrowserAssociation(ctx, a.Vault, a.Name)
-			}, func(err error) {
-				if err != nil {
-					u.fail(err)
-					return
-				}
-				u.say("Disconnected %s", a.Name)
-				p.refresh()
-			})
-		})
-	})
 	p.show()
 }
 
-// browserInstall is 'secretvault browser install' (with --keepassxc for
-// the legacy host): which browsers, the plan (svops.PlanBrowserInstall,
-// naming the CLI), then each applied.
+// browserInstall is 'secretvault browser install': which browsers, the
+// plan (svops.PlanBrowserInstall, naming the CLI), then each applied.
 func (u *UI) browserInstall(native svops.NativeHost, then func()) {
 	cli := u.cliProgram()
 	if cli == "" {
@@ -406,9 +368,6 @@ func (u *UI) browserInstall(native svops.NativeHost, then func()) {
 				b.WriteString("  " + tview.Escape(l) + "\n")
 			}
 		}
-		if plan.KeePassXC {
-			b.WriteString("\nKeePassXC writes its manifests back each time it starts with browser integration on. Turn that off in KeePassXC (Settings › Browser Integration), or its advanced option to update the manifest files at startup.\n")
-		}
 		if todo == 0 {
 			u.showText("Set up the browsers", b.String()+"\nThere is nothing to do.")
 			return
@@ -420,14 +379,10 @@ func (u *UI) browserInstall(native svops.NativeHost, then func()) {
 					if hp.Skip != "" {
 						continue
 					}
-					rec, err := plan.Apply(hp)
-					if err != nil {
+					if _, err := plan.Apply(hp); err != nil {
 						return fmt.Errorf("%s: %w (Undo undoes what was done)", hp.Label(), err)
 					}
 					out = append(out, fmt.Sprintf("%s: wrote %s", hp.Label(), hp.Spot.Manifest))
-					if rec.Backup != nil {
-						out = append(out, "  the manifest it replaced, "+svops.DescribeHost(rec.Backup.Host, plan.Host)+", is kept to put back")
-					}
 				}
 				return nil
 			}, func(err error) {
@@ -436,9 +391,6 @@ func (u *UI) browserInstall(native svops.NativeHost, then func()) {
 				case err != nil:
 					u.fail(err)
 					text += "\n\n[red]" + tview.Escape(sentence(err.Error())) + "[-]"
-				case native.Legacy:
-					text += "\n\nRestart the browsers, then connect KeePassXC-Browser from its toolbar button."
-					u.say("Set the browsers up for KeePassXC-Browser")
 				default:
 					text += "\n\nRestart the browsers, then load the extension: e writes it out, and says how."
 					u.say("Set the browsers up for the secretvault extension")
@@ -452,8 +404,8 @@ func (u *UI) browserInstall(native svops.NativeHost, then func()) {
 	})
 }
 
-// browserUninstall is 'secretvault browser uninstall' for one host
-// (--extension, --keepassxc): its dry run, then the undoing.
+// browserUninstall is 'secretvault browser uninstall' for one host: its
+// dry run, then the undoing.
 func (u *UI) browserUninstall(only *svops.NativeHost, then func()) {
 	planned, err := svops.UninstallBrowsers(only, true)
 	if errors.Is(err, svops.ErrNoBrowserInstall) {

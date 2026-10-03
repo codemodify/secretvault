@@ -341,18 +341,6 @@ func (c *Client) ServeKeyring(ctx context.Context, enable bool) error {
 	return c.conn.Call(ctx, svrpc.MKeyringServe, svrpc.KeyringServeParams{Enable: enable}, nil)
 }
 
-// BrowserAssociations lists the browser extensions connected to a vault
-// on this device.
-func (c *Client) BrowserAssociations(ctx context.Context, vault string) (out []svrpc.BrowserAssociation, err error) {
-	err = c.conn.Call(ctx, svrpc.MBrowserList, svrpc.VaultRef{Vault: vault}, &out)
-	return
-}
-
-// RemoveBrowserAssociation disconnects a browser extension.
-func (c *Client) RemoveBrowserAssociation(ctx context.Context, vault, name string) error {
-	return c.conn.Call(ctx, svrpc.MBrowserRemove, svrpc.BrowserRemoveParams{Vault: vault, Name: name}, nil)
-}
-
 // SecurityKeys lists the FIDO2 security keys the daemon can see.
 func (c *Client) SecurityKeys(ctx context.Context) (out []svrpc.FIDO2Device, err error) {
 	err = c.conn.Call(ctx, svrpc.MFIDO2List, nil, &out)

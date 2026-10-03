@@ -6,12 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/codemodify/secretvault"
-	"github.com/codemodify/secretvault/svbrowser"
 	"github.com/codemodify/secretvault/svext"
 	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
@@ -34,13 +31,13 @@ func (c *cli) extensionHost(origin string) error {
 	write := func(frame []byte) {
 		wmu.Lock()
 		defer wmu.Unlock()
-		svbrowser.WriteFrame(c.stdout, frame)
+		svext.WriteFrame(c.stdout, frame)
 	}
 	// answer writes an answer to request id, and wipes it: one the browser
 	// would not take (over its 1 MiB) is a refusal instead, not silence.
 	answer := func(id string, frame []byte) {
 		defer clear(frame)
-		if len(frame) > svbrowser.MaxFrame {
+		if len(frame) > svext.MaxFrame {
 			frame = svext.Refusal(id, svext.Errorf(svext.CodeFailed, "the answer is too large to send"))
 		}
 		write(frame)
@@ -70,7 +67,7 @@ func (c *cli) extensionHost(origin string) error {
 	read := make(chan error, 1)
 	go func() {
 		for {
-			frame, err := svbrowser.ReadFrame(c.stdin)
+			frame, err := svext.ReadFrame(c.stdin)
 			if err != nil {
 				read <- err
 				return
@@ -124,12 +121,6 @@ func (c *cli) extensionAnswer(ctx context.Context, cl *secretvault.Client, r *sv
 		return svext.Refusal(r.ID, svext.Errorf(svext.CodeNotRunning, "%s", describe(err)))
 	}
 	return reply.Frame
-}
-
-// ourManifest reports whether a browser started this program by the
-// manifest of secretvault's own host (Firefox passes its path).
-func ourManifest(args []string) bool {
-	return len(args) > 0 && strings.EqualFold(filepath.Base(args[0]), svext.HostName+".json")
 }
 
 // browserExtension is `secretvault browser extension`: the extension

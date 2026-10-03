@@ -77,7 +77,6 @@ decision. If there is none, it asks you.
 | [`svmail`](svmail) | Whole mail messages: PGP/MIME, inline OpenPGP and S/MIME taken apart, verified, decrypted and reported; and built |
 | [`svage`](svage) | age files and the age plugin protocol, both ends |
 | [`browser`](browser), [`svext`](svext) | secretvault's own browser extension (plain JavaScript, Manifest V3), its protocol, and matching logins to sites |
-| [`svbrowser`](svbrowser) | The KeePassXC-Browser protocol, the legacy link for filling logins in browsers |
 | [`svimport`](svimport) | Import from other password managers, export to KeePass and CXF |
 | [`svluks`](svluks) | LUKS2, our own: headers, keyslots, and the encrypted sectors in userspace |
 | [`svcontainer`](svcontainer), [`svudisks`](svudisks) | Encrypted containers, and mounting them through UDisks2 on Linux |
@@ -331,7 +330,7 @@ $ bin/secretvault browser install --dry-run   # what would change
 $ bin/secretvault browser install             # then restart the browser
 $ bin/secretvault browser extension           # writes secretvault-extension-0.1.0.zip
 $ bin/secretvault browser status              # which host each browser starts
-$ bin/secretvault browser uninstall --extension   # undo the setup, exactly
+$ bin/secretvault browser uninstall           # undo the setup, exactly
 ```
 
 To try it in Firefox, open `about:debugging`, choose This Firefox, then
@@ -351,19 +350,6 @@ says how, and has the protocol and the threat model.
 - **Saving.** A login sent from a form is offered for saving on the
   toolbar button. New logins go under `web/`.
 - **One-time codes and new passwords** fill from the panel too.
-
-The legacy link, secretvault in KeePassXC's place behind KeePassXC's own
-extension, [KeePassXC-Browser](https://github.com/keepassxreboot/keepassxc-browser),
-still works until the extension replaces it:
-
-```console
-$ bin/secretvault browser install --keepassxc     # KeePassXC's manifest is kept
-$ bin/secretvault browser ls                      # connected extensions; 'rm NAME' disconnects one
-$ bin/secretvault browser uninstall --keepassxc   # put KeePassXC's manifest back, exactly
-```
-
-KeePassXC writes its own manifest back each time it starts with browser
-integration on: turn that off in KeePassXC first.
 
 For age and SOPS, its plugin must be on `PATH` (`helpers setup` links it
 beside the CLI, as above):
@@ -498,7 +484,7 @@ where it stops. In short:
 | [docs/delivery.md](docs/delivery.md) | The secret-delivery server: setup, unsealing, the API, auth, policies; GitHub Actions, GitLab CI, Kubernetes and External Secrets Operator |
 | [docs/format.md](docs/format.md) | The v1 vault format, byte by byte |
 | [docs/security.md](docs/security.md) | The threat model and known gaps |
-| [docs/browser.md](docs/browser.md) | The browser extension: what it does, its protocol, its threat model, loading and signing it, and retiring the KeePassXC-Browser link |
+| [docs/browser.md](docs/browser.md) | The browser extension: what it does, its protocol, its threat model, loading and signing it |
 | [docs/roadmap.md](docs/roadmap.md) | Milestones M0–M10, and the decisions log |
 | [docs/landscape.md](docs/landscape.md) | The tools secretvault replaces or meets, and what it takes from each |
 | [uitoolkit-gaps.md](uitoolkit-gaps.md) | What the GUI toolkit provides for the prompt and manager, and what it still lacks |
@@ -508,7 +494,7 @@ where it stops. In short:
 | Dependency | For | Licence |
 | --- | --- | --- |
 | Go standard library | nearly everything, including HPKE, ML-KEM, HKDF, PBKDF2, AES-GCM | BSD-3-Clause |
-| [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | Argon2id, BLAKE2b, XChaCha20-Poly1305, scrypt, SSH key formats, NaCl box (the KeePassXC-Browser protocol), cryptobyte (ASN.1 for CMS and PKCS #12); for reading other managers' files and old OpenPGP data, Salsa20, CAST5, Blowfish and Twofish | BSD-3-Clause |
+| [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | Argon2id, BLAKE2b, XChaCha20-Poly1305, scrypt, SSH key formats, cryptobyte (ASN.1 for CMS and PKCS #12); for reading other managers' files and old OpenPGP data, Salsa20, CAST5, Blowfish and Twofish | BSD-3-Clause |
 | [golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys) | locked memory, process hardening | BSD-3-Clause |
 | [golang.org/x/term](https://pkg.go.dev/golang.org/x/term) | passphrase entry without echo | BSD-3-Clause |
 | [tview](https://github.com/rivo/tview), [tcell](https://github.com/gdamore/tcell) | `secretvault-tui` only | MIT, Apache-2.0 |
@@ -553,9 +539,7 @@ The tests include:
   List's own test vectors, saving, codes, unlocking, other extensions'
   IDs, and messages too large or malformed; the extension's own modules
   under `node --test` when node is installed;
-- KeePassXC-Browser's side of its protocol, played through the relay
-  against the daemon: consent, saving, codes, locking, replays, bad
-  nonces and bad frames; and browser installs in a home of the test's own;
+- browser installs in a home of the test's own;
 - QR codes module for module against qrencode at every version and
   level, and read back by zbar;
 - WKD hashes against GnuPG's own client, and lookups against a fake

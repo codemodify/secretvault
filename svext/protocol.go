@@ -8,12 +8,10 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
-
-	"github.com/codemodify/secretvault/svbrowser"
 )
 
 // The protocol, version 1 (docs/browser.md has it whole). Each message is
-// one native-messaging frame (svbrowser.ReadFrame, WriteFrame) holding a
+// one native-messaging frame (ReadFrame, WriteFrame) holding a
 // JSON object.
 //
 //	request   {"v":1,"id":"r7","op":"logins","vault":"","origin":"https://github.com"}
@@ -44,7 +42,7 @@ const (
 )
 
 // Limits. A request is at most MaxRequest bytes; the browser's own limit
-// (1 MiB, svbrowser.MaxFrame) ends the host, as the stream cannot be read
+// (1 MiB, MaxFrame) ends the host, as the stream cannot be read
 // past a frame over it.
 const (
 	MaxRequest  = 64 << 10
@@ -220,7 +218,7 @@ func (r *Request) read(m map[string]json.RawMessage) error {
 		}
 	}
 	if raw, ok := m["password"]; ok {
-		p, err := svbrowser.DecodeJSONSecret(raw)
+		p, err := decodeSecret(raw)
 		switch {
 		case err != nil:
 			return Errorf(CodeBadRequest, "password: a string")
@@ -351,7 +349,7 @@ func (r *reply) set(k string, v any) {
 func (r *reply) secret(k string, v []byte) {
 	r.key(k)
 	r.grow(len(v) + len(v)/4 + 8)
-	r.b = svbrowser.AppendJSONSecret(r.b, v)
+	r.b = appendSecret(r.b, v)
 }
 
 // grow makes room for n more bytes, wiping the buffer it leaves.

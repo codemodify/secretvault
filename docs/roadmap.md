@@ -141,8 +141,7 @@ copy and edit a login without the CLI.
 - **Windows.** Credential Manager import and mirroring.
 - **macOS.** Keychain import and mirroring.
 - **Browser autofill.** secretvault's own browser extension and its
-  native-messaging host; until it has replaced it, a host that speaks the
-  KeePassXC-Browser protocol.
+  native-messaging host.
 - **Later in this track:** the Windows 11 passkey provider and a macOS
   AutoFill extension. Both need signed native packaging.
 
@@ -170,21 +169,11 @@ copy and edit a login without the CLI.
   `org.freedesktop.secrets`, where `gnome-keyring.portal` points, and the
   takeover writes the user's copy of the desktop's `portals.conf` choosing
   that backend (on KDE, instead of kwallet).
-- **Browser autofill is built** (`svbrowser`, `secretvault-browser`), as
-  the backend of KeePassXC-Browser:
-  - logins with per-item consent and audit, saving, TOTP codes, folders as
-    groups, the password generator, and lock and unlock notices;
-  - the browser, not the relay, is who asks: the daemon looks up the
-    relay's parent itself;
-  - connecting asks once, and associations are vault records
-    (`secretvault browser ls`, `rm`);
-  - `secretvault browser install` (with `--dry-run`) writes the manifests,
-    keeping KeePassXC's, and `uninstall` puts them back exactly;
-  - tested end to end by a Go test playing the extension through the
-    relay, not yet with a real browser. Passkeys and auto-type are not
-    served.
+- **Browser autofill** first came by standing in for KeePassXC behind its
+  extension, KeePassXC-Browser; secretvault's own extension replaced it,
+  and that support is removed.
 - **secretvault's own browser extension is built** (`browser/extension`,
-  `svext`), to replace KeePassXC-Browser ([browser.md](browser.md)):
+  `svext`, [browser.md](browser.md)):
   - plain JavaScript, Manifest V3, Firefox first and Chromium-compatible;
     marks on login fields, the logins in the extension's own panel, fills
     on the person's choice only, save offers on the toolbar button,
@@ -192,16 +181,15 @@ copy and edit a login without the CLI.
   - its own versioned JSON protocol through the same host, every request
     checked by the host and the daemon; consent per read, as for any
     program; logins matched by origin, with the Public Suffix List;
-  - `secretvault browser install` sets up its host (`--keepassxc` the
-    legacy link), and `browser extension` writes it out to load;
+  - `secretvault browser install` (with `--dry-run`) sets up its host,
+    and `uninstall` undoes it exactly; `browser extension` writes the
+    extension out to load;
   - a threat model, reviewed twice, with pages unable to trigger fills,
     read the list or see what secretvault holds;
   - tested by Go tests playing the extension through the host, and its
     modules under `node --test`; not yet in a real browser.
 - **Still to do:** CredMan and Keychain bridges; the extension tried in
-  real browsers and signed by Mozilla (unlisted), then the
-  KeePassXC-Browser link removed ([the plan](browser.md#removing-the-keepassxc-browser-link));
-  browser autofill on Windows and macOS, and for browsers in Flatpak or
+  real browsers and signed by Mozilla (unlisted); browser autofill on Windows and macOS, and for browsers in Flatpak or
   Snap (their hosts start through the portal).
 
 ## M4: hardware
@@ -559,7 +547,7 @@ change.
 | Auto-lock | Configurable; defaults follow the unlock method |
 | Prompting | Once per program, remembered, revocable |
 | Program identity | Path plus publisher signature |
-| Browser autofill | secretvault's own extension ([browser.md](browser.md)); the KeePassXC-Browser link stays until it has replaced it, then goes. (Before: behind KeePassXC-Browser, no extension of our own.) |
+| Browser autofill | secretvault's own extension ([browser.md](browser.md)) |
 | Vaults | Several, one default |
 | CLI | Daemon only (M0's direct mode is transitional) |
 | Platforms | Windows 10 22H2 and 11, macOS 14+, Linux from the last ~3 years; amd64 and arm64 |

@@ -552,7 +552,7 @@ $ secretvault emergency revoke 3f2a --rotate            # the owner ends it, and
   plain JavaScript (Manifest V3) in [`browser/extension`](../browser/extension):
   Firefox first, and Chrome, Chromium, Brave, Edge and Vivaldi too.
   [browser.md](browser.md) has it whole: the names, the protocol, the
-  threat model, how to load it, and the plan for the legacy link below.
+  threat model, how to load it.
   - **The extension.**
     - It marks login fields, in closed shadow roots in the top layer.
     - It shows the logins for the page in its own panel: the toolbar
@@ -570,9 +570,13 @@ $ secretvault emergency revoke 3f2a --rotate            # the owner ends it, and
     extension. It checks every request of the extension's versioned JSON
     protocol ([`svext`](../svext)) before passing it to the daemon
     (`browser.open` with the protocol, then `browser.message`).
-  - **Who is asking is the browser**, which the daemon identifies as for
-    the legacy link below. **What page** is the origin the extension
-    names, the browser's word.
+  - **Who is asking is the browser.** The daemon accepts `browser.open`
+    only from its own binary, then looks up the host's parent process
+    itself (`svpeer.Parent`) and names that in every prompt and audit
+    entry: "firefox (/usr/lib/firefox/firefox) wants the login
+    "web/github.com" for https://github.com, through the secretvault
+    extension". **What page** is the origin the extension names, the
+    browser's word.
   - **Consent.**
     - Listing a page's logins (no passwords) is listing the vault.
     - Each fill or one-time code is a read of that login, decided like
@@ -586,55 +590,12 @@ $ secretvault emergency revoke 3f2a --rotate            # the owner ends it, and
     - the host itself, or its registrable domain by the bundled Public
       Suffix List.
   - **Setting it up.** `secretvault browser install` writes the host's
-    manifest in each browser's per-user place, and `browser extension`
-    writes the extension out to load.
-- **Browser autofill, the legacy link.** secretvault also stands in for
-  KeePassXC behind KeePassXC's own extension, KeePassXC-Browser
-  (`browser install --keepassxc`). It stays until secretvault's
-  extension has replaced it, then goes ([browser.md](browser.md#removing-the-keepassxc-browser-link)).
-  - **The host is a relay.** The browser starts `secretvault-browser` (the
-    CLI) by the manifest named `org.keepassxc.keepassxc_browser`, and talks
-    to it in native-messaging frames on stdin and stdout. The relay hands
-    each frame to the daemon (`browser.open`, then `browser.message`) and
-    the answers back. It holds no key and makes no decision. It serves
-    KeePassXC-Browser's IDs alone.
-  - **The protocol lives in the daemon** ([`svbrowser`](../svbrowser),
-    `svd/browser.go`): `change-public-keys` swaps X25519 keys in the clear;
-    everything after is NaCl `crypto_box` with the extension's random
-    nonce, answered under that nonce plus one. A nonce is used once, so
-    replays, and our own answers sent back, are refused.
-  - **Who is asking is the browser.** The daemon accepts `browser.open`
-    only from its own binary, then looks up the relay's parent process
-    itself (`svpeer.Parent`) and names that in every prompt and audit
-    entry: "firefox (/usr/lib/firefox/firefox) wants the login
-    "web/github.com" for github.com".
-  - **Connecting** (`associate`) asks the person once. The association (a
-    name, the extension's identification key, the browser's identity) is
-    a vault record of this device; `secretvault browser ls` and `rm` list
-    and remove them, and a removed one stops working at once.
-  - **Logins.** `get-logins` offers the login items whose URL fields
-    (`url`, `url2`..., `website`, or of type `url`) or `url`/`*_url`
-    attributes match the page: the same host, or a parent domain of it,
-    never a bare top-level name; the scheme must match, and a stored port.
-    Each one handed over is a read of that item, decided like any other
-    program's (a remembered decision, else a prompt) and audited. A refusal
-    looks like "no logins", so it tells the extension nothing.
-  - **Saving** is a write (new logins go under `web/` unless a group is
-    chosen, and the browser may read back what it saved); the extension's
-    groups are the vault's folders (seeing them is listing the vault); the
-    one-time code is a read. The database hash is an HMAC of the device's
-    and vault's IDs under a key derived from the vault key.
-  - **Locking.** The session is on one vault (the default); when it locks
-    or unlocks, the extension is told. A locked vault is unlocked only when
-    the extension asks for it (`triggerUnlock`), on the desktop prompt.
-  - **Not served:** passkeys and auto-type, answered as KeePassXC before
-    2.7.7 answers them; the host reports that version, so the extension
-    leaves passkeys to the browser.
-  - **Setting it up.** `secretvault browser install --keepassxc` writes
-    the manifest in each browser's per-user place (Linux fully; macOS's
-    Library paths and Windows' registry keys written but untested). A
-    manifest already there (KeePassXC's) is kept, and `uninstall` puts it
-    back exactly, recorded as `keyring takeover` records its changes.
+    manifest in each browser's per-user place (Linux fully; macOS's
+    Library paths and Windows' registry keys written but untested), and
+    `browser extension` writes the extension out to load. A manifest
+    already there that secretvault did not write is left alone, and
+    `uninstall` takes away exactly what was written, recorded as
+    `keyring takeover` records its changes.
 
 #### The desktop manager
 
@@ -1092,7 +1053,6 @@ projects, with `sv` as the prefix:
 | `svseal` | sealing a key to the user by the OS, to open vaults at login | M1 |
 | `svotp` | HOTP, TOTP and Steam codes | M2 |
 | `svext`, `browser` | secretvault's own browser extension: its protocol and matching logins to origins (with the Public Suffix List); the extension itself, embedded ([browser.md](browser.md)) | M3 |
-| `svbrowser` | the KeePassXC-Browser protocol, the legacy link, until the extension replaces it | M3 |
 | `svwayland`, `svx11`, `svclip` | the clipboard in our own protocol code | M2 |
 | `svimport` | import from other password managers; export to KDBX and CXF | M2 |
 | `svpgp` | OpenPGP, our own | M5 |
@@ -1115,8 +1075,7 @@ projects, with `sv` as the prefix:
   - `golang.org/x/crypto` (Argon2, ChaCha20-Poly1305, scrypt for age
     passphrases, `ssh` for SSH key formats; for OpenPGP, CAST5,
     Blowfish and Twofish to read old data, and cryptobyte for ECDSA
-    signatures, and for CMS and PKCS #12; NaCl `box`, which KeePassXC-Browser
-    speaks),
+    signatures, and for CMS and PKCS #12),
     `golang.org/x/sys`,
     `golang.org/x/term`;
   - `github.com/codemodify/uitoolkit` in the GUI binaries only, which are a

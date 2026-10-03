@@ -6,15 +6,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/codemodify/secretvault"
-	"github.com/codemodify/secretvault/svbrowser"
+	"github.com/codemodify/secretvault/svd"
 	"github.com/codemodify/secretvault/svext"
 	"github.com/codemodify/secretvault/svotp"
+	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -23,6 +26,68 @@ import (
 // through the host's stdin and stdout, to a real daemon in this process,
 // which is told the host's parent is Firefox. Nothing reaches a real
 // browser or profile.
+
+var firefox = svpeer.Process{PID: 31337, Exe: "/usr/lib/firefox/firefox", SystemOwned: true}
+
+// launcher is the program the daemon is told started the host.
+type launcher struct {
+	mu sync.Mutex
+	p  svpeer.Process
+}
+
+func (l *launcher) set(p svpeer.Process) {
+	l.mu.Lock()
+	l.p = p
+	l.mu.Unlock()
+}
+
+func (l *launcher) of(host *svpeer.Process) (*svpeer.Process, error) {
+	if host.PID != os.Getpid() {
+		return nil, fmt.Errorf("the host is process %d, not this test", host.PID)
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	p := l.p
+	return &p, nil
+}
+
+func browserHarness(t *testing.T) (*harness, *launcher) {
+	t.Helper()
+	l := &launcher{p: firefox}
+	h := newHarness(t, func(o *svd.Options) { o.Launcher = l.of })
+	h.init()
+	return h, l
+}
+
+func (d *fakeDesk) answer(choice, passphrase string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.choice, d.passphrase = choice, passphrase
+}
+
+func (d *fakeDesk) count() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.asked)
+}
+
+// lockedBuffer is stderr, written by the host while the test reads it.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
 
 // ownExtension is the secretvault extension, talking to a running host.
 type ownExtension struct {
@@ -67,7 +132,7 @@ func startOwnExtension(t *testing.T, h *harness, args ...string) *ownExtension {
 	go func() {
 		defer close(x.replies)
 		for {
-			f, err := svbrowser.ReadFrame(outR)
+			f, err := svext.ReadFrame(outR)
 			if err != nil {
 				return
 			}
@@ -467,17 +532,17 @@ func TestTheExtensionsHostChecksEveryMessage(t *testing.T) {
 
 func TestTheExtensionsHostServesTheExtensionAlone(t *testing.T) {
 	h, _ := browserHarness(t)
-	// Started by its own manifest for another extension, or by Chromium
-	// (which names no manifest) for an extension that is neither: it
-	// refuses.
+	// Started by its own manifest for another extension, by Chromium
+	// (which names no manifest) for another extension, or by another
+	// manifest: it refuses.
 	for _, c := range []struct {
 		args []string
 		says string
 	}{
-		{[]string{extManifest, "keepassxc-browser@keepassxc.org"}, "serves the secretvault extension only"},
 		{[]string{extManifest, "evil@example.com"}, "serves the secretvault extension only"},
-		{[]string{"chrome-extension://aaaabbbbccccddddeeeeffffgggghhhh/"}, "serves the secretvault extension and KeePassXC-Browser only"},
-		{[]string{"/home/u/.mozilla/native-messaging-hosts/org.keepassxc.keepassxc_browser.json", "evil@example.com"}, "and KeePassXC-Browser only"},
+		{[]string{"chrome-extension://aaaabbbbccccddddeeeeffffgggghhhh/"}, "serves the secretvault extension only"},
+		{[]string{"/home/u/.mozilla/native-messaging-hosts/other.json", "evil@example.com"}, "serves the secretvault extension only"},
+		{[]string{"export", "backup.json"}, "serves the secretvault extension only"},
 	} {
 		x := startOwnExtension(t, h, c.args...)
 		select {
@@ -489,13 +554,6 @@ func TestTheExtensionsHostServesTheExtensionAlone(t *testing.T) {
 			t.Fatalf("the host served %s", c.args)
 		}
 		x.exited <- 1
-	}
-	// Started for KeePassXC-Browser, the host is the legacy relay, which
-	// does not speak the extension's protocol.
-	y := startExtension(t, h, "/home/u/.mozilla/native-messaging-hosts/org.keepassxc.keepassxc_browser.json", "keepassxc-browser@keepassxc.org")
-	y.send(map[string]any{"v": 1, "id": "a", "op": "state", "clientID": "c"})
-	if r := y.reply(); r["errorCode"] == nil {
-		t.Fatalf("the legacy relay answered the extension's protocol: %v", r)
 	}
 }
 
@@ -510,7 +568,7 @@ func TestTheExtensionHearsWhenSecretvaultCannotBeReached(t *testing.T) {
 		outW.Close()
 		exited <- code
 	}()
-	f, err := svbrowser.ReadFrame(outR)
+	f, err := svext.ReadFrame(outR)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -520,5 +578,34 @@ func TestTheExtensionHearsWhenSecretvaultCannotBeReached(t *testing.T) {
 	}
 	if code := <-exited; code != 1 {
 		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+}
+
+func TestTheHostIsFoundByItsNameOrItsArguments(t *testing.T) {
+	for argv0, want := range map[string]string{
+		"/usr/bin/secretvault-browser":    "browser-host",
+		"/opt/sv/secretvault-browser.exe": "browser-host",
+		"/usr/bin/secretvault":            "",
+	} {
+		if got := helperName(argv0); got != want {
+			t.Errorf("helperName(%s) = %q", argv0, got)
+		}
+	}
+	for _, c := range []struct {
+		args   []string
+		origin string
+		ok     bool
+	}{
+		{[]string{"chrome-extension://oboonakemofpalcgghocfoadofidjkkk/"}, "chrome-extension://oboonakemofpalcgghocfoadofidjkkk/", true},
+		{[]string{"chrome-extension://oboonakemofpalcgghocfoadofidjkkk/", "--parent-window=0"}, "chrome-extension://oboonakemofpalcgghocfoadofidjkkk/", true},
+		{[]string{extManifest, svext.FirefoxID}, svext.FirefoxID, true},
+		{[]string{"export", "backup.json"}, "", false},
+		{[]string{"import", "auto", "x.json"}, "", false},
+		{[]string{"x.json"}, "", false},
+		{nil, "", false},
+	} {
+		if o, ok := browserOrigin(c.args); o != c.origin || ok != c.ok {
+			t.Errorf("browserOrigin(%q) = %q, %v", c.args, o, ok)
+		}
 	}
 }

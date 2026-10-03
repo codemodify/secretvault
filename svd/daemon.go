@@ -346,7 +346,7 @@ type client struct {
 	name      string
 	canPrompt bool
 
-	// A face that takes a connection over (the browser relay, browser.go)
+	// A face that takes a connection over (the browser's host, browser_ext.go)
 	// sets these, under Daemon.mu: face is its state, events receives the
 	// daemon's notifications in the connection's place, and closed runs
 	// when the connection is gone.

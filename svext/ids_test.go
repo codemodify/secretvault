@@ -60,7 +60,7 @@ func TestTheExtensionAndItsHostAgreeOnTheirNames(t *testing.T) {
 	if !regexp.MustCompile(`const HOST = "` + regexp.QuoteMeta(HostName) + `"`).Match(js) {
 		t.Errorf("lib/protocol.js does not name the host %s", HostName)
 	}
-	if !Ours(FirefoxID) || !Ours(ChromeOrigin) || Ours("keepassxc-browser@keepassxc.org") || Ours("chrome-extension://"+ChromeID) {
+	if !Ours(FirefoxID) || !Ours(ChromeOrigin) || Ours("other@example.org") || Ours("chrome-extension://"+ChromeID) {
 		t.Error("Ours")
 	}
 }

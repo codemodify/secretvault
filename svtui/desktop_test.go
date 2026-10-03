@@ -145,57 +145,31 @@ func TestBrowsersAreSetUpAndUndone(t *testing.T) {
 	h.unlock()
 	h.typeText("B")
 	h.waitFor("the secretvault extension")
-	h.waitFor("KeePassXC-Browser (legacy)")
 	h.waitFor("firefox")
-	h.waitFor("KeePassXC-Browser in personal")
 
-	// secretvault's own extension's host, and the legacy link beside it.
+	// secretvault's own extension's host.
 	dir := filepath.Join(h.home, ".mozilla", "native-messaging-hosts")
-	for _, c := range []struct {
-		key      string
-		manifest string
-		name     string
-	}{
-		{"i", filepath.Join(dir, svext.HostName+".json"), svext.HostName},
-		{"k", filepath.Join(dir, "org.keepassxc.keepassxc_browser.json"), "org.keepassxc.keepassxc_browser"},
-	} {
-		h.typeText(c.key)
-		h.waitFor(" for ")
-		h.key(tcell.KeyDown) // firefox
-		h.key(tcell.KeyEnter)
-		h.waitFor("The browsers would start " + cli)
-		h.waitFor("firefox: write")
-		h.key(tcell.KeyTab)
-		h.key(tcell.KeyTab)
-		h.key(tcell.KeyEnter)
-		h.waitFor("Restart the browsers")
-		b, err := os.ReadFile(c.manifest)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var m map[string]any
-		if json.Unmarshal(b, &m) != nil || m["path"] != cli || m["name"] != c.name {
-			t.Fatalf("the manifest: %s", b)
-		}
-		h.key(tcell.KeyEscape)
-	}
-	h.waitFor("secretvault (" + cli + ")")
-
-	// The legacy link is undone alone.
-	h.typeText("l")
-	h.waitFor("Undo KeePassXC-Browser (legacy)")
-	h.waitFor("firefox: remove ")
+	manifest := filepath.Join(dir, svext.HostName+".json")
+	h.typeText("i")
+	h.waitFor(" for ")
+	h.key(tcell.KeyDown) // firefox
+	h.key(tcell.KeyEnter)
+	h.waitFor("The browsers would start " + cli)
+	h.waitFor("firefox: write")
 	h.key(tcell.KeyTab)
 	h.key(tcell.KeyTab)
 	h.key(tcell.KeyEnter)
-	h.waitFor("firefox: removed ")
-	if _, err := os.Stat(filepath.Join(dir, "org.keepassxc.keepassxc_browser.json")); err == nil {
-		t.Fatal("the legacy manifest is still there")
+	h.waitFor("Restart the browsers")
+	b, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, svext.HostName+".json")); err != nil {
-		t.Fatal("undoing the legacy link took the extension's host")
+	var m map[string]any
+	if json.Unmarshal(b, &m) != nil || m["path"] != cli || m["name"] != svext.HostName {
+		t.Fatalf("the manifest: %s", b)
 	}
 	h.key(tcell.KeyEscape)
+	h.waitFor("secretvault (" + cli + ")")
 
 	h.typeText("u")
 	h.waitFor("Undo the secretvault extension")

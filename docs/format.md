@@ -613,7 +613,7 @@ The payload is JSON:
 - **Kinds** are listed in [`svcore/item.go`](../svcore/item.go). Unknown kinds
   are kept as they are.
 - **Records** are payloads of any other type: remembered access grants,
-  contacts, browser associations, and the two below that the format itself
+  contacts, and the two below that the format itself
   reads, `device` and `policy`. A reader keeps and authenticates types it
   does not know, but otherwise ignores them.
 - **Known draft limitation:** unknown JSON fields inside an item are dropped

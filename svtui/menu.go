@@ -189,8 +189,6 @@ func (u *UI) menu() []menuEntry {
 		{"Desktop", "Set the browsers up for the secretvault extension…", "", func() { u.browserInstall(svops.ExtensionHost, nil) }},
 		{"Desktop", "Undo the browsers' setup for the secretvault extension…", "", func() { u.browserUninstall(&svops.ExtensionHost, nil) }},
 		{"Desktop", "Write out the browser extension…", "", u.browserExtension},
-		{"Desktop", "Set up the legacy KeePassXC-Browser link…", "", func() { u.browserInstall(svops.KeePassXCHost, nil) }},
-		{"Desktop", "Undo the legacy KeePassXC-Browser link…", "", func() { u.browserUninstall(&svops.KeePassXCHost, nil) }},
 		{"Desktop", "GnuPG: let gpg use the vault's keys, or stop…", "", func() {
 			if u.needVault() {
 				u.gpgSetup(u.vault)

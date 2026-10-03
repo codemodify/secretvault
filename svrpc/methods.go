@@ -41,12 +41,10 @@ const (
 
 	MKeyringServe = "keyring.serve" // KeyringServeParams -> nil
 
-	// The browser relay (secretvault-browser): it opens a session for the
+	// The browser's host (secretvault-browser): it opens a session for the
 	// browser that started it, then hands over the extension's messages.
 	MBrowserOpen    = "browser.open"    // BrowserOpenParams -> BrowserOpenResult
 	MBrowserMessage = "browser.message" // BrowserFrame -> BrowserFrame (empty: no answer)
-	MBrowserList    = "browser.list"    // VaultRef -> []BrowserAssociation
-	MBrowserRemove  = "browser.remove"  // BrowserRemoveParams -> nil
 
 	MFIDO2List = "fido2.list" // nil -> []FIDO2Device
 )
@@ -63,14 +61,11 @@ type FIDO2Device struct {
 	Problem    string   `json:"problem,omitempty"`     // why it cannot be used (no permission, say)
 }
 
-// BrowserOpenParams open a browser session on a vault ("" for the
-// default). Origin is the extension as the browser named it on the
-// relay's command line; it is shown, not trusted. Protocol is the
-// extension's: "" for KeePassXC-Browser's, on Vault; svext.Protocol
-// ("secretvault-extension/1") for secretvault's own extension, whose
-// requests each name their vault.
+// BrowserOpenParams open a browser session. Origin is the extension as
+// the browser named it on the host's command line. Protocol is the
+// extension's, svext.Protocol ("secretvault-extension/1"); its requests
+// each name their vault.
 type BrowserOpenParams struct {
-	Vault    string `json:"vault,omitempty"`
 	Origin   string `json:"origin,omitempty"`
 	Protocol string `json:"protocol,omitempty"`
 }
@@ -78,29 +73,12 @@ type BrowserOpenParams struct {
 // BrowserOpenResult says who the daemon takes the browser to be.
 type BrowserOpenResult struct {
 	Browser string `json:"browser"`
-	Vault   string `json:"vault"`
 }
 
 // BrowserFrame is one native-messaging message, as the extension sent it
 // or is to receive it.
 type BrowserFrame struct {
 	Frame []byte `json:"frame,omitempty"`
-}
-
-// BrowserAssociation is a browser extension connected to a vault on this
-// device.
-type BrowserAssociation struct {
-	Name      string    `json:"name"`
-	Vault     string    `json:"vault"`
-	Program   string    `json:"program"`   // the browser, as shown to people
-	Extension string    `json:"extension"` // as the browser named it
-	Created   time.Time `json:"created"`
-}
-
-// BrowserRemoveParams disconnect an extension by its association's name.
-type BrowserRemoveParams struct {
-	Vault string `json:"vault,omitempty"`
-	Name  string `json:"name"`
 }
 
 // KeyringServeParams turn the Secret Service face on or off.
@@ -119,8 +97,8 @@ const (
 	EVaultUnlocked = "vault.unlocked" // VaultEvent
 	EItemChanged   = "item.changed"   // VaultEvent
 
-	// To a browser relay only, in place of the above: a message for the
-	// extension that it did not ask for (the vault locked or unlocked).
+	// To a browser's host only, in place of the above: a message for the
+	// extension that it did not ask for (a vault locked or unlocked).
 	EBrowserFrame = "browser.frame" // BrowserFrame
 )
 

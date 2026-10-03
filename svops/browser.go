@@ -1,7 +1,6 @@
 package svops
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,37 +14,28 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codemodify/secretvault/svbrowser"
 	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svext"
 )
 
-// Making browsers start secretvault's native-messaging hosts:
+// Making browsers start secretvault's native-messaging host:
 // PlanBrowserInstall and its Apply, UninstallBrowsers, and BrowserStatus.
-// There are two hosts (NativeHosts), both the secretvault CLI:
-//
-//   - io.github.codemodify.secretvault, for secretvault's own extension
-//     (browser/extension, svext): what `secretvault browser install`
-//     sets up.
-//   - org.keepassxc.keepassxc_browser, for KeePassXC-Browser, where the
-//     browsers would start KeePassXC's keepassxc-proxy: the legacy link
-//     (`install --keepassxc`), kept until the extension has replaced it
-//     (docs/browser.md says how it goes).
+// The host (NativeHosts) is the secretvault CLI, as
+// io.github.codemodify.secretvault, for secretvault's own extension
+// (browser/extension, svext).
 //
 // A browser finds a host by a manifest named for it (the host's name and
 // .json): in a directory of its own for each user on Linux and macOS, or
 // wherever a registry key under HKEY_CURRENT_USER says on Windows.
-// Installing writes secretvault's manifest there. A manifest already there
-// (KeePassXC's, usually) is first copied into secretvault's own directory,
-// and everything done is recorded in browser-install.json, so that
-// uninstalling undoes it exactly: the old manifest comes back byte for
-// byte with its mode and time (or as the link it was), and directories
-// the install made go if they are empty.
+// Installing writes secretvault's manifest there, and records everything
+// it did in browser-install.json, so that uninstalling undoes it exactly:
+// the manifest (and on Windows its key) goes, and directories the install
+// made go if they are empty. A manifest or key already there, which
+// secretvault did not write, is left alone: installing does nothing for
+// that browser until it is gone.
 //
 // A manifest changed since the install is not ours any more: uninstalling
-// leaves it alone and keeps the backup, and installing will not write over
-// it. KeePassXC does that change: when it starts with browser integration
-// on, it writes its manifests back.
+// leaves it alone, and installing will not write over it.
 
 // NativeHost is a native-messaging host secretvault can be.
 type NativeHost struct {
@@ -54,7 +44,6 @@ type NativeHost struct {
 	Description string   // the manifest's
 	Firefox     []string // the extensions it serves in Firefox (allowed_extensions)
 	Chrome      []string // and in Chromium's family (allowed_origins)
-	Legacy      bool     // KeePassXC-Browser's, which is to go
 }
 
 var (
@@ -62,25 +51,18 @@ var (
 	ExtensionHost = NativeHost{Name: svext.HostName, Title: "the secretvault extension",
 		Description: "secretvault, for its browser extension", Firefox: []string{svext.FirefoxID}, Chrome: []string{svext.ChromeOrigin}}
 
-	// KeePassXCHost is the legacy link: secretvault in KeePassXC's place
-	// behind KeePassXC-Browser.
-	KeePassXCHost = NativeHost{Name: svbrowser.HostName, Title: "KeePassXC-Browser (legacy)",
-		Description: "secretvault, standing in for KeePassXC behind KeePassXC-Browser",
-		Firefox:     svbrowser.FirefoxExtensions, Chrome: svbrowser.ChromeOrigins, Legacy: true}
-
-	// NativeHosts are both, the extension's first.
-	NativeHosts = []NativeHost{ExtensionHost, KeePassXCHost}
+	// NativeHosts are the hosts secretvault can be: the extension's.
+	NativeHosts = []NativeHost{ExtensionHost}
 )
 
-// NativeHostNamed is the host of a name; KeePassXC's for "", as the
-// records of installs made before there were two name none.
-func NativeHostNamed(name string) NativeHost {
+// NativeHostNamed is the host of a name, if secretvault is it.
+func NativeHostNamed(name string) (NativeHost, bool) {
 	for _, h := range NativeHosts {
 		if h.Name == name {
-			return h
+			return h, true
 		}
 	}
-	return KeePassXCHost
+	return NativeHost{}, false
 }
 
 // BrowserSpot is where one browser looks for one host.
@@ -188,7 +170,7 @@ type NativeManifest struct {
 // program host. It lets only the extensions the spot's host serves start
 // it.
 func ManifestFor(s BrowserSpot, host string) []byte {
-	h := NativeHostNamed(s.Host)
+	h, _ := NativeHostNamed(s.Host)
 	m := NativeManifest{Name: h.Name, Description: h.Description, Path: host, Type: "stdio"}
 	if s.Firefox {
 		m.AllowedExtensions = h.Firefox
@@ -231,26 +213,18 @@ type BrowserInstall struct {
 
 // InstalledHost is one manifest an install wrote.
 type InstalledHost struct {
-	Browsers []string        `json:"browsers"`
-	Manifest string          `json:"manifest"`
-	Sum      string          `json:"sum"` // SHA-256 of what was written: while it matches, the file is ours
-	Backup   *ManifestBackup `json:"backup,omitempty"`
-	MadeDirs []string        `json:"made_dirs,omitempty"` // outermost first
-	RegKey   string          `json:"reg_key,omitempty"`
-	RegPrev  *string         `json:"reg_prev,omitempty"`  // the key's value before; nil when there was no key
-	HostName string          `json:"host_name,omitempty"` // the native host's; "" (records made before there were two) is KeePassXC's
+	Browsers []string `json:"browsers"`
+	Manifest string   `json:"manifest"`
+	Sum      string   `json:"sum"`                 // SHA-256 of what was written: while it matches, the file is ours
+	MadeDirs []string `json:"made_dirs,omitempty"` // outermost first
+	RegKey   string   `json:"reg_key,omitempty"`
+	HostName string   `json:"host_name,omitempty"` // the native host's
 }
 
 // NativeHost is the host the manifest is for.
-func (r InstalledHost) NativeHost() NativeHost { return NativeHostNamed(r.HostName) }
-
-// ManifestBackup is the manifest an install replaced.
-type ManifestBackup struct {
-	Copy    string      `json:"copy,omitempty"` // a copy, in secretvault's own directory
-	Link    string      `json:"link,omitempty"` // or where it pointed, when it was a symbolic link
-	Mode    fs.FileMode `json:"mode"`
-	ModTime time.Time   `json:"mod_time"`
-	Host    string      `json:"host,omitempty"` // the program it named
+func (r InstalledHost) NativeHost() NativeHost {
+	h, _ := NativeHostNamed(r.HostName)
+	return h
 }
 
 func browserStatePath() (string, error) {
@@ -262,7 +236,10 @@ func browserStatePath() (string, error) {
 }
 
 // LoadBrowserInstall reads the record of the install; an error satisfying
-// errors.Is(err, fs.ErrNotExist) means there is none.
+// errors.Is(err, fs.ErrNotExist) means there is none. What it records of
+// hosts secretvault no longer is (another extension's host it once
+// stood in for) is not read: there is nothing of secretvault's to undo
+// there.
 func LoadBrowserInstall() (*BrowserInstall, error) {
 	p, err := browserStatePath()
 	if err != nil {
@@ -275,6 +252,13 @@ func LoadBrowserInstall() (*BrowserInstall, error) {
 	var s BrowserInstall
 	if err := json.Unmarshal(b, &s); err != nil {
 		return nil, fmt.Errorf("%s: %w", p, err)
+	}
+	s.Hosts = slices.DeleteFunc(s.Hosts, func(h InstalledHost) bool {
+		_, ok := NativeHostNamed(h.HostName)
+		return !ok
+	})
+	if len(s.Hosts) == 0 {
+		return nil, fmt.Errorf("%s: %w", p, fs.ErrNotExist)
 	}
 	return &s, nil
 }
@@ -358,8 +342,6 @@ func DescribeHost(host, ours string) string {
 		return "a manifest naming no program"
 	case host == ours:
 		return "secretvault (" + host + ")"
-	case strings.Contains(strings.ToLower(filepath.Base(host)), "keepassxc"):
-		return "KeePassXC (" + host + ")"
 	}
 	return "another program (" + host + ")"
 }
@@ -401,7 +383,8 @@ func SelectSpots(spots []BrowserSpot, names []string) ([]BrowserSpot, error) {
 // them and says them in its own.
 const (
 	SkipAlreadyDone = "already done"
-	SkipChanged     = "its manifest changed since secretvault installed it (KeePassXC writes its own back when it starts); run 'secretvault browser uninstall' first"
+	SkipChanged     = "its manifest changed since secretvault installed it; run 'secretvault browser uninstall' first"
+	SkipOther       = "a manifest secretvault did not write is there; remove it first"
 )
 
 // ErrUninstallFirst is an install for another program than the one the
@@ -413,8 +396,7 @@ type HostPlan struct {
 	Browsers []string
 	Spot     BrowserSpot
 	Current  CurrentManifest
-	RegPrev  *string // Windows: the registry key's value now; nil when there is no key
-	Skip     string  // why nothing is done, if nothing is
+	Skip     string // why nothing is done, if nothing is
 }
 
 // Label names the browsers the manifest is for.
@@ -427,11 +409,10 @@ func (p *HostPlan) MakesDirs() []string { return missingDirs(filepath.Dir(p.Spot
 // BrowserInstallPlan is what an install would do: one HostPlan per
 // manifest (on Windows, Brave and Vivaldi share Chrome's).
 type BrowserInstallPlan struct {
-	Native    NativeHost // the native host installed
-	Host      string     // the program the manifests name
-	Hosts     []*HostPlan
-	KeePassXC bool // a manifest to replace names KeePassXC, which writes its own back
-	state     *BrowserInstall
+	Native NativeHost // the native host installed
+	Host   string     // the program the manifests name
+	Hosts  []*HostPlan
+	state  *BrowserInstall
 }
 
 // PlanBrowserInstall works out an install of the native host h for the
@@ -472,27 +453,23 @@ func PlanBrowserInstall(h NativeHost, names []string, cli string) (*BrowserInsta
 		if p.Current, err = ReadManifest(s.Manifest); err != nil {
 			return nil, err
 		}
+		key, hasKey := "", false
 		if s.RegKey != "" {
-			if v, ok, err := registryValue(s.RegKey); err != nil {
+			if key, hasKey, err = registryValue(s.RegKey); err != nil {
 				return nil, err
-			} else if ok {
-				p.RegPrev = &v
-				if cur, err := ReadManifest(v); err == nil {
+			} else if hasKey {
+				if cur, err := ReadManifest(key); err == nil {
 					p.Current.Host = cur.Host
 				}
 			}
 		}
-		if rec := state.Find(s.Manifest); rec != nil {
-			if p.Current.Sum == rec.Sum && (s.RegKey == "" || p.RegPrev != nil && *p.RegPrev == s.Manifest) {
-				p.Skip = SkipAlreadyDone
-			} else {
-				p.Skip = SkipChanged
-			}
-		}
-	}
-	for _, p := range plan.Hosts {
-		if p.Skip == "" && strings.Contains(strings.ToLower(p.Current.Host), "keepassxc") {
-			plan.KeePassXC = true
+		switch rec := state.Find(s.Manifest); {
+		case rec != nil && p.Current.Sum == rec.Sum && (s.RegKey == "" || hasKey && key == s.Manifest):
+			p.Skip = SkipAlreadyDone
+		case rec != nil:
+			p.Skip = SkipChanged
+		case hasKey || s.RegKey == "" && p.Current.Exists:
+			p.Skip = SkipOther
 		}
 	}
 	return plan, nil
@@ -506,18 +483,18 @@ func (plan *BrowserInstallPlan) Apply(p *HostPlan) (*InstalledHost, error) {
 		return nil, fmt.Errorf("%s: nothing to do: %s", p.Label(), p.Skip)
 	}
 	// A plan shown to a person may have waited: what it saw must still
-	// be there (KeePassXC writes its manifests when it starts).
+	// be there.
 	now, err := ReadManifest(p.Spot.Manifest)
 	if err != nil {
 		return nil, err
 	}
 	changed := now.Exists != p.Current.Exists || now.Link != p.Current.Link || now.Sum != p.Current.Sum
 	if p.Spot.RegKey != "" {
-		v, ok, err := registryValue(p.Spot.RegKey)
+		_, ok, err := registryValue(p.Spot.RegKey)
 		if err != nil {
 			return nil, err
 		}
-		changed = changed || ok != (p.RegPrev != nil) || ok && v != *p.RegPrev
+		changed = changed || ok
 	}
 	if changed {
 		return nil, fmt.Errorf("%s changed since the plan was made: make it again", p.Spot.Manifest)
@@ -557,9 +534,6 @@ func installHost(p *HostPlan, host string) (*InstalledHost, error) {
 
 	rec.MadeDirs = missingDirs(filepath.Dir(s.Manifest))
 	undo := func() {
-		if rec.Backup != nil && rec.Backup.Copy != "" {
-			os.Remove(rec.Backup.Copy)
-		}
 		for i := len(rec.MadeDirs) - 1; i >= 0; i-- {
 			os.Remove(rec.MadeDirs[i])
 		}
@@ -568,66 +542,16 @@ func installHost(p *HostPlan, host string) (*InstalledHost, error) {
 		undo()
 		return nil, err
 	}
-	if s.RegKey == "" && p.Current.Exists {
-		b, err := backupManifest(p)
-		if err != nil {
-			undo()
-			return nil, err
-		}
-		rec.Backup = b
-	}
 	if err := WriteReplacing(s.Manifest, data, 0o644); err != nil {
 		undo()
 		return nil, err
 	}
 	if s.RegKey != "" {
-		rec.RegPrev = p.RegPrev
-		if p.RegPrev != nil {
-			rec.Backup = &ManifestBackup{Host: p.Current.Host}
-		}
 		if err := setRegistryValue(s.RegKey, s.Manifest); err != nil {
 			return rec, err
 		}
 	}
 	return rec, nil
-}
-
-// backupManifest keeps the manifest about to be replaced: a copy in
-// secretvault's own directory, or where it points, if it is a link.
-func backupManifest(p *HostPlan) (*ManifestBackup, error) {
-	cur := p.Current
-	b := &ManifestBackup{Link: cur.Link, Mode: cur.Mode, ModTime: cur.MTime, Host: cur.Host}
-	if cur.Link != "" {
-		return b, nil
-	}
-	data, err := os.ReadFile(p.Spot.Manifest)
-	if err != nil {
-		return nil, err
-	}
-	h, err := svcore.Home()
-	if err != nil {
-		return nil, err
-	}
-	dir := filepath.Join(h, "browser-backup")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
-	// A backup an earlier uninstall left (of a manifest changed since) is
-	// kept too.
-	for n := 1; ; n++ {
-		name := p.Browsers[0] + "-" + filepath.Base(p.Spot.Manifest)
-		if n > 1 {
-			name = fmt.Sprintf("%s-%d-%s", p.Browsers[0], n, filepath.Base(p.Spot.Manifest))
-		}
-		b.Copy = filepath.Join(dir, name)
-		err := WriteNew(b.Copy, data)
-		if err == nil {
-			return b, nil
-		}
-		if !errors.Is(err, fs.ErrExist) {
-			return nil, fmt.Errorf("keeping the old manifest: %w", err)
-		}
-	}
 }
 
 // ErrNoBrowserInstall says secretvault is installed in no browser.
@@ -636,8 +560,7 @@ var ErrNoBrowserInstall = errors.New("secretvault is not installed in any browse
 // Uninstalled is what an uninstall did, or would do, to one manifest.
 type Uninstalled struct {
 	InstalledHost
-	Host    string // the program the install named, to describe the backup's against
-	Changed bool   // the manifest changed since: left as it is, and forgotten
+	Changed bool // the manifest changed since: left as it is, and forgotten
 }
 
 // Label names the browsers the manifest is for.
@@ -666,7 +589,7 @@ func UninstallBrowsers(only *NativeHost, dryRun bool) ([]Uninstalled, error) {
 		if err != nil {
 			return done, err
 		}
-		u := Uninstalled{InstalledHost: rec, Host: state.Host, Changed: !ours}
+		u := Uninstalled{InstalledHost: rec, Changed: !ours}
 		if ours && !dryRun {
 			if err := uninstallHost(rec); err != nil {
 				state.Hosts = append(kept, state.Hosts[i:]...)
@@ -685,9 +608,6 @@ func UninstallBrowsers(only *NativeHost, dryRun bool) ([]Uninstalled, error) {
 	state.Hosts = kept
 	if err := state.Save(); err != nil {
 		return done, err
-	}
-	if h, err := svcore.Home(); err == nil {
-		os.Remove(filepath.Join(h, "browser-backup")) // if empty
 	}
 	return done, nil
 }
@@ -714,47 +634,12 @@ func StillOurs(rec InstalledHost) (bool, error) {
 // uninstallHost undoes installHost.
 func uninstallHost(rec InstalledHost) error {
 	if rec.RegKey != "" {
-		var err error
-		if rec.RegPrev != nil {
-			err = setRegistryValue(rec.RegKey, *rec.RegPrev)
-		} else {
-			err = deleteRegistryKey(rec.RegKey)
-		}
-		if err != nil {
+		if err := deleteRegistryKey(rec.RegKey); err != nil {
 			return err
 		}
 	}
-	b := rec.Backup
-	switch {
-	case rec.RegKey != "" || b == nil:
-		if err := os.Remove(rec.Manifest); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-	case b.Link != "":
-		tmp := rec.Manifest + ".secretvault-link"
-		os.Remove(tmp)
-		if err := os.Symlink(b.Link, tmp); err != nil {
-			return err
-		}
-		if err := os.Rename(tmp, rec.Manifest); err != nil {
-			os.Remove(tmp)
-			return err
-		}
-	default:
-		data, err := os.ReadFile(b.Copy)
-		if err != nil {
-			return fmt.Errorf("the kept manifest: %w", err)
-		}
-		if err := WriteReplacing(rec.Manifest, data, b.Mode); err != nil {
-			return err
-		}
-		if err := os.Chtimes(rec.Manifest, b.ModTime, b.ModTime); err != nil {
-			return err
-		}
-		if again, err := os.ReadFile(rec.Manifest); err != nil || !bytes.Equal(again, data) {
-			return fmt.Errorf("%s did not come back as it was", rec.Manifest)
-		}
-		os.Remove(b.Copy)
+	if err := os.Remove(rec.Manifest); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
 	for i := len(rec.MadeDirs) - 1; i >= 0; i-- {
 		os.Remove(rec.MadeDirs[i]) // only if empty
@@ -769,15 +654,13 @@ type BrowserState struct {
 	NoKey   bool   // Windows: there is no registry key, so no host
 	Err     error  // the manifest could not be read
 	Current CurrentManifest
-	Ours    bool            // the install's record has it
-	Changed bool            // and it changed since
-	Backup  *ManifestBackup // what the install replaced, kept to put back
+	Ours    bool // the install's record has it
+	Changed bool // and it changed since
 }
 
 // BrowserStatus says which program each browser starts for each native
-// host (the extension's first, then the legacy KeePassXC one: the
-// state's Spot.Host says which), with the record of the install (nil
-// when there is none) and the program secretvault's manifests name (the
+// host (the state's Spot.Host says which), with the record of the install
+// (nil when there is none) and the program secretvault's manifests name (the
 // install's, else BrowserHostProgram(cli)). When a registry key cannot be
 // read (Windows), the error comes with what was found before it.
 func BrowserStatus(cli string) (*BrowserInstall, string, []BrowserState, error) {
@@ -824,7 +707,6 @@ func BrowserStatus(cli string) (*BrowserInstall, string, []BrowserState, error) 
 				st.Ours = true
 				ours, _ := StillOurs(*rec)
 				st.Changed = !ours
-				st.Backup = rec.Backup
 			}
 		}
 		out = append(out, st)

@@ -6,11 +6,6 @@ in Firefox, and in Chrome, Chromium, Brave, Edge and Vivaldi, and every
 login it reads goes through secretvault's consent broker, as any
 program's request does.
 
-Before it, browsers reached secretvault through KeePassXC's extension,
-KeePassXC-Browser, with secretvault standing in for KeePassXC. That
-legacy link still works. It is removed once the extension has replaced
-it; [the plan](#removing-the-keepassxc-browser-link) is at the end.
-
 - [Names](#names)
 - [What it does](#what-it-does)
 - [How it is built](#how-it-is-built)
@@ -19,7 +14,6 @@ it; [the plan](#removing-the-keepassxc-browser-link) is at the end.
 - [Trying it, and using it](#trying-it-and-using-it)
 - [Chromium](#chromium)
 - [The Public Suffix List](#the-public-suffix-list)
-- [Removing the KeePassXC-Browser link](#removing-the-keepassxc-browser-link)
 
 ## Names
 
@@ -128,7 +122,7 @@ its public half in `key`, and change `svext.ChromeID` to the ID it gives
 
 Version 1. Each message is one native-messaging frame: a 4-byte length in
 the machine's byte order, then that many bytes of UTF-8 JSON
-([`svbrowser.ReadFrame`](../svbrowser/frame.go)). Every message is an
+([`svext.ReadFrame`](../svext/frame.go)). Every message is an
 object with `"v": 1`.
 
 ```
@@ -271,9 +265,7 @@ section covers what the extension adds. It is enforced in the files named.
    ID alone, and `allowed_origins` our Chromium origin alone.
    - The host checks the ID the browser passes again. Started by our
      manifest for any other extension, it refuses.
-   - Started by Chromium for an extension that is neither ours nor
-     KeePassXC-Browser, it refuses.
-   - The KeePassXC-Browser relay never serves our extension.
+   - Started by Chromium for any other extension, it refuses.
 4. **The host and the daemon.**
    - The daemon opens a browser session only for secretvault's own
      binary, and only for our extension's ID with this protocol.
@@ -399,7 +391,7 @@ section covers what the extension adds. It is enforced in the files named.
     remembered no.
   - Saving is a write (`OpWrite`). Only a login of the page's very host
     can be changed from it. The browser may then read, change and delete
-    the login it saved, as with KeePassXC-Browser.
+    the login it saved.
   - Every decision is in the audit log.
 - **Secrets cross only on the person's action, to the matched origin,
   and are not kept.**
@@ -470,8 +462,8 @@ section covers what the extension adds. It is enforced in the files named.
    ```
 
    Desktop › Browsers › Set up… in the desktop manager, and `B` then `i`
-   in the terminal manager, do the same. `secretvault browser uninstall
-   --extension` undoes it exactly.
+   in the terminal manager, do the same. `secretvault browser uninstall`
+   undoes it exactly.
 
 2. **Write the extension out:**
 
@@ -551,8 +543,7 @@ Vivaldi, with these gaps:
   confirmed by secretvault's prompt instead.
 - **Windows and macOS.** The host's manifest is written in the browsers'
   per-user places on macOS, and named by registry keys under
-  HKEY_CURRENT_USER on Windows. Both are tested in temporary homes only,
-  as for the legacy link.
+  HKEY_CURRENT_USER on Windows. Both are tested in temporary homes only.
 
 ## The Public Suffix List
 
@@ -571,61 +562,3 @@ $ go test ./svext ./browser     # the list's own test vectors, in Go and under n
 Then commit the file. The script refuses a download that is not the
 whole list. A newer list changes which hosts count as one site, so
 refresh it now and then, and before a release.
-
-## Removing the KeePassXC-Browser link
-
-The legacy link (secretvault in KeePassXC's place behind
-KeePassXC-Browser) stays until the extension has replaced it in daily
-use. Then it goes, in this order.
-
-**For people using it:**
-
-1. Install secretvault's extension, as above, and set its host up:
-   `secretvault browser install`. Both work side by side. The legacy
-   link's manifest is `org.keepassxc.keepassxc_browser.json`, the
-   extension's `io.github.codemodify.secretvault.json`.
-2. Undo the legacy link: `secretvault browser uninstall --keepassxc`
-   (Desktop › Browsers › Undo the legacy link…, or `B` then `l`). That
-   puts KeePassXC's own manifest back, exactly as it was, or removes
-   secretvault's if there was none.
-3. Remove KeePassXC-Browser from the browser, unless KeePassXC itself is
-   still used with it.
-4. Remove the old associations: `secretvault browser ls`, then
-   `secretvault browser rm NAME` for each. They are only records; they
-   give nothing to the new extension.
-
-Logins and grants carry over. The grants for the browser are for the
-browser's program, whichever extension asked. The release that removes
-the link prints, on `browser status` and `browser install`, that a legacy
-manifest is still installed and how to undo it, so nobody is left with a
-manifest pointing at a host that no longer answers.
-
-**In the code:**
-
-- **Remove:**
-  - `svbrowser/` (the KeePassXC-Browser protocol, its NaCl `box`
-    channel, the groups);
-  - `svd/browser.go`, but for the session plumbing the extension uses:
-    `browserOpen`'s launcher check, the protocol switch and
-    `browserMessage`'s dispatch move to `svd/browser_ext.go`;
-  - the association records and `browser.list` and `browser.remove`;
-  - the relay half of `cmd/secretvault/browser.go`.
-- **Move:** `svbrowser/frame.go` (the framing) moves to `svext`, with
-  the JSON secret helpers (`AppendJSONSecret`, `DecodeJSONSecret`).
-- **Commands:**
-  - remove `secretvault browser ls` and `rm`, and `install --keepassxc`;
-  - keep `uninstall --keepassxc`, so that what is installed can still be
-    undone;
-  - `KeePassXCHost` stays in svops for that, uninstall only.
-- **The managers:** remove the legacy half of Desktop › Browsers, and of
-  `B`. Keep "Undo the legacy link…" while a record of one exists.
-- **Tests:** remove `cmd/secretvault/browser_test.go` (the
-  KeePassXC-Browser end-to-end tests), `svd/browser_test.go` and
-  `svbrowser`'s tests. Keep the install tests that undo an older record.
-- **Docs:**
-  - remove the KeePassXC-Browser parts of [architecture.md](architecture.md),
-    [security.md](security.md), [landscape.md](landscape.md), the README
-    and [interfaces.md](interfaces.md) (the `browser ls` and `rm` rows);
-  - change the `browser-host` row to the extension alone;
-  - drop the NaCl `box` reason from the dependency list in
-    architecture.md, if nothing else uses it.

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"io/fs"
 	"os"
@@ -10,7 +9,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svext"
@@ -19,18 +17,6 @@ import (
 
 // Installing into browsers, in a home of the test's own: nothing here
 // reads or writes the real ~/.mozilla or ~/.config.
-
-// keepassxcManifest is the manifest KeePassXC writes for Firefox.
-const keepassxcManifest = `{
-    "allowed_extensions": [
-        "keepassxc-browser@keepassxc.org"
-    ],
-    "description": "KeePassXC integration with native messaging support",
-    "name": "org.keepassxc.keepassxc_browser",
-    "path": "/usr/bin/keepassxc-proxy",
-    "type": "stdio"
-}
-`
 
 // browserHome points HOME, XDG_CONFIG_HOME and secretvault's own directory
 // into a temporary directory, and checks every browser place is in it
@@ -56,15 +42,6 @@ func browserHome(t *testing.T) string {
 		}
 	}
 	return home
-}
-
-// firefoxManifest and chromiumManifest are the legacy link's manifests.
-func firefoxManifest(home string) string {
-	return filepath.Join(home, ".mozilla", "native-messaging-hosts", "org.keepassxc.keepassxc_browser.json")
-}
-
-func chromiumManifest(home string) string {
-	return filepath.Join(home, ".config", "chromium", "NativeMessagingHosts", "org.keepassxc.keepassxc_browser.json")
 }
 
 // firefoxExtManifest and chromiumExtManifest are the extension's host's.
@@ -105,18 +82,6 @@ func snapshot(t *testing.T, dir string) string {
 	return strings.Join(lines, "\n")
 }
 
-var keepassxcTime = time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)
-
-func plantKeePassXC(t *testing.T, path string) {
-	t.Helper()
-	os.MkdirAll(filepath.Dir(path), 0o700)
-	if err := os.WriteFile(path, []byte(keepassxcManifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	os.Chmod(path, 0o644)
-	os.Chtimes(path, keepassxcTime, keepassxcTime)
-}
-
 func readJSON(t *testing.T, path string) svops.NativeManifest {
 	t.Helper()
 	b, err := os.ReadFile(path)
@@ -130,20 +95,31 @@ func readJSON(t *testing.T, path string) svops.NativeManifest {
 	return m
 }
 
-func TestInstallStandsInForKeePassXCAndUninstallPutsItBack(t *testing.T) {
+// otherManifest is a manifest for secretvault's host's name that
+// secretvault did not write.
+const otherManifest = `{"name":"` + svext.HostName + `","path":"/opt/other/host","type":"stdio"}` + "\n"
+
+func plantOther(t *testing.T, path string) {
+	t.Helper()
+	os.MkdirAll(filepath.Dir(path), 0o700)
+	if err := os.WriteFile(path, []byte(otherManifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInstallWritesTheHostAndUninstallTakesItAway(t *testing.T) {
 	h := newHarness(t)
 	home := browserHome(t)
-	plantKeePassXC(t, firefoxManifest(home))
-	os.MkdirAll(filepath.Join(home, ".config", "chromium"), 0o700) // Chromium is used, and has no host
+	os.MkdirAll(filepath.Join(home, ".mozilla"), 0o700)            // Firefox is used, and has no host
+	os.MkdirAll(filepath.Join(home, ".config", "chromium"), 0o700) // and Chromium
 
 	before := snapshot(t, home)
-	out := h.ok("", "browser", "install", "--keepassxc", "--dry-run")
+	out := h.ok("", "browser", "install", "--dry-run")
 	for _, want := range []string{
-		"firefox: replace " + firefoxManifest(home),
-		"it names KeePassXC (/usr/bin/keepassxc-proxy) now; a copy is kept",
-		"chromium: write " + chromiumManifest(home),
-		"making " + filepath.Dir(chromiumManifest(home)),
-		"KeePassXC writes its manifests back",
+		"for the secretvault extension:",
+		"firefox: write " + firefoxExtManifest(home),
+		"chromium: write " + chromiumExtManifest(home),
+		"making " + filepath.Dir(chromiumExtManifest(home)),
 		"Nothing was changed",
 	} {
 		if !strings.Contains(out, want) {
@@ -157,23 +133,24 @@ func TestInstallStandsInForKeePassXCAndUninstallPutsItBack(t *testing.T) {
 		t.Fatalf("the dry run changed files:\n%s\n---\n%s", before, after)
 	}
 
-	out = h.ok("", "browser", "install", "--keepassxc")
+	out = h.ok("", "browser", "install")
+	if !strings.Contains(out, "'secretvault browser extension'") {
+		t.Errorf("install said:\n%s", out)
+	}
 	exe, _ := svops.Executable()
 	host, _ := svops.BrowserHostProgram(exe)
-	ff := readJSON(t, firefoxManifest(home))
-	if ff.Path != host || ff.Name != "org.keepassxc.keepassxc_browser" || len(ff.AllowedExtensions) != 1 || ff.AllowedOrigins != nil {
+	ff := readJSON(t, firefoxExtManifest(home))
+	if ff.Name != svext.HostName || ff.Path != host || len(ff.AllowedExtensions) != 1 || ff.AllowedExtensions[0] != svext.FirefoxID || ff.AllowedOrigins != nil {
 		t.Fatalf("the Firefox manifest: %+v", ff)
 	}
-	cr := readJSON(t, chromiumManifest(home))
-	if cr.Path != host || len(cr.AllowedOrigins) != 2 || cr.AllowedExtensions != nil {
+	cr := readJSON(t, chromiumExtManifest(home))
+	if cr.Name != svext.HostName || cr.Path != host || len(cr.AllowedOrigins) != 1 || cr.AllowedOrigins[0] != svext.ChromeOrigin || cr.AllowedExtensions != nil {
 		t.Fatalf("the Chromium manifest: %+v", cr)
-	}
-	if !strings.Contains(out, "KeePassXC (/usr/bin/keepassxc-proxy), is kept to put back") {
-		t.Errorf("install said:\n%s", out)
 	}
 	status := h.ok("", "browser", "status")
 	for _, want := range []string{
-		"firefox   secretvault (" + host + "); KeePassXC (/usr/bin/keepassxc-proxy) kept, to put back",
+		"secretvault's own extension (" + svext.HostName + ")",
+		"firefox   secretvault (" + host + ")",
 		"chromium  secretvault (" + host + ")",
 		"chrome    no host (not used here)",
 	} {
@@ -181,13 +158,13 @@ func TestInstallStandsInForKeePassXCAndUninstallPutsItBack(t *testing.T) {
 			t.Errorf("status does not say %q:\n%s", want, status)
 		}
 	}
-	if out := h.ok("", "browser", "install", "--keepassxc"); strings.Count(out, "nothing to do: already done") != 2 {
+	if out := h.ok("", "browser", "install"); strings.Count(out, "nothing to do: already done") != 2 {
 		t.Errorf("a second install:\n%s", out)
 	}
 
 	before = snapshot(t, home)
-	if out := h.ok("", "browser", "uninstall", "--dry-run"); !strings.Contains(out, "put back "+firefoxManifest(home)+" as it was") ||
-		!strings.Contains(out, "remove "+chromiumManifest(home)) {
+	if out := h.ok("", "browser", "uninstall", "--dry-run"); !strings.Contains(out, "remove "+firefoxExtManifest(home)) ||
+		!strings.Contains(out, "remove "+chromiumExtManifest(home)) {
 		t.Errorf("the uninstall dry run:\n%s", out)
 	}
 	if after := snapshot(t, home); after != before {
@@ -195,23 +172,15 @@ func TestInstallStandsInForKeePassXCAndUninstallPutsItBack(t *testing.T) {
 	}
 
 	out = h.ok("", "browser", "uninstall")
-	b, err := os.ReadFile(firefoxManifest(home))
-	st, _ := os.Stat(firefoxManifest(home))
-	if err != nil || string(b) != keepassxcManifest || st.Mode().Perm() != 0o644 || !st.ModTime().Equal(keepassxcTime) {
-		t.Fatalf("KeePassXC's manifest came back as %q, %v, %v (%v)", b, st.Mode(), st.ModTime(), err)
-	}
-	if _, err := os.Stat(filepath.Dir(chromiumManifest(home))); !os.IsNotExist(err) {
-		t.Fatalf("the directory install made for Chromium is still there (%v)", err)
+	for _, gone := range []string{firefoxExtManifest(home), filepath.Dir(chromiumExtManifest(home)), filepath.Join(home, "sv", "browser-install.json")} {
+		if _, err := os.Stat(gone); !os.IsNotExist(err) {
+			t.Errorf("%s is left behind (%v)", gone, err)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(home, ".config", "chromium")); err != nil {
 		t.Fatal("uninstall removed Chromium's own directory")
 	}
-	for _, gone := range []string{"browser-install.json", "browser-backup"} {
-		if _, err := os.Stat(filepath.Join(home, "sv", gone)); !os.IsNotExist(err) {
-			t.Errorf("%s is left behind", gone)
-		}
-	}
-	if !strings.Contains(out, "firefox: put back the manifest naming KeePassXC") || !strings.Contains(out, "chromium: removed") {
+	if !strings.Contains(out, "firefox: removed") || !strings.Contains(out, "chromium: removed") {
 		t.Errorf("uninstall said:\n%s", out)
 	}
 	if _, errs, code := h.run("", "browser", "uninstall"); code != 1 || !strings.Contains(errs, "not installed") {
@@ -219,61 +188,94 @@ func TestInstallStandsInForKeePassXCAndUninstallPutsItBack(t *testing.T) {
 	}
 }
 
-func TestALinkedManifestComesBackALink(t *testing.T) {
+func TestAManifestSecretvaultDidNotWriteIsLeftAlone(t *testing.T) {
 	h := newHarness(t)
 	home := browserHome(t)
-	target := filepath.Join(home, "system", "keepassxc.json")
-	plantKeePassXC(t, target)
-	os.MkdirAll(filepath.Dir(firefoxManifest(home)), 0o700)
-	if err := os.Symlink(target, firefoxManifest(home)); err != nil {
-		t.Fatal(err)
+	plantOther(t, firefoxExtManifest(home))
+	before := snapshot(t, home)
+	if out := h.ok("", "browser", "install", "--browser", "firefox"); !strings.Contains(out, "nothing to do: "+svops.SkipOther) {
+		t.Errorf("install over another manifest:\n%s", out)
 	}
-	h.ok("", "browser", "install", "--keepassxc", "--browser", "firefox")
-	if st, _ := os.Lstat(firefoxManifest(home)); st.Mode()&fs.ModeSymlink != 0 {
-		t.Fatal("install wrote through the link")
+	if after := snapshot(t, home); after != before {
+		t.Fatalf("install changed files:\n%s\n---\n%s", before, after)
 	}
-	if b, _ := os.ReadFile(target); string(b) != keepassxcManifest {
-		t.Fatal("install changed the file the link pointed at")
-	}
-	h.ok("", "browser", "uninstall")
-	if got, err := os.Readlink(firefoxManifest(home)); err != nil || got != target {
-		t.Fatalf("the link came back as %q, %v", got, err)
+	if status := h.ok("", "browser", "status"); !strings.Contains(status, "firefox   another program (/opt/other/host)") {
+		t.Errorf("status:\n%s", status)
 	}
 }
 
 func TestAManifestChangedSinceInstallIsLeftAlone(t *testing.T) {
 	h := newHarness(t)
 	home := browserHome(t)
-	plantKeePassXC(t, firefoxManifest(home))
-	h.ok("", "browser", "install", "--keepassxc", "--browser", "firefox")
-	// KeePassXC starts, with browser integration on, and writes its own
-	// manifest back.
-	os.WriteFile(firefoxManifest(home), []byte(keepassxcManifest), 0o644)
-	if status := h.ok("", "browser", "status"); !strings.Contains(status, "firefox   KeePassXC (/usr/bin/keepassxc-proxy); changed since secretvault installed it") {
+	h.ok("", "browser", "install", "--browser", "firefox")
+	// Something else writes the manifest over.
+	os.WriteFile(firefoxExtManifest(home), []byte(otherManifest), 0o644)
+	if status := h.ok("", "browser", "status"); !strings.Contains(status, "firefox   another program (/opt/other/host); changed since secretvault installed it") {
 		t.Errorf("status:\n%s", status)
 	}
-	if out := h.ok("", "browser", "install", "--keepassxc", "--browser", "firefox"); !strings.Contains(out, "changed since secretvault installed it") {
+	if out := h.ok("", "browser", "install", "--browser", "firefox"); !strings.Contains(out, "changed since secretvault installed it") {
 		t.Errorf("install over a changed manifest:\n%s", out)
 	}
-	if m := readJSON(t, firefoxManifest(home)); m.Path != "/usr/bin/keepassxc-proxy" {
+	if m := readJSON(t, firefoxExtManifest(home)); m.Path != "/opt/other/host" {
 		t.Fatal("install wrote over a manifest that is not its own")
 	}
-	out := h.ok("", "browser", "uninstall")
-	backup := filepath.Join(home, "sv", "browser-backup", "firefox-org.keepassxc.keepassxc_browser.json")
-	if !strings.Contains(out, "left as it is") || !strings.Contains(out, backup) {
+	if out := h.ok("", "browser", "uninstall"); !strings.Contains(out, "left as it is") {
 		t.Errorf("uninstall said:\n%s", out)
 	}
-	if b, _ := os.ReadFile(backup); string(b) != keepassxcManifest {
-		t.Error("the backup was not kept")
+	if b, _ := os.ReadFile(firefoxExtManifest(home)); string(b) != otherManifest {
+		t.Fatal("uninstall took a manifest that is not its own")
 	}
 	if _, err := os.Stat(filepath.Join(home, "sv", "browser-install.json")); !os.IsNotExist(err) {
 		t.Error("the install record is left behind")
 	}
-	// Now it can be installed again, from scratch.
-	h.ok("", "browser", "install", "--keepassxc", "--browser", "firefox")
+	// It is forgotten, and not secretvault's: installing leaves it alone.
+	if out := h.ok("", "browser", "install", "--browser", "firefox"); !strings.Contains(out, svops.SkipOther) {
+		t.Errorf("install after:\n%s", out)
+	}
+}
+
+// An install record made when secretvault also stood in for another
+// browser extension's host names hosts secretvault no longer is: those
+// are not read, and nothing is done to their manifests or to what the
+// install kept of them.
+func TestARecordOfAHostNoLongerServedIsIgnored(t *testing.T) {
+	h := newHarness(t)
+	home := browserHome(t)
+	os.MkdirAll(filepath.Join(home, ".mozilla"), 0o700)
+	oldManifest := filepath.Join(home, ".mozilla", "native-messaging-hosts", "org.example.old_host.json")
+	plantOther(t, oldManifest)
+	kept := filepath.Join(home, "sv", "browser-backup", "firefox-org.example.old_host.json")
+	plantOther(t, kept)
+	rec := map[string]any{
+		"when": "2026-09-30T10:00:00Z",
+		"host": "/opt/older/secretvault-browser",
+		"hosts": []map[string]any{
+			{"browsers": []string{"firefox"}, "manifest": oldManifest, "sum": "00", "host_name": "org.example.old_host",
+				"backup": map[string]any{"copy": kept, "mode": 420, "mod_time": "2025-01-02T03:04:05Z", "host": "/usr/bin/other"}},
+			{"browsers": []string{"chromium"}, "manifest": filepath.Join(home, ".config", "chromium", "NativeMessagingHosts", "org.example.old_host.json"), "sum": "00"},
+		},
+	}
+	b, _ := json.Marshal(rec)
+	if err := os.WriteFile(filepath.Join(home, "sv", "browser-install.json"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	status := h.ok("", "browser", "status")
+	if strings.Contains(status, "Installed") || strings.Contains(status, "old_host") || !strings.Contains(status, "firefox   no host (used here)") {
+		t.Errorf("status of an older record:\n%s", status)
+	}
+	if _, errs, code := h.run("", "browser", "uninstall"); code != 1 || !strings.Contains(errs, "not installed") {
+		t.Errorf("uninstall of an older record: %d %s", code, errs)
+	}
+	// The install is not held up by the older record's program.
+	h.ok("", "browser", "install", "--browser", "firefox")
+	if m := readJSON(t, firefoxExtManifest(home)); m.Name != svext.HostName {
+		t.Fatalf("the manifest: %+v", m)
+	}
 	h.ok("", "browser", "uninstall")
-	if b, _ := os.ReadFile(firefoxManifest(home)); !bytes.Equal(b, []byte(keepassxcManifest)) {
-		t.Fatal("KeePassXC's manifest did not come back")
+	for _, p := range []string{oldManifest, kept} {
+		if b, _ := os.ReadFile(p); string(b) != otherManifest {
+			t.Errorf("%s was touched", p)
+		}
 	}
 }
 
@@ -304,27 +306,30 @@ func TestWindowsAndMacOSPlaces(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", filepath.Join(home, "Local"))
 	t.Setenv("APPDATA", filepath.Join(home, "Roaming"))
 	t.Setenv(svcore.EnvHome, filepath.Join(home, "sv"))
-	win, err := svops.BrowserSpotsOn("windows", svops.KeePassXCHost)
+	win, err := svops.BrowserSpotsOn("windows", svops.ExtensionHost)
 	if err != nil {
 		t.Fatal(err)
 	}
 	byName := map[string]svops.BrowserSpot{}
 	for _, s := range win {
 		byName[s.Name] = s
+		if !strings.HasSuffix(s.RegKey, `\NativeMessagingHosts\`+svext.HostName) || !strings.Contains(filepath.Base(s.Manifest), svext.HostName+"_") || s.Host != svext.HostName {
+			t.Errorf("Windows %s: %+v", s.Name, s)
+		}
 	}
 	// Brave and Vivaldi read Chrome's key, so they share its manifest.
 	if byName["brave"].RegKey != byName["chrome"].RegKey || byName["vivaldi"].Manifest != byName["chrome"].Manifest {
 		t.Errorf("brave %+v, chrome %+v", byName["brave"], byName["chrome"])
 	}
-	if k := byName["firefox"].RegKey; k != `Software\Mozilla\NativeMessagingHosts\org.keepassxc.keepassxc_browser` {
+	if k := byName["firefox"].RegKey; k != `Software\Mozilla\NativeMessagingHosts\`+svext.HostName {
 		t.Errorf("Firefox's key: %s", k)
 	}
 	if !strings.HasPrefix(byName["edge"].Manifest, filepath.Join(home, "sv")) {
 		t.Errorf("Edge's manifest is not secretvault's own: %s", byName["edge"].Manifest)
 	}
-	mac, _ := svops.BrowserSpotsOn("darwin", svops.KeePassXCHost)
+	mac, _ := svops.BrowserSpotsOn("darwin", svops.ExtensionHost)
 	for _, s := range mac {
-		if s.RegKey != "" || !strings.HasPrefix(s.Manifest, filepath.Join(home, "Library", "Application Support")) || !strings.HasSuffix(s.Manifest, "/NativeMessagingHosts/org.keepassxc.keepassxc_browser.json") {
+		if s.RegKey != "" || !strings.HasPrefix(s.Manifest, filepath.Join(home, "Library", "Application Support")) || !strings.HasSuffix(s.Manifest, "/NativeMessagingHosts/"+svext.HostName+".json") {
 			t.Errorf("macOS %s: %+v", s.Name, s)
 		}
 	}

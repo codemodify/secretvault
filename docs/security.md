@@ -140,51 +140,18 @@ In short:
   secretvault's own prompt every time (Firefox).
 - **Messages.** Every message is checked whole, by the host and again by
   the daemon: its size (64 KiB), its members, their types and lengths.
-
-### The browser path: the KeePassXC-Browser link (legacy)
-
-Browsers can also get logins through KeePassXC's extension,
-KeePassXC-Browser, which talks to `secretvault-browser`, a relay the
-browser starts, which talks to the daemon
-([architecture.md](architecture.md#password-manager)). This link goes
-once secretvault's own extension has replaced it.
-
-- **The extension itself.** A malicious or compromised KeePassXC-Browser
-  (a bad update, or on Chromium a developer-mode extension claiming its
-  ID) can do what the real one can:
-  - it must first be connected, which the person is asked about;
-  - each login it asks for is still decided per item, prompted unless a
-    decision is remembered, and audited;
-  - but it names the page itself, so a prompt's "for github.com" is its
-    word, and an item the browser is always allowed can be fetched
-    silently, from any page. "Always" for a browser means "always, for
-    anything the browser asks".
-- **Another program pretending to be the relay.** The daemon opens a
+- **Another program pretending to be the host.** The daemon opens a
   browser session only for its own binary, so a program that speaks the
   daemon's protocol itself gets nothing. A program can instead run
   `secretvault-browser` and feed it messages; the daemon then names that
-  program, the relay's real parent, and asks about it, not about the
-  browser. It cannot borrow the browser's decisions or its association,
-  which is tied to the browser's identity. As everywhere on Linux, a
-  program running as you can still impersonate another of yours
+  program, the host's real parent, and asks about it, not about the
+  browser. It cannot borrow the browser's decisions. As everywhere on
+  Linux, a program running as you can still impersonate another of yours
   ([Programs running as you](#programs-running-as-you)).
-- **The association key.** The extension proves a later session with a
-  public key it keeps in the browser profile. Whoever copies it from
-  there still needs to be that browser, as above. Associations are
-  encrypted vault records, per device; `secretvault browser rm` ends one
-  at once, even mid-session.
-- **The channel.** Messages are NaCl `crypto_box` (X25519,
-  XSalsa20-Poly1305) under a key pair made for each session. A nonce is
-  accepted once, for the last 32,768 messages of a session, so a message
-  cannot be replayed, and one of our own answers sent back (the box key is
-  the same both ways) is refused. A message whose answer would reuse a
-  nonce is refused. The relay only moves bytes.
-- **What the extension learns.** The database hash is an HMAC under a key
-  derived from the vault key, different on each device; group IDs are
-  likewise. A refused login and a missing one look the same.
 - **Installing** changes only the per-user native-messaging manifests (on
-  Windows, keys under HKEY_CURRENT_USER), records each change, and keeps
-  the manifest it replaced, so `uninstall` puts KeePassXC's back exactly.
+  Windows, keys under HKEY_CURRENT_USER), records each change, and never
+  writes over a manifest it did not write, so `uninstall` takes away
+  exactly what it wrote.
 
 ### The gpg-agent face
 
@@ -779,9 +746,7 @@ Wiping keys in Go is therefore hygiene, not a guarantee. What it does:
   CFB and AES key wrap (RFC 3394), each checked against its published test
   vectors. For age, `svage` adds Bech32, and the two point conversions SSH
   and hardware-token recipients need (Ed25519 to X25519, and P-256
-  decompression), which only ever see public keys. The browser path uses
-  NaCl `box` from `golang.org/x/crypto`, because KeePassXC-Browser does.
-  For security keys, `svfido` speaks CTAP's PIN/UV auth protocols, which
+  decompression), which only ever see public keys. For security keys, `svfido` speaks CTAP's PIN/UV auth protocols, which
   the specification fixes to P-256 ECDH, SHA-256 or HKDF-SHA-256,
   AES-256-CBC and HMAC, all from the standard library; they only carry the
   PIN and hmac-secret values to and from the key, and are checked against
@@ -985,7 +950,6 @@ guess, like `svpgp`:
 | OpenPGP version 6 interoperability is checked against the RFC's vectors only | Sequoia in the test suite |
 | A browser in Flatpak or Snap starts its host through the desktop portal, which the daemon then names instead of the browser | identifying the app behind the portal |
 | The browser extension names the page it asks for, and the daemon cannot check it | none within native messaging: the browser's word is all there is |
-| KeePassXC-Browser (the legacy link) names the page as it likes, and "always" for a browser covers any page | removing the link ([browser.md](browser.md#removing-the-keepassxc-browser-link)); secretvault's extension offers a login only on its site |
 | A web page owns the elements that hold the extension's marks and panel: tricking a click on them is made hard, not impossible | the toolbar popup, which no page can cover |
 | On Chromium a page can tell the extension is installed (its panel is web-accessible, its ID fixed) | `use_dynamic_url` |
 | An OpenPGP certificate seen again is not merged packet by packet with the copy held | certificate merging in `svpgp` |

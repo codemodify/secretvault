@@ -21,8 +21,7 @@ import (
 )
 
 // The desktop's setup: secretvault as the system keyring (Linux), the
-// browsers starting secretvault for its own extension (and for
-// KeePassXC-Browser, the legacy link, until it goes), gpg using the
+// browsers starting secretvault for its own extension, gpg using the
 // vault's OpenPGP keys, the helper programs git, docker and age start,
 // and the host daemon on a server. Everything that changes the desktop is
 // shown first as the plan svops makes of it, as the CLI's --dry-run shows
@@ -42,8 +41,6 @@ const (
 // desktopPage is the desktop page's state.
 type desktopPage struct {
 	*tabbedPage
-	assoc  []svrpc.BrowserAssociation
-	atable *widgets.TableView
 }
 
 // showDesktopPage shows the desktop page, open at tab.
@@ -399,26 +396,17 @@ func (m *Manager) restoreKeyring(p *desktopPage) {
 
 func (m *Manager) fillBrowsers(p *desktopPage, pn *pane) {
 	cli := m.cliProgram()
-	vault := p.vault
 	var state *svops.BrowserInstall
 	var host string
-	var browsers []svrpc.BrowserAssociation
 	var states []svops.BrowserState
 	var statusErr error
-	m.load(pn, func(ctx context.Context, c *secretvault.Client) error {
+	m.load(pn, func(context.Context, *secretvault.Client) error {
 		state, host, states, statusErr = svops.BrowserStatus(cli)
-		if vault != "" {
-			var err error
-			if browsers, err = c.BrowserAssociations(ctx, vault); errors.Is(err, svrpc.ErrCanceled) {
-				return err
-			}
-		}
 		return nil
 	}, func() widget.Component {
-		p.assoc = browsers
 		col := widgets.NewColumn(m.paragraph("secretvault's own browser extension fills and saves logins, asking secretvault, which asks you. " +
 			"The browsers start secretvault for it once they are set up: setting them up writes a manifest per browser that names it, " +
-			"and undoing puts back exactly what was there. Then load the extension itself.")).WithGap(gap).WithPad(gap)
+			"and undoing takes exactly that away again. Then load the extension itself.")).WithGap(gap).WithPad(gap)
 		if state != nil {
 			col.Add(m.paragraph(fmt.Sprintf("Set up %s, starting %s.", state.When.Local().Format("2006-01-02 15:04"), state.Host)))
 		}
@@ -459,36 +447,6 @@ func (m *Manager) fillBrowsers(p *desktopPage, pn *pane) {
 		undo.SetEnabled(recorded(svops.ExtensionHost))
 		pn.focus = setup
 		col.Add(buttons(setup, undo, save))
-
-		col.Add(section(m, "KeePassXC-Browser, the legacy link"))
-		col.Add(m.paragraph("secretvault in KeePassXC's place behind KeePassXC-Browser. It stays until the extension has replaced it; then undo it here."))
-		hostTable(svops.KeePassXCHost)
-		legacySetup := widgets.NewButton("Set up the legacy link…", func() { m.installBrowsers(p, states, svops.KeePassXCHost) })
-		legacyUndo := widgets.NewButton("Undo the legacy link…", func() { m.uninstallBrowsers(p, &svops.KeePassXCHost) })
-		legacySetup.SetEnabled(cli != "")
-		legacyUndo.SetEnabled(recorded(svops.KeePassXCHost))
-		col.Add(buttons(legacySetup, legacyUndo))
-		col.Add(m.paragraph("KeePassXC-Browser extensions connected to vault " + vault + ":"))
-		if len(browsers) == 0 {
-			col.Add(m.paragraph("None. KeePassXC-Browser connects from its toolbar button, once its browser is set up and restarted."))
-		} else {
-			p.atable = table("Connected extensions", []widgets.TableColumn{
-				{Title: "Name", Width: 140}, {Title: "Browser"}, {Title: "Extension"}, {Title: "Since", Width: 130},
-			}, len(browsers), func(r, c int) string {
-				a := browsers[r]
-				switch c {
-				case 0:
-					return a.Name
-				case 1:
-					return a.Program
-				case 2:
-					return a.Extension
-				}
-				return a.Created.Local().Format("2006-01-02 15:04")
-			})
-			col.Add(widgets.NewHeightBox(min(40+28*float32(len(browsers)), 200), p.atable))
-			col.Add(buttons(widgets.NewButton("Disconnect…", func() { m.disconnectBrowser(p) })))
-		}
 		return scrolled(col)
 	})
 }
@@ -512,18 +470,15 @@ func browserLine(b svops.BrowserState, host string) string {
 	default:
 		line = svops.DescribeHost(b.Current.Host, host)
 	}
-	switch {
-	case b.Changed:
+	if b.Changed {
 		line += "; changed since secretvault set it up"
-	case b.Ours && b.Backup != nil:
-		line += "; " + svops.DescribeHost(b.Backup.Host, host) + " kept, to put back"
 	}
 	return line
 }
 
 // installBrowsers sets the browsers chosen up for a native host (the
-// CLI's browser install, and with --keepassxc): the plan per browser
-// first, then each carried out.
+// CLI's browser install): the plan per browser first, then each carried
+// out.
 func (m *Manager) installBrowsers(p *desktopPage, states []svops.BrowserState, native svops.NativeHost) {
 	cli := m.cliProgram()
 	if cli == "" {
@@ -531,9 +486,6 @@ func (m *Manager) installBrowsers(p *desktopPage, states []svops.BrowserState, n
 		return
 	}
 	title := "Set up browsers"
-	if native.Legacy {
-		title = "Set up the legacy link"
-	}
 	f := m.newForm(title)
 	f.note("The browsers to start secretvault for " + native.Title + ":")
 	mine := svops.StatesOf(states, native)
@@ -559,11 +511,7 @@ func (m *Manager) installBrowsers(p *desktopPage, states []svops.BrowserState, n
 		}, func() {
 			var lines []string
 			for _, hp := range plan.Hosts {
-				lines = append(lines, hostPlanLines(hp, plan.Host)...)
-			}
-			if plan.KeePassXC {
-				lines = append(lines, "", "KeePassXC writes its manifests back each time it starts with browser integration on:",
-					"turn that off in KeePassXC (Settings > Browser Integration), or its option to update the manifests at startup.")
+				lines = append(lines, hostPlanLines(hp)...)
 			}
 			m.showPlan(title, "The browsers would start "+plan.Host+" for "+native.Title+":", lines, "Set them up", func() {
 				var report []string
@@ -572,21 +520,14 @@ func (m *Manager) installBrowsers(p *desktopPage, states []svops.BrowserState, n
 						if hp.Skip != "" {
 							continue
 						}
-						rec, err := plan.Apply(hp)
-						if err != nil {
+						if _, err := plan.Apply(hp); err != nil {
 							return fmt.Errorf("%s: %w", hp.Label(), err)
 						}
 						report = append(report, hp.Label()+": wrote "+hp.Spot.Manifest)
-						if rec.Backup != nil {
-							report = append(report, "  the manifest it replaced, "+svops.DescribeHost(rec.Backup.Host, plan.Host)+", is kept to put back")
-						}
 					}
 					return nil
 				}, func(err error) {
 					intro := "Restart the browsers, then load the extension: Save the extension… writes it, and says how. Undo… undoes the setup."
-					if native.Legacy {
-						intro = "Restart the browsers, then connect KeePassXC-Browser from its toolbar button. Undo the legacy link… undoes it."
-					}
 					if err != nil {
 						intro = m.describe(err) + " Undoing undoes what was done."
 					}
@@ -601,23 +542,17 @@ func (m *Manager) installBrowsers(p *desktopPage, states []svops.BrowserState, n
 // hostPlanLines says what an install does to one manifest, as the CLI's
 // --dry-run does, in this program's words where the CLI's name its
 // commands.
-func hostPlanLines(p *svops.HostPlan, host string) []string {
+func hostPlanLines(p *svops.HostPlan) []string {
 	label := p.Label()
 	switch {
 	case p.Skip == svops.SkipAlreadyDone:
 		return []string{label + ": nothing to do: already done"}
 	case p.Skip == svops.SkipChanged:
-		return []string{label + ": nothing to do: its manifest changed since secretvault set it up (KeePassXC writes its own back when it starts); undo the setup first"}
+		return []string{label + ": nothing to do: its manifest changed since secretvault set it up; undo the setup first"}
 	case p.Skip != "":
 		return []string{label + ": nothing to do: " + p.Skip}
 	case p.Spot.RegKey != "":
-		if p.RegPrev != nil {
-			return []string{label + ": write " + p.Spot.Manifest, "    point HKEY_CURRENT_USER\\" + p.Spot.RegKey + " at it; it names " +
-				svops.DescribeHost(p.Current.Host, host) + " now, to put back on undoing"}
-		}
 		return []string{label + ": write " + p.Spot.Manifest, "    make HKEY_CURRENT_USER\\" + p.Spot.RegKey + ", naming it"}
-	case p.Current.Exists:
-		return []string{label + ": replace " + p.Spot.Manifest, "    it names " + svops.DescribeHost(p.Current.Host, host) + " now; a copy is kept, to put back on undoing"}
 	}
 	lines := []string{label + ": write " + p.Spot.Manifest}
 	if made := p.MakesDirs(); len(made) > 0 {
@@ -627,13 +562,9 @@ func hostPlanLines(p *svops.HostPlan, host string) []string {
 }
 
 // uninstallBrowsers undoes the setup of one native host exactly (the
-// CLI's browser uninstall --extension or --keepassxc): what it would do
-// shown first.
+// CLI's browser uninstall): what it would do shown first.
 func (m *Manager) uninstallBrowsers(p *desktopPage, only *svops.NativeHost) {
 	title := "Undo the browsers' setup"
-	if only.Legacy {
-		title = "Undo the legacy link"
-	}
 	var would []svops.Uninstalled
 	m.work(func() (err error) {
 		would, err = svops.UninstallBrowsers(only, true)
@@ -713,23 +644,13 @@ func (m *Manager) saveExtension() {
 func undoLines(u svops.Uninstalled) []string {
 	label := u.Label()
 	if u.Changed {
-		lines := []string{label + ": " + u.Manifest + " changed since secretvault set it up: left as it is"}
-		if u.Backup != nil && u.Backup.Copy != "" {
-			lines = append(lines, "  the manifest it replaced is still in "+u.Backup.Copy)
-		}
-		return lines
+		return []string{label + ": " + u.Manifest + " changed since secretvault set it up: left as it is"}
 	}
 	rec := u.InstalledHost
 	var lines []string
 	switch {
-	case rec.RegKey != "" && rec.RegPrev != nil:
-		lines = append(lines, fmt.Sprintf("%s: point HKEY_CURRENT_USER\\%s back at %s, and remove %s", label, rec.RegKey, *rec.RegPrev, rec.Manifest))
 	case rec.RegKey != "":
 		lines = append(lines, fmt.Sprintf("%s: remove HKEY_CURRENT_USER\\%s and %s", label, rec.RegKey, rec.Manifest))
-	case rec.Backup != nil && rec.Backup.Link != "":
-		lines = append(lines, fmt.Sprintf("%s: make %s a link to %s again", label, rec.Manifest, rec.Backup.Link))
-	case rec.Backup != nil:
-		lines = append(lines, fmt.Sprintf("%s: put back %s as it was, from %s", label, rec.Manifest, rec.Backup.Copy))
 	default:
 		lines = append(lines, fmt.Sprintf("%s: remove %s", label, rec.Manifest))
 	}
@@ -745,36 +666,10 @@ func doneLines(u svops.Uninstalled) []string {
 	switch {
 	case u.Changed:
 		return undoLines(u)
-	case u.RegKey != "" && u.RegPrev != nil:
-		return []string{fmt.Sprintf("%s: HKEY_CURRENT_USER\\%s names %s again", label, u.RegKey, *u.RegPrev)}
 	case u.RegKey != "":
 		return []string{fmt.Sprintf("%s: removed HKEY_CURRENT_USER\\%s", label, u.RegKey)}
-	case u.Backup != nil:
-		return []string{fmt.Sprintf("%s: put back the manifest naming %s, at %s", label, svops.DescribeHost(u.Backup.Host, u.Host), u.Manifest)}
 	}
 	return []string{fmt.Sprintf("%s: removed %s", label, u.Manifest)}
-}
-
-// disconnectBrowser disconnects the extension selected from the vault
-// (the CLI's browser rm).
-func (m *Manager) disconnectBrowser(p *desktopPage) {
-	i := selected(p.atable)
-	if i < 0 || i >= len(p.assoc) {
-		return
-	}
-	a := p.assoc[i]
-	m.confirm("Disconnect "+a.Name+"?", fmt.Sprintf("Disconnect %s (%s) from vault %s?\n\nIt has to be connected again, from its toolbar button, to fill logins.", a.Name, a.Program, a.Vault), "Disconnect", func() {
-		m.call(func(ctx context.Context, c *secretvault.Client) error {
-			return c.RemoveBrowserAssociation(ctx, a.Vault, a.Name)
-		}, func(err error) {
-			if err != nil {
-				m.fail(err)
-				return
-			}
-			m.say("Disconnected %s.", a.Name)
-			m.refreshDesktop(p, tabBrowsers)
-		})
-	})
 }
 
 // --- GnuPG ---

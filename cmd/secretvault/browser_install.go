@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -9,19 +8,16 @@ import (
 )
 
 // `secretvault browser install|uninstall|status`: making browsers start
-// secretvault's native-messaging hosts, and undoing it exactly. install
-// sets up secretvault's own extension's host; with --keepassxc, the
-// legacy link, where the browsers would start KeePassXC's keepassxc-proxy
-// for KeePassXC-Browser. What is written where, and how it is undone, is
-// svops' (browser.go); here are the flags, the dry runs and what is said.
+// secretvault's native-messaging host, for its own extension, and undoing
+// it exactly. What is written where, and how it is undone, is svops'
+// (browser.go); here are the flags, the dry runs and what is said.
 
 func (c *cli) browserInstall(args []string) error {
 	fs := c.flags("browser install")
 	var names multi
 	fs.Var(&names, "browser", "install for `NAME` (repeatable; default: every browser used here): "+strings.Join(svops.BrowserNames, ", "))
-	legacy := fs.Bool("keepassxc", false, "set up the legacy link for KeePassXC-Browser, not secretvault's own extension")
 	dryRun := fs.Bool("dry-run", false, "show what would change, and change nothing")
-	if _, err := parse(fs, args, 0, 0, "[--browser NAME]... [--keepassxc] [--dry-run]"); err != nil {
+	if _, err := parse(fs, args, 0, 0, "[--browser NAME]... [--dry-run]"); err != nil {
 		return err
 	}
 	exe, err := svops.Executable() // the browsers start this program
@@ -29,9 +25,6 @@ func (c *cli) browserInstall(args []string) error {
 		return err
 	}
 	native := svops.ExtensionHost
-	if *legacy {
-		native = svops.KeePassXCHost
-	}
 	plan, err := svops.PlanBrowserInstall(native, names, exe)
 	if err != nil {
 		return err
@@ -50,31 +43,17 @@ func (c *cli) browserInstall(args []string) error {
 			c.printHostPlan(p, host)
 			continue
 		}
-		rec, err := plan.Apply(p)
-		if err != nil {
+		if _, err := plan.Apply(p); err != nil {
 			return fmt.Errorf("%s: %w (undo what was done with 'secretvault browser uninstall')", label, err)
 		}
 		fmt.Fprintf(c.stdout, "%s: wrote %s\n", label, p.Spot.Manifest)
-		if rec.Backup != nil {
-			fmt.Fprintf(c.stdout, "  the manifest it replaced, %s, is kept to put back\n", svops.DescribeHost(rec.Backup.Host, host))
-		}
-	}
-	if plan.KeePassXC {
-		fmt.Fprintln(c.stdout, "\nKeePassXC writes its manifests back each time it starts with browser integration on.")
-		fmt.Fprintln(c.stdout, "Turn that off in KeePassXC (Settings > Browser Integration), or its advanced option to")
-		fmt.Fprintln(c.stdout, "update the manifest files at startup. 'secretvault browser status' shows which host each browser starts.")
 	}
 	if *dryRun {
 		fmt.Fprintln(c.stdout, "\nNothing was changed. Undo an install with 'secretvault browser uninstall'.")
 		return nil
 	}
-	if *legacy {
-		fmt.Fprintln(c.stdout, "\nRestart the browsers, then connect KeePassXC-Browser from its toolbar button.")
-		fmt.Fprintln(c.stdout, "Undo with 'secretvault browser uninstall --keepassxc'.")
-		return nil
-	}
 	fmt.Fprintln(c.stdout, "\nRestart the browsers, then load the extension: 'secretvault browser extension' writes it,")
-	fmt.Fprintln(c.stdout, "and says how. Undo with 'secretvault browser uninstall --extension'.")
+	fmt.Fprintln(c.stdout, "and says how. Undo with 'secretvault browser uninstall'.")
 	return nil
 }
 
@@ -86,22 +65,11 @@ func (c *cli) printHostPlan(p *svops.HostPlan, host string) {
 
 func (c *cli) browserUninstall(args []string) error {
 	fs := c.flags("browser uninstall")
-	legacy := fs.Bool("keepassxc", false, "undo only the legacy link for KeePassXC-Browser")
-	extension := fs.Bool("extension", false, "undo only secretvault's own extension's host")
 	dryRun := fs.Bool("dry-run", false, "show what would change, and change nothing")
-	if _, err := parse(fs, args, 0, 0, "[--keepassxc | --extension] [--dry-run]"); err != nil {
+	if _, err := parse(fs, args, 0, 0, "[--dry-run]"); err != nil {
 		return err
 	}
-	var only *svops.NativeHost
-	switch {
-	case *legacy && *extension:
-		return errors.New("--keepassxc and --extension: one, or neither for both")
-	case *legacy:
-		only = &svops.KeePassXCHost
-	case *extension:
-		only = &svops.ExtensionHost
-	}
-	done, err := svops.UninstallBrowsers(only, *dryRun)
+	done, err := svops.UninstallBrowsers(nil, *dryRun)
 	for _, u := range done {
 		lines := svops.UninstalledLines(u)
 		if *dryRun && !u.Changed {
@@ -112,9 +80,6 @@ func (c *cli) browserUninstall(args []string) error {
 		}
 	}
 	if err != nil {
-		if only != nil && errors.Is(err, svops.ErrNoBrowserInstall) {
-			return fmt.Errorf("%s is not installed in any browser", only.Title)
-		}
 		return err
 	}
 	if *dryRun {

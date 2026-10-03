@@ -1,4 +1,4 @@
-package svbrowser
+package svext
 
 import (
 	"encoding/binary"
@@ -13,12 +13,12 @@ import (
 // machine's own byte order, then that many bytes of UTF-8 JSON.
 
 // MaxFrame is the largest message either side accepts. Browsers refuse a
-// larger one from a host, and KeePassXC reads no more.
+// larger one from a host.
 const MaxFrame = 1 << 20
 
 // ErrFrameTooLarge is a message over MaxFrame. The stream cannot be read
-// past it, so the relay stops.
-var ErrFrameTooLarge = errors.New("svbrowser: a message larger than 1 MiB")
+// past it, so the host stops.
+var ErrFrameTooLarge = errors.New("svext: a message larger than 1 MiB")
 
 // ReadFrame reads one message. At a clean end between messages it returns
 // io.EOF; a message cut short is io.ErrUnexpectedEOF.
