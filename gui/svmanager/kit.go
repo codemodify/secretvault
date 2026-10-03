@@ -62,6 +62,7 @@ type formDialog struct {
 	running bool
 	failed  func()    // what the dialog does when what it asked for fails
 	adding  *formPart // what is being added goes in this part too (part)
+	back    func()    // a Back button closes the dialog and runs it (the step before)
 }
 
 // formPart is what one choice in a dialog adds to it: rows of the form,
@@ -118,6 +119,14 @@ func (m *Manager) newForm(title string) *formDialog {
 	f.problem.Wrap = true
 	f.body = widgets.NewColumn(f.form).WithGap(gap)
 	return f
+}
+
+// head puts c above the form: what to read before filling it in. It
+// goes in before any line under the form.
+func (f *formDialog) head(c widget.Component) {
+	f.body.ClearChildren()
+	f.body.Add(c)
+	f.body.Add(f.form)
 }
 
 // focusFirst remembers the first field, for the keyboard to start in.
@@ -261,6 +270,15 @@ func (f *formDialog) show(acceptLabel string, accept func()) *formDialog {
 	f.accept = widgets.NewButton(acceptLabel, run)
 	cancel := widgets.NewButton("Cancel", func() { f.close() })
 	buttons := widgets.NewButtonBox().AddButton(f.accept, widgets.RoleAccept).AddButton(cancel, widgets.RoleReject)
+	if f.back != nil {
+		// Back to the step before, at the far left in every look, where
+		// an assistant's Back goes; what was typed here is wiped.
+		back := f.back
+		buttons.AddButton(widgets.NewButton("Back", func() {
+			f.close()
+			back()
+		}), widgets.RoleHelp)
+	}
 	var foot widget.Component = buttons
 	if f.caps {
 		// A secret typed with Caps Lock on would be a different one.

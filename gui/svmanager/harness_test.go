@@ -39,7 +39,8 @@ import (
 // takes the copies), no tray (uitoolkit's fake), no system command (svops's
 // CommandRunner is a fake that refuses), a home of their own (so no
 // ~/.gnupg, no browser profile, no ~/.local/share/secretvault, no
-// ~/.docker: DOCKER_CONFIG is theirs too), and a daemon of their own on a
+// ~/.docker: DOCKER_CONFIG is theirs too; nor Windows' APPDATA and
+// LOCALAPPDATA), and a daemon of their own on a
 // temporary socket, with a temporary home.
 func TestMain(m *testing.M) {
 	if how := os.Getenv("SVMANAGER_FAKE_CLIP"); how != "" {
@@ -65,6 +66,10 @@ func TestMain(m *testing.M) {
 	os.Setenv("XDG_CACHE_HOME", filepath.Join(dir, "cache"))
 	os.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
 	os.Setenv("HOME", filepath.Join(dir, "home"))
+	// Windows' homes for programs' data: no browser profile there either.
+	os.Setenv("APPDATA", filepath.Join(dir, "appdata"))
+	os.Setenv("LOCALAPPDATA", filepath.Join(dir, "localappdata"))
+	os.Setenv("USERPROFILE", filepath.Join(dir, "home"))
 	os.Setenv("DOCKER_CONFIG", filepath.Join(dir, "docker"))
 	os.Setenv("SECRETVAULT_HOME", filepath.Join(dir, "secretvault"))
 	os.MkdirAll(filepath.Join(dir, "secretvault"), 0o700)

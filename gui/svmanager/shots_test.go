@@ -215,6 +215,25 @@ func TestScreenshots(t *testing.T) {
 		h.win().Press(platform.KeyEscape)
 		h.win().Press(platform.KeyEscape)
 
+		// The import, in steps: where the passwords are now, then how to
+		// export them from there and only what that export needs; then
+		// the offer to delete an export that held them in the clear.
+		h.m.importItems()
+		h.pump()
+		shoot(h.win(), "33-import-sources"+suffix)
+		h.press("Next")
+		shoot(h.win(), "34-import-firefox"+suffix)
+		h.expand("More options")
+		shoot(h.win(), "35-import-more-options"+suffix)
+		h.press("Back")
+		h.choose(importQuestion, sourceIndex(t, "keepass"))
+		h.press("Next")
+		shoot(h.win(), "36-import-keepass"+suffix)
+		h.escape()
+		h.m.offerDeleteExport(filepath.Join(h.dir, "logins.csv"), "personal")
+		shoot(h.win(), "37-import-delete"+suffix)
+		h.escape()
+
 		// An invite and its QR code in one dialog; in a window too short
 		// for both it scrolls, its button in view.
 		invite := []byte("svsync1:" + strings.Repeat("Qm9vdHN0cmFwIGludml0ZSBmb3IgYSBkZXZpY2U", 4))

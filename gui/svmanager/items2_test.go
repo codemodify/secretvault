@@ -127,12 +127,8 @@ func TestImportShowsWhatItWouldMakeAndExportWritesANewFile(t *testing.T) {
 	if err := os.WriteFile(in, []byte(chromeCSV), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h.m.importItems()
-	h.pump()
-	h.fill("Export", in)
-	h.fill("Folder", "imported/chrome")
-	h.press("Preview")
-	h.waitText("Read Chrome Passwords.csv as csv: 2 items to import into vault personal.")
+	h.importFrom("chrome", in, "imported/chrome")
+	h.waitText("Chrome Passwords.csv holds 2 items to import into vault personal.")
 	if !strings.Contains(h.text(), "imported/chrome/github.com") {
 		t.Fatalf("the preview:\n%s", h.text())
 	}
@@ -143,13 +139,16 @@ func TestImportShowsWhatItWouldMakeAndExportWritesANewFile(t *testing.T) {
 	h.waitText("Imported 2 items, skipped 0")
 	h.press("Close")
 	h.waitFor("the items", func() bool { return h.m.entry("imported/chrome/example.org") != nil })
+	// The file held them in the clear: deleting it is offered, and
+	// declined here.
+	h.waitText("Delete Chrome Passwords.csv?")
+	h.press("Keep it")
+	if _, err := os.Stat(in); err != nil {
+		t.Fatalf("kept, but: %v", err)
+	}
 
 	// Again: what exists is skipped, in this program's words.
-	h.m.importItems()
-	h.pump()
-	h.fill("Export", in)
-	h.fill("Folder", "imported/chrome")
-	h.press("Preview")
+	h.importFrom("chrome", in, "imported/chrome")
 	h.waitText("2 items to import")
 	h.press("Import")
 	h.waitText("Imported 0 items, skipped 2")
@@ -157,6 +156,11 @@ func TestImportShowsWhatItWouldMakeAndExportWritesANewFile(t *testing.T) {
 		t.Fatalf("the warnings:\n%s", h.text())
 	}
 	h.press("Close")
+	h.waitText("Delete Chrome Passwords.csv?")
+	h.escape()
+	if _, err := os.Stat(in); err != nil {
+		t.Fatalf("Escape deleted it: %v", err)
+	}
 
 	// Export, to KeePass: a new file, under a passphrase.
 	out := filepath.Join(h.dir, "out.kdbx")
