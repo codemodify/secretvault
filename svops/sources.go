@@ -3,6 +3,7 @@ package svops
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/codemodify/secretvault/svimport"
@@ -206,9 +207,9 @@ func (s ImportSource) UnencryptedNote() string {
 // not do.
 func DeleteExportNote(path, vault string) string {
 	return fmt.Sprintf("%s still holds the passwords you imported, unencrypted: anyone who can read the file can read them. "+
-		"They are in vault %s now, so you can delete it.\n\n"+
+		"They are in vault %s now, so you can delete it from %s.\n\n"+
 		"Deleting removes the file as deleting any file does: it is not overwritten first, "+
-		"and copies of it (backups, the trash, a download folder) are not touched.", path, vault)
+		"and copies of it (backups, the trash, a download folder) are not touched.", filepath.Base(path), vault, filepath.Dir(path))
 }
 
 // RemoveExport deletes an export once it is imported: a plain remove,
