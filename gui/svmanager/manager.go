@@ -421,7 +421,7 @@ func (m *Manager) reconnect() {
 	}
 	m.dialing = true
 	m.busy++
-	m.say("Connecting to secretvaultd…")
+	m.say("Connecting to secretvault's background service…")
 	go func() {
 		c, err := m.dial()
 		m.post(func() {
@@ -432,7 +432,7 @@ func (m *Manager) reconnect() {
 				m.say("%s", m.goneWhy)
 				return
 			}
-			m.say("Connected to secretvaultd.")
+			m.say("Connected to secretvault's background service.")
 			m.start()
 		})
 	}()
@@ -441,7 +441,7 @@ func (m *Manager) reconnect() {
 // daemonGone forgets everything the daemon told us: without it nothing
 // shown can be trusted to be current, and nothing can be done.
 func (m *Manager) daemonGone() {
-	m.gone, m.goneWhy = true, "secretvaultd went away."
+	m.gone, m.goneWhy = true, "secretvault's background service (secretvaultd) stopped."
 	if m.client != nil {
 		m.client.Close()
 		m.client = nil
@@ -504,7 +504,7 @@ func (m *Manager) describe(err error) string {
 	var e *svrpc.Error
 	switch {
 	case errors.Is(err, errGone), errors.Is(err, secretvault.ErrNoDaemon):
-		return "secretvaultd is not running, and could not be started."
+		return svops.DaemonNotRunning
 	case errors.Is(err, svrpc.ErrCanceled):
 		return "Canceled."
 	case errors.Is(err, svrpc.ErrWrongKey):
@@ -514,17 +514,17 @@ func (m *Manager) describe(err error) string {
 	case errors.Is(err, svrpc.ErrLocked):
 		return "The vault is locked; Ctrl+U unlocks it."
 	case errors.Is(err, svrpc.ErrNoPrompter):
-		return "Nobody could be asked for permission: " + err.Error()
+		return "Nobody could be asked for permission, so nothing was done: " + err.Error()
 	case errors.Is(err, context.DeadlineExceeded):
-		return "secretvaultd took too long to answer."
+		return svops.DaemonTooSlow
 	case errors.Is(err, context.Canceled):
 		return "Canceled."
 	// svops says these in the CLI's words, which name its commands and
 	// flags: here they are said in this program's.
 	case errors.Is(err, svops.ErrNoOwnKeys):
-		return "There is no key of yours to show: make an OpenPGP key in Keys › OpenPGP keys, or choose a recipient."
+		return "There is no key of yours to show: make an OpenPGP key in Keys › OpenPGP keys, or choose a person's public key."
 	case errors.Is(err, svops.ErrNoDefaultVault):
-		return "There is no default vault: File › New vault… makes one, and Vault › Make default chooses one."
+		return "There is no default vault: File › New vault… makes one, and Vault › Make it the default chooses one."
 	case errors.Is(err, svops.ErrNoAgeIdentity):
 		return "That item holds no age identity: Keys › age identities › New… makes one."
 	case errors.Is(err, svops.ErrNotOneSecretKey):

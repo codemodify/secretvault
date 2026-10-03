@@ -3,6 +3,7 @@ package svmanager
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/gui/secretui"
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -125,7 +127,7 @@ func syncLine(s svrpc.SyncStatus) string {
 	case s.Error != "":
 		return "; sync failing: " + s.Error
 	case s.LastOK.IsZero():
-		return "; syncs, not yet in step"
+		return "; not synced yet"
 	}
 	return "; synced " + s.LastOK.Local().Format("15:04")
 }
@@ -381,12 +383,12 @@ func (m *Manager) newVault() {
 	}
 	name := widgets.NewTextField("", "personal, work…", nil)
 	name.SetAccessibleName("Name")
-	suites := []string{"sv1-modern", "sv1-nist"}
-	suite := widgets.NewComboBox([]string{
-		"sv1-modern: XChaCha20-Poly1305, Argon2id",
-		"sv1-nist: AES-256-GCM, PBKDF2 (FIPS 140-3)",
-	}, 0, nil)
-	suite.SetAccessibleName("Cipher suite")
+	suites := make([]string, len(svops.VaultSuites))
+	for i, s := range svops.VaultSuites {
+		suites[i] = s.Text
+	}
+	suite := widgets.NewComboBox(suites, 0, nil)
+	suite.SetAccessibleName(svops.SuiteLabel)
 	pass := widgets.NewSecretField("At least 8 characters")
 	again := widgets.NewSecretField("The same again")
 	folder := newPathField(m, "Folder", PickFolder, "")
@@ -396,17 +398,17 @@ func (m *Manager) newVault() {
 
 	form := widgets.NewForm()
 	form.AddRow("Name", name)
-	form.AddRow("Cipher suite", suite)
+	form.AddRow(svops.SuiteLabel, suite)
 	form.AddRow("Passphrase", pass)
 	form.AddRow("Repeat", again)
 	form.AddRow("Folder", folder.row)
-	body := widgets.NewColumn(form,
+	body := widgets.NewColumn(m.paragraph(svops.NewVaultIntro), form,
 		m.paragraph("Folder: leave it empty to keep the vault in secretvault's data folder, or choose one of your own (a synced folder, say)."),
 		widgets.NewTip("A key to write down, which opens the vault if the passphrase is lost", recovery),
 		problem).WithGap(gap)
 
 	var d *dialog
-	create := widgets.NewButton("Create", nil)
+	create := widgets.NewButton(svops.CreateVaultAction, nil)
 	create.OnClick = func() {
 		n := strings.TrimSpace(name.Text)
 		switch {
@@ -437,7 +439,7 @@ func (m *Manager) newVault() {
 			problem.SetText(sentence(err.Error()))
 			return
 		}
-		params := svrpc.VaultCreateParams{Name: n, Path: dir, Suite: suites[max(0, suite.Selected)], Passphrase: p, Recovery: recovery.Checked}
+		params := svrpc.VaultCreateParams{Name: n, Path: dir, Suite: svops.VaultSuites[max(0, suite.Selected)].Name, Passphrase: p, Recovery: recovery.Checked}
 		d.Close()
 		var res svrpc.VaultCreateResult
 		m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
@@ -482,12 +484,11 @@ func (m *Manager) showRecoveryKey(vault string, key []byte) {
 	text := newSecretText(key)
 	text.SetReveal(true)
 	text.SetAccessibleName("Recovery key")
-	note := widgets.NewLabel("Write this recovery key down and keep it somewhere safe. It opens vault " + vault +
-		" if the passphrase is lost, and it is shown only now: it is stored nowhere.")
+	note := widgets.NewLabel(svops.RecoveryKeyNote(vault))
 	note.Wrap = true
 	body := widgets.NewColumn(note, text).WithGap(12)
 	var d *dialog
-	copyBtn := widgets.NewButton("Copy", func() { m.copyValue(key, "The recovery key", vault) })
+	copyBtn := widgets.NewButton("Copy the key", func() { m.copyValue(key, "The recovery key", vault) })
 	done := widgets.NewButton("I have written it down", func() { d.Close() })
 	buttons := widgets.NewButtonBox().
 		AddButton(done, widgets.RoleAccept).
@@ -501,12 +502,12 @@ func (m *Manager) showRecoveryKey(vault string, key []byte) {
 // showKeys lists the keyboard shortcuts.
 func (m *Manager) showKeys() {
 	rows := [][2]string{
-		{"Ctrl+F", "search the items (Down goes to the results)"},
-		{"Enter", "open the item, or unlock the vault, selected"},
+		{"Ctrl+F", "search the items; Down goes to them"},
+		{"Enter", "open the item, or unlock the vault"},
 		{"Ctrl+C", "copy the item's password"},
 		{"Ctrl+B, Ctrl+T", "copy its username, its one-time code"},
-		{"Ctrl+Shift+C", "copy the password and minimise the window"},
-		{"Ctrl+R", "show or hide the item's concealed values"},
+		{"Ctrl+Shift+C", "copy the password, then minimise"},
+		{"Ctrl+R", "show or hide concealed values"},
 		{"Ctrl+N, Ctrl+E", "a new item; edit the item"},
 		{"F2, Delete", "rename, delete the item (asks first)"},
 		{"Ctrl+H", "the item's history"},
@@ -515,8 +516,8 @@ func (m *Manager) showKeys() {
 		{"Ctrl+Shift+L", "lock every vault"},
 		{"Ctrl+Shift+G", "the vault's grants and audit log"},
 		{"Ctrl+Shift+K", "the contacts"},
-		{"Escape", "from a page (the vault's, the keys', the contacts', the desktop's) back to the items"},
-		{"Alt+V, K, C, T, D", "the Vault, Keys, Contacts, Tools and Desktop menus"},
+		{"Escape", "from a page back to the items"},
+		{"Alt+V, K, C, T, D", "the Vault … Desktop menus"},
 		{"Ctrl+W, Ctrl+Q", "close the window (to the tray), quit"},
 	}
 	g := widgets.NewGrid()
@@ -530,13 +531,13 @@ func (m *Manager) showKeys() {
 	note := m.muted(fmt.Sprintf("Copies clear themselves from the clipboard after %d seconds.", int(m.ttl/time.Second)))
 	var d *dialog
 	ok := widgets.NewButton("Close", func() { d.Close() })
-	d = m.showDialog("Keys", widgets.NewColumn(g, note).WithGap(12), widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept), ok, nil)
+	d = m.showDialog("Keyboard shortcuts", widgets.NewColumn(g, note).WithGap(12), widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept), ok, nil)
 }
 
 // checkName is svcore.CheckName, said as a person would.
 func checkName(name string) error {
 	if err := svcore.CheckName(name); err != nil {
-		return fmt.Errorf("%q is not a usable name: use path segments, like web/example.com", name)
+		return errors.New(svops.BadItemName(name))
 	}
 	return nil
 }

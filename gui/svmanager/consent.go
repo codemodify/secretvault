@@ -14,6 +14,7 @@ import (
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -116,7 +117,7 @@ func (m *Manager) fillGrants(p *vaultPage, pn *pane) {
 
 func (m *Manager) drawGrants(p *vaultPage, pn *pane) widget.Component {
 	p.gtable = widgets.NewTableView([]widgets.TableColumn{
-		{Title: "Decision", Width: 130},
+		{Title: "Decision", Width: 190},
 		{Title: "Program"},
 		{Title: "Item", Width: 130},
 		{Title: "May", Width: 90},
@@ -128,7 +129,7 @@ func (m *Manager) drawGrants(p *vaultPage, pn *pane) widget.Component {
 		g := p.grants[row]
 		switch col {
 		case 0:
-			return g.Decision
+			return svops.DecisionText(g.Decision)
 		case 1:
 			return g.Program
 		case 2:
@@ -158,13 +159,13 @@ func (m *Manager) drawGrants(p *vaultPage, pn *pane) widget.Component {
 	if len(p.grants) > 0 {
 		p.gtable.Selected = 0
 	}
-	revoke := tip(widgets.NewButton("Revoke…", m.revokeGrant), "Delete")
+	revoke := tip(widgets.NewButton("Forget the decision…", m.revokeGrant), "Delete")
 	revoke.SetEnabled(len(p.grants) > 0)
 	allow := widgets.NewButton("Allow a program…", func() { m.decideGrant(p, true) })
 	deny := widgets.NewButton("Deny a program…", func() { m.decideGrant(p, false) })
-	gnote := "What has been decided about programs using this vault. Revoking a decision means the program is asked again."
+	gnote := "What has been decided about programs using this vault. Once a decision is forgotten, you are asked again."
 	if len(p.grants) == 0 {
-		gnote = "No program has a remembered decision about this vault."
+		gnote = svops.GrantsEmpty
 	}
 	pn.focus = p.gtable
 	return m.paneColumn(gnote, p.gtable, allow, deny, revoke)
@@ -252,7 +253,7 @@ func (m *Manager) revokeGrant() {
 	}
 	g := p.grants[i]
 	vault := p.vault
-	m.confirm("Revoke?", fmt.Sprintf("Forget that %s is %s?\n\nIt will be asked about again.", g.Program, g.Decision), "Revoke", func() {
+	m.confirm(svops.RevokeGrantTitle, svops.RevokeGrantText(g), svops.RevokeGrantAction, func() {
 		m.call(func(ctx context.Context, c *secretvault.Client) error {
 			return c.Revoke(ctx, vault, g.ID)
 		}, func(err error) {
@@ -260,7 +261,7 @@ func (m *Manager) revokeGrant() {
 				m.fail(err)
 				return
 			}
-			m.say("Revoked the decision about %s.", g.Program)
+			m.say("Forgot the decision about %s.", g.Program)
 			m.refreshTab(p, tabGrants)
 		})
 	})
@@ -279,9 +280,14 @@ func (m *Manager) decideGrant(p *vaultPage, allow bool) {
 		title = "Allow a program"
 	}
 	f := m.newForm(title)
+	if allow {
+		f.intro("The program may then use the vault as you choose here, without asking you each time.")
+	} else {
+		f.intro("The program is then refused, without asking you, whenever it wants what you choose here.")
+	}
 	prog := f.path("Program", PickOpen, "")
 	f.note("The program's path; a Flatpak app as flatpak:APP, a Snap as snap:NAME.")
-	scope := f.choice("About", []string{"the whole vault", "one item", "the vault's contacts"}, 0)
+	scope := f.choice("Applies to", []string{"the whole vault", "one item", "the vault's contacts"}, 0)
 	item := f.text("Item", m.targetName(), "web/example.com")
 	opsRow := widgets.NewWrap()
 	boxes := make([]*widgets.Checkbox, len(grantOps))
@@ -289,12 +295,16 @@ func (m *Manager) decideGrant(p *vaultPage, allow bool) {
 		boxes[i] = widgets.NewCheckbox(op, op == "read", nil)
 		opsRow.Add(boxes[i])
 	}
-	f.row("Operations", opsRow)
+	f.row("What it may do", opsRow)
 	var untilLock *widgets.Checkbox
 	if allow {
 		untilLock = f.check("Only until the vault next locks", false)
 	}
-	f.show(strings.SplitN(title, " ", 2)[0], func() {
+	action := "Deny the program"
+	if allow {
+		action = "Allow the program"
+	}
+	f.show(action, func() {
 		program := prog.Path()
 		if program == "" {
 			f.fail("Choose the program.")
@@ -317,7 +327,7 @@ func (m *Manager) decideGrant(p *vaultPage, allow bool) {
 			}
 		}
 		if len(params.Ops) == 0 {
-			f.fail("Choose at least one operation.")
+			f.fail("Choose at least one thing it may do.")
 			return
 		}
 		if allow {
@@ -331,11 +341,7 @@ func (m *Manager) decideGrant(p *vaultPage, allow bool) {
 			g, err = c.Grant(ctx, params)
 			return err
 		}, func() {
-			what := "the whole vault"
-			if g.Item != "" {
-				what = g.Item
-			}
-			m.say("%s: %s may %s %s.", g.Decision, g.Program, strings.Join(g.Ops, ", "), what)
+			m.say("%s", svops.GrantDecided(g))
 			m.refreshTab(p, tabGrants)
 		})
 	})

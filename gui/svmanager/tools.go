@@ -37,14 +37,15 @@ func (m *Manager) signFile() {
 	vault := m.vault
 	m.withPGPKeys(vault, func(keys []string) {
 		f := m.newForm("Sign a file")
-		in := f.path("File", PickOpen, "")
-		key := f.choice("Key", append([]string{"your only key"}, keys...), 0)
-		mode := f.choice("Write", []string{"the signature alone (detached)", "the file with its signature (inline)", "readable text with its signature (cleartext)"}, 0)
-		armor := f.check("Armored (text) rather than binary", true)
+		f.intro(svops.SignFileAbout)
+		in := f.path("File to sign", PickOpen, "")
+		key := f.choice("Sign with", append([]string{"your only key"}, keys...), 0)
+		mode := f.choice("Make", []string{"a signature file (detached)", "the file, signed (inline)", "readable text, signed (cleartext)"}, 0)
+		armor := f.check("As text (armored), not binary", true)
 		text := f.check("A text signature, which ignores line endings", false)
-		out := f.path("Write to", PickSave, "")
-		f.note("Write to: default the file's name with .sig, or .asc when armored.")
-		f.show("Sign", func() {
+		out := f.path("Save the signature to", PickSave, "")
+		out.field.Placeholder = "Default: beside the file"
+		f.show("Sign the file", func() {
 			path := in.Path()
 			if path == "" {
 				f.fail("Choose the file.")
@@ -73,7 +74,7 @@ func (m *Manager) signFile() {
 					}
 					return writeAtomic(dst, 0o644, res.Signature)
 				}, func() {
-					m.say("Signed with %s; wrote %s.", res.Item, dst)
+					m.say("Signed %s with %s: the signature is in %s.", filepath.Base(path), res.Item, dst)
 				})
 			})
 		})
@@ -132,13 +133,14 @@ func (m *Manager) verifyFile() {
 		return
 	}
 	f := m.newForm("Check a signature")
-	in := f.path("File", PickOpen, "")
-	sig := f.path("Signature", PickOpen, "")
-	f.note("Signature: its own file, for a detached one; leave it empty when the file is a signed message.")
-	from := f.text("From", "", "the address the file claims to be from")
-	out := f.path("Its text to", PickSave, "")
-	f.note("Its text to: optional, for a signed message: where to write what it says.")
-	f.show("Check", func() {
+	f.intro(svops.CheckSignatureAbout)
+	in := f.path("Signed file", PickOpen, "")
+	sig := f.path("Signature file", PickOpen, "")
+	sig.field.Placeholder = "Empty if it is inside the file"
+	from := f.text("Sent from", "", "optional: the address it claims to come from")
+	out := f.path("Save its text to", PickSave, "")
+	out.field.Placeholder = "Optional: where its text goes"
+	f.show("Check the signature", func() {
 		path := in.Path()
 		if path == "" {
 			f.fail("Choose the file.")
@@ -177,7 +179,7 @@ func (m *Manager) verifyFile() {
 				if verdict == "No valid signature." && valid {
 					verdict = "A valid signature, but by a signer your contacts do not verify."
 				}
-				m.showText("The signature", verdict, signaturesText(res.Signatures))
+				m.showText("Signature checked", verdict, signaturesText(res.Signatures))
 			})
 		})
 	})
@@ -194,15 +196,16 @@ func (m *Manager) decryptPGPFile() {
 	vault := m.vault
 	m.withPGPKeys(vault, func(keys []string) {
 		f := m.newForm("Decrypt a file (OpenPGP)")
-		in := f.path("File", PickOpen, "")
-		out := f.path("Write to", PickSave, "")
-		key := f.choice("Key", append([]string{"the key it is encrypted to"}, keys...), 0)
+		f.intro(svops.DecryptPGPAbout)
+		in := f.path("Encrypted file", PickOpen, "")
+		out := f.path("Save it decrypted to", PickSave, "")
+		key := f.choice("Decrypt with", append([]string{"the key it is encrypted to"}, keys...), 0)
 		verify := f.check("Check the signatures inside against your contacts", false)
-		from := f.text("From", "", "with the check: the address it claims to be from")
-		f.show("Decrypt", func() {
+		from := f.text("Sent from", "", "with the check, optional: the address it claims to come from")
+		f.show("Decrypt the file", func() {
 			path, dst := in.Path(), out.Path()
 			if path == "" || dst == "" {
-				f.fail("Choose the file, and where its plaintext goes.")
+				f.fail("Choose the file, and where it goes decrypted.")
 				return
 			}
 			params := svrpc.PGPDecryptParams{Vault: vault, From: strings.TrimSpace(from.Text)}
@@ -226,9 +229,9 @@ func (m *Manager) decryptPGPFile() {
 					for _, w := range res.Warnings {
 						text += "\nwarning: " + w
 					}
-					m.say("Decrypted with %s; wrote %s.", res.Item, dst)
+					m.say("Decrypted %s with %s into %s, which only you can read.", filepath.Base(path), res.Item, dst)
 					if strings.TrimSpace(text) != "" {
-						m.showText("Decrypted", "Decrypted with "+res.Item+" into "+dst+", which only you can read.", strings.TrimSpace(text))
+						m.showText("Decrypted", "Decrypted "+filepath.Base(path)+" with "+res.Item+" into "+dst+", which only you can read. What its signatures say:", strings.TrimSpace(text))
 					}
 				})
 			})
@@ -280,14 +283,15 @@ func (m *Manager) encryptAgeFile() {
 			return
 		}
 		f := m.newForm("Encrypt a file (age)")
-		in := f.path("File", PickOpen, "")
-		out := f.path("Write to", PickSave, "")
+		f.intro(svops.EncryptAgeAbout)
+		in := f.path("File to encrypt", PickOpen, "")
+		out := f.path("Save it encrypted to", PickSave, "")
 		// The recipients, one a line: offered from the vault and the
 		// contacts, and typed.
 		var offers []string
 		var lines []string
 		for _, e := range ids {
-			offers = append(offers, "my identity "+e.Item.Name)
+			offers = append(offers, "my age key "+e.Item.Name)
 			lines = append(lines, svrpc.Ref{Vault: vault, Item: e.Item.Name}.String())
 		}
 		for _, c := range contacts {
@@ -298,12 +302,12 @@ func (m *Manager) encryptAgeFile() {
 				}
 			}
 		}
-		rcpts := widgets.NewMonoTextArea("", "age1…, ssh-ed25519 …, sv://VAULT/ITEM: one a line", nil)
-		rcpts.SetAccessibleName("Recipients")
+		rcpts := widgets.NewMonoTextArea("", "Public keys, one a line: age1…, ssh-ed25519 …", nil)
+		rcpts.SetAccessibleName("Who can open it")
 		rcpts.MinRows = 3
-		f.row("Recipients", rcpts)
+		f.row("Who can open it", rcpts)
 		if len(offers) > 0 {
-			add := f.choice("Add", append([]string{"one of yours or a contact's…"}, offers...), 0)
+			add := f.choice("Add a key", append([]string{"one of yours or a contact's…"}, offers...), 0)
 			add.OnChange = func(i int) {
 				if i > 0 && i-1 < len(lines) {
 					t := strings.TrimRight(rcpts.Text, "\n")
@@ -315,11 +319,12 @@ func (m *Manager) encryptAgeFile() {
 				}
 			}
 		}
-		rfile := f.path("Recipients file", PickOpen, "")
-		pass := f.check("To a passphrase instead (asked for twice)", false)
-		armor := f.check("Armored (text) rather than binary", false)
-		mixed := f.check("Let post-quantum and classical recipients share it (it is then only as safe as X25519)", false)
-		f.show("Encrypt", func() {
+		rfile := f.path("Or keys from a file", PickOpen, "")
+		rfile.field.Placeholder = "Optional: a file of public keys, one a line"
+		pass := f.check("Use a passphrase instead (asked for twice)", false)
+		armor := f.check("As text (armored), not binary", false)
+		mixed := f.check("Mix post-quantum and classical keys (less safe)", false)
+		f.show("Encrypt the file", func() {
 			path, dst := in.Path(), out.Path()
 			if path == "" || dst == "" {
 				f.fail("Choose the file, and where it goes encrypted.")
@@ -334,10 +339,10 @@ func (m *Manager) encryptAgeFile() {
 			rf, usePass := rfile.Path(), pass.Checked
 			switch {
 			case usePass && (len(args) > 0 || rf != ""):
-				f.fail("A passphrase must be a file's only recipient: clear the recipients, or untick the passphrase.")
+				f.fail("A file encrypted to a passphrase can have no keys besides: clear the keys, or untick the passphrase.")
 				return
 			case !usePass && len(args) == 0 && rf == "":
-				f.fail("Give a recipient, or tick the passphrase.")
+				f.fail("Add the key of whoever is to open it, or tick the passphrase.")
 				return
 			}
 			armored, mix := armor.Checked, mixed.Checked
@@ -429,8 +434,9 @@ func (m *Manager) decryptAgeFile() {
 			return
 		}
 		f := m.newForm("Decrypt a file (age)")
-		in := f.path("File", PickOpen, "")
-		out := f.path("Write to", PickSave, "")
+		f.intro(svops.DecryptAgeAbout)
+		in := f.path("Encrypted file", PickOpen, "")
+		out := f.path("Save it decrypted to", PickSave, "")
 		// Any number of the vault's identities, and of identity files, as
 		// the CLI's -i takes them, each tried in turn.
 		boxes := make([]*widgets.Checkbox, len(ids))
@@ -440,14 +446,14 @@ func (m *Manager) decryptAgeFile() {
 				boxes[i] = widgets.NewCheckbox(e.Item.Name, i == 0, nil)
 				list.Add(boxes[i])
 			}
-			f.row("Identities", list)
+			f.row("Your age keys", list)
 		}
-		idFile := f.path("Identity files", PickOpen, "")
-		f.note("Identity files: optional, several separated by commas: age's, a plugin's, or an SSH private key. With no identity, the file's passphrase is asked for.")
-		f.show("Decrypt", func() {
+		idFile := f.path("Or key files", PickOpen, "")
+		idFile.field.Placeholder = "Optional: age or SSH private key files, separated by commas"
+		f.show("Decrypt the file", func() {
 			path, dst := in.Path(), out.Path()
 			if path == "" || dst == "" {
-				f.fail("Choose the file, and where its plaintext goes.")
+				f.fail("Choose the file, and where it goes decrypted.")
 				return
 			}
 			var args []string
@@ -492,7 +498,7 @@ func (m *Manager) decryptAgeFile() {
 					r, err := svops.AgeDecrypt(src, list)
 					if err != nil {
 						if byPassphrase && errors.Is(err, svage.ErrIncorrectIdentity) {
-							return errors.New("the file is not encrypted to a passphrase: choose an identity of the vault, or an identity file")
+							return errors.New("the file is not encrypted to a passphrase: choose one of your age keys, or a key file")
 						}
 						return err
 					}
@@ -523,20 +529,20 @@ func (m *Manager) inspectMessage() {
 	}
 	vault := m.vault
 	f := m.newForm("Inspect a message")
+	f.intro(svops.InspectMessageAbout)
 	in := f.path("Message", PickOpen, "")
-	f.note("A message as it was received (.eml).")
 	decrypt := f.check("Decrypt what is encrypted to your keys", false)
 	levels := make([]string, len(minLevels))
 	for i, l := range minLevels {
 		levels[i] = l.text
 	}
-	least := f.choice("Signers count from", levels, 0)
+	least := f.choice("Counts as verified", levels, 0)
 	contactVaults := []string{"the vault contacts are kept in"}
 	for _, v := range m.vaults {
 		contactVaults = append(contactVaults, v.Name)
 	}
-	contacts := f.choice("Contacts from", contactVaults, 0)
-	f.show("Inspect", func() {
+	contacts := f.choice("Contacts", contactVaults, 0)
+	f.show("Inspect the message", func() {
 		path := in.Path()
 		if path == "" {
 			f.fail("Choose the message.")
@@ -645,9 +651,9 @@ func (m *Manager) showMailReport(rep *svmail.Report, verdicts []svrpc.MailVerdic
 	} else {
 		col.Add(m.facts([][2]string{{"From", h.From}, {"Subject", h.Subject}}))
 	}
-	view := widgets.NewMonoTextView(strings.TrimRight(b.String(), "\n"), "")
-	view.SetAccessibleName("The message's layers")
-	view.MinRows = 8
+	// The layers, as tall as they are: no small box to scroll inside.
+	view := newDetailText(strings.Split(strings.TrimRight(b.String(), "\n"), "\n"))
+	view.name = "The message's layers"
 	col.Add(view)
 	for _, p := range rep.Parts {
 		if p.Text == "" || p.LegacyDisplay {
@@ -677,14 +683,14 @@ func (m *Manager) composeMessage() {
 	}
 	vault := m.vault
 	f := m.newForm("Sign and encrypt a message")
+	f.intro(svops.ComposeMessageAbout)
 	in := f.path("Message", PickOpen, "")
-	f.note("A plain message as written (.eml), with its From and To.")
 	sign := f.check("Sign it with your key for its From address", true)
-	encrypt := f.check("Encrypt it to every recipient's key, and yours", true)
-	format := f.choice("As", []string{"OpenPGP where everyone has a key for it, else S/MIME", "OpenPGP", "S/MIME"}, 0)
-	key := f.text("Your key", "", "optional: the item, fingerprint or address to sign with")
-	out := f.path("Write to", PickSave, "message.eml")
-	f.show("Write", func() {
+	encrypt := f.check("Encrypt it to the key of everyone it is to, and yours", true)
+	format := f.choice("Format", []string{"OpenPGP if all have a key, else S/MIME", "OpenPGP", "S/MIME"}, 0)
+	key := f.text("Your key", "", "optional: its item, fingerprint or address")
+	out := f.path("Save the result to", PickSave, "message.eml")
+	f.show("Sign and encrypt", func() {
 		path, dst := in.Path(), out.Path()
 		if path == "" || dst == "" {
 			f.fail("Choose the message, and where it goes.")
@@ -728,9 +734,9 @@ func (m *Manager) resolveReference() {
 		return
 	}
 	f := m.newForm("Resolve a reference")
-	ref := f.text("Reference", "", "sv://VAULT/ITEM#FIELD, - for the default vault")
-	f.note("What a program given this reference reads: the field it names, or the item's secret.")
-	f.show("Resolve", func() {
+	f.intro(svops.ResolveReferenceAbout)
+	ref := f.text("Reference", "", "sv://vault/item or sv://vault/item#field; sv://-/… for the default vault")
+	f.show("Show what it names", func() {
 		r, err := svrpc.ParseRef(ref.Text)
 		if err != nil {
 			f.fail(sentence(err.Error()))
@@ -772,9 +778,10 @@ func (m *Manager) resolveReference() {
 	})
 }
 
-// refCheck is one reference, and whether it resolves.
+// refCheck is one reference, and whether it resolves: err is why not.
 type refCheck struct {
-	name, ref, result string
+	name, ref string
+	err       error
 }
 
 // checkRefs resolves each reference, as the program given them would,
@@ -782,7 +789,7 @@ type refCheck struct {
 func checkRefs(ctx context.Context, c *secretvault.Client, names, refs []string) []refCheck {
 	var out []refCheck
 	for i, s := range refs {
-		rc := refCheck{name: names[i], ref: s, result: "resolves"}
+		rc := refCheck{name: names[i], ref: s}
 		r, err := svrpc.ParseRef(s)
 		if err == nil {
 			var v []byte
@@ -790,29 +797,32 @@ func checkRefs(ctx context.Context, c *secretvault.Client, names, refs []string)
 				clear(v)
 			}
 		}
-		if err != nil {
-			rc.result = err.Error()
-		}
+		rc.err = err
 		out = append(out, rc)
 	}
 	return out
 }
 
-// showRefChecks shows what checkRefs found.
+// showRefChecks shows what checkRefs found: how many can be read, then
+// each, and why one cannot.
 func (m *Manager) showRefChecks(title, intro string, checks []refCheck) {
 	var b strings.Builder
 	ok := 0
 	for _, c := range checks {
-		if c.name != "" {
-			fmt.Fprintf(&b, "%s = %s: %s\n", c.name, c.ref, c.result)
+		result := "can be read"
+		if c.err != nil {
+			result = "cannot be read: " + m.describe(c.err)
 		} else {
-			fmt.Fprintf(&b, "%s: %s\n", c.ref, c.result)
-		}
-		if c.result == "resolves" {
 			ok++
 		}
+		if c.name != "" {
+			fmt.Fprintf(&b, "%s = %s: %s\n", c.name, c.ref, result)
+		} else {
+			fmt.Fprintf(&b, "%s: %s\n", c.ref, result)
+		}
 	}
-	m.showText(title, fmt.Sprintf("%s %d of %s resolve.", intro, ok, plural(len(checks), "reference")), strings.TrimRight(b.String(), "\n"))
+	summary := strings.TrimSpace(intro + " " + svops.ReferencesChecked(ok, len(checks)))
+	m.showText(title, summary, strings.TrimRight(b.String(), "\n"))
 }
 
 // checkEnvFile reads env files as the CLI's run loads them
@@ -845,7 +855,7 @@ func (m *Manager) checkEnvFile() {
 				m.fail(err)
 				return
 			}
-			m.showRefChecks("References in "+filepath.Base(path), "secretvault run --env-file "+filepath.Base(path)+" resolves them as it starts a command:", checks)
+			m.showRefChecks("References in "+filepath.Base(path), "", checks)
 		})
 	})
 }
@@ -859,10 +869,11 @@ func (m *Manager) checkTemplate() {
 		return
 	}
 	f := m.newForm("Check a template")
+	f.intro(svops.CheckTemplateAbout)
 	in := f.path("Template", PickOpen, "")
 	out := f.path("Fill it into", PickSave, "")
-	f.note("Fill it into: optional: a new file, only yours to read, with each reference replaced by what it names, as secretvault inject writes it.")
-	f.show("Check", func() {
+	out.field.Placeholder = "Optional: a new file, with the secrets filled in"
+	f.show("Check the template", func() {
 		path, dst := in.Path(), out.Path()
 		if path == "" {
 			f.fail("Choose the template.")
@@ -888,7 +899,7 @@ func (m *Manager) checkTemplate() {
 		}, func() {
 			intro := ""
 			if dst != "" {
-				intro = "Filled into " + dst + "."
+				intro = "Filled into " + dst + ", which only you can read."
 			}
 			m.showRefChecks("References in "+filepath.Base(path), intro, checks)
 		})

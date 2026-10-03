@@ -29,13 +29,14 @@ func (h *harness) openKeysPage(tab int) *keysPage {
 	return h.m.kpage
 }
 
-// answer types into the question a worker asked (askSecret), and says OK.
+// answer types into the question a worker asked (askSecret), and goes
+// on.
 func (h *harness) answer(fields map[string]string) {
 	h.t.Helper()
 	for name, v := range fields {
 		h.fill(name, v)
 	}
-	h.press("OK")
+	h.press("Continue")
 }
 
 func TestOpenPGPKeysAreMadeExportedAndImported(t *testing.T) {
@@ -50,8 +51,8 @@ func TestOpenPGPKeysAreMadeExportedAndImported(t *testing.T) {
 	h.fill("Your name", "Ada Lovelace")
 	h.fill("Addresses", "ada@example.org")
 	h.tick("Version 4", true)
-	h.press("Make")
-	h.waitText("Made a version 4 OpenPGP key, stored as pgp/ada@example.org")
+	h.press("Make the key")
+	h.waitText("Made a version 4 OpenPGP key, kept as pgp/ada@example.org")
 	h.press("Close")
 	h.idle()
 	if len(p.pgp) != 1 {
@@ -69,7 +70,7 @@ func TestOpenPGPKeysAreMadeExportedAndImported(t *testing.T) {
 	h.pressOn("Export…")
 	h.choose("Export", 1)
 	h.fill("File", out)
-	h.press("Export")
+	h.press("Export the key")
 	h.waitText("The exported key's passphrase")
 	h.answer(map[string]string{"Passphrase": "exported key pass", "Repeat": "exported key pass"})
 	h.said("Wrote it to " + out)
@@ -88,8 +89,8 @@ func TestOpenPGPKeysAreMadeExportedAndImported(t *testing.T) {
 	// And in again, as another item: its passphrase is asked for.
 	h.pressOn("Import…")
 	h.fill("Key file", out)
-	h.fill("Item", "pgp/ada-again")
-	h.press("Import")
+	h.fill("Item name", "pgp/ada-again")
+	h.press("Import the key")
 	h.waitText("The key's passphrase")
 	h.answer(map[string]string{"Passphrase": "exported key pass"})
 	h.said("as pgp/ada-again")
@@ -100,8 +101,8 @@ func TestOpenPGPKeysAreMadeExportedAndImported(t *testing.T) {
 	// A name taken is said in this program's words.
 	h.pressOn("Import…")
 	h.fill("Key file", out)
-	h.fill("Item", "pgp/ada-again")
-	h.press("Import")
+	h.fill("Item name", "pgp/ada-again")
+	h.press("Import the key")
 	h.waitText("The key's passphrase")
 	h.answer(map[string]string{"Passphrase": "exported key pass"})
 	if got := h.failed(); !strings.Contains(got, "give the key another name") || strings.Contains(got, "--item") {
@@ -132,13 +133,13 @@ func TestSMIMEKeysAreImported(t *testing.T) {
 	p := h.openKeysPage(tabSMIME)
 	h.pressOn("Import…")
 	h.fill("File", file)
-	h.fill("Its password", "wrong")
-	h.press("Import")
+	h.fill("The file's password", "wrong")
+	h.press("Import the key")
 	if got := h.failed(); got == "" {
 		t.Fatal("a wrong password was taken")
 	}
-	h.fill("Its password", "p12 password")
-	h.press("Import")
+	h.fill("The file's password", "p12 password")
+	h.press("Import the key")
 	h.waitText("S/MIME key imported")
 	h.press("Close")
 	h.idle()
@@ -154,10 +155,10 @@ func TestAgeIdentitiesAndIdentityFiles(t *testing.T) {
 	p := h.openKeysPage(tabAge)
 	idLine := filepath.Join(h.dir, "backups.txt")
 	h.pressOn("New…")
-	h.fill("Item", "age/backups")
-	h.fill("Identity file", idLine)
-	h.press("Make")
-	h.waitText("Stored a new X25519 age identity as age/backups")
+	h.fill("Item name", "age/backups")
+	h.fill("Identity line file", idLine)
+	h.press("Make the identity")
+	h.waitText("Made a new X25519 age identity, kept as age/backups")
 	h.press("Close")
 	h.idle()
 	if len(p.age) != 1 {
@@ -166,7 +167,7 @@ func TestAgeIdentitiesAndIdentityFiles(t *testing.T) {
 	if b, err := os.ReadFile(idLine); err != nil || !strings.Contains(string(b), "AGE-PLUGIN-SECRETVAULT-1") {
 		t.Fatalf("the identity file: %q %v", b, err)
 	}
-	h.pressOn("Copy the recipient")
+	h.pressOn("Copy the public key")
 	h.waitFor("the recipient", func() bool { c := h.clip.last(); return c != nil && strings.HasPrefix(c.text, "age1") })
 	h.pressOn("Copy the identity line")
 	h.waitFor("the identity line", func() bool { c := h.clip.last(); return strings.HasPrefix(c.text, "AGE-PLUGIN-SECRETVAULT-1") })
@@ -174,9 +175,9 @@ func TestAgeIdentitiesAndIdentityFiles(t *testing.T) {
 	h.m.selectTab(p.tabbedPage, tabIdentities)
 	h.idle()
 	file := filepath.Join(h.dir, "me.id")
-	h.pressOn("New…")
+	h.pressOn("New identity file…")
 	h.fill("File", file)
-	h.press("Make")
+	h.press("Make the file")
 	h.waitText("Identity file made")
 	want, err := svops.IdentityRecipient(file)
 	if err != nil || !strings.Contains(h.text(), want) {
@@ -184,8 +185,8 @@ func TestAgeIdentitiesAndIdentityFiles(t *testing.T) {
 	}
 	h.press("Close")
 	h.picks = []string{file}
-	h.pressOn("Show the recipient of a file…")
-	h.waitText("The recipient of the identity in " + file)
+	h.pressOn("Show a file's public key…")
+	h.waitText("The public key (recipient) of the identity in " + filepath.Base(file))
 }
 
 func TestSecurityKeysPluggedIn(t *testing.T) {
@@ -197,7 +198,7 @@ func TestSecurityKeysPluggedIn(t *testing.T) {
 	h.plug(fidotest.Options{Name: "YubiKey 5", PIN: "1234"})
 	h.pressOn("Refresh")
 	h.waitText("set, 8 tries left")
-	if !strings.Contains(h.text(), "yes: it can hold a keyslot") {
+	if !strings.Contains(h.text(), "can open a vault") || strings.Contains(h.text(), "cannot open a vault") {
 		t.Fatalf("the key:\n%s", h.text())
 	}
 	_ = svrpc.FIDO2Device{}

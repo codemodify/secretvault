@@ -3,6 +3,7 @@ package svmanager
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -535,7 +537,7 @@ func (ed *editor) item() (svrpc.Item, error) {
 	it.Kind = ed.kinds[max(0, ed.kind.Selected)]
 	it.Name = strings.TrimSpace(ed.name.Text)
 	if err := svcore.CheckName(it.Name); err != nil {
-		return it, fmt.Errorf("give the item a name made of path segments, like web/example.com")
+		return it, errors.New(svops.ItemNameNeeded)
 	}
 	it.Label = strings.TrimSpace(ed.label.Text)
 	for _, t := range strings.Split(ed.tags.Text, ",") {

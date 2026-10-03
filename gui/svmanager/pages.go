@@ -9,6 +9,8 @@ import (
 	"github.com/codemodify/uitoolkit/layout"
 	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
+
+	"github.com/codemodify/secretvault/svops"
 )
 
 // The right-hand pane: what is selected, the open item, and the states in
@@ -46,7 +48,8 @@ func (m *Manager) showLocked() {
 		return
 	}
 	if v.ID == "" {
-		m.ui.pane.Set(m.message("Vault "+v.Name+" is missing", "Its folder, "+v.Path+", is not there. Is a drive missing?"))
+		m.ui.pane.Set(m.message("Vault "+v.Name+" cannot be found", "Its folder is not where it was: is a drive or a synced folder missing? "+
+			"Once the folder is back, the vault is too. The folder: "+v.Path))
 		return
 	}
 	if m.listing {
@@ -64,7 +67,7 @@ func (m *Manager) showLocked() {
 		show := widgets.NewButton("Show its items", func() { m.showVault(v.Name, true) })
 		show.Primary = true
 		m.ui.pane.Set(m.message("Vault "+v.Name+" is unlocked",
-			"It was unlocked elsewhere. Its items show here once this program has shown it knows the passphrase too.", show))
+			"Another program unlocked it. This window shows its items once you have typed its passphrase here too.", show))
 		return
 	}
 	unlock := widgets.NewButton("Unlock…", func() { m.unlockVault(v.Name) })
@@ -78,10 +81,10 @@ func (m *Manager) showGone() {
 	again.Primary = true
 	why := m.goneWhy
 	if why == "" {
-		why = "secretvaultd is not running."
+		why = svops.DaemonNotRunning
 	}
-	m.ui.pane.Set(m.message("No connection to secretvaultd",
-		why+" Nothing can be shown or changed until it is back. Reconnecting starts it if it is not running.", again))
+	m.ui.pane.Set(m.message("Not connected",
+		why+" Nothing can be shown or changed until it is back: Reconnect starts it again.", again))
 	m.drawItems()
 	m.drawStatus()
 }

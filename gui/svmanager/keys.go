@@ -113,8 +113,8 @@ func (m *Manager) fillPGP(p *keysPage, pn *pane) {
 			return e.Item.Attrs[svrpc.PGPUserID]
 		})
 		pn.focus = p.ptable
-		note := "Your OpenPGP keys. The daemon signs and decrypts with them, asking as for any other use of the vault; " +
-			"Desktop › GnuPG lets gpg itself use them."
+		note := "Your OpenPGP keys, for signing and decrypting mail and files. " + svops.KeysInVaultNote +
+			" Desktop › GnuPG lets gpg use them too."
 		if len(keys) == 0 {
 			note = "No OpenPGP keys yet: New… makes one, Import… takes one in."
 		}
@@ -138,12 +138,13 @@ func (p *keysPage) pgpKey() string {
 // newPGPKey makes an OpenPGP key in the daemon (the CLI's pgp new).
 func (m *Manager) newPGPKey(p *keysPage) {
 	f := m.newForm("New OpenPGP key")
-	name := f.text("Your name", "", "for the user ID")
+	f.note(svops.PGPVersionNote)
+	name := f.text("Your name", "", "as people will see it")
 	emails := f.text("Addresses", "", "your address; several separated by commas")
-	item := f.text("Item", "", "default: pgp/ADDRESS")
+	item := f.text("Item name", "", "Leave empty for pgp/ADDRESS")
 	expires := f.text("Expires after", "", "days; empty for never")
-	v4 := f.check("Version 4, which GnuPG 2.4 and older software read (else version 6)", false)
-	f.show("Make", func() {
+	v4 := f.check("Version 4, for GnuPG 2.4 and older", false)
+	f.show("Make the key", func() {
 		params := svrpc.PGPGenerateParams{Vault: p.vault, Item: strings.TrimSpace(item.Text), Name: strings.TrimSpace(name.Text), Version: 6}
 		for _, e := range strings.Split(emails.Text, ",") {
 			if e = strings.TrimSpace(e); e != "" {
@@ -171,8 +172,8 @@ func (m *Manager) newPGPKey(p *keysPage) {
 			return err
 		}, func() {
 			m.refreshKeys(p, tabPGP)
-			m.showText("OpenPGP key made", fmt.Sprintf("Made a version %d OpenPGP key, stored as %s. Give people its public key "+
-				"(Copy the public key), or show it as a QR code (Contacts › Show my QR code…).", k.Version, k.Item),
+			m.showText("OpenPGP key made", fmt.Sprintf("Made a version %d OpenPGP key, kept as %s. Give people its public key "+
+				"(Copy the public key), or show it as a QR code (Contacts › Show my QR code…). %s", k.Version, k.Item, svops.FingerprintNote),
 				svops.GroupFingerprint(k.Fingerprint)+"\n"+strings.Join(k.UserIDs, "\n"))
 		})
 	})
@@ -183,9 +184,9 @@ func (m *Manager) newPGPKey(p *keysPage) {
 func (m *Manager) importPGPKey(p *keysPage) {
 	f := m.newForm("Import an OpenPGP key")
 	file := f.path("Key file", PickOpen, "")
-	item := f.text("Item", "", "default: pgp/ADDRESS")
-	f.note("One secret key. Someone else's public key goes to Contacts › Add…")
-	f.show("Import", func() {
+	item := f.text("Item name", "", "Leave empty for pgp/ADDRESS")
+	f.intro("One secret key of yours. Someone else's public key goes to Contacts › Add… instead.")
+	f.show("Import the key", func() {
 		path := file.Path()
 		if path == "" {
 			f.fail("Choose the key's file.")
@@ -223,8 +224,8 @@ func (m *Manager) exportPGPKey(p *keysPage) {
 	f := m.newForm("Export an OpenPGP key")
 	what := f.choice("Export", []string{"its public key", "its secret key, under a new passphrase", "its secret key, as the vault keeps it"}, 0)
 	file := f.path("File", PickSave, "key.asc")
-	f.warn("A secret key taken out of the vault is no longer only the daemon's to use: keep the file as safe as the vault.")
-	f.show("Export", func() {
+	f.warn("A secret key taken out of the vault can be used by whoever gets the file, without asking you: keep it as safe as the vault.")
+	f.show("Export the key", func() {
 		path := file.Path()
 		if path == "" {
 			f.fail("Choose where it goes.")
@@ -325,7 +326,7 @@ func (m *Manager) fillSMIME(p *keysPage, pn *pane) {
 			return k.NotAfter.Local().Format("2006-01-02")
 		})
 		pn.focus = t
-		note := "Your S/MIME keys and certificates. Tools › Sign and encrypt a message… signs with them."
+		note := "Your S/MIME keys and certificates, for signed and encrypted mail. Tools › Sign and encrypt a message… uses them."
 		if len(keys) == 0 {
 			note = "No S/MIME keys: Import… takes one in from a .p12 file."
 		}
@@ -337,10 +338,11 @@ func (m *Manager) fillSMIME(p *keysPage, pn *pane) {
 // (the CLI's smime import).
 func (m *Manager) importSMIME(p *keysPage) {
 	f := m.newForm("Import an S/MIME key")
+	f.intro("A PKCS #12 file (.p12 or .pfx): your certificate and its private key.")
 	file := f.path("File", PickOpen, "")
-	pass := f.secret("Its password", "")
-	item := f.text("Item", "", "default: smime/ADDRESS")
-	f.show("Import", func() {
+	pass := f.secret("The file's password", "")
+	item := f.text("Item name", "", "Leave empty for smime/ADDRESS")
+	f.show("Import the key", func() {
 		path := file.Path()
 		if path == "" {
 			f.fail("Choose the .p12 file.")
@@ -377,7 +379,7 @@ func (m *Manager) fillAge(p *keysPage, pn *pane) {
 		keys := svops.AgeKeyEntries(entries)
 		p.age = keys
 		p.atable = table("age identities", []widgets.TableColumn{
-			{Title: "Item", Width: 170}, {Title: "Recipient"},
+			{Title: "Item", Width: 170}, {Title: "Public key (recipient)"},
 		}, len(keys), func(r, c int) string {
 			if c == 0 {
 				return keys[r].Item.Name
@@ -385,14 +387,13 @@ func (m *Manager) fillAge(p *keysPage, pn *pane) {
 			return keys[r].Item.Attrs[svops.AgeRecipientName]
 		})
 		pn.focus = p.atable
-		note := "Your age identities. Files encrypted to their recipients open with Tools › Decrypt a file (age)…, and age and " +
-			"SOPS open them through age-plugin-secretvault with the identity line (Desktop › Program helpers makes its link)."
+		note := svops.AgeNote + " Tools › Decrypt a file (age)… decrypts here; Desktop › Program helpers sets age up."
 		if len(keys) == 0 {
 			note = "No age identities yet: New… makes one."
 		}
 		return m.paneColumn(note, p.atable,
 			widgets.NewButton("New…", func() { m.newAgeIdentity(p) }),
-			widgets.NewButton("Copy the recipient", func() { m.copyAge(p, false) }),
+			widgets.NewButton("Copy the public key", func() { m.copyAge(p, false) }),
 			widgets.NewButton("Copy the identity line", func() { m.copyAge(p, true) }))
 	})
 }
@@ -401,11 +402,11 @@ func (m *Manager) fillAge(p *keysPage, pn *pane) {
 // keygen), and offers its identity line as a file for age and SOPS.
 func (m *Manager) newAgeIdentity(p *keysPage) {
 	f := m.newForm("New age identity")
-	name := f.text("Item", "age/", "where to keep it, like age/backups")
+	name := f.text("Item name", "age/", "where to keep it, like age/backups")
 	pq := f.check("Post-quantum (ML-KEM-768 with X25519; age 1.3 or later reads it)", false)
-	file := f.path("Identity file", PickSave, "identity.txt")
-	f.note("Identity file: optional. It holds the line age and SOPS name the identity by, not the key, which stays in the vault.")
-	f.show("Make", func() {
+	file := f.path("Identity line file", PickSave, "identity.txt")
+	f.note("Optional: a file for age and SOPS that names the identity. It holds no secret; the key stays in the vault.")
+	f.show("Make the identity", func() {
 		r, err := svops.AgeItemRef(p.vault, strings.TrimSpace(name.Text))
 		if err != nil {
 			f.fail(sentence(err.Error()))
@@ -428,10 +429,11 @@ func (m *Manager) newAgeIdentity(p *keysPage) {
 			return nil
 		}, func() {
 			m.refreshKeys(p, tabAge)
-			intro := fmt.Sprintf("Stored a new %s age identity as %s. Encrypt to its recipient; age and SOPS reach it with the identity line.", k.Kind, r.Item)
+			intro := fmt.Sprintf("Made a new %s age identity, kept as %s.", k.Kind, r.Item)
 			if out != "" {
-				intro += " The identity line is in " + out + "."
+				intro += " Its identity line is also in " + out + "."
 			}
+			intro += " Its public key (recipient), for encrypting to it, and its identity line, for age and SOPS:"
 			m.showText("age identity made", intro, k.Recipient+"\n"+k.Plugin)
 		})
 	})
@@ -466,7 +468,7 @@ func (m *Manager) copyAge(p *keysPage, line bool) {
 			m.fail(err)
 			return
 		}
-		what := "The recipient"
+		what := "The public key"
 		if line {
 			what = "The identity line"
 		}
@@ -475,11 +477,10 @@ func (m *Manager) copyAge(p *keysPage, line bool) {
 }
 
 func (m *Manager) fillIdentities(pn *pane) {
-	newID := widgets.NewButton("New…", m.newIdentityFile)
+	newID := widgets.NewButton("New identity file…", m.newIdentityFile)
 	pn.focus = newID
-	pn.box.Set(m.paneColumn("An identity file holds a secretvault identity: its recipient (the public half) is what a keyslot, "+
-		"a share or emergency access is made for, and the file opens them. Keep it as safe as a passphrase.", nil,
-		newID, widgets.NewButton("Show the recipient of a file…", m.showIdentityRecipient)))
+	pn.box.Set(m.paneColumn(svops.IdentityFileNote, nil,
+		newID, widgets.NewButton("Show a file's public key…", m.showIdentityRecipient)))
 }
 
 // newIdentityFile makes an identity and writes it to a new file (the
@@ -487,15 +488,19 @@ func (m *Manager) fillIdentities(pn *pane) {
 func (m *Manager) newIdentityFile() {
 	f := m.newForm("New identity file")
 	file := f.path("File", PickSave, "identity.txt")
-	suite := f.choice("Cipher suite", []string{"modern: X25519", "nist: P-256 (FIPS 140-3)"}, 0)
-	f.show("Make", func() {
+	suites := make([]string, len(svops.IdentitySuites))
+	for i, s := range svops.IdentitySuites {
+		suites[i] = s.Text
+	}
+	suite := f.choice(svops.SuiteLabel, suites, 0)
+	f.show("Make the file", func() {
 		path := file.Path()
 		if path == "" {
 			f.fail("Choose where it goes.")
 			return
 		}
 		var rcpt string
-		s := []string{"modern", "nist"}[max(0, suite.Selected)]
+		s := svops.IdentitySuites[max(0, suite.Selected)].Name
 		f.work(func() error {
 			r, body, err := svops.NewIdentity(s, "identity")
 			if err != nil {
@@ -505,7 +510,7 @@ func (m *Manager) newIdentityFile() {
 			rcpt = r
 			return svops.WriteNew(path, body)
 		}, func() {
-			m.showText("Identity file made", "Wrote the identity to "+path+", which only you can read. Its recipient, to give out:", rcpt)
+			m.showText("Identity file made", svops.IdentityMadeNote+" (The file: "+path+".)", rcpt)
 		})
 	})
 }
@@ -526,7 +531,7 @@ func (m *Manager) showIdentityRecipient() {
 				m.fail(err)
 				return
 			}
-			m.showText("Recipient", "The recipient of the identity in "+path+":", rcpt)
+			m.showText("Public key of an identity file", "The public key (recipient) of the identity in "+filepath.Base(path)+", to give to people who share vaults with you:", rcpt)
 		})
 	})
 }
@@ -542,33 +547,11 @@ func (m *Manager) fillSecurityKeys(p *keysPage, pn *pane) {
 		refresh := widgets.NewButton("Refresh", pn.refresh)
 		pn.focus = refresh
 		if len(keys) == 0 {
-			col.Add(m.paragraph("No security key is plugged in. Plug one in and refresh; Vault › Keyslots › Add… enrols it."))
+			col.Add(m.paragraph("No security key is plugged in. Plug one in and press Refresh; Vault › Keyslots › Add a keyslot… adds it as a way to open a vault."))
 		}
 		for _, k := range keys {
 			col.Add(section(m, k.Name))
-			var rows [][2]string
-			if k.Path != "" {
-				rows = append(rows, [2]string{"Device", k.Path})
-			}
-			if len(k.Versions) > 0 {
-				pin := "cannot have one"
-				switch k.PIN {
-				case "set":
-					pin = fmt.Sprintf("set, %d tries left", k.Retries)
-				case "not set":
-					pin = "not set"
-				}
-				hmac := "no"
-				if k.HMACSecret {
-					hmac = "yes: it can hold a keyslot"
-				}
-				rows = append(rows, [2]string{"Speaks", strings.Join(k.Versions, ", ")}, [2]string{"Model", k.AAGUID},
-					[2]string{"PIN", pin}, [2]string{"hmac-secret", hmac})
-			}
-			if k.Problem != "" {
-				rows = append(rows, [2]string{"Problem", k.Problem})
-			}
-			col.Add(m.facts(rows))
+			col.Add(m.facts(svops.SecurityKeyFacts(k)))
 		}
 		col.Add(buttons(refresh))
 		return scrolled(col)

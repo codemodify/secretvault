@@ -204,12 +204,12 @@ func TestScreenshots(t *testing.T) {
 		// A keyslot added in one step: the kind at the head, and only
 		// what it takes under it.
 		h.openVaultPage(tabKeyslots)
-		h.pressOn("Add…")
+		h.pressOn("Add a keyslot…")
 		shoot(h.win(), "28-keyslot-passphrase"+suffix)
-		h.choose("Kind", 1)
+		h.choose("Opens with", 1)
 		h.pump()
 		shoot(h.win(), "29-keyslot-recovery"+suffix)
-		h.choose("Kind", 4)
+		h.choose("Opens with", 4)
 		h.pump()
 		shoot(h.win(), "30-keyslot-security-key"+suffix)
 		h.win().Press(platform.KeyEscape)
@@ -249,7 +249,7 @@ func TestScreenshots(t *testing.T) {
 		h.pump()
 
 		h.stopDaemon()
-		h.waitText("No connection to secretvaultd")
+		h.waitText("Not connected")
 		shoot(h.win(), "18-gone"+suffix)
 	}
 

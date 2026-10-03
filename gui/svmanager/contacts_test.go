@@ -45,13 +45,13 @@ func TestContactsAreAddedVerifiedAndRemoved(t *testing.T) {
 	h.waitFor("the contacts page", h.m.showingVaultPage)
 	h.idle()
 	p := h.m.cpage
-	if !strings.Contains(h.text(), "No contacts.") {
+	if !strings.Contains(h.text(), "No contacts yet.") {
 		t.Fatalf("no contacts yet:\n%s", h.text())
 	}
 	h.pressOn("Add…")
 	h.fill("Key files", file)
 	h.fill("Notes", "met at FOSDEM")
-	h.press("Add")
+	h.press("Add the contact")
 	h.waitText("Added Alice Example with 1 key.")
 	h.press("Close")
 	h.idle()
@@ -65,12 +65,12 @@ func TestContactsAreAddedVerifiedAndRemoved(t *testing.T) {
 	// Verifying takes the fingerprint as it was compared.
 	h.pressOn("Verify…")
 	h.fill("Fingerprint", "0000 0000")
-	h.press("Verify")
+	h.press("Mark as verified")
 	if !strings.Contains(h.problem(), "not this key's fingerprint") {
 		t.Fatalf("a wrong fingerprint: %q", h.problem())
 	}
 	h.fill("Fingerprint", fp)
-	h.press("Verify")
+	h.press("Mark as verified")
 	h.said("verified in person")
 	h.idle()
 
@@ -151,7 +151,7 @@ func TestMyQRCodeAndContactsVaultAndDirectories(t *testing.T) {
 	h.unlock()
 	h.m.showMyQR()
 	h.idle()
-	h.press("Show")
+	h.press("Show the code")
 	if got := h.failed(); !strings.Contains(got, "no key of yours") || strings.Contains(got, "--key") {
 		t.Fatalf("no keys: %q", got)
 	}
@@ -162,7 +162,7 @@ func TestMyQRCodeAndContactsVaultAndDirectories(t *testing.T) {
 	}
 	h.m.showMyQR()
 	h.idle()
-	h.press("Show")
+	h.press("Show the code")
 	// The code and its text in one dialog.
 	h.waitText("QR code of the contact code")
 	code := find(h.overlay(), func(*qrView) bool { return true })
@@ -176,7 +176,7 @@ func TestMyQRCodeAndContactsVaultAndDirectories(t *testing.T) {
 
 	h.m.contactsVault()
 	h.waitText("Contacts are kept in vault personal now.")
-	h.press("Keep them there")
+	h.press("Keep contacts there")
 	h.said("Contacts are kept in vault personal now.")
 
 	h.m.showContactsPage(tabDirectories)
@@ -186,14 +186,14 @@ func TestMyQRCodeAndContactsVaultAndDirectories(t *testing.T) {
 	h.fill("Name", "example")
 	h.fill("Address", "ldaps://ldap.example.com")
 	h.fill("People under", "dc=example,dc=com")
-	h.press("Add")
+	h.press("Add the directory")
 	h.said("Lookups of an address now ask example first")
 	h.idle()
 	if len(h.m.cpage.dirs) != 1 {
 		t.Fatalf("directories: %+v", h.m.cpage.dirs)
 	}
 	h.pressOn("Remove…")
-	h.press("Remove")
+	h.press("Remove the directory")
 	h.said("Removed directory example.")
 
 	// Looking up asks no network here: the daemon says what failed.

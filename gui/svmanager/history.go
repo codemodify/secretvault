@@ -172,7 +172,7 @@ func (m *Manager) openRevision(i int) {
 		// the others go, on every device (the CLI's resolve --keep).
 		head.Add(widgets.NewButton("Keep this version on every device…", func() { m.restoreRevision(name, rev, true) }))
 	case e.Rev != h.cur:
-		head.Add(widgets.NewButton("Make this revision current…", func() { m.restoreRevision(name, rev, false) }))
+		head.Add(widgets.NewButton("Go back to this version…", func() { m.restoreRevision(name, rev, false) }))
 	}
 	h.below.Set(widgets.NewColumn(widgets.NewSeparator(), head, h.view.root).WithGap(gap))
 	if col, ok := h.below.Page().(*widgets.FlexBox); ok {
@@ -185,9 +185,17 @@ func (m *Manager) openRevision(i int) {
 // the conflict in its favour (the CLI's resolve --keep).
 func (m *Manager) restoreRevision(name, rev string, keep bool) {
 	vault := m.vault
-	title, text, action := "Make it current?", fmt.Sprintf("Make revision %s of %s current again?\n\nThe revision now current stays in the history.", short(rev), name), "Make current"
+	when := ""
+	if m.hist != nil {
+		for _, e := range m.hist.entries {
+			if e.Rev == rev {
+				when = e.Time.Local().Format("2006-01-02 15:04")
+			}
+		}
+	}
+	title, text, action := svops.RestoreRevisionTitle, svops.RestoreRevisionText(name, when), svops.RestoreRevisionAction
 	if keep {
-		title, text, action = "Keep this version?", fmt.Sprintf("Keep version %s of %s, on every device?\n\nThe other versions saved at the same time stay in the history, and the conflict is settled.", short(rev), name), "Keep it"
+		title, text, action = svops.KeepVersionTitle, svops.KeepVersionText(name), svops.KeepVersionAction
 	}
 	m.confirm(title, text, action, func() {
 		var e svrpc.Entry
@@ -202,7 +210,7 @@ func (m *Manager) restoreRevision(name, rev string, keep bool) {
 			if keep {
 				m.say("Kept that version of %s; the conflict is settled (revision %s).", name, short(e.Rev))
 			} else {
-				m.say("Restored %s (revision %s).", name, short(e.Rev))
+				m.say("%s is as it was in that version again.", name)
 			}
 			if vault == m.vault && m.showingHistory() && m.hist != nil && m.hist.name == name {
 				m.showHistory()

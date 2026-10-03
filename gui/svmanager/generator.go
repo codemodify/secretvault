@@ -188,7 +188,7 @@ func (m *Manager) showGenerator(use func([]byte)) *dialog {
 	buttons := widgets.NewButtonBox()
 	var first *widgets.Button
 	if use != nil {
-		first = widgets.NewButton("Use", func() {
+		first = widgets.NewButton("Use this password", func() {
 			use(pw)
 			d.Close()
 		})
@@ -203,7 +203,7 @@ func (m *Manager) showGenerator(use func([]byte)) *dialog {
 			clear(p)
 		}), widgets.RoleAction)
 	}
-	buttons.AddButton(widgets.NewButton("Again", regenerate), widgets.RoleAction)
+	buttons.AddButton(widgets.NewButton("Make another", regenerate), widgets.RoleAction)
 	buttons.AddButton(widgets.NewButton("Close", func() { d.Close() }), widgets.RoleReject)
 	regenerate()
 	d = m.showDialog("Password generator", body, buttons, first, func() {

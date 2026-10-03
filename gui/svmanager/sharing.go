@@ -51,10 +51,9 @@ func (m *Manager) fillSharing(p *vaultPage, pn *pane) {
 func (m *Manager) drawSharing(p *vaultPage, pn *pane, emErr error) widget.Component {
 	col := widgets.NewColumn().WithGap(gap).WithPad(gap)
 	shared := p.shared
-	col.Add(m.paragraph("A person or device given a keyslot opens the vault with their own identity. Cutting one off " +
-		"removes their keyslot and rotates the key, so the key they already opened stops opening what is written afterwards."))
+	col.Add(m.paragraph(svops.SharingAbout))
 	p.shtable = table("Shared with", []widgets.TableColumn{
-		{Title: "Keyslot", Width: 110}, {Title: "Label"}, {Title: "Recipient"}, {Title: "Since", Width: 130},
+		{Title: "Keyslot", Width: 110}, {Title: "Name"}, {Title: "Their public key"}, {Title: "Since", Width: 130},
 	}, len(shared), func(r, c int) string {
 		s := shared[r]
 		switch c {
@@ -69,7 +68,7 @@ func (m *Manager) drawSharing(p *vaultPage, pn *pane, emErr error) widget.Compon
 	})
 	pn.focus = p.shtable
 	if len(shared) == 0 {
-		col.Add(m.paragraph("It is shared with nobody."))
+		col.Add(m.paragraph("Not shared with anyone yet: Share with… adds a person or device."))
 	} else {
 		col.Add(widgets.NewHeightBox(min(40+28*float32(len(shared)), 180), p.shtable))
 	}
@@ -78,14 +77,13 @@ func (m *Manager) drawSharing(p *vaultPage, pn *pane, emErr error) widget.Compon
 	col.Add(buttons(widgets.NewButton("Share with…", func() { m.share(p) }), cut))
 
 	col.Add(section(m, "Emergency access"))
-	col.Add(m.paragraph("A person you trust may ask for the vault, and has it after a wait, unless you deny it within the wait. " +
-		"The vault must sync with a server, which keeps the wait."))
+	col.Add(m.paragraph(svops.EmergencyAbout))
 	if emErr != nil {
 		col.Add(m.paragraph(m.describe(emErr)))
 	}
 	given := p.emergency.Given
 	p.etable = table("Emergency access given", []widgets.TableColumn{
-		{Title: "Grant", Width: 110}, {Title: "Trustee"}, {Title: "Wait", Width: 80}, {Title: "State"},
+		{Title: "Grant", Width: 110}, {Title: "Who"}, {Title: "Wait", Width: 80}, {Title: "State"},
 	}, len(given), func(r, c int) string {
 		g := given[r]
 		switch c {
@@ -108,7 +106,7 @@ func (m *Manager) drawSharing(p *vaultPage, pn *pane, emErr error) widget.Compon
 			}
 		}
 	} else if emErr == nil {
-		col.Add(m.paragraph("Nobody has emergency access to this vault."))
+		col.Add(m.paragraph("Nobody has emergency access to this vault: Grant… gives it to someone."))
 	}
 	deny := widgets.NewButton("Deny…", func() { m.denyEmergency(p) })
 	revoke := widgets.NewButton("Revoke…", func() { m.revokeEmergency(p) })
@@ -118,7 +116,7 @@ func (m *Manager) drawSharing(p *vaultPage, pn *pane, emErr error) widget.Compon
 	if held := p.emergency.Held; len(held) > 0 {
 		col.Add(section(m, "Emergency access held here"))
 		col.Add(m.heldTable(held))
-		col.Add(m.paragraph("File › Emergency access asks for it, and opens a vault once it is yours."))
+		col.Add(m.paragraph("Emergency access others gave you to their vaults: File › Emergency access asks for one, and opens the vault once it is yours."))
 	}
 	return scrolled(col)
 }
@@ -240,24 +238,25 @@ func secretvaultKey(c svrpc.Contact) (svrpc.ContactKey, bool) {
 func (m *Manager) share(p *vaultPage) {
 	m.withContacts(func(all []svrpc.Contact) {
 		var withKey []svrpc.Contact
-		names := []string{"A recipient or identity file, below"}
+		names := []string{"Someone else: their key, below"}
 		for _, c := range all {
 			if _, ok := secretvaultKey(c); ok {
 				withKey = append(withKey, c)
 				names = append(names, c.Name+" (contact)")
 			}
 		}
-		f := m.newForm("Share " + p.vault)
+		f := m.newForm("Share vault " + p.vault)
+		f.intro(svops.ShareLead)
 		// Nobody is chosen for the person: a contact is picked, or a
 		// recipient given, and never both.
 		who := f.choice("With", names, 0)
-		rcpt := f.path("Recipient", PickOpen, "")
-		f.note("Recipient: the text of one, a file holding one, or an identity file (its public half is used).")
-		label := f.text("Label", "", "a name for the person or device")
-		f.show("Share", func() {
+		rcpt := f.path("Their public key", PickOpen, "")
+		f.note("Their " + svops.RecipientMeans + ": paste it, or choose the file it is in. An identity file works too: only its public half is used.")
+		label := f.text("Name", "", "who or what it is: Bob, Bob's laptop")
+		f.show("Share the vault", func() {
 			arg, name := rcpt.Path(), strings.TrimSpace(label.Text)
 			if who.Selected > 0 && arg != "" {
-				f.fail("Choose a contact, or give a recipient: not both.")
+				f.fail("Choose a contact, or paste their public key: not both.")
 				return
 			}
 			if i := who.Selected - 1; i >= 0 && i < len(withKey) {
@@ -268,7 +267,7 @@ func (m *Manager) share(p *vaultPage) {
 				}
 			}
 			if arg == "" {
-				f.fail("Choose a contact, or give a recipient.")
+				f.fail("Choose a contact, or paste their public key.")
 				return
 			}
 			var info svrpc.SlotInfo
@@ -280,7 +279,7 @@ func (m *Manager) share(p *vaultPage) {
 				info, err = c.AddSlot(ctx, svrpc.SlotAddParams{Vault: p.vault, Type: svformat.SlotRecipient, Label: name, Secret: []byte(r)})
 				return err
 			}, func() {
-				m.say("Shared: keyslot %s opens the vault with that identity.", info.ID)
+				m.say("%s", svops.SharedText(p.vault, info.Label))
 				m.refreshTab(p, tabSharing)
 				m.refreshTab(p, tabKeyslots)
 			})
@@ -293,7 +292,7 @@ func (m *Manager) share(p *vaultPage) {
 func (m *Manager) unshare(p *vaultPage) {
 	i := selected(p.shtable)
 	if i < 0 || i >= len(p.shared) {
-		m.say("Choose whom to cut off first.")
+		m.say("Choose who to cut off in the list first.")
 		return
 	}
 	s := p.shared[i]
@@ -301,8 +300,8 @@ func (m *Manager) unshare(p *vaultPage) {
 	if who == "" {
 		who = "keyslot " + s.ID
 	}
-	m.rotateKey(p, []string{s.ID}, fmt.Sprintf("%s stops opening vault %s: their keyslot goes, and the vault gets a new key, "+
-		"so the key they may have kept does not open what is written from now on.", who, p.vault))
+	m.rotateKey(p, []string{s.ID}, fmt.Sprintf("%s can no longer open vault %s. The vault gets a new key, "+
+		"so even a copy they kept cannot open anything written from now on.", who, p.vault))
 }
 
 // grantEmergency lets a person ask for the vault, and have it after a wait
@@ -310,28 +309,29 @@ func (m *Manager) unshare(p *vaultPage) {
 // is shown, to copy, or as a QR code.
 func (m *Manager) grantEmergency(p *vaultPage) {
 	m.withContacts(func(all []svrpc.Contact) {
-		names := []string{"A recipient, below"}
+		names := []string{"Someone else: their key, below"}
 		for _, c := range all {
 			names = append(names, c.Name)
 		}
-		f := m.newForm("Emergency access to " + p.vault)
-		who := f.choice("Trustee", names, 0)
-		rcpt := f.text("Recipient", "", "a secretvault recipient, if not a contact")
-		fp := f.text("Fingerprint", "", "which of the contact's secretvault keys, if they have several")
-		wait := f.text("Wait", "7d", "like 48h, 7d or 2w (an hour to a year)")
-		name := f.text("Its name to them", "", "default: "+p.vault)
-		f.note("They may then ask for the vault. You are told when they do, and unless you deny it within the wait, they get it.")
-		f.show("Grant", func() {
+		f := m.newForm("Give emergency access to " + p.vault)
+		f.intro(svops.EmergencyGrantLead)
+		who := f.choice("Who", names, 0)
+		rcpt := f.text("Their public key", "", "their recipient, if they are not a contact")
+		fp := f.text("Which key", "", "only if the contact has several: its fingerprint")
+		wait := f.text("Wait", "7d", "how long you have to deny it: 48h, 7d, 2w (an hour to a year)")
+		name := f.text("Name they see", "", "default: "+p.vault)
+		f.note("Their " + svops.RecipientMeans + " is needed only for someone not in your contacts.")
+		f.show("Give access", func() {
 			contact := strings.TrimSpace(rcpt.Text)
 			if who.Selected > 0 && contact != "" {
-				f.fail("Choose a contact, or give a recipient: not both.")
+				f.fail("Choose a contact, or paste their public key: not both.")
 				return
 			}
 			if i := who.Selected - 1; i >= 0 && i < len(all) {
 				contact = all[i].ID
 			}
 			if contact == "" {
-				f.fail("Choose a contact, or give a recipient.")
+				f.fail("Choose a contact, or paste their public key.")
 				return
 			}
 			d, err := svops.ParseWait(strings.TrimSpace(wait.Text))
@@ -348,9 +348,8 @@ func (m *Manager) grantEmergency(p *vaultPage) {
 			}, func() {
 				g := res.Grant
 				m.refreshTab(p, tabSharing)
-				note := fmt.Sprintf("%s may now ask for vault %s. Unless you deny it within %s of their asking, they get it. "+
-					"Send them this invite: it holds no secret, since accepting it takes their identity. "+
-					"They accept it in File › Emergency access › Accept an invite…", trusteeName(g), g.Vault, svops.WaitText(g.Wait))
+				note := "Send this invite to " + trusteeName(g) + ", to accept with File › Emergency access › Accept an invite… on their side. " +
+					svops.InviteHoldsNoSecret + "\n\n" + svops.EmergencyGrantedText(trusteeName(g), g.Vault, g.Wait)
 				if res.Warning != "" {
 					note += "\n\nWarning: " + res.Warning
 				}
@@ -374,11 +373,12 @@ func (p *vaultPage) emergencyGrant() *svrpc.EmergencyGrant {
 func (m *Manager) denyEmergency(p *vaultPage) {
 	g := p.emergencyGrant()
 	if g == nil {
-		m.say("Choose a grant first.")
+		m.say("Choose someone in the emergency access list first.")
 		return
 	}
 	id, who := g.ID, trusteeName(*g)
-	m.confirm("Deny the request?", fmt.Sprintf("Deny %s's request for vault %s?\n\nThey get nothing from it. They can ask again, which starts the wait over, and you are told again.", who, p.vault), "Deny", func() {
+	deny := svops.DenyEmergencyPlain(who, p.vault)
+	m.confirm(deny.Title, deny.Summary, deny.Action, func() {
 		m.call(func(ctx context.Context, c *secretvault.Client) error {
 			_, err := c.EmergencyDeny(ctx, p.vault, id)
 			return err
@@ -400,24 +400,24 @@ func (m *Manager) denyEmergency(p *vaultPage) {
 func (m *Manager) revokeEmergency(p *vaultPage) {
 	g := p.emergencyGrant()
 	if g == nil {
-		m.say("Choose a grant first.")
+		m.say("Choose someone in the emergency access list first.")
 		return
 	}
 	id, who := g.ID, trusteeName(*g)
-	f := m.newForm("Revoke emergency access")
-	f.note(fmt.Sprintf("%s's emergency access to vault %s goes, with its keyslot and the server's escrow.", who, p.vault))
-	rotate := f.check("Rotate the key too, which cuts them off from all that is written afterwards", g.Released != nil)
+	f := m.newForm("Revoke " + who + "'s emergency access")
+	f.intro(svops.RevokeEmergencyText(who, p.vault))
+	rotate := f.check(svops.RotateToo, g.Released != nil)
 	if g.Released != nil {
-		f.warn("They were given the vault's key on " + when(g.Released) + ", and may have kept it: rotate the key.")
+		f.warn(svops.KeptACopyText(when(g.Released)))
 	}
-	f.show("Revoke", func() {
+	f.show("Revoke access", func() {
 		var out svrpc.EmergencyGrant
 		again := rotate.Checked
 		f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 			out, err = c.EmergencyRevoke(ctx, p.vault, id)
 			return err
 		}, func() {
-			msg := fmt.Sprintf("Revoked: %s's emergency access to vault %s is gone.", who, out.Vault)
+			msg := svops.RevokedText(who, out.Vault)
 			if len(out.Problems) > 0 {
 				msg += " Note: " + strings.Join(out.Problems, "; ")
 			}
@@ -440,19 +440,20 @@ func (m *Manager) acceptEmergency() {
 		return
 	}
 	f := m.newForm("Accept emergency access")
-	invite := f.text("Invite", "", "the invite its owner sent")
+	f.intro(svops.AcceptEmergencyLead)
+	invite := f.text("Invite", "", "secretvault-emergency:…, as its owner sent it")
 	identity := f.path("Identity file", PickOpen, "")
-	as := f.text("Call it", "", "default: the invite's name")
+	as := f.text("Name it here", "", "default: the name in the invite")
 	label := f.text("This device", "", "its name to the owner (default: the host name)")
-	f.note("The identity file is the one the grant was made for; it is needed again to open the vault.")
-	f.show("Accept", func() {
+	f.note("Keep the identity file: it is needed again to open the vault.")
+	f.show("Accept the invite", func() {
 		inv, id := strings.TrimSpace(invite.Text), identity.Path()
 		switch {
 		case inv == "":
 			f.fail("Paste the invite.")
 			return
 		case id == "":
-			f.fail("Choose the identity file the grant was made for.")
+			f.fail("Choose the identity file the invite was made for.")
 			return
 		}
 		var a svrpc.EmergencyAccess
@@ -465,8 +466,8 @@ func (m *Manager) acceptEmergency() {
 			a, err = c.EmergencyAccept(ctx, svrpc.EmergencyAcceptParams{Invite: inv, Identity: b, Name: strings.TrimSpace(as.Text), Label: strings.TrimSpace(label.Text)})
 			return err
 		}, func() {
-			m.showText("Emergency access accepted", fmt.Sprintf("Accepted, as %q. Should you need it, File › Emergency access › Ask for access…: its owner is told, "+
-				"and unless they deny it within %s, File › Emergency access › Open the vault… opens it then.", a.Name, svops.WaitText(a.Wait)), "")
+			m.showText("Emergency access accepted", fmt.Sprintf("Accepted, as %q. When you need the vault, File › Emergency access › Ask for access… asks for it. "+
+				"Its owner is told, and unless they deny it within %s, File › Emergency access › Open the vault… opens it.", a.Name, svops.WaitText(a.Wait)), "")
 			m.loadEmergency()
 		})
 	})
@@ -492,7 +493,7 @@ func (m *Manager) heldAccess(then func([]svrpc.EmergencyAccess)) {
 // requestEmergency asks for access held (the CLI's emergency request): the
 // wait starts, and the owner is told.
 func (m *Manager) requestEmergency() {
-	m.chooseHeld("Ask for emergency access", "Ask", "Its owner is told at once; unless they deny it within the wait, it is yours then.", func(f *formDialog, name string) {
+	m.chooseHeld("Ask for emergency access", "Ask for access", "Its owner is told at once. Unless they deny it within the wait, the vault is yours then.", func(f *formDialog, name string) {
 		var a svrpc.EmergencyAccess
 		f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 			a, err = c.EmergencyRequest(ctx, name)
@@ -512,10 +513,10 @@ func (m *Manager) requestEmergency() {
 // released (the CLI's emergency open), read-only.
 func (m *Manager) openEmergency() {
 	var identity, folder *pathField
-	m.chooseHeld("Open a vault by emergency access", "Open", "Once the wait is over, the vault is fetched and opened here, read-only: it follows its owner's copy.", func(f *formDialog, name string) {
+	m.chooseHeld("Open a vault by emergency access", "Open the vault", "Once the wait is over, the vault is fetched and opened here, read-only: it follows its owner's copy.", func(f *formDialog, name string) {
 		id := identity.Path()
 		if id == "" {
-			f.fail("Choose the identity file the grant was made for.")
+			f.fail("Choose the identity file the invite was made for.")
 			return
 		}
 		dir := folder.Path()
@@ -532,7 +533,7 @@ func (m *Manager) openEmergency() {
 			v, err = c.EmergencyOpen(ctx, svrpc.EmergencyOpenParams{Name: name, Identity: b, Path: dir})
 			return err
 		}, func() {
-			m.say("Opened vault %s in %s, read-only. Once it locks, Vault › Unlock with… › an identity file opens it again.", v.Name, v.Path)
+			m.say("Opened vault %s, read-only. When it locks, Vault › Unlock with… › an identity file opens it again.", v.Name)
 			m.reloadVaults()
 			m.showVault(v.Name, true)
 			m.loadEmergency()
@@ -560,7 +561,7 @@ func (m *Manager) chooseHeld(title, action, note string, do func(f *formDialog, 
 			for i, a := range held {
 				names[i] = a.Name + ": " + accessState(a)
 			}
-			which = f.choice("Access", names, 0)
+			which = f.choice("Vault", names, 0)
 		} else {
 			typed = f.text("Name", "", "as accepted")
 			f.note("No emergency access held here could be listed: type its name as it was accepted (File › Emergency access › Accept an invite…).")

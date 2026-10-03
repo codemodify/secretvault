@@ -39,9 +39,9 @@ func TestDevicesAreNamedAndSignaturesRequired(t *testing.T) {
 	}
 
 	h.prove()
-	signed := find(h.m.ui.main, func(c *widgets.Checkbox) bool { return c.Text == "Count only signed revisions" })
+	signed := find(h.m.ui.main, func(c *widgets.Checkbox) bool { return c.Text == "Count only signed changes" })
 	h.win().ClickComponent(signed)
-	h.said("counts only revisions signed")
+	h.said("counts only changes signed")
 	if pol, err := h.admin.Signatures(h.ctx(), "", nil); err != nil || !pol.Require {
 		t.Fatalf("the policy is %+v, %v", pol, err)
 	}
@@ -74,28 +74,28 @@ func TestTheVaultsSettings(t *testing.T) {
 	h.said("opens when you log in")
 	h.waitFor("the vault to open at login", func() bool { v := h.m.vaultInfo("personal"); return v != nil && v.LoginUnlock })
 
-	h.pressOn("Verify every file…")
-	h.waitText("Verified personal")
-	if !strings.Contains(h.text(), "authenticated. Nothing is wrong.") {
+	h.pressOn("Check every file…")
+	h.waitText("Vault personal is sound")
+	if !strings.Contains(h.text(), "Every file of vault personal is as secretvault wrote it") {
 		t.Fatalf("the report:\n%s", h.text())
 	}
 	h.press("Close")
 
 	path := h.m.vaultInfo("personal").Path
 	h.pressOn("Forget this vault…")
-	h.press("Forget")
+	h.press("Forget the vault")
 	h.said("Forgot vault personal")
 	h.waitFor("no vaults", func() bool { return len(h.m.vaults) == 0 })
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal("the folder went with it")
 	}
 
-	// File › Add vault folder… brings it back.
+	// File › Add an existing vault… brings it back.
 	h.m.addVaultFolder()
 	h.pump()
-	h.fill("Folder", path)
-	h.fill("Name", "again")
-	h.press("Add")
+	h.fill("Its folder", path)
+	h.fill("Name it", "again")
+	h.press("Add the vault")
 	h.said("Added vault again")
 	h.waitFor("the vault back", func() bool { return h.m.vaultInfo("again") != nil })
 }
@@ -112,7 +112,7 @@ func TestANewVaultInAFolderOfItsOwn(t *testing.T) {
 	h.fill("Repeat", "work passphrase 1")
 	h.fill("Folder", dir)
 	h.tick("Make a recovery key", false)
-	h.press("Create")
+	h.press("Create the vault")
 	h.said("Created vault work.")
 	h.waitFor("work", func() bool { v := h.m.vaultInfo("work"); return v != nil && v.Path == dir })
 }
@@ -147,12 +147,12 @@ func TestSyncIsSetUpAndADeviceJoins(t *testing.T) {
 	h.start(Options{})
 	h.unlock()
 	h.openVaultPage(tabSync)
-	h.pressOn("Set up…")
+	h.pressOn("Set up syncing…")
 	h.fill("Server", srv.URL)
 	h.fill("Fingerprint", fp)
 	h.fill("Admin token", "let-me-in")
 	h.fill("This device", "laptop")
-	h.press("Set up")
+	h.press("Start syncing")
 	h.said("now syncs with " + srv.URL)
 	h.waitText("Last good sync")
 	h.waitFor("this device in the list", func() bool { return h.m.vpage.sdtable != nil && h.m.vpage.sdtable.RowCount == 1 })
@@ -196,7 +196,7 @@ func TestSyncIsSetUpAndADeviceJoins(t *testing.T) {
 	h.pressOn("Stop syncing…")
 	h.press("Stop syncing")
 	h.said("no longer syncs")
-	h.waitText("This vault does not sync.")
+	h.waitText("This vault is only on this device.")
 }
 
 func TestSharingWithAnIdentityAndCuttingItOff(t *testing.T) {
@@ -213,12 +213,12 @@ func TestSharingWithAnIdentityAndCuttingItOff(t *testing.T) {
 	}
 	p := h.openVaultPage(tabSharing)
 	h.pressOn("Share with…")
-	h.waitText("Share personal")
+	h.waitText("Share vault personal")
 	h.choose("With", 0)
-	h.fill("Recipient", idFile)
-	h.fill("Label", "bob")
-	h.press("Share")
-	h.said("Shared: keyslot")
+	h.fill("Their public key", idFile)
+	h.fill("Name", "bob")
+	h.press("Share the vault")
+	h.said("Shared vault personal with bob")
 	h.idle()
 	if len(p.shared) != 1 || p.shared[0].Recipient != rcpt {
 		t.Fatalf("shared with %+v", p.shared)
@@ -233,11 +233,11 @@ func TestSharingWithAnIdentityAndCuttingItOff(t *testing.T) {
 	h.m.showVaultPage(tabSharing)
 	h.until("bob", pass, func() bool { return h.m.vpage != nil && len(h.m.vpage.shared) == 1 && h.m.busy == 0 })
 	h.pressOn("Cut off…")
-	h.until("the rotation's form", pass, func() bool { return strings.Contains(h.text(), "bob stops opening vault personal") })
+	h.until("the rotation's form", pass, func() bool { return strings.Contains(h.text(), "bob can no longer open vault personal") })
 	h.fill("Passphrase", pass)
 	h.fill("Repeat", pass)
-	h.press("Rotate")
-	h.until("the rotation", pass, func() bool { return strings.Contains(h.text(), "The key was rotated") })
+	h.press(svops.RotateAction(true))
+	h.until("the rotation", pass, func() bool { return strings.Contains(h.text(), "The vault has a new key") })
 	h.press("Close")
 	h.admin.Lock(h.ctx(), "", false)
 	if _, err := h.admin.Unlock(h.ctx(), "", &svrpc.Key{Type: "identity", Secret: id}); err == nil {
@@ -289,17 +289,17 @@ func TestEmergencyAccessBothSides(t *testing.T) {
 	owner.unlock()
 	owner.openVaultPage(tabSharing)
 	owner.pressOn("Grant…")
-	owner.waitText("Emergency access to personal")
-	owner.choose("Trustee", 0)
-	owner.fill("Recipient", rcpt)
+	owner.waitText("Give emergency access to personal")
+	owner.choose("Who", 0)
+	owner.fill("Their public key", rcpt)
 	owner.fill("Wait", "2 days")
-	owner.press("Grant")
+	owner.press("Give access")
 	if !strings.Contains(owner.problem(), "is not a wait") {
 		t.Fatalf("a wrong wait: %q", owner.problem())
 	}
 	owner.fill("Wait", "2d")
-	owner.fill("Its name to them", "ada")
-	owner.press("Grant")
+	owner.fill("Name they see", "ada")
+	owner.press("Give access")
 	owner.waitText("Emergency access invite")
 	invite := string(owner.secrets()[0].value)
 	if !strings.Contains(owner.text(), "2 days") {
@@ -317,12 +317,12 @@ func TestEmergencyAccessBothSides(t *testing.T) {
 	trustee.pump()
 	trustee.fill("Invite", invite)
 	trustee.fill("Identity file", idFile)
-	trustee.press("Accept")
+	trustee.press("Accept the invite")
 	trustee.waitText(`Accepted, as "ada"`)
 	trustee.press("Close")
 	trustee.m.requestEmergency()
 	trustee.waitText("Ask for emergency access")
-	trustee.press("Ask")
+	trustee.press("Ask for access")
 	trustee.said("Asked.")
 
 	// The owner is told, in the status bar.
@@ -334,27 +334,27 @@ func TestEmergencyAccessBothSides(t *testing.T) {
 	owner.m.vpage.panes[tabSharing].refresh()
 	owner.idle()
 	owner.pressOn("Deny…")
-	owner.press("Deny")
+	owner.press("Deny the request")
 	owner.said("Denied")
 
 	trustee.m.requestEmergency()
 	trustee.waitText("Ask for emergency access")
-	trustee.press("Ask")
+	trustee.press("Ask for access")
 	trustee.said("Asked.")
 	clock.add(49 * time.Hour)
 	trustee.m.openEmergency()
 	trustee.waitText("Open a vault by emergency access")
 	trustee.fill("Identity file", idFile)
-	trustee.press("Open")
+	trustee.press("Open the vault")
 	trustee.said("Opened vault ada")
 	trustee.waitFor("the vault ada", func() bool { return trustee.m.vaultInfo("ada") != nil })
 
 	owner.m.vpage.panes[tabSharing].refresh()
 	owner.idle()
 	owner.pressOn("Revoke…")
-	owner.waitText("Revoke emergency access")
-	owner.tick("Rotate the key too", false)
-	owner.press("Revoke")
+	owner.waitText("'s emergency access")
+	owner.tick("Also give the vault a new key", false)
+	owner.press("Revoke access")
 	owner.said("Revoked")
 	owner.idle()
 	if len(owner.m.vpage.emergency.Given) != 0 {
@@ -369,16 +369,16 @@ func TestGrantsAreDecidedAheadOfTime(t *testing.T) {
 	p := h.openVaultPage(tabGrants)
 	h.pressOn("Allow a program…")
 	h.fill("Program", "/usr/bin/git")
-	h.choose("About", 1)
+	h.choose("Applies to", 1)
 	h.fill("Item", "web/github.com")
 	h.tick("list", true)
 	h.tick("Only until the vault next locks", true)
-	h.press("Allow")
-	h.said("allow-until-lock: git (/usr/bin/git) may read, list web/github.com")
+	h.press("Allow the program")
+	h.said("git (/usr/bin/git) may read and list item web/github.com until the vault locks.")
 	h.pressOn("Deny a program…")
 	h.fill("Program", "flatpak:org.example.Spy")
-	h.press("Deny")
-	h.said("deny-always")
+	h.press("Deny the program")
+	h.said("may never read the whole vault.")
 	h.idle()
 	if len(p.grants) != 2 {
 		t.Fatalf("grants: %+v", p.grants)

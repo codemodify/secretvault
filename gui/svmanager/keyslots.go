@@ -39,7 +39,7 @@ func (m *Manager) fillSlots(p *vaultPage, pn *pane) {
 			case 0:
 				return s.ID
 			case 1:
-				return s.Type
+				return svops.SlotTypeName(s.Type)
 			case 2:
 				return s.Label
 			case 3:
@@ -53,50 +53,39 @@ func (m *Manager) fillSlots(p *vaultPage, pn *pane) {
 		pn.focus = p.stable
 		remove := widgets.NewButton("Remove…", func() { m.removeSlot(p) })
 		remove.SetEnabled(len(slots) > 1)
-		return m.paneColumn("Each keyslot opens the vault on its own. Removing one does not take away a key "+
-			"already opened with it: rotating the key does that.", p.stable,
-			widgets.NewButton("Add…", func() { m.addSlot(p) }),
+		return m.paneColumn(svops.KeyslotsNote, p.stable,
+			widgets.NewButton("Add a keyslot…", func() { m.addSlot(p) }),
 			remove,
 			widgets.NewButton("Change the passphrase…", func() { m.changePassphrase(p) }),
-			widgets.NewButton("Rotate the key…", func() { m.rotateKey(p, nil, "") }))
+			widgets.NewButton("Give it a new key…", func() { m.rotateKey(p, nil, "") }))
 	})
-}
-
-// slotKinds are the keyslots that can be added, as slot.add names them,
-// and as people are offered them.
-var slotKinds = []struct{ typ, text string }{
-	{svformat.SlotPassphrase, "Another passphrase"},
-	{svformat.SlotRecovery, "A recovery key, shown once (or as shares)"},
-	{svformat.SlotKeyfile, "A keyfile"},
-	{svformat.SlotRecipient, "A person's or device's identity (a recipient)"},
-	{svformat.SlotFIDO2, "The security key plugged in"},
 }
 
 // addSlot adds a keyslot (the CLI's slot add): the kind at the head, and
 // under it what that kind takes, and nothing else.
 func (m *Manager) addSlot(p *vaultPage) {
-	f := m.newForm("Add a keyslot to " + p.vault)
-	kinds := make([]string, len(slotKinds))
-	for i, k := range slotKinds {
-		kinds[i] = k.text
+	f := m.newForm(svops.AddSlotTitle(p.vault))
+	kinds := make([]string, len(svops.SlotKinds))
+	for i, k := range svops.SlotKinds {
+		kinds[i] = k.Text
 	}
 	kind := widgets.NewRadioGroup(kinds, 0, nil)
-	kind.SetAccessibleName("Kind")
-	f.row("Kind", kind)
-	label := f.text("Label", "", "optional: whose, or what for")
+	kind.SetAccessibleName("Opens with")
+	f.row("Opens with", kind)
+	label := f.text("Label", "", svops.SlotLabelPlaceholder)
 	var newPass func() ([]byte, bool)
 	var split, create *widgets.Checkbox
 	var shares, threshold *widgets.NumberField
 	var keyfile, recipient *pathField
 	var uv *widgets.ComboBox
-	parts := make([]*formPart, len(slotKinds))
-	for i, k := range slotKinds {
+	parts := make([]*formPart, len(svops.SlotKinds))
+	for i, k := range svops.SlotKinds {
 		parts[i] = f.part(func() {
-			switch k.typ {
+			switch k.Type {
 			case svformat.SlotPassphrase:
 				newPass = f.newPassphrase("Passphrase")
 			case svformat.SlotRecovery:
-				f.note("A recovery key opens the vault on its own, like the passphrase. It is shown once, and kept nowhere.")
+				f.note(svops.RecoveryKeyIntro)
 				split = f.check("Split it into shares, for several people to hold", false)
 				shares = widgets.NewNumberField(2, 255, 3, 1, nil)
 				shares.SetAccessibleName("Shares")
@@ -104,24 +93,29 @@ func (m *Manager) addSlot(p *vaultPage) {
 				threshold.SetAccessibleName("Shares it takes")
 				f.row("Shares", widgets.NewRow(shares, widgets.NewLabel("of which it takes"), threshold).WithGap(gap).WithAlign(layout.AlignCenter))
 			case svformat.SlotKeyfile:
+				f.note(svops.KeyfileIntro)
 				keyfile = f.path("Keyfile", PickSave, "vault.key")
-				create = f.check("Make a new keyfile there (64 random bytes, only yours to read)", false)
+				create = f.check("Make a new keyfile there", false)
 			case svformat.SlotRecipient:
-				recipient = f.path("Recipient", PickOpen, "")
-				f.note("The text of a recipient, a file holding one, or an identity file. Sharing › Share with… offers your contacts.")
+				recipient = f.path("Their key", PickOpen, "")
+				f.note("Their public key (a recipient): its text, a file that holds it, or an identity file. To choose from your contacts, use Sharing › Share with… instead.")
 			case svformat.SlotFIDO2:
-				f.note("The security key plugged in is enrolled: it is asked for its PIN, if it has one, and to be touched.")
-				uv = f.choice("Opening asks", []string{"for its PIN with every touch, if it has one", "for its PIN, always", "for a touch alone"}, 0)
+				f.note(svops.FIDO2SlotIntro)
+				uv = f.choice(svops.FIDO2PINLabel, svops.FIDO2PINChoices, 0)
 			}
 		})
 	}
 	kind.OnChange = func(i int) {
 		f.fail("") // what was wrong was with another kind
 		f.showPart(parts, i)
+		if f.accept != nil {
+			f.accept.Text = svops.SlotAddAction(svops.SlotKinds[max(0, i)].Type)
+			f.accept.Invalidate()
+		}
 	}
 	f.showPart(parts, kind.Selected())
-	f.show("Add", func() {
-		typ := slotKinds[max(0, kind.Selected())].typ
+	f.show(svops.SlotAddAction(svops.SlotKinds[max(0, kind.Selected())].Type), func() {
+		typ := svops.SlotKinds[max(0, kind.Selected())].Type
 		params := svrpc.SlotAddParams{Vault: p.vault, Type: typ, Label: strings.TrimSpace(label.Text)}
 		n, k := 0, 0
 		var keyPath, rcpt string
@@ -153,7 +147,7 @@ func (m *Manager) addSlot(p *vaultPage) {
 			makeKey = create.Checked
 		case svformat.SlotRecipient:
 			if rcpt = recipient.Path(); rcpt == "" {
-				f.fail("Give the recipient, or the file that holds it.")
+				f.fail("Give their public key, or the file that holds it.")
 				return
 			}
 		case svformat.SlotFIDO2:
@@ -192,10 +186,10 @@ func (m *Manager) addSlot(p *vaultPage) {
 			info, err = c.AddSlot(ctx, params)
 			return err
 		}, func() {
-			m.say("Added a %s keyslot, %s.", info.Type, info.ID)
+			m.say("%s", svops.SlotAdded(p.vault, info))
 			m.refreshTab(p, tabKeyslots)
 			if info.Type == svformat.SlotFIDO2 {
-				m.showText("Security key added", fmt.Sprintf("%s opens vault %s with: %s. Try it: lock the vault, then Vault › Unlock with… › the security key.", info.Label, p.vault, info.Detail), "")
+				m.showText("Security key added", fmt.Sprintf("%s now opens vault %s (%s). Try it: lock the vault, then Vault › Unlock with… › The security key plugged in.", info.Label, p.vault, info.Detail), "")
 			}
 			if info.RecoveryKey != "" {
 				m.showNewRecovery(p.vault, info.RecoveryKey, n, k)
@@ -237,17 +231,12 @@ func (m *Manager) removeSlot(p *vaultPage) {
 	if s.Type == svformat.SlotEmergency {
 		// Removing it would end the grant only half: the server would
 		// still hold it. Revoking ends it whole.
-		m.say("Keyslot %s is emergency access: end it with Sharing › Emergency access › Revoke…", s.ID)
+		m.say("That keyslot is emergency access: end it on the Sharing tab, under Emergency access, with Revoke….")
 		m.selectTab(p.tabbedPage, tabSharing)
 		return
 	}
-	what := s.Type
-	if s.Label != "" {
-		what += " (" + s.Label + ")"
-	}
-	m.confirm("Remove the keyslot?", fmt.Sprintf("Remove keyslot %s, %s, from vault %s?\n\nIt stops opening the vault. "+
-		"Whoever opened the vault with it may still hold its key: to cut them off, rotate the key, or use Sharing › Cut off.", s.ID, what, p.vault),
-		"Remove", func() {
+	m.confirm(svops.RemoveSlotTitle, svops.RemoveSlotText(p.vault, s)+" (Give it a new key… on this tab; Sharing › Cut off… does both.)",
+		svops.RemoveSlotAction, func() {
 			m.call(func(ctx context.Context, c *secretvault.Client) error {
 				return c.RemoveSlot(ctx, p.vault, s.ID)
 			}, func(err error) {
@@ -255,7 +244,7 @@ func (m *Manager) removeSlot(p *vaultPage) {
 					m.fail(err)
 					return
 				}
-				m.say("Removed keyslot %s.", s.ID)
+				m.say("%s", svops.SlotRemoved(p.vault, s))
 				m.refreshTab(p, tabKeyslots)
 			})
 		})
@@ -282,20 +271,19 @@ func (m *Manager) proveThen(vault string, then func()) {
 // CLI's passwd).
 func (m *Manager) changePassphrase(p *vaultPage) {
 	m.proveThen(p.vault, func() {
-		f := m.newForm("Change the passphrase of " + p.vault)
-		f.note("The passphrase keyslot used to unlock is replaced; other keyslots are left as they are.")
+		f := m.newForm(svops.ChangePassphraseTitle(p.vault))
+		f.intro(svops.ChangePassphraseIntro)
 		newPass := f.newPassphrase("New passphrase")
-		f.show("Change", func() {
+		f.show(svops.ChangePassphraseAction, func() {
 			pass, ok := newPass()
 			if !ok {
 				return
 			}
-			var info svrpc.SlotInfo
-			f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
-				info, err = c.Passwd(ctx, p.vault, pass)
+			f.call(func(ctx context.Context, c *secretvault.Client) error {
+				_, err := c.Passwd(ctx, p.vault, pass)
 				return err
 			}, func() {
-				m.say("Changed the passphrase (keyslot %s).", info.ID)
+				m.say("%s", svops.PassphraseChanged(p.vault))
 				m.refreshTab(p, tabKeyslots)
 			}, pass)
 		})
@@ -308,19 +296,15 @@ func (m *Manager) changePassphrase(p *vaultPage) {
 // keyslot, and a new recovery key if asked for. why heads the dialog.
 func (m *Manager) rotateKey(p *vaultPage, drop []string, why string) {
 	m.proveThen(p.vault, func() {
-		title := "Rotate the key of " + p.vault
-		if len(drop) > 0 {
-			title = "Cut off, and rotate the key of " + p.vault
-		}
-		f := m.newForm(title)
+		f := m.newForm(svops.RotateTitle(p.vault, len(drop) > 0))
+		intro := svops.RotateIntro(len(drop))
 		if why != "" {
-			f.note(why)
+			intro = why + "\n\n" + intro
 		}
-		f.note("A new key is made and every item sealed under it. Keyfiles and security keys do not carry over: " +
-			"add them again afterwards. The passphrase may be the one it has now.")
+		f.intro(intro)
 		newPass := f.newPassphrase("Passphrase")
-		recovery := f.check("Make a new recovery key (the old one stops working)", false)
-		f.show("Rotate", func() {
+		recovery := f.check(svops.RotateRecoveryCheck, false)
+		f.show(svops.RotateAction(len(drop) > 0), func() {
 			pass, ok := newPass()
 			if !ok {
 				return
@@ -331,34 +315,14 @@ func (m *Manager) rotateKey(p *vaultPage, drop []string, why string) {
 				res, err = c.Rotate(ctx, params)
 				return err
 			}, func() {
-				m.say("The key of %s was rotated (epoch %d).", p.vault, res.Epoch)
+				m.say("%s", svops.RotateStatus(p.vault))
 				m.refreshTab(p, tabKeyslots)
 				m.refreshTab(p, tabSharing)
-				m.showText("The key was rotated", fmt.Sprintf("Vault %s has a new key (epoch %d).", p.vault, res.Epoch), rotateReport(res))
+				m.showDone("The vault has a new key", svops.RotateDone(p.vault, res, len(drop)), svops.RotateDetails(res))
 				if res.RecoveryKey != "" {
 					m.showRecoveryKey(p.vault, []byte(res.RecoveryKey))
 				}
 			}, pass)
 		})
 	})
-}
-
-// rotateReport says what opens a vault after its key was rotated.
-func rotateReport(res svrpc.RotateResult) string {
-	var b strings.Builder
-	b.WriteString("It opens with:\n")
-	for _, s := range res.Slots {
-		label := s.Label
-		if label == "" {
-			label = s.Type
-		}
-		fmt.Fprintf(&b, "  %s  %s\n", s.ID, label)
-	}
-	if len(res.Dropped) > 0 {
-		b.WriteString("\nNo longer opening it (add them again on the Keyslots tab, or grant emergency access again):\n")
-		for _, s := range res.Dropped {
-			fmt.Fprintf(&b, "  %s  %s (%s)\n", s.ID, s.Label, s.Type)
-		}
-	}
-	return strings.TrimRight(b.String(), "\n")
 }

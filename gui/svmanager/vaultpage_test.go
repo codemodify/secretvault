@@ -54,7 +54,7 @@ func TestKeyslotsAreListedAddedAndRemoved(t *testing.T) {
 	// One step: the kind at the head of the form, and under it only what
 	// that kind takes, the rows under it moved up with no gap
 	// (uitoolkit-gaps.md, 38 and 45).
-	h.pressOn("Add…")
+	h.pressOn("Add a keyslot…")
 	shows := func(name string) bool {
 		return shown(find(h.overlay(), func(c interface {
 			widget.Component
@@ -73,9 +73,9 @@ func TestKeyslotsAreListedAddedAndRemoved(t *testing.T) {
 		return widget.DeviceOrigin(c).Y - widget.DeviceOrigin(label).Y - label.Bounds().Dy()
 	}
 	under := below(find(h.overlay(), func(f *widgets.SecretField) bool { return f.AccessibleName() == "Passphrase" }))
-	h.choose("Kind", 4)
+	h.choose("Opens with", 4)
 	h.pump()
-	if shows("Passphrase") || !shows("Opening asks") || !strings.Contains(h.text(), "The security key plugged in is enrolled") {
+	if shows("Passphrase") || !shows("Opening asks") || !strings.Contains(h.text(), "Touch the security key plugged in when it blinks") {
 		t.Fatalf("adding a security key shows another kind's fields:\n%s", h.text())
 	}
 	if got := below(find(h.overlay(), func(c *widgets.ComboBox) bool { return c.AccessibleName() == "Opening asks" })); math.Abs(float64(got-under)) > 1 {
@@ -86,19 +86,19 @@ func TestKeyslotsAreListedAddedAndRemoved(t *testing.T) {
 	}
 
 	// Another passphrase.
-	h.choose("Kind", 0)
+	h.choose("Opens with", 0)
 	h.pump()
 	h.fill("Label", "spare")
 	h.fill("Passphrase", "spare passphrase 1")
 	h.fill("Repeat", "spare passphrase 2")
-	h.press("Add")
+	h.press("Add the passphrase")
 	if h.problem() != "The two passphrases differ." {
 		t.Fatalf("differing passphrases: %q", h.problem())
 	}
 	h.fill("Passphrase", "spare passphrase 1")
 	h.fill("Repeat", "spare passphrase 1")
-	h.press("Add")
-	h.said("Added a passphrase keyslot")
+	h.press("Add the passphrase")
+	h.said(`Vault personal now also opens with the passphrase "spare".`)
 	h.idle()
 	if got := h.slotTypes(); len(got) != 2 {
 		t.Fatalf("keyslots now %v", got)
@@ -109,12 +109,12 @@ func TestKeyslotsAreListedAddedAndRemoved(t *testing.T) {
 
 	// A keyfile, made here.
 	key := filepath.Join(h.dir, "vault.key")
-	h.pressOn("Add…")
-	h.choose("Kind", 2)
+	h.pressOn("Add a keyslot…")
+	h.choose("Opens with", 2)
 	h.fill("Keyfile", key)
 	h.tick("Make a new keyfile there", true)
-	h.press("Add")
-	h.said("Added a keyfile keyslot")
+	h.press("Add the keyfile")
+	h.said("Vault personal now also opens with the keyfile.")
 	if st, err := os.Stat(key); err != nil || st.Mode().Perm() != 0o600 || st.Size() != 64 {
 		t.Fatalf("the keyfile: %v %v", st, err)
 	}
@@ -127,11 +127,11 @@ func TestKeyslotsAreListedAddedAndRemoved(t *testing.T) {
 		}
 	}
 	h.pressOn("Remove…")
-	if !strings.Contains(h.text(), "rotate the key") {
+	if !strings.Contains(h.text(), "giving the vault a new key shuts them out") {
 		t.Fatalf("removing did not say what it does not do:\n%s", h.text())
 	}
-	h.press("Remove")
-	h.said("Removed keyslot")
+	h.press("Remove the keyslot")
+	h.said(`Vault personal no longer opens with the passphrase "spare".`)
 	if got := h.slotTypes(); len(got) != 2 || got[0] == got[1] {
 		t.Fatalf("keyslots after removing: %v", got)
 	}
@@ -141,7 +141,7 @@ func TestKeyslotsAreListedAddedAndRemoved(t *testing.T) {
 	h.idle()
 	h.m.unlockWith()
 	h.pump()
-	h.choose("Key", 3)
+	h.choose("Open it with", 3)
 	h.press("Next")
 	h.fill("Keyfile", key)
 	h.press("Unlock")
@@ -154,12 +154,12 @@ func TestARecoveryKeySplitIntoSharesIsShownOnceAndOpensTheVault(t *testing.T) {
 	h.start(Options{})
 	h.unlock()
 	h.openVaultPage(tabKeyslots)
-	h.pressOn("Add…")
-	h.choose("Kind", 1)
+	h.pressOn("Add a keyslot…")
+	h.choose("Opens with", 1)
 	h.tick("Split it into shares", true)
 	find(h.overlay(), func(f *widgets.NumberField) bool { return f.AccessibleName() == "Shares" }).Value = 3
 	find(h.overlay(), func(f *widgets.NumberField) bool { return f.AccessibleName() == "Shares it takes" }).Value = 2
-	h.press("Add")
+	h.press("Make the recovery key")
 	h.waitText("Recovery shares for personal")
 	shown := h.secrets()
 	if len(shown) != 3 {
@@ -195,20 +195,20 @@ func TestARecoveryKeySplitIntoSharesIsShownOnceAndOpensTheVault(t *testing.T) {
 	h.idle()
 	h.m.unlockWith()
 	h.pump()
-	h.choose("Key", 2)
+	h.choose("Open it with", 2)
 	h.press("Next")
 	h.fill("Share 1", "not a share")
-	h.press("Add")
+	h.press("Add the share")
 	if h.problem() == "" {
 		t.Fatal("a mistyped share was taken")
 	}
 	h.fill("Share 1", string(shares[2]))
-	h.press("Add")
+	h.press("Add the share")
 	if !strings.Contains(h.text(), "1 of 2 shares typed.") {
 		t.Fatalf("the count is not said:\n%s", h.text())
 	}
 	h.fill("Share 1", string(shares[0]))
-	h.press("Add")
+	h.press("Add the share")
 	h.said("Unlocked personal.")
 	h.waitFor("the items", func() bool { return h.m.listed && len(h.m.entries) == 4 })
 }
@@ -222,8 +222,8 @@ func TestChangingThePassphraseAndRotatingTheKey(t *testing.T) {
 	h.waitText("Change the passphrase of personal")
 	h.fill("New passphrase", "a new passphrase 9")
 	h.fill("Repeat", "a new passphrase 9")
-	h.press("Change")
-	h.said("Changed the passphrase")
+	h.press("Change the passphrase")
+	h.said("Changed the passphrase of vault personal.")
 	if err := h.admin.Lock(h.ctx(), "", false); err != nil {
 		t.Fatal(err)
 	}
@@ -236,19 +236,19 @@ func TestChangingThePassphraseAndRotatingTheKey(t *testing.T) {
 	h.waitFor("the page to close on the lock", func() bool { return !h.m.showingVaultPage() })
 	h.m.showVaultPage(tabKeyslots)
 	h.idle()
-	h.pressOn("Rotate the key…")
+	h.pressOn("Give it a new key…")
 	h.waitFor("the rotation's form, or the daemon's question", func() bool {
-		return h.m.asking != nil && h.m.asking.win != nil || strings.Contains(h.text(), "Rotate the key of personal")
+		return h.m.asking != nil && h.m.asking.win != nil || strings.Contains(h.text(), "Give vault personal a new key")
 	})
 	if d := h.m.asking; d != nil {
 		d.win.Type("a new passphrase 9")
 		d.win.Press(platform.KeyReturn)
 	}
-	h.waitText("Rotate the key of personal")
+	h.waitText("Give vault personal a new key")
 	h.fill("Passphrase", "a new passphrase 9")
 	h.fill("Repeat", "a new passphrase 9")
 	h.tick("Make a new recovery key", true)
-	h.press("Rotate")
+	h.press("Make a new key")
 	// The vault was unlocked by another program meanwhile: the daemon
 	// asks this one to prove itself before it rotates.
 	h.waitFor("the recovery key, or the daemon's question", func() bool {
@@ -261,8 +261,8 @@ func TestChangingThePassphraseAndRotatingTheKey(t *testing.T) {
 	h.waitText("Recovery key for personal")
 	rk := append([]byte(nil), h.secrets()[0].value...)
 	h.press("I have written it down")
-	h.waitText("The key was rotated")
-	if !strings.Contains(h.text(), "It opens with:") {
+	h.waitText("The vault has a new key")
+	if !strings.Contains(h.text(), "Vault personal has a new key: a key kept from before cannot read anything written from now on.") {
 		t.Fatalf("the report:\n%s", h.text())
 	}
 	h.press("Close")
@@ -280,13 +280,13 @@ func TestASecurityKeyIsAddedAndUnlocks(t *testing.T) {
 	h.start(Options{})
 	h.unlock()
 	h.openVaultPage(tabKeyslots)
-	h.pressOn("Add…")
-	h.choose("Kind", 4)
+	h.pressOn("Add a keyslot…")
+	h.choose("Opens with", 4)
 	h.choose("Opening asks", 2)
 	h.fill("Label", "desk key")
-	h.press("Add")
+	h.press("Add the security key")
 	h.waitText("Security key added")
-	if !strings.Contains(h.text(), "desk key opens vault personal with: touch") {
+	if !strings.Contains(h.text(), "desk key now opens vault personal (touch") {
 		t.Fatalf("what the key opens with is not said:\n%s", h.text())
 	}
 	h.press("Close")
@@ -294,7 +294,7 @@ func TestASecurityKeyIsAddedAndUnlocks(t *testing.T) {
 	h.idle()
 	h.m.unlockWith()
 	h.pump()
-	h.choose("Key", 5)
+	h.choose("Open it with", 5)
 	h.press("Next")
 	h.said("Unlocked personal.")
 }
@@ -305,9 +305,9 @@ func TestThePINOfASecurityKeyIsAskedInItsOwnWindow(t *testing.T) {
 	h.start(Options{})
 	h.unlock()
 	h.openVaultPage(tabKeyslots)
-	h.pressOn("Add…")
-	h.choose("Kind", 4)
-	h.press("Add")
+	h.pressOn("Add a keyslot…")
+	h.choose("Opens with", 4)
+	h.press("Add the security key")
 	d := h.asking()
 	if !strings.Contains(windowText(d.win), "Enter the PIN of your security key (YubiKey 5)") {
 		t.Fatalf("the PIN prompt says:\n%s", windowText(d.win))

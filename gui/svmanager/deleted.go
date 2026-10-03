@@ -6,6 +6,7 @@ import (
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -42,12 +43,12 @@ func (m *Manager) showDeleted() {
 			}
 			return d.Deleted.Local().Format("2006-01-02 15:04")
 		})
-		note := "Items deleted from vault " + vault + ". Restoring one brings it back as it was before it was deleted."
+		note := "Items deleted from vault " + vault + ". Bring one back, and it is as it was before it was deleted."
 		if len(del) == 0 {
 			note = "Nothing has been deleted from vault " + vault + "."
 		}
 		var d *dialog
-		restore := widgets.NewButton("Restore", nil)
+		restore := widgets.NewButton(svops.RestoreDeletedAction, nil)
 		restore.SetEnabled(len(del) > 0)
 		restore.OnClick = func() {
 			i := selected(t)
@@ -65,7 +66,7 @@ func (m *Manager) showDeleted() {
 					return
 				}
 				d.Close()
-				m.say("Restored %s (revision %s).", e.Item.Name, short(e.Rev))
+				m.say("Brought %s back.", e.Item.Name)
 				if vault == m.vault {
 					m.cursor = name
 					m.loadItems()
@@ -105,11 +106,11 @@ func (m *Manager) copyReference() {
 		fields = append(fields, "the field "+n)
 	}
 	f := m.newForm("Copy a reference to " + name)
-	which := f.choice("To", fields, 0)
-	named := f.check("Name the vault (else it reads the default vault, whichever it is)", true)
-	f.note("A reference names a value without holding it: sv:// references in an env file or a template are read " +
-		"with secretvault run or secretvault inject, each read asking as any program's does.")
-	f.show("Copy", func() {
+	f.intro("A reference names a secret without holding it, for scripts and settings files to use. " +
+		"secretvault run and secretvault inject read what it names, asking you first as any program's read does.")
+	which := f.choice("Refer to", fields, 0)
+	named := f.check("Name vault "+vault+" in it (else: the default vault)", true)
+	f.show("Copy the reference", func() {
 		r := svrpc.Ref{Item: name}
 		if named.Checked {
 			r.Vault = vault

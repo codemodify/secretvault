@@ -14,6 +14,7 @@ import (
 
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svotp"
 	"github.com/codemodify/secretvault/svrpc"
 )
@@ -219,7 +220,7 @@ func (m *Manager) drawItems() {
 	note := ""
 	switch v := m.vaultInfo(m.vault); {
 	case m.gone:
-		note = "secretvaultd is not running."
+		note = "secretvault's background service is not running: nothing can be shown until it is back."
 	case m.vault == "":
 	case v != nil && v.ID == "":
 		note = "This vault's folder is missing."
@@ -612,8 +613,7 @@ func (m *Manager) deleteItem() {
 		return
 	}
 	vault := m.vault
-	m.confirm("Delete "+name+"?",
-		fmt.Sprintf("Delete %s from vault %s?\n\nIts revisions stay in the vault's history.", name, vault), "Delete",
+	m.confirm("Delete "+name+"?", svops.DeleteItemText(name, vault, "Edit › Deleted items"), svops.DeleteItemAction,
 		func() {
 			m.call(func(ctx context.Context, c *secretvault.Client) error {
 				return c.Delete(ctx, vault, name)
@@ -660,8 +660,8 @@ func (m *Manager) renameItem() {
 			case to == name:
 				done(nil)
 				return
-			case checkName(to) != nil:
-				done(errors.New(sentence(checkName(to).Error())))
+			case svcore.CheckName(to) != nil:
+				done(errors.New(svops.BadItemName(to)))
 				return
 			case m.entry(to) != nil:
 				done(fmt.Errorf("There is an item called %s already.", to))

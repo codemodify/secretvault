@@ -154,7 +154,7 @@ func (m *Manager) buildMenu() *widgets.MenuBar {
 		widgets.NewMenu("&File",
 			item(u.vaultMenu, "New item", "Ctrl+N", func() { m.newItem(nil) }),
 			item(nil, "New vault…", "", m.newVault),
-			item(nil, "Add vault folder…", "", m.addVaultFolder),
+			item(nil, "Add an existing vault…", "", m.addVaultFolder),
 			item(nil, "Join a synced vault…", "", m.joinSynced),
 			widgets.Sep(),
 			item(u.vaultMenu, "Import…", "", m.importItems),
@@ -195,7 +195,7 @@ func (m *Manager) buildMenu() *widgets.MenuBar {
 			item(u.vaultMenu, "Lock", "Ctrl+L", func() { m.lockVault(false) }),
 			item(nil, "Lock all vaults", "Ctrl+Shift+L", func() { m.lockVault(true) }),
 			widgets.Sep(),
-			item(u.vaultMenu, "Make default", "", m.makeDefault),
+			item(u.vaultMenu, "Make it the default", "", m.makeDefault),
 			widgets.Sep(),
 			vault("Keyslots", tabKeyslots),
 			vault("Devices", tabDevices),
@@ -250,7 +250,7 @@ func (m *Manager) buildMenu() *widgets.MenuBar {
 			item(nil, "Host daemon", "", func() { m.showDesktopPage(tabHost) }),
 		),
 		widgets.NewMenu("&Help",
-			item(nil, "Keys", "F1", m.showKeys),
+			item(nil, "Keyboard shortcuts", "F1", m.showKeys),
 			item(nil, "About secretvault", "", m.showAbout),
 		),
 	)
@@ -265,7 +265,7 @@ func (m *Manager) enableMenus() {
 	if v != nil && !m.gone {
 		m.ui.vaultMenu["Unlock"].Disabled = !v.Locked
 		m.ui.vaultMenu["Lock"].Disabled = v.Locked
-		m.ui.vaultMenu["Make default"].Disabled = v.Default
+		m.ui.vaultMenu["Make it the default"].Disabled = v.Default
 	}
 	// The vault's page covers the items: what acts on an item waits
 	// until they are back, rather than act on a pane nobody can see.
@@ -287,7 +287,7 @@ func (m *Manager) drawStatus() {
 	var b strings.Builder
 	switch v := m.vaultInfo(m.vault); {
 	case m.gone:
-		b.WriteString("secretvaultd is not running")
+		b.WriteString("Not connected to secretvault's background service")
 	case m.vault == "":
 		b.WriteString("No vault")
 	case v == nil:
@@ -296,7 +296,7 @@ func (m *Manager) drawStatus() {
 		b.WriteString(v.Name)
 		switch {
 		case v.ID == "":
-			b.WriteString(": missing")
+			b.WriteString(": folder missing")
 		case v.Locked:
 			b.WriteString(": locked")
 		default:

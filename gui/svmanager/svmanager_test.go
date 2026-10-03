@@ -270,7 +270,7 @@ func TestAnItemIsMaskedUntilRevealed(t *testing.T) {
 	h.waitText("Enter opens it")
 	h.open("web/github.com")
 	screen := h.text()
-	for _, want := range []string{"web/github.com", "login · GitHub", "username", "ada", "password", mask, "https://github.com", "dev", "service", "github", "No files."} {
+	for _, want := range []string{"web/github.com", "login · GitHub", "username", "ada", "password", mask, "https://github.com", "dev", "service", "github", "No files: Add file… attaches one."} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("the item lacks %q", want)
 		}
@@ -561,7 +561,7 @@ func TestRenameAndDelete(t *testing.T) {
 	// A name that cannot be used is refused in the dialog, with what was
 	// typed still there to correct.
 	for _, bad := range []struct{ name, why string }{
-		{"mail//fastmail", "not a usable name"},
+		{"mail//fastmail", "cannot be an item's name"},
 		{"web/github.com", "There is an item called web/github.com already."},
 	} {
 		h.win().Press(platform.KeyA, platform.ModCtrl)
@@ -586,7 +586,7 @@ func TestRenameAndDelete(t *testing.T) {
 	h.win().FocusOn(h.m.ui.items)
 	h.win().Press(platform.KeyDelete)
 	d := h.overlay()
-	if d == nil || !strings.Contains(h.text(), "Delete mail/fastmail.com from vault personal?") {
+	if d == nil || !strings.Contains(h.text(), "mail/fastmail.com goes from vault personal") {
 		t.Fatalf("Delete did not ask first:\n%s", h.text())
 	}
 	// The safe answer is the one Enter gives.
@@ -597,7 +597,7 @@ func TestRenameAndDelete(t *testing.T) {
 	}
 	h.win().FocusOn(h.m.ui.items)
 	h.win().Press(platform.KeyDelete)
-	h.click(h.win(), button(h.overlay(), "Delete"))
+	h.click(h.win(), button(h.overlay(), "Delete the item"))
 	h.waitFor("the deletion", func() bool { return h.m.entry("mail/fastmail.com") == nil })
 	if _, err := h.get("mail/fastmail.com"); !errors.Is(err, svrpc.ErrNotFound) {
 		t.Fatalf("after deleting: %v", err)
@@ -667,7 +667,7 @@ func TestTheGenerator(t *testing.T) {
 	d = h.overlay()
 	preview = find(d, func(*secretText) bool { return true })
 	pw = string(preview.value)
-	h.click(h.win(), button(d, "Use"))
+	h.click(h.win(), button(d, "Use this password"))
 	var got []byte
 	for _, fe := range h.m.editor.fields {
 		if fe.name == "password" {
@@ -732,8 +732,8 @@ func TestFilesAreAttachedSavedAndRemoved(t *testing.T) {
 	}
 
 	h.click(h.win(), button(h.m.ui.pane, "Remove…"))
-	h.click(h.win(), button(h.overlay(), "Remove"))
-	h.waitText("No files.")
+	h.click(h.win(), button(h.overlay(), "Remove the file"))
+	h.waitText("No files: Add file… attaches one.")
 	if _, err := h.admin.File(h.ctx(), "", "web/github.com", "recovery-codes.txt"); err == nil {
 		t.Fatal("the file is still attached")
 	}
@@ -838,7 +838,7 @@ func TestGrantsAreListedAndRevoked(t *testing.T) {
 	h.waitFor("the vault's page", h.m.showingVaultPage)
 	h.idle()
 	p := h.m.vpage
-	if len(p.grants) != 1 || p.gtable.RowCount != 1 || p.gtable.CellText(0, 0) != "allow-always" || p.gtable.CellText(0, 2) != "web/github.com" {
+	if len(p.grants) != 1 || p.gtable.RowCount != 1 || p.gtable.CellText(0, 0) != "always allowed" || p.gtable.CellText(0, 2) != "web/github.com" {
 		t.Fatalf("grants: %+v", p.grants)
 	}
 	p.tabs.Select(tabAudit)
@@ -853,15 +853,15 @@ func TestGrantsAreListedAndRevoked(t *testing.T) {
 	h.pump()
 	h.win().FocusOn(p.gtable)
 	h.win().Press(platform.KeyDelete)
-	if !strings.Contains(h.text(), "It will be asked about again.") {
+	if !strings.Contains(h.text(), "Once the decision is forgotten, you are asked again") {
 		t.Fatalf("revoking did not ask first:\n%s", h.text())
 	}
-	h.click(h.win(), button(h.overlay(), "Revoke"))
+	h.click(h.win(), button(h.overlay(), "Forget the decision"))
 	h.waitFor("the revocation", func() bool { return h.m.vpage != nil && len(h.m.vpage.grants) == 0 })
 	if g, err := h.admin.Grants(h.ctx(), ""); err != nil || len(g) != 0 {
 		t.Fatalf("the daemon still has %+v, %v", g, err)
 	}
-	h.waitText("No program has a remembered decision about this vault.")
+	h.waitText("No program has a remembered decision about this vault")
 	h.win().Press(platform.KeyEscape)
 	if h.m.showingVaultPage() {
 		t.Fatal("Escape did not leave the vault's page")
@@ -893,7 +893,7 @@ func TestSyncStatusIsShown(t *testing.T) {
 	h.waitFor("the vault's page", h.m.showingVaultPage)
 	h.m.vpage.tabs.Select(tabSync)
 	h.idle()
-	for _, want := range []string{srv.URL, "Last good sync", "pushed"} {
+	for _, want := range []string{srv.URL, "Last good sync", "sent"} {
 		if !strings.Contains(h.text(), want) {
 			t.Errorf("the sync tab lacks %q", want)
 		}
@@ -939,7 +939,7 @@ func TestWhenTheDaemonGoesAwayItSaysSoAndReconnects(t *testing.T) {
 	h.open("web/github.com")
 	held := h.m.cur.Item.Fields[1].Value
 	h.stopDaemon()
-	h.waitText("No connection to secretvaultd")
+	h.waitText("Not connected")
 	if !allZero(held) || h.m.cur != nil {
 		t.Fatal("the open item was kept")
 	}

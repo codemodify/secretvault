@@ -103,7 +103,7 @@ func (m *Manager) newItemView(e *svrpc.Entry, mode viewMode, keys map[int]*svotp
 		}
 		actions.Add(tip(widgets.NewButton("Edit", m.editItem), "Ctrl+E"))
 		actions.Add(tip(widgets.NewButton("History", m.showHistory), "Ctrl+H"))
-		actions.Add(tip(widgets.NewButton("Copy reference…", m.copyReference), "sv://, for env files and templates"))
+		actions.Add(tip(widgets.NewButton("Copy reference…", m.copyReference), "Names this secret for scripts and settings files, without holding it"))
 		actions.Add(tip(widgets.NewButton("Rename…", m.renameItem), "F2"))
 		actions.Add(tip(widgets.NewButton("Delete…", m.deleteItem), "Delete"))
 		col.Add(actions)
@@ -262,7 +262,7 @@ func (v *itemView) fileList() widget.Component {
 	m := v.m
 	col := widgets.NewColumn().WithGap(6)
 	if len(v.e.Item.Files) == 0 {
-		col.Add(m.muted("No files."))
+		col.Add(m.muted("No files: Add file… attaches one."))
 	} else {
 		g := widgets.NewGrid()
 		g.Cols = []widgets.Track{widgets.Flex(1), widgets.Auto(), widgets.Auto()}

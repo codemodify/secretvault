@@ -33,8 +33,9 @@ type Header struct {
 	held  bool
 }
 
-// keyboardHeldText is what the header says while the keyboard is held.
-const keyboardHeldText = "Keyboard held"
+// keyboardHeldText is what the header says while the keyboard is held:
+// no other program sees what is typed.
+const keyboardHeldText = "Typing is private"
 
 // SetHeld says whether the window holds the keyboard now.
 func (h *Header) SetHeld(held bool) {

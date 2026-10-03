@@ -28,7 +28,7 @@ func (m *Manager) fillContainers(p *vaultPage, pn *pane) {
 	}, func() widget.Component {
 		p.boxes = list
 		p.ctable = table("Containers", []widgets.TableColumn{
-			{Title: "Item", Width: 160}, {Title: "File"}, {Title: "State", Width: 200},
+			{Title: "Key item", Width: 160}, {Title: "Container file"}, {Title: "State", Width: 200},
 		}, len(list), func(r, c int) string {
 			ci := list[r]
 			switch c {
@@ -39,17 +39,16 @@ func (m *Manager) fillContainers(p *vaultPage, pn *pane) {
 			}
 			switch ci.State {
 			case "mounted":
-				return "open, at " + ci.MountPoint
+				return "open, in " + ci.MountPoint
 			case "unknown":
 				return "-"
 			}
 			return ci.State
 		})
 		pn.focus = p.ctable
-		note := "Each container is an image file with a filesystem inside, encrypted with a key kept as an item of this vault. " +
-			"Opening one mounts it, with your consent like any other use of the vault."
+		note := svops.ContainersAbout
 		if len(list) == 0 {
-			note = "No containers in this vault. A container is an image file with a filesystem inside, encrypted with a key kept here."
+			note = svops.ContainersNone + " New container… makes one."
 		}
 		if err := svops.MountsHere(); err != nil {
 			note += " " + sentence(err.Error())
@@ -59,9 +58,9 @@ func (m *Manager) fillContainers(p *vaultPage, pn *pane) {
 			widgets.NewButton("Open", func() { m.openContainer(p, "") }),
 			widgets.NewButton("Close…", func() { m.closeContainer(p) }),
 			widgets.NewButton("Copy the folder's path", func() { m.copyMountPoint(p) }),
-			widgets.NewButton("Passphrase…", func() { m.containerPassphrase(p) }),
+			widgets.NewButton("Its own passphrase…", func() { m.containerPassphrase(p) }),
 			widgets.NewButton("Back up the header…", func() { m.backupHeader(p) }),
-			widgets.NewButton("Open another file…", func() { m.openContainerFile(p) }))
+			widgets.NewButton("Open a container file…", func() { m.openContainerFile(p) }))
 		return col
 	})
 }
@@ -82,20 +81,21 @@ func (m *Manager) newContainer(p *vaultPage) {
 		return
 	}
 	f := m.newForm("New container in " + p.vault)
-	file := f.path("Image file", PickSave, "private.img")
-	size := f.text("Size", "1G", "the whole image: 512M, 1G…")
+	f.intro(svops.ContainerNewAbout)
+	file := f.path("Container file", PickSave, "private.img")
+	size := f.text("Size", "1G", "how much it holds: 512M, 1G…")
 	fs := f.choice("Filesystem", svcontainer.Filesystems, 0)
-	label := f.text("Its label", "", "optional: the filesystem's label")
-	item := f.text("Key item", "", "default: containers/ and the file's name")
+	label := f.text("Disk name", "", "optional: what file managers call it")
+	item := f.text("Keep its key in", "", "default: an item named after the file")
 	sector := f.choice("Sector size", []string{"4096", "512"}, 0)
-	mount := f.text("Mount options", "", "optional: noexec, nodev…")
-	withPass := f.check("Also give it a passphrase, so it opens with cryptsetup alone", false)
-	pass := f.secret("Passphrase", "only with the box above")
+	mount := f.text("Mount options", "", "optional, for experts: noexec, nodev…")
+	withPass := f.check("Also give it a passphrase, to open it without secretvault", false)
+	pass := f.secret("Passphrase", "only with the box below ticked")
 	again := f.secret("Repeat", "The same again")
-	f.show("Create", func() {
+	f.show("Make the container", func() {
 		path := file.Path()
 		if path == "" {
-			f.fail("Choose where the image goes.")
+			f.fail("Choose where the container file goes.")
 			return
 		}
 		n, err := svops.ParseSize(size.Text)
@@ -137,11 +137,7 @@ func (m *Manager) newContainer(p *vaultPage) {
 			info, err = c.CreateContainer(ctx, params)
 			return err
 		}, func() {
-			msg := fmt.Sprintf("Created %s (%s, %s), open at %s; its key is the item %s.", info.Path, svops.HumanSize(n), params.FS, info.MountPoint, info.Item)
-			if len(params.Passphrase) > 0 {
-				msg += " The passphrase also opens it, with cryptsetup alone."
-			}
-			m.say("%s", msg)
+			m.say("%s", svops.ContainerCreated(info.Path, svops.HumanSize(n), params.FS, info.MountPoint, info.Item, len(params.Passphrase) > 0))
 			m.refreshTab(p, tabContainers)
 		}, params.Passphrase)
 	})
@@ -178,7 +174,7 @@ func (m *Manager) mountImage(p *vaultPage, path, item, opts string) {
 			m.fail(err)
 			return
 		}
-		m.say("Opened %s at %s.", info.Path, info.MountPoint)
+		m.say("%s", svops.ContainerOpened(info.Path, info.MountPoint))
 		m.refreshTab(p, tabContainers)
 	})
 }
@@ -187,13 +183,14 @@ func (m *Manager) mountImage(p *vaultPage, path, item, opts string) {
 // or the one made for it.
 func (m *Manager) openContainerFile(p *vaultPage) {
 	f := m.newForm("Open a container")
-	file := f.path("Image file", PickOpen, "")
-	item := f.text("Key item", "", "default: the item made for this image")
-	opts := f.text("Mount options", "", "optional: ro, noexec…")
-	f.show("Open", func() {
+	f.intro(svops.ContainerOpenAbout)
+	file := f.path("Container file", PickOpen, "")
+	item := f.text("Its key is in", "", "an item; default: the one made with it")
+	opts := f.text("Mount options", "", "optional, for experts: ro, noexec…")
+	f.show("Open it", func() {
 		path := file.Path()
 		if path == "" {
-			f.fail("Choose the image.")
+			f.fail("Choose the container file.")
 			return
 		}
 		f.close()
@@ -209,15 +206,15 @@ func (m *Manager) closeContainer(p *vaultPage) {
 		return
 	}
 	f := m.newForm("Close a container")
-	target := f.path("Image or folder", PickOpen, "")
+	f.intro(svops.ContainerCloseAbout)
+	target := f.path("Container file or its folder", PickOpen, "")
 	if ci := p.container(); ci != nil {
 		target.field.SetText(ci.Path)
 	}
-	f.note("The container's image file, or the folder it is open at.")
-	f.show("Close", func() {
+	f.show("Close it", func() {
 		t := target.Path()
 		if t == "" {
-			f.fail("Name the image, or the folder it is open at.")
+			f.fail("Choose the container file, or the folder its files are in.")
 			return
 		}
 		var info svrpc.ContainerInfo
@@ -229,7 +226,7 @@ func (m *Manager) closeContainer(p *vaultPage) {
 			info, err = c.CloseContainer(ctx, abs)
 			return err
 		}, func() {
-			m.say("Closed %s.", info.Path)
+			m.say("%s", svops.ContainerClosed(info.Path))
 			m.refreshTab(p, tabContainers)
 		})
 	})
@@ -251,24 +248,26 @@ func (m *Manager) copyMountPoint(p *vaultPage) {
 // or any image named. It needs no vault.
 func (m *Manager) backupHeader(p *vaultPage) {
 	f := m.newForm("Back up a container's header")
-	image := f.path("Image", PickOpen, "")
+	f.intro(svops.HeaderBackupAbout)
+	image := f.path("Container file", PickOpen, "")
 	if ci := p.container(); ci != nil {
 		image.field.SetText(ci.Path)
 	}
-	out := f.path("To", PickSave, "")
-	f.warn("Keep it as safe as the key: with it, any key or passphrase that opens the container today opens it later, even after that keyslot is gone.")
-	f.show("Back up", func() {
+	out := f.path("Copy it to", PickSave, "")
+	out.field.Placeholder = "Optional: a new file"
+	f.warn(svops.HeaderBackupWarning)
+	f.show("Copy the header", func() {
 		src, dst := image.Path(), out.Path()
 		if dst == "" && src != "" {
 			dst = src + ".header"
 		}
 		if src == "" {
-			f.fail("Name the image.")
+			f.fail("Choose the container file.")
 			return
 		}
 		// A new file, never over one that is there (svcontainer says so).
 		f.work(func() error { return svcontainer.BackupHeader(src, dst) }, func() {
-			m.say("Wrote %s's header to %s.", src, dst)
+			m.say("%s", svops.HeaderBackedUp(src, dst))
 		})
 	})
 }
@@ -277,20 +276,20 @@ func (m *Manager) backupHeader(p *vaultPage) {
 // or removes it (the CLI's container passwd): the one selected, or any
 // image named, with the item that holds its key.
 func (m *Manager) containerPassphrase(p *vaultPage) {
-	f := m.newForm("A container's passphrase")
-	image := f.path("Image", PickOpen, "")
-	item := f.text("Key item", "", "default: the item made for this image")
+	f := m.newForm("A container's own passphrase")
+	f.intro(svops.ContainerPassphraseAbout)
+	image := f.path("Container file", PickOpen, "")
+	item := f.text("Its key is in", "", "an item; default: the one made with it")
 	if ci := p.container(); ci != nil {
 		image.field.SetText(ci.Path)
 		item.SetText(ci.Item)
 	}
-	f.note("A passphrase keyslot of its own opens the container with cryptsetup alone, without secretvault.")
-	remove := f.check("Remove its passphrase instead: only the vault's key opens it then", false)
+	remove := f.check("Remove its passphrase instead", false)
 	newPass := f.newPassphrase("New passphrase")
-	f.show("Change", func() {
+	f.show("Set the passphrase", func() {
 		path := image.Path()
 		if path == "" {
-			f.fail("Name the image.")
+			f.fail("Choose the container file.")
 			return
 		}
 		params := svrpc.ContainerPasswdParams{Vault: p.vault, Item: strings.TrimSpace(item.Text), Remove: remove.Checked}
@@ -310,12 +309,16 @@ func (m *Manager) containerPassphrase(p *vaultPage) {
 			_, err = c.ContainerPasswd(ctx, params)
 			return err
 		}, func() {
-			if params.Remove {
-				m.say("Removed the passphrase of %s; only the vault's key opens it now.", path)
-			} else {
-				m.say("%s opens with the new passphrase (and cryptsetup alone).", path)
-			}
+			m.say("%s", svops.ContainerPassphraseDone(path, params.Remove))
 			m.refreshTab(p, tabContainers)
 		}, params.Passphrase)
 	})
+	// The button says which it does.
+	remove.OnChange = func(on bool) {
+		f.accept.Text = "Set the passphrase"
+		if on {
+			f.accept.Text = "Remove the passphrase"
+		}
+		f.accept.RequestLayout()
+	}
 }

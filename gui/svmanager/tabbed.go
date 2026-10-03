@@ -62,7 +62,7 @@ func (m *Manager) openPage(pg *tabbedPage, tab int) {
 	tabs := make([]widgets.Tab, len(pg.panes))
 	for i, p := range pg.panes {
 		p.pg = pg
-		p.box.Set(m.paragraph("Asking secretvaultd…"))
+		p.box.Set(m.paragraph("Loading…"))
 		tabs[i] = widgets.Tab{Title: p.title, Content: p.box}
 	}
 	pg.tabs = widgets.NewTabView(tabs...)

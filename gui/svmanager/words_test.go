@@ -59,19 +59,19 @@ func TestSharingTakesTheRecipientTyped(t *testing.T) {
 	}
 	p := h.openVaultPage(tabSharing)
 	h.pressOn("Share with…")
-	h.waitText("Share personal")
-	h.fill("Recipient", rcpt)
-	h.press("Share")
-	h.said("Shared: keyslot")
+	h.waitText("Share vault personal")
+	h.fill("Their public key", rcpt)
+	h.press("Share the vault")
+	h.said("Shared vault personal")
 	h.idle()
 	if len(p.shared) != 1 || p.shared[0].Recipient != rcpt {
 		t.Fatalf("shared with %+v, not the recipient typed", p.shared)
 	}
 	h.pressOn("Share with…")
-	h.waitText("Share personal")
+	h.waitText("Share vault personal")
 	h.choose("With", 1)
-	h.fill("Recipient", rcpt)
-	h.press("Share")
+	h.fill("Their public key", rcpt)
+	h.press("Share the vault")
 	if got := h.problem(); !strings.Contains(got, "not both") {
 		t.Fatalf("a contact and a recipient both: %q", got)
 	}

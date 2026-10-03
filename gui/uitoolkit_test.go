@@ -1436,3 +1436,57 @@ func TestItem49ALongPasteLeavesWhatItOutgrew(t *testing.T) {
 		t.Fatal("a long paste zeroes what it outgrows now: see uitoolkit-gaps.md item 49")
 	}
 }
+
+// Found in the plain-language pass over the dialogs.
+
+// 50. A text view a few rows tall, in the default look (Plastik): its
+// scroll bar is given only the rows' height, inside the field's padding,
+// and ScrollGeometry squeezes Plastik's three step buttons (one at the
+// top, two at the foot) into it, each a fraction of its length, leaving a
+// track no longer than the smallest thumb: the thumb fills it, and is in
+// the same place whatever the offset, so the bar shows no position and
+// cannot be dragged. And the lines wrap to the field's whole inner width,
+// not leaving the bar's room, so their ends run under it. The manager no
+// longer shows text in a small box (detailText: as tall as its lines, in a
+// dialog that scrolls as a whole).
+func TestItem50AShortTextViewsScrollBar(t *testing.T) {
+	pack, ok := style.LoadTheme("plastik")
+	if !ok {
+		t.Fatal("no Plastik in this uitoolkit: see uitoolkit-gaps.md item 50")
+	}
+	lk := pack.Look()
+	a := uitoolkit.New(uitoolkit.Options{Headless: true, Look: lk, Scale: 1, DisableLookWatch: true})
+	view := widgets.NewMonoTextView("firefox: write /home/ada/.mozilla/native-messaging-hosts/io.github.codemodify.secretvault.json "+
+		"and so on, a plan of more lines than the view has rows, as the setup of the browsers was", "")
+	view.MinRows = 2
+	window(t, a, 520, 200, widgets.NewColumn(view).WithPad(12))
+
+	pad := lk.Metrics().FieldPad
+	if pad <= 0 {
+		pad = 8 // as TextArea takes it
+	}
+	b := view.Bounds()
+	inner := paintengine2d.XYWH(0, pad, b.Dx(), b.Dy()-2*pad)
+	lineH := lk.MonoFont().Height() + 2
+	lines := view.Lines()
+	content := float32(len(lines)) * lineH
+	if content <= inner.Dy() {
+		t.Fatalf("the text fits its %v rows: the pin needs more lines (%d)", view.MinRows, len(lines))
+	}
+	bar := style.ScrollBarStyleOf(lk)
+	at := func(off float32) style.ScrollParts {
+		return style.ScrollGeometry(lk, inner, true, content, inner.Dy(), off, false)
+	}
+	top, end := at(0), at(content-inner.Dy())
+	squeezed := !top.DecEnd.Empty() && top.Dec.Dy() < bar.ArrowLen
+	still := !top.Thumb.Empty() && top.Thumb == end.Thumb
+	var under bool
+	f := lk.MonoFont()
+	for _, l := range lines {
+		under = under || f.Advance(l.Text) > b.Dx()-2*pad-bar.Thickness
+	}
+	if !squeezed || !still || !under {
+		t.Fatalf("a two-row text view: its three step buttons %v long for %v (squeezed %v), its thumb %v at the top and %v at the end (still %v), "+
+			"a line under the bar %v: see uitoolkit-gaps.md item 50", top.Dec.Dy(), bar.ArrowLen, squeezed, top.Thumb, end.Thumb, still, under)
+	}
+}

@@ -136,7 +136,7 @@ func readFile(path string) ([]byte, error) {
 // removeFile removes a file from an item, after asking.
 func (m *Manager) removeFile(item, name string) {
 	vault := m.vault
-	m.confirm("Remove "+name+"?", fmt.Sprintf("Remove %s from %s?\n\nEarlier revisions of the item keep it.", name, item), "Remove", func() {
+	m.confirm("Remove "+name+"?", svops.RemoveFileText(name, item), svops.RemoveFileAction, func() {
 		m.call(func(ctx context.Context, c *secretvault.Client) error {
 			_, err := c.Detach(ctx, vault, item, name)
 			return err

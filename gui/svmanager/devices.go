@@ -3,7 +3,6 @@ package svmanager
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/codemodify/uitoolkit/widget"
@@ -50,20 +49,19 @@ func (m *Manager) fillDevices(p *vaultPage, pn *pane) {
 			return svops.DeviceStanding(d)
 		})
 		pn.focus = p.dtable
-		signed := widgets.NewCheckbox("Count only signed revisions", policy.Require, nil)
+		signed := widgets.NewCheckbox("Count only signed changes", policy.Require, nil)
 		signed.OnInput = func(on bool) { m.setSignatures(p, on, signed) }
-		note := "Every device that opens the vault registers itself, under any label it likes. Before vouching for one, " +
-			"check that its key is the one this tab shows as \"this device\" on that device."
+		note := svops.DevicesAbout
 		if len(devs) == 0 {
-			note = "No device is registered in this vault yet: each registers itself when it unlocks it."
+			note = "No device is listed in this vault yet: each adds itself when it unlocks the vault."
 		}
 		col := m.paneColumn(note, p.dtable,
 			widgets.NewButton("Rename…", func() { m.labelDevice(p) }),
-			widgets.NewButton("Vouch for it", func() { m.vouchDevice(p, false) }),
-			widgets.NewButton("Withdraw", func() { m.vouchDevice(p, true) }),
+			widgets.NewButton("Vouch for it…", func() { m.vouchDevice(p, false) }),
+			widgets.NewButton("Stop vouching", func() { m.vouchDevice(p, true) }),
 			widgets.NewButton("Remove…", func() { m.removeDevice(p) }))
-		col.Add(widgets.NewTip("Revisions not signed by a registered device are then ignored, and show so in the history. "+
-			"Versions of secretvault that cannot sign cannot write to the vault.", signed))
+		col.Add(widgets.NewTip("Changes not signed by a device listed here are then ignored, and the history marks them. "+
+			"Older versions of secretvault, which cannot sign, can then no longer change the vault.", signed))
 		return col
 	})
 }
@@ -84,7 +82,7 @@ func (m *Manager) labelDevice(p *vaultPage) {
 		m.fail(err)
 		return
 	}
-	widgets.PromptFor(m.root(), "Rename the device", "Label for "+d.Key+":", widgets.MessageBoxInput{
+	widgets.PromptFor(m.root(), "Rename the device", "A name for the device with key "+d.Key+":", widgets.MessageBoxInput{
 		Text: d.Label, Required: true, AcceptLabel: "Rename",
 		ValidateAsync: func(label string, done func(error)) {
 			label = strings.TrimSpace(label)
@@ -135,8 +133,7 @@ func (m *Manager) vouchDevice(p *vaultPage, withdraw bool) {
 		do()
 		return
 	}
-	m.confirm("Vouch for "+d.Label+"?", fmt.Sprintf("Vouch for device %q, key\n\n%s\n\nCheck first that this is the key that device's Devices tab shows "+
-		"as \"this device\": anyone who can open the vault can register a device under any label.", d.Label, d.Key), "Vouch", do)
+	m.showPlan(svops.VouchPlain(d.Label, d.Key), do, nil)
 }
 
 // removeDevice marks the device selected removed (the CLI's device rm).
@@ -146,9 +143,7 @@ func (m *Manager) removeDevice(p *vaultPage) {
 		m.fail(err)
 		return
 	}
-	m.confirm("Remove the device?", fmt.Sprintf("Remove device %s %q?\n\nWhat it signed still verifies, and shows as a removed device's. "+
-		"It can still open the vault and write to it: to cut it off, rotate the key without it (Sharing › Cut off for a person's keyslot, "+
-		"else Keyslots › Rotate the key).", d.Key, d.Label), "Remove", func() {
+	m.showPlan(svops.RemoveDevicePlain(d.Label, d.Key), func() {
 		m.call(func(ctx context.Context, c *secretvault.Client) error {
 			_, err := c.RemoveDevice(ctx, p.vault, d.Key)
 			return err
@@ -157,10 +152,10 @@ func (m *Manager) removeDevice(p *vaultPage) {
 				m.fail(err)
 				return
 			}
-			m.say("Removed device %s.", d.Key)
+			m.say("Removed device %s.", deviceName(d.Label, d.Key))
 			m.refreshTab(p, tabDevices)
 		})
-	})
+	}, nil)
 }
 
 // setSignatures sets the vault's policy on signatures (the CLI's vault
@@ -180,9 +175,9 @@ func (m *Manager) setSignatures(p *vaultPage, require bool, box *widgets.Checkbo
 			return
 		}
 		if out.Require {
-			m.say("Vault %s counts only revisions signed by a device registered in it.", out.Vault)
+			m.say("Vault %s counts only changes signed by a device listed in it.", out.Vault)
 		} else {
-			m.say("Vault %s counts every revision, signed or not.", out.Vault)
+			m.say("Vault %s counts every change, signed or not.", out.Vault)
 		}
 		m.refreshTab(p, tabDevices)
 	})

@@ -17,7 +17,7 @@ import (
 //     ([uitoolkit.Window.SetSecureInput]): an X11 keyboard grab, Wayland's
 //     shortcut inhibitor, macOS secure event input. It lets go when the
 //     focus moves to a button, and when the dialog closes ([Frame.Release]).
-//   - The header says "Keyboard held" while the keyboard is held, which is
+//   - The header says "Typing is private" while the keyboard is held, which is
 //     what is in effect rather than what was asked for
 //     ([uitoolkit.Window.SecureInputHeld]): on X11 the grab is taken once
 //     the window is mapped and has the focus, dropped when it loses it,

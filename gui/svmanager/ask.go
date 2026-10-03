@@ -25,7 +25,7 @@ func (m *Manager) askSecret(title, label, note string, repeat bool, minLen int) 
 	m.post(func() {
 		f := m.newForm(title)
 		if note != "" {
-			f.note(note)
+			f.intro(note)
 		}
 		var take func() ([]byte, bool)
 		if repeat {
@@ -46,7 +46,7 @@ func (m *Manager) askSecret(title, label, note string, repeat bool, minLen int) 
 			default: // answered already
 			}
 		})
-		f.show("OK", func() {
+		f.show("Continue", func() {
 			b, ok := take()
 			if !ok {
 				return
@@ -72,9 +72,9 @@ func (m *Manager) askYes(title, text, yes, no string) (bool, error) {
 	ch := make(chan bool, 1)
 	m.post(func() {
 		f := m.newForm(title)
-		f.note(text)
+		f.intro(text)
 		if no != "" {
-			f.note("Cancel answers " + no + ".")
+			f.note("Cancel answers “" + no + "”.")
 		}
 		f.onClose(func() {
 			select {

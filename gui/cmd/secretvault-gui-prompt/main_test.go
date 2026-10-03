@@ -667,7 +667,7 @@ func TestTheDialogsAreAccessible(t *testing.T) {
 	d = h.dialog()
 	held := false
 	a11ytest.Audit(t, "new passphrase", d.win.AccessibleTree()).Walk(func(n *a11y.Node) bool {
-		held = held || n.Description == "Keyboard held"
+		held = held || n.Description == "Typing is private"
 		return true
 	})
 	if !held {

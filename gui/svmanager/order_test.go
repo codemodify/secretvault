@@ -284,7 +284,7 @@ func TestWhatTheEditorOpenedGoesWithIt(t *testing.T) {
 	ed := h.m.editor
 	h.win().Press(platform.KeyG, platform.ModCtrl)
 	h.pump()
-	use := button(h.overlay(), "Use")
+	use := button(h.overlay(), "Use this password")
 	if use == nil {
 		t.Fatal("no generator")
 	}
@@ -507,7 +507,7 @@ func TestTheDaemonGoingTakesTheCopyBack(t *testing.T) {
 	h.win().Press(platform.KeyC, platform.ModCtrl)
 	h.waitFor("the copy", func() bool { return h.clip.count() == 1 })
 	h.stopDaemon()
-	h.waitText("No connection to secretvaultd")
+	h.waitText("Not connected")
 	if !h.clip.last().wiped() {
 		t.Fatal("the copy stayed on the clipboard")
 	}
@@ -707,7 +707,7 @@ func TestARefusedRenameIsSaidInTheDialog(t *testing.T) {
 	h.win().Press(platform.KeyA, platform.ModCtrl)
 	h.win().Type("mail/fastmail.com")
 	h.win().Press(platform.KeyReturn)
-	h.waitFor("the refusal", func() bool { return strings.Contains(windowText(h.win()), "secretvaultd is not running") })
+	h.waitFor("the refusal", func() bool { return strings.Contains(windowText(h.win()), "(secretvaultd) is not running") })
 	f := find(h.overlay(), func(*widgets.TextField) bool { return true })
 	if h.overlay() == nil || f == nil || f.Text != "mail/fastmail.com" {
 		t.Fatal("the rename dialog went, or lost what was typed")

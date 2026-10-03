@@ -12,6 +12,7 @@ import (
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault/gui/secretui"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -164,10 +165,7 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan svrpc.PromptAnswer) 
 		d.fields = append(d.fields, first)
 		form := widgets.NewForm()
 		form.AddRow(promptLabel(q.Prompt, "Passphrase"), first)
-		ok := widgets.NewButton("Unlock", nil)
-		if q.Kind == svrpc.PromptPIN {
-			ok.Text = "OK" // a security key's PIN, asked for with each touch
-		}
+		ok := widgets.NewButton(svops.PromptAction(q), nil)
 		submit := func() {
 			if first.Empty() {
 				return
@@ -175,7 +173,6 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan svrpc.PromptAnswer) 
 			finish(svrpc.PromptAnswer{Secret: first.Bytes()})
 		}
 		if q.Kind == svrpc.PromptNewPassphrase {
-			ok.Text = "OK"
 			again := widgets.NewSecretField("")
 			again.SetAccessibleName("Repeat")
 			d.fields = append(d.fields, again)
