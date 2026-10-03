@@ -24,8 +24,8 @@ func TestDeletedItemsAreListedAndRestored(t *testing.T) {
 	if !strings.Contains(h.text(), "web/gitlab.com") {
 		t.Fatalf("the deleted item is not listed:\n%s", h.text())
 	}
-	h.press("Restore")
-	h.said("Restored web/gitlab.com")
+	h.press("Bring it back")
+	h.said("Brought web/gitlab.com back")
 	h.waitFor("the item back", func() bool { return h.m.entry("web/gitlab.com") != nil })
 	if e, err := h.get("web/gitlab.com"); err != nil || field(e, "password") != "gitlab-pass-42" {
 		t.Fatalf("restored %v, %v", e.Item, err)
@@ -52,9 +52,9 @@ func TestARevisionIsMadeCurrentAndAConflictSettled(t *testing.T) {
 	h.m.hist.table.Selected = 1
 	h.m.openRevision(1)
 	h.pump()
-	h.click(h.win(), button(h.m.ui.pane, "Make this revision current…"))
-	h.press("Make current")
-	h.said("Restored web/github.com")
+	h.click(h.win(), button(h.m.ui.pane, "Go back to this version…"))
+	h.press("Go back to this version")
+	h.said("web/github.com is as it was in that version again")
 	if e, _ := h.get("web/github.com"); field(e, "password") != "hunter2-github" {
 		t.Fatalf("the password is %q", field(e, "password"))
 	}
@@ -77,7 +77,7 @@ func TestARevisionIsMadeCurrentAndAConflictSettled(t *testing.T) {
 	}
 	c.pump()
 	c.click(c.win(), button(c.m.ui.pane, "Keep this version on every device…"))
-	c.press("Keep it")
+	c.press("Keep this version")
 	c.said("the conflict is settled")
 	c.prove2("shared")
 	e, err := c.admin.Get(c.ctx(), "shared", "site")
@@ -101,15 +101,15 @@ func TestAReferenceIsCopied(t *testing.T) {
 	h.open("web/github.com")
 	h.m.copyReference()
 	h.pump()
-	h.choose("To", 2) // the field password
-	h.press("Copy")
+	h.choose("Refer to", 2) // the field password
+	h.press("Copy the reference")
 	if got := h.clip.last(); got == nil || got.text != "sv://personal/web/github.com#password" {
 		t.Fatalf("copied %+v", got)
 	}
 	h.m.copyReference()
 	h.pump()
-	h.tick("Name the vault", false)
-	h.press("Copy")
+	h.tick("Name vault personal in it", false)
+	h.press("Copy the reference")
 	if got := h.clip.last(); got.text != "sv://-/web/github.com" {
 		t.Fatalf("copied %q", got.text)
 	}
@@ -128,15 +128,16 @@ func TestImportShowsWhatItWouldMakeAndExportWritesANewFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.importFrom("chrome", in, "imported/chrome")
-	h.waitText("Chrome Passwords.csv holds 2 items to import into vault personal.")
+	h.waitText("2 items from Chrome Passwords.csv will be added to vault personal.")
+	h.expand("Show details")
 	if !strings.Contains(h.text(), "imported/chrome/github.com") {
 		t.Fatalf("the preview:\n%s", h.text())
 	}
 	if h.m.entry("imported/chrome/github.com") != nil {
 		t.Fatal("the preview stored something")
 	}
-	h.press("Import")
-	h.waitText("Imported 2 items, skipped 0")
+	h.press("Import 2 items")
+	h.waitText("2 items were imported.")
 	h.press("Close")
 	h.waitFor("the items", func() bool { return h.m.entry("imported/chrome/example.org") != nil })
 	// The file held them in the clear: deleting it is offered, and
@@ -149,9 +150,10 @@ func TestImportShowsWhatItWouldMakeAndExportWritesANewFile(t *testing.T) {
 
 	// Again: what exists is skipped, in this program's words.
 	h.importFrom("chrome", in, "imported/chrome")
-	h.waitText("2 items to import")
-	h.press("Import")
-	h.waitText("Imported 0 items, skipped 2")
+	h.waitText("2 items from Chrome Passwords.csv will be added")
+	h.press("Import 2 items")
+	h.waitText("No items were imported. 2 items the vault had already were skipped.")
+	h.expand("Show details")
 	if !strings.Contains(h.text(), "Replace items that exist replaces it") || strings.Contains(h.text(), "--overwrite") {
 		t.Fatalf("the warnings:\n%s", h.text())
 	}

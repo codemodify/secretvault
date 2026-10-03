@@ -7,6 +7,8 @@ import (
 
 	"github.com/codemodify/uitoolkit/a11y/a11ytest"
 	"github.com/codemodify/uitoolkit/widgets"
+
+	"github.com/codemodify/secretvault/svops"
 )
 
 // Every page and tab, and the kinds of dialog the pages open (a form, a
@@ -32,7 +34,7 @@ func TestThePagesAreAccessible(t *testing.T) {
 		h.idle()
 		for i := range pg.tabs {
 			h.tab(i)
-			h.waitFor("the tab filled", func() bool { return !strings.Contains(h.text(), "Asking secretvaultd…") })
+			h.waitFor("the tab filled", func() bool { return !strings.Contains(h.text(), "Loading…") })
 			title := h.m.page.panes[i].title
 			a11ytest.Audit(t, fmt.Sprintf("%s, tab %s", pg.name, title), h.win().AccessibleTree())
 		}
@@ -41,9 +43,9 @@ func TestThePagesAreAccessible(t *testing.T) {
 
 	h.m.showVaultPage(tabKeyslots)
 	h.idle()
-	h.pressOn("Add…")
+	h.pressOn("Add a keyslot…")
 	a11ytest.Audit(t, "a form", h.win().AccessibleTree())
-	if find(h.overlay(), func(*widgets.RadioGroup) bool { return true }).AccessibleName() != "Kind" {
+	if find(h.overlay(), func(*widgets.RadioGroup) bool { return true }).AccessibleName() != "Opens with" {
 		t.Error("the choice of kind is not named")
 	}
 	h.escape()
@@ -56,7 +58,9 @@ func TestThePagesAreAccessible(t *testing.T) {
 	}
 	h.press("I have written it down")
 
-	h.m.showPlan("A plan", "It would:", []string{"write a file", "restart a unit"}, "Do it", func() {}, nil)
+	h.m.showPlan(svops.Plain{Title: "A plan", Summary: "It writes a file.", Action: "Do it", Details: []string{"write a file", "restart a unit"}}, func() {}, nil)
+	h.pump()
+	h.expand("Show details")
 	h.pump()
 	a11ytest.Audit(t, "a plan", h.win().AccessibleTree())
 	h.press("Cancel")

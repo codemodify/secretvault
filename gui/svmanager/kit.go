@@ -129,6 +129,15 @@ func (f *formDialog) head(c widget.Component) {
 	f.body.Add(f.form)
 }
 
+// intro says, above the form, what it is for and what happens next
+// (docs/wording.md): read before the fields, where a note under them
+// would be read after.
+func (f *formDialog) intro(text string) {
+	l := widgets.NewLabel(text)
+	l.Wrap = true
+	f.head(l)
+}
+
 // focusFirst remembers the first field, for the keyboard to start in.
 func (f *formDialog) focusFirst(c widget.Component) {
 	if f.first == nil {
@@ -427,8 +436,11 @@ func pathPlaceholder(mode PickMode) string {
 // Path is the path given, trimmed.
 func (p *pathField) Path() string { return strings.TrimSpace(p.field.Text) }
 
-// showText shows text to read, select and copy: a report, a public key,
-// a recipient. Nothing secret goes here: the text becomes a string.
+// showText shows text to read and copy: a public key, a recipient, a
+// line to paste into a unit. Nothing secret goes here: the text becomes a
+// string. The text is shown whole, wrapped at its spaces and path
+// separators (detailText), and the dialog scrolls when it is long: no
+// small box to scroll inside (uitoolkit-gaps.md, 50).
 func (m *Manager) showText(title, intro, text string) {
 	m.showTextWith(title, intro, text, nil, nil)
 }
@@ -442,10 +454,11 @@ func (m *Manager) showTextWith(title, intro, text string, below widget.Component
 		l.Wrap = true
 		col.Add(l)
 	}
-	view := widgets.NewMonoTextView(text, "")
-	view.SetAccessibleName(title)
-	view.MinRows = min(max(strings.Count(text, "\n")+1, 2), 16)
-	col.Add(view)
+	if text != "" {
+		view := newDetailText(strings.Split(text, "\n"))
+		view.name = title
+		col.Add(view)
+	}
 	if below != nil {
 		col.Add(below)
 	}
@@ -456,37 +469,6 @@ func (m *Manager) showTextWith(title, intro, text string, below widget.Component
 		buttons.AddButton(widgets.NewButton("Copy", func() { m.copyValue([]byte(text), title, "") }), widgets.RoleAction)
 	}
 	d = m.showDialog(title, col, buttons, ok, onClose)
-}
-
-// showPlan shows what an operation would change, as the CLI's --dry-run
-// does, and carries it out only if the person says so; cancel runs when
-// they do not (a plan that holds something to give back).
-func (m *Manager) showPlan(title, intro string, lines []string, action string, apply, cancel func()) {
-	col := widgets.NewColumn().WithGap(12)
-	l := widgets.NewLabel(intro)
-	l.Wrap = true
-	col.Add(l)
-	if len(lines) > 0 {
-		view := widgets.NewMonoTextView(strings.Join(lines, "\n"), "")
-		view.SetAccessibleName("The plan")
-		view.MinRows = min(max(len(lines), 2), 14)
-		col.Add(view)
-	}
-	var d *dialog
-	applied := false
-	yes := widgets.NewButton(action, func() {
-		applied = true
-		d.Close()
-		apply()
-	})
-	no := widgets.NewButton("Cancel", func() { d.Close() })
-	no.Primary = true
-	buttons := widgets.NewButtonBox().AddButton(yes, widgets.RoleAccept).AddButton(no, widgets.RoleReject)
-	d = m.showDialog(title, col, buttons, no, func() {
-		if !applied && cancel != nil {
-			cancel()
-		}
-	})
 }
 
 // secretShown is one secret in a dialog that shows it once.

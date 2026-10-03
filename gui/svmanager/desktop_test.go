@@ -64,27 +64,32 @@ func TestTheKeyringIsTakenOverAndGivenBackOnAPlan(t *testing.T) {
 		t.Fatalf("XDG_DATA_HOME is %q, not the test's", data)
 	}
 	h.openDesktopPage(tabKeyring)
-	h.waitText("no session bus")
+	h.waitText("there is no desktop session to ask")
 
 	// Importing needs the keyring on the session bus, which there is not.
-	h.pressOn("Import its secrets…")
-	h.press("Preview")
+	h.pressOn("Copy its passwords into the vault…")
+	h.press("Next")
 	if got := h.failed(); got == "" {
 		t.Fatal("reading a keyring with no bus said nothing")
 	}
 	h.press("Cancel")
 
+	// The plan says what it means first, its files under Show details;
+	// with nothing holding the keyring there is nothing to copy first.
 	h.m.daemonExe = func() string { return "/opt/test/secretvaultd" }
-	h.pressOn("Become the keyring…")
-	h.waitText("Become the keyring")
-	h.press("Next")
-	h.waitText("Becoming the keyring would:")
+	h.pressOn("Take over the keyring…")
+	h.waitText("Make secretvault your system keyring")
+	h.waitText("an app has to ask you before it reads a password")
 	service := filepath.Join(data, "dbus-1", "services", "org.freedesktop.secrets.service")
-	if !strings.Contains(h.text(), "write "+service) || !strings.Contains(h.text(), "turn on secretvaultd's Secret Service") {
+	if strings.Contains(h.text(), service) {
+		t.Fatalf("the plan's files are shown before Show details:\n%s", h.text())
+	}
+	h.expand("Show details")
+	if !strings.Contains(h.text(), "- write "+service) || !strings.Contains(h.text(), "turn on secretvaultd's Secret Service") {
 		t.Fatalf("the plan:\n%s", h.text())
 	}
 	for _, line := range strings.Split(h.text(), "\n") {
-		if f, ok := strings.CutPrefix(line, "write "); ok && !under(f, filepath.Dir(data)) {
+		if f, ok := strings.CutPrefix(line, "- write "); ok && !under(f, filepath.Dir(data)) {
 			t.Fatalf("the plan writes %s, outside the test's directories", f)
 		}
 	}
@@ -98,11 +103,11 @@ func TestTheKeyringIsTakenOverAndGivenBackOnAPlan(t *testing.T) {
 
 	// Carried out, in the test's directories: the Secret Service cannot
 	// be served with no session bus, which is said.
-	h.pressOn("Become the keyring…")
-	h.waitText("Become the keyring")
-	h.press("Next")
-	h.waitText("Becoming the keyring would:")
-	h.press("Become the keyring")
+	h.pressOn("Take over the keyring…")
+	h.waitText("Make secretvault your system keyring")
+	h.press("Take over the keyring")
+	h.waitText("The takeover did not finish")
+	h.expand("Show details")
 	h.waitText("Wrote " + service)
 	if b, err := os.ReadFile(service); err != nil || !strings.Contains(string(b), "Exec=/opt/test/secretvaultd") {
 		t.Fatalf("the activation file: %q %v", b, err)
@@ -113,12 +118,15 @@ func TestTheKeyringIsTakenOverAndGivenBackOnAPlan(t *testing.T) {
 		t.Fatalf("no record of the takeover: %v", err)
 	}
 
-	h.pressOn("Give it back…")
-	h.waitText("Giving the keyring back")
-	if !strings.Contains(h.text(), "remove "+service) {
+	h.pressOn("Give the keyring back…")
+	h.waitText("becomes the system keyring again")
+	h.expand("Show details")
+	if !strings.Contains(h.text(), "- remove "+service) {
 		t.Fatalf("the plan:\n%s", h.text())
 	}
-	h.press("Give it back")
+	h.press("Give the keyring back")
+	h.waitText("Keyring given back")
+	h.expand("Show details")
 	h.waitText("Removed " + service)
 	if _, err := os.Stat(service); err == nil {
 		t.Fatal("the activation file is still there")
@@ -157,6 +165,13 @@ func TestBrowsersAreSetUpForTheCLIAndUndone(t *testing.T) {
 	h.pressOn("Set up…")
 	h.tick("Firefox", true)
 	h.press("Next")
+	// What it means first; the files it writes under Show details.
+	h.waitText("Let Firefox use secretvault")
+	h.waitText("Firefox needs your permission to start secretvault")
+	if strings.Contains(h.text(), manifest) {
+		t.Fatalf("the plan names its file before Show details:\n%s", h.text())
+	}
+	h.expand("Show details")
 	h.waitText("The browsers would start " + cli)
 	if !strings.Contains(h.text(), "firefox: write "+manifest) {
 		t.Fatalf("the plan:\n%s", h.text())
@@ -164,7 +179,9 @@ func TestBrowsersAreSetUpForTheCLIAndUndone(t *testing.T) {
 	if _, err := os.Stat(manifest); err == nil {
 		t.Fatal("the plan wrote before it was said yes to")
 	}
-	h.press("Set them up")
+	h.press("Allow Firefox")
+	h.waitText("Firefox can now use secretvault")
+	h.expand("Show details")
 	h.waitText("firefox: wrote " + manifest)
 	h.press("Close")
 	b, err := os.ReadFile(manifest)
@@ -179,9 +196,10 @@ func TestBrowsersAreSetUpForTheCLIAndUndone(t *testing.T) {
 	h.idle()
 
 	h.pressOn("Undo…")
-	h.waitText("Undoing would:")
-	h.press("Undo")
-	h.waitText("Browsers' setup undone")
+	h.waitText("Stop Firefox using secretvault")
+	h.waitText("the secretvault extension cannot fill logins there")
+	h.press("Remove access")
+	h.waitText("Browser access removed")
 	if _, err := os.Stat(manifest); err == nil {
 		t.Fatal("the manifest is still there")
 	}
@@ -238,9 +256,11 @@ func TestGnuPGIsPointedAtTheDaemonForTheCLI(t *testing.T) {
 
 	h.openDesktopPage(tabGnuPG)
 	h.pressOn("Let gpg use the vault's keys…")
-	h.fill("GnuPG home", home)
-	h.fill("gpg", gpg)
+	h.fill("GnuPG folder", home)
+	h.fill("gpg program", gpg)
 	h.press("Next")
+	h.waitText("Let gpg use the keys in vault personal")
+	h.expand("Show details")
 	h.waitText("Pointing the GnuPG home " + home + " at secretvault would:")
 	if !strings.Contains(h.text(), "make the directory "+home) || !strings.Contains(h.text(), "agent-program "+cli+"|--secretvault-gpg-agent") {
 		t.Fatalf("the plan:\n%s", h.text())
@@ -248,8 +268,8 @@ func TestGnuPGIsPointedAtTheDaemonForTheCLI(t *testing.T) {
 	if _, err := os.Stat(home); err == nil {
 		t.Fatal("the plan made the home before it was said yes to")
 	}
-	h.press("Do it")
-	h.waitText("signs and decrypts with secretvault's keys")
+	h.press("Let gpg use the keys")
+	h.waitText("gpg now signs and decrypts with the keys in vault personal")
 	h.press("Close")
 	conf, err := os.ReadFile(filepath.Join(home, "gpg.conf"))
 	if err != nil || !strings.Contains(string(conf), "agent-program "+cli+"|") {
@@ -260,12 +280,12 @@ func TestGnuPGIsPointedAtTheDaemonForTheCLI(t *testing.T) {
 	}
 
 	h.idle()
-	h.pressOn("Stop…")
-	h.fill("GnuPG home", home)
+	h.pressOn("Stop gpg using them…")
+	h.fill("GnuPG folder", home)
 	h.press("Next")
-	h.waitText("Removing would take away:")
-	h.press("Remove")
-	h.said("is no longer pointed at secretvault")
+	h.waitText("gpg goes back to its own agent")
+	h.press("Stop using the vault's keys")
+	h.said("gpg no longer uses the vault's keys in " + home)
 	if conf, _ := os.ReadFile(filepath.Join(home, "gpg.conf")); strings.Contains(string(conf), "agent-program") {
 		t.Fatalf("gpg.conf still names secretvault:\n%s", conf)
 	}
@@ -281,7 +301,7 @@ func TestProgramHelpersSayWhereTheirLinksAre(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.openDesktopPage(tabHelpers)
-	h.waitText("Link: " + link)
+	h.waitText("Installed as: " + link)
 	h.pressOn("Copy git's setting")
 	if got := h.clip.last(); got == nil || got.text != "git config --global credential.helper secretvault" {
 		t.Fatalf("copied %+v", got)
@@ -358,6 +378,8 @@ func TestProgramHelpersAreSetUpOnAPlanAndUndone(t *testing.T) {
 
 	// The plan, said no to: nothing changes.
 	h.pressOn("Set up…")
+	h.waitText("Let git, docker and age use secretvault")
+	h.expand("Show details")
 	h.waitText("Setting the helpers up, as links to " + cli + ", would:")
 	for _, want := range []string{"- link " + link + " to secretvault", "- git config --global --add credential.helper secretvault",
 		`- set "credsStore": "secretvault" in ` + docker + `, in place of "desktop"`} {
@@ -373,8 +395,10 @@ func TestProgramHelpersAreSetUpOnAPlanAndUndone(t *testing.T) {
 
 	// Said yes to: carried out, and the pane filled again.
 	h.pressOn("Set up…")
-	h.waitText("Setting the helpers up")
-	h.press("Set them up")
+	h.waitText("Let git, docker and age use secretvault")
+	h.press("Set up git, docker and age")
+	h.waitText("git, docker and age can use secretvault")
+	h.expand("Show details")
 	h.waitText("linked " + link)
 	h.press("Close")
 	h.idle()
@@ -389,15 +413,19 @@ func TestProgramHelpersAreSetUpOnAPlanAndUndone(t *testing.T) {
 	}
 	h.waitText("credential.helper includes secretvault")
 	h.waitText("credsStore is secretvault (" + docker + ")")
-	h.waitText("Link: " + link)
+	h.waitText("Installed as: " + link)
 
 	// Undone, on a plan too: only what is secretvault's goes.
 	h.pressOn("Undo…")
+	h.waitText("Stop git, docker and age using secretvault")
+	h.expand("Show details")
 	h.waitText("Undoing the helpers would:")
 	if !strings.Contains(h.text(), "- remove the link "+link) || !strings.Contains(h.text(), `- put "credsStore": "desktop" back in `+docker) {
 		t.Fatalf("the undo plan:\n%s", h.text())
 	}
-	h.press("Undo")
+	h.press("Remove the setup")
+	h.waitText("git, docker and age no longer use secretvault")
+	h.expand("Show details")
 	h.waitText("removed " + link)
 	h.press("Close")
 	h.idle()
@@ -470,7 +498,7 @@ func TestTheHostDaemonIsSetUp(t *testing.T) {
 	h.openDesktopPage(tabHost)
 	h.waitText("does not answer on " + svrpc.HostAdminSocket())
 	h.pressOn("Make the host identity…")
-	h.press("Make")
+	h.press("Make the identity")
 	h.waitText("Made the host identity, in " + svrpc.HostIdentityFile())
 	h.press("Close")
 	if st, err := os.Stat(svrpc.HostIdentityFile()); err != nil || st.Mode().Perm() != 0o600 {
@@ -479,10 +507,10 @@ func TestTheHostDaemonIsSetUp(t *testing.T) {
 	credstore := filepath.Join(h.dir, "credstore", "secretvault-host.identity")
 	h.idle()
 	h.pressOn("Make the host identity…")
-	h.tick("Seal it with systemd-creds", true)
+	h.tick("Seal it to this machine", true)
 	h.fill("TPM2 PCRs", "7")
-	h.fill("Sealed, to", credstore)
-	h.press("Make")
+	h.fill("Sealed identity file", credstore)
+	h.press("Make the identity")
 	h.waitText("sealed in " + credstore)
 	h.press("Close")
 	if got := strings.Join(credsArgs, " "); got != "encrypt --name=secretvault-host.identity --tpm2-pcrs=7 - "+credstore {

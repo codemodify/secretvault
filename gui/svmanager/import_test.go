@@ -171,15 +171,16 @@ func TestAFirefoxExportIsImportedAndThenDeleted(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.importFrom("firefox", in, "")
-	h.waitText("logins.csv holds 2 items to import into vault personal.")
+	h.waitText("2 items from logins.csv will be added to vault personal.")
+	h.expand("Show details")
 	if !strings.Contains(h.text(), "www.mozilla.org") || !strings.Contains(h.text(), "intranet.example") {
 		t.Fatalf("the preview:\n%s", h.text())
 	}
 	if strings.Contains(h.text(), "moz-pass") {
 		t.Fatal("the preview shows a password")
 	}
-	h.press("Import")
-	h.waitText("Imported 2 items, skipped 0")
+	h.press("Import 2 items")
+	h.waitText("2 items were imported.")
 	h.press("Close")
 	h.waitText("Delete logins.csv?")
 	if !strings.Contains(h.text(), "unencrypted") || strings.Contains(strings.ToLower(h.text()), "secure") {
@@ -215,9 +216,9 @@ func TestAnEncryptedExportIsNotOfferedForDeletion(t *testing.T) {
 	}
 	h.fill("File password", pass)
 	h.press("Preview")
-	h.waitText("bitwarden_export.json holds 2 items")
-	h.press("Import")
-	h.waitText("Imported 2 items")
+	h.waitText("2 items from bitwarden_export.json will be added")
+	h.press("Import 2 items")
+	h.waitText("2 items were imported.")
 	h.press("Close")
 	h.idle()
 	if h.overlay() != nil {

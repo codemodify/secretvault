@@ -165,21 +165,12 @@ func (m *Manager) importFrom(vault string, i int) {
 // and stores it if the person says so; an export that was not encrypted
 // is offered for deletion once it is in.
 func (m *Manager) previewImport(vault, path string, res *svimport.Result, prefix string, overwrite bool) {
-	var lines []string
+	var names []string
 	for _, it := range res.Items {
-		lines = append(lines, it.Name)
-	}
-	for _, w := range res.Warnings {
-		lines = append(lines, "warning: "+w)
+		names = append(names, it.Name)
 	}
 	plain := !res.Encrypted
-	intro := fmt.Sprintf("%s holds %s to import into vault %s.", filepath.Base(path), plural(len(res.Items), "item"), vault)
-	if overwrite {
-		intro += " Items that exist are replaced."
-	} else {
-		intro += " Items that exist are skipped."
-	}
-	m.showPlan("Import into "+vault, intro, lines, "Import", func() {
+	m.showPlan(svops.ImportPlain(path, vault, names, res.Warnings, overwrite), func() {
 		var rep *svops.ImportReport
 		m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 			defer res.Wipe()
@@ -187,7 +178,7 @@ func (m *Manager) previewImport(vault, path string, res *svimport.Result, prefix
 				return context.WithTimeout(m.ctx, callTimeout)
 			}, c, res, svops.ImportOptions{Vault: vault, Prefix: prefix, Overwrite: overwrite, Describe: m.describe,
 				Skipped: func(name string) string {
-					return name + ": already exists, skipped (Replace items that exist replaces it)"
+					return name + ": the vault has it already, so it was skipped (More options › Replace items that exist replaces it)"
 				}})
 			return err
 		}, func(err error) {
@@ -196,15 +187,16 @@ func (m *Manager) previewImport(vault, path string, res *svimport.Result, prefix
 				then = func() { m.offerDeleteExport(path, vault) }
 			}
 			if rep != nil {
-				withFiles := ""
-				if rep.Files > 0 {
-					withFiles = fmt.Sprintf(" (%d files)", rep.Files)
-				}
-				intro := fmt.Sprintf("Imported %d items%s, skipped %d, with %s.", rep.Imported, withFiles, rep.Skipped, plural(len(rep.Warnings), "warning"))
+				// What it means, and the warnings under "Show details";
+				// the offer to delete the export once it is closed.
+				intro := svops.ImportedText(rep.Imported, rep.Files, rep.Skipped, len(rep.Warnings))
 				if err != nil {
 					intro = m.describe(err) + " " + intro
 				}
-				m.showTextWith("Imported", intro, strings.Join(rep.Warnings, "\n"), nil, then)
+				var d *dialog
+				ok := widgets.NewButton("Close", func() { d.Close() })
+				d = m.showDialog("Imported into "+vault, plainBody(m, intro, nil, rep.Warnings),
+					widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept), ok, then)
 				m.say("%s", intro)
 			} else if err != nil {
 				m.fail(err)

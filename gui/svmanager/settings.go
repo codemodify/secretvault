@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/codemodify/uitoolkit/layout"
@@ -32,7 +31,7 @@ func (m *Manager) fillSettings(p *vaultPage, pn *pane) {
 		m.drawVaults()
 		v := m.vaultInfo(p.vault)
 		if v == nil {
-			return m.paragraph("Vault " + p.vault + " is no longer registered.")
+			return m.paragraph("Vault " + p.vault + " is no longer in the list here: File › Add an existing vault… brings it back.")
 		}
 		info := *v
 		p.info = &info
@@ -81,7 +80,7 @@ func (m *Manager) drawSettings(p *vaultPage, pn *pane, v svrpc.VaultInfo) widget
 		{"State", state},
 		{"Folder", v.Path},
 		{"ID", v.ID},
-		{"Cipher suite", v.Suite},
+		{svops.SuiteLabel, svops.SuiteText(v.Suite)},
 		{"Default", def},
 		{"Locks", lockText(v)},
 	}
@@ -98,18 +97,16 @@ func (m *Manager) drawSettings(p *vaultPage, pn *pane, v svrpc.VaultInfo) widget
 		// It weakens the vault: asked first, as removing a keyslot is.
 		login.Checked = false
 		login.Invalidate()
-		m.confirm("Open "+p.vault+" when you log in?", "Vault "+p.vault+" gets a keyslot whose key the system keeps for you: "+
-			"it opens the vault without its passphrase whenever you are logged in, and it locks when you log out instead of "+
-			"after idle minutes. Programs still ask before they read it.", "Open it at login", func() {
+		m.showPlan(svops.LoginUnlockPlain(p.vault), func() {
 			login.Checked = true
 			login.Invalidate()
 			m.setLoginUnlock(p, true, login)
-		})
+		}, nil)
 	}
 	col.Add(widgets.NewTip("With a key the system keeps for you; it locks when you log out. Programs still ask before they read it.", login))
-	verify := widgets.NewButton("Verify every file…", func() { m.verifyVault(p) })
+	verify := widgets.NewButton("Check every file…", func() { m.verifyVault(p) })
 	pn.focus = verify
-	def2 := widgets.NewButton("Make default", func() { m.makeDefaultOf(p.vault, func() { m.refreshTab(p, tabSettings) }) })
+	def2 := widgets.NewButton("Make it the default", func() { m.makeDefaultOf(p.vault, func() { m.refreshTab(p, tabSettings) }) })
 	def2.SetEnabled(!v.Default)
 	col.Add(buttons(verify, def2, widgets.NewButton("Forget this vault…", func() { m.forgetVault(p) })))
 	return scrolled(col)
@@ -144,7 +141,7 @@ func (m *Manager) setLoginUnlock(p *vaultPage, on bool, box *widgets.Checkbox) {
 // verify), and says what it found.
 func (m *Manager) verifyVault(p *vaultPage) {
 	var rep svrpc.VerifyResult
-	m.say("Verifying every file of %s…", p.vault)
+	m.say("Checking every file of %s…", p.vault)
 	m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 		rep, err = c.Verify(ctx, p.vault)
 		return err
@@ -153,40 +150,20 @@ func (m *Manager) verifyVault(p *vaultPage) {
 			m.fail(err)
 			return
 		}
-		var b strings.Builder
-		for _, x := range rep.Problems {
-			fmt.Fprintf(&b, "problem: %s\n", x)
-		}
-		for _, x := range rep.Conflicts {
-			fmt.Fprintf(&b, "conflict: %s\n", x)
-		}
-		names := make([]string, 0, len(rep.Duplicates))
-		for n := range rep.Duplicates {
-			names = append(names, n)
-		}
-		slices.Sort(names)
-		for _, n := range names {
-			fmt.Fprintf(&b, "duplicate: %d items are named %s\n", len(rep.Duplicates[n]), n)
-		}
-		intro := fmt.Sprintf("%d items (%d objects, %d revisions) authenticated.", rep.Live, rep.Objects, rep.Revisions)
-		if b.Len() > 0 {
-			intro += " The vault needs attention:"
-		} else {
-			intro += " Nothing is wrong."
-		}
-		m.say("%s", intro)
-		m.showText("Verified "+p.vault, intro, strings.TrimRight(b.String(), "\n"))
+		title, summary, details, ok := svops.VerifyReport(p.vault, rep)
+		m.say("%s", svops.VerifyStatus(p.vault, ok))
+		m.showDone(title, summary, details)
 	})
 }
 
 // forgetVault unregisters the vault, leaving its folder as it is (the
 // CLI's vault forget).
 func (m *Manager) forgetVault(p *vaultPage) {
-	path := ""
-	if p.info != nil {
-		path = p.info.Path
+	text := svops.ForgetVaultText(p.vault) + " File › Add an existing vault… brings it back."
+	if p.info != nil && p.info.Path != "" {
+		text += "\n\nIts folder: " + p.info.Path
 	}
-	m.confirm("Forget "+p.vault+"?", fmt.Sprintf("Forget vault %s?\n\nIts folder, %s, is left as it is: File › Add vault folder… brings it back.", p.vault, path), "Forget", func() {
+	m.confirm(svops.ForgetVaultTitle(p.vault), text, svops.ForgetVaultAction, func() {
 		m.call(func(ctx context.Context, c *secretvault.Client) error {
 			return c.ForgetVault(ctx, p.vault)
 		}, func(err error) {
@@ -209,11 +186,11 @@ func (m *Manager) addVaultFolder() {
 		m.fail(errGone)
 		return
 	}
-	f := m.newForm("Add a vault folder")
-	folder := f.path("Folder", PickFolder, "")
-	name := f.text("Name", "", "personal, work…")
-	f.note("A vault's folder kept elsewhere (a synced folder, a backup, a vault forgotten here) is registered under a name; nothing in it changes.")
-	f.show("Add", func() {
+	f := m.newForm(svops.AddVaultTitle)
+	f.intro(svops.AddVaultIntro)
+	folder := f.path("Its folder", PickFolder, "")
+	name := f.text("Name it", "", "personal, work…")
+	f.show(svops.AddVaultAction, func() {
 		dir, n := folder.Path(), strings.TrimSpace(name.Text)
 		switch {
 		case dir == "":
@@ -235,7 +212,7 @@ func (m *Manager) addVaultFolder() {
 			v, err = c.AddVault(ctx, n, abs)
 			return err
 		}, func() {
-			m.say("Added vault %s at %s.", v.Name, v.Path)
+			m.say("Added vault %s.", v.Name)
 			m.reloadVaults()
 			m.showVault(v.Name, false)
 		})
@@ -253,11 +230,11 @@ func absPath(path string) (string, error) {
 // unlockKinds are the keys Unlock with… offers, as svrpc.Key names them.
 var unlockKinds = []struct{ typ, text string }{
 	{svformat.SlotPassphrase, "The passphrase (asked for in its own window)"},
-	{svformat.SlotRecovery, "The recovery key"},
-	{"shares", "Shares of the recovery key"},
-	{svformat.SlotKeyfile, "A keyfile"},
-	{"identity", "An identity file"},
-	{svformat.SlotFIDO2, "The security key plugged in"},
+	{svformat.SlotRecovery, svops.UnlockKindText[svformat.SlotRecovery]},
+	{"shares", svops.UnlockKindText["shares"]},
+	{svformat.SlotKeyfile, svops.UnlockKindText[svformat.SlotKeyfile]},
+	{"identity", svops.UnlockKindText["identity"]},
+	{svformat.SlotFIDO2, svops.UnlockKindText[svformat.SlotFIDO2]},
 }
 
 // unlockWith unlocks the vault shown with a key presented up front, as
@@ -274,8 +251,8 @@ func (m *Manager) unlockWith() {
 		kinds[i] = k.text
 	}
 	kind := widgets.NewRadioGroup(kinds, 1, nil)
-	kind.SetAccessibleName("Key")
-	f.row("Key", kind)
+	kind.SetAccessibleName("Open it with")
+	f.row("Open it with", kind)
 	f.show("Next", func() {
 		typ := unlockKinds[max(0, kind.Selected())].typ
 		f.close()
@@ -356,16 +333,16 @@ func (m *Manager) unlockWithShares(vault string) {
 	shares := &svops.ShareCollector{}
 	f := m.newForm("Unlock " + vault + " with recovery shares")
 	share := f.secret("Share 1", "")
-	count := f.note("Type the shares one at a time; the first says how many it takes.")
+	count := f.note(svops.SharesIntro)
 	f.onClose(shares.Wipe)
 	f.failed = func() {
 		// The shares did not open it: they are typed again, from the
 		// first.
 		shares.Wipe()
 		*shares = svops.ShareCollector{}
-		count.SetText("Type the shares one at a time; the first says how many it takes.")
+		count.SetText(svops.SharesIntro)
 	}
-	f.show("Add", nil)
+	f.show("Add the share", nil)
 	f.accept.OnClick = func() {
 		if share.Empty() {
 			f.fail("Type a share.")
@@ -390,7 +367,7 @@ func (m *Manager) unlockWithShares(vault string) {
 		if err != nil {
 			shares.Wipe()
 			*shares = svops.ShareCollector{}
-			count.SetText("Type the shares one at a time; the first says how many it takes.")
+			count.SetText(svops.SharesIntro)
 			f.fail(sentence(err.Error()))
 			return
 		}
@@ -408,7 +385,7 @@ func (m *Manager) unlockWithShares(vault string) {
 // vaults, where they are and when they lock.
 func (m *Manager) showAbout() {
 	if m.gone {
-		m.showText("About secretvault", "secretvault "+secretvault.Version+". secretvaultd is not running.", "")
+		m.showText("About secretvault", "secretvault "+secretvault.Version+". "+svops.DaemonNotRunning, "")
 		return
 	}
 	var st svrpc.Status
@@ -436,7 +413,7 @@ func (m *Manager) showAbout() {
 			rows = append(rows, [2]string{"SSH agent", st.SSHAgent + " (SSH_AUTH_SOCK)"})
 		}
 		if st.GPGAgent != "" {
-			homes := "no GnuPG home uses it yet: Desktop › GnuPG"
+			homes := "no GnuPG folder uses it yet: Desktop › GnuPG"
 			if len(st.GnuPGHomes) > 0 {
 				homes = "for " + strings.Join(st.GnuPGHomes, ", ")
 			}
