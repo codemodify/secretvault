@@ -214,3 +214,11 @@ func (f fields) wipe() {
 		clear(v)
 	}
 }
+
+// AppendJSONSecret writes v as a JSON string onto b, without making a Go
+// string of it, for the other faces that carry passwords in JSON (svext).
+func AppendJSONSecret(b, v []byte) []byte { return appendSecret(b, v) }
+
+// DecodeJSONSecret reads a JSON string into bytes the caller wipes,
+// without making a Go string of it.
+func DecodeJSONSecret(raw json.RawMessage) ([]byte, error) { return decodeSecret(raw) }
