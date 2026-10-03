@@ -79,12 +79,19 @@ func clipHelper(args []string) int {
 			secs = n
 		}
 	}
-	secret, err := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
+	// One buffer, never grown: io.ReadAll would leave each buffer it
+	// outgrew behind, unwiped, with a part of the secret in it.
+	buf := make([]byte, 1<<20)
+	defer clear(buf)
+	n, err := io.ReadFull(os.Stdin, buf)
+	if err == io.ErrUnexpectedEOF || err == io.EOF {
+		err = nil
+	}
+	secret := buf[:n]
 	if err != nil || len(secret) == 0 {
 		fmt.Println("error: nothing to copy")
 		return 1
 	}
-	defer clear(secret)
 	_, err = svclip.Copy(secret, time.Duration(secs)*time.Second, func(backend string) {
 		fmt.Println("ok " + backend)
 		os.Stdout.Close() // the asker has what it needs; nothing more is written
