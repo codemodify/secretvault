@@ -65,10 +65,14 @@ type FIDO2Device struct {
 
 // BrowserOpenParams open a browser session on a vault ("" for the
 // default). Origin is the extension as the browser named it on the
-// relay's command line; it is shown, not trusted.
+// relay's command line; it is shown, not trusted. Protocol is the
+// extension's: "" for KeePassXC-Browser's, on Vault; svext.Protocol
+// ("secretvault-extension/1") for secretvault's own extension, whose
+// requests each name their vault.
 type BrowserOpenParams struct {
-	Vault  string `json:"vault,omitempty"`
-	Origin string `json:"origin,omitempty"`
+	Vault    string `json:"vault,omitempty"`
+	Origin   string `json:"origin,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
 }
 
 // BrowserOpenResult says who the daemon takes the browser to be.

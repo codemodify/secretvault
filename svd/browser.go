@@ -20,6 +20,7 @@ import (
 	"github.com/codemodify/secretvault/svbrowser"
 	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svcrypto"
+	"github.com/codemodify/secretvault/svext"
 	"github.com/codemodify/secretvault/svformat"
 	"github.com/codemodify/secretvault/svotp"
 	"github.com/codemodify/secretvault/svpeer"
@@ -128,6 +129,13 @@ func (d *Daemon) browserOpen(ctx context.Context, cl *client, decode func(any) e
 	if err != nil {
 		return nil, svrpc.Errorf(svrpc.CodeDenied, "the program that started secretvault-browser could not be identified: %v", err)
 	}
+	switch p.Protocol {
+	case "": // KeePassXC-Browser's
+	case svext.Protocol:
+		return d.extOpen(cl, p, proc) // browser_ext.go
+	default:
+		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "no browser protocol %q", p.Protocol)
+	}
 	mv, err := d.vault(p.Vault)
 	if err != nil {
 		return nil, err
@@ -151,8 +159,12 @@ func (d *Daemon) browserMessage(ctx context.Context, cl *client, decode func(any
 		return nil, err
 	}
 	d.mu.Lock()
-	b, _ := cl.face.(*browserSession)
+	face := cl.face
 	d.mu.Unlock()
+	if x, ok := face.(*extSession); ok {
+		return svrpc.BrowserFrame{Frame: x.proto.Handle(ctx, p.Frame)}, nil
+	}
+	b, _ := face.(*browserSession)
 	if b == nil {
 		return nil, svrpc.Errorf(svrpc.CodeInvalidRequest, "open a browser session first (%s)", svrpc.MBrowserOpen)
 	}
