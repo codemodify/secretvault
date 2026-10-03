@@ -152,7 +152,7 @@ $ bin/secretvault resolve web/github.com     # changed on two devices at once: s
 $ bin/secretvault device ls                  # the devices that write to the vault, and their keys
 $ bin/secretvault attach bank ~/scans/card.pdf   # files go into the vault too
 $ bin/secretvault file get bank card.pdf -o -    # and come back out
-$ bin/secretvault import auto ~/Downloads/passwords.kdbx --prefix imported/keepass   # or Bitwarden, 1Password, CSV...
+$ bin/secretvault import keepass ~/Downloads/passwords.kdbx --prefix imported/keepass   # or firefox, bitwarden... (import sources)
 $ bin/secretvault export kdbx backup.kdbx    # asks for the new file's passphrase
 $ bin/secretvault grant list                 # what programs may do
 $ bin/secretvault audit                      # who accessed what
@@ -171,6 +171,33 @@ $ bin/secretvault sync setup https://sync.example.com:8443 --fingerprint FP --ad
 $ bin/secretvault sync invite                # then, on the other device:
 $ bin/secretvault sync join 'secretvault-sync:?...' --name personal
 ```
+
+Passwords come in from where they are now through the export file that
+program makes: Firefox, Chrome and the other Chromium browsers, Safari,
+Bitwarden, 1Password, KeePass and KeePassXC, Proton Pass, Aegis, Google
+Authenticator, another password manager's CXF file, or any CSV.
+secretvault never reads a browser's own password store. From Firefox,
+say:
+
+```console
+$ bin/secretvault import sources            # where they can come from, and the names import takes
+$ bin/secretvault import firefox            # how to export them: about:logins › ⋯ › Export Passwords…
+$ bin/secretvault import firefox ~/Downloads/logins.csv --dry-run   # the names it would make
+$ bin/secretvault import firefox ~/Downloads/logins.csv --prefix imported/firefox
+Imported 42 items, skipped 0, with 0 warnings.
+/home/ada/Downloads/logins.csv is not encrypted, and what it holds is in the vault now: delete it (rm -- '/home/ada/Downloads/logins.csv').
+```
+
+In the managers it is one guided flow, in the same words: File › Import…
+in the window, `I` in the terminal. It asks where your passwords are now,
+then shows that program's steps for its export, asks for the file and
+only what that export needs (the password of an encrypted Bitwarden or
+Aegis export; KeePass's master password and key file), shows the names
+it would make, and imports them only then. An export that was not
+encrypted is offered for deletion afterwards: an ordinary delete, which
+does not overwrite the file or touch copies of it.
+`secretvault import FORMAT FILE` (`auto`, `csv`, `kdbx`...) works as it
+always has.
 
 Emergency access, for a vault that syncs: a contact you trust can get into
 it if you cannot, after a wait during which you are told, and can refuse.
