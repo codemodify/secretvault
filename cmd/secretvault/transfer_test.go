@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/codemodify/secretvault/svops"
 )
 
 const chromeCSV = "name,url,username,password,note\n" +
@@ -72,6 +75,9 @@ func TestAnEncryptedExportAsksForItsOwnPassphrase(t *testing.T) {
 	out, errs, code := h.run("", h.with("import", "auto", file)...)
 	if code != 0 || !strings.Contains(errs, "does not open") || !strings.Contains(out, "Imported 2 items") {
 		t.Fatalf("import: %d\n%s\n%s", code, out, errs)
+	}
+	if strings.Contains(out, "not encrypted") {
+		t.Fatalf("an encrypted export is said not to be:\n%s", out)
 	}
 	if got := h.ok("", h.with("get", "Work/Servers/db.example")...); got != "pg-secret\n" {
 		t.Fatalf("get = %q", got)
@@ -164,7 +170,80 @@ func TestImportExplainsWhatItCannotRead(t *testing.T) {
 	if _, errs, code := h.run("", h.with("export", "json", filepath.Join(h.dir, "x"))...); code != 1 || !strings.Contains(errs, "cxf and kdbx") {
 		t.Fatalf("an unknown export format: %d %q", code, errs)
 	}
-	if _, _, code := h.run("", "import", "csv"); code != 2 {
+	if _, _, code := h.run("", "import", "auto"); code != 2 {
 		t.Fatalf("a missing argument: exit %d", code)
 	}
+	if _, errs, code := h.run("", "import", "netscape"); code != 2 || !strings.Contains(errs, "firefox, chrome") {
+		t.Fatalf("an unknown source: exit %d %q", code, errs)
+	}
 }
+
+func TestImportSourcesAreListedAndTheirStepsShown(t *testing.T) {
+	h := newHarness(t)
+	out, errs, code := h.run("", "import", "sources")
+	if code != 0 || !strings.HasPrefix(out, "SOURCE") || !strings.Contains(errs, "secretvault import SOURCE") {
+		t.Fatalf("import sources: %d\n%s\n%s", code, out, errs)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != len(svops.ImportSources)+1 || !strings.HasPrefix(lines[1], "firefox ") {
+		t.Fatalf("the sources, Firefox first:\n%s", out)
+	}
+	for _, s := range svops.ImportSources {
+		if !strings.Contains(out, s.Label) {
+			t.Errorf("%s is not listed", s.Label)
+		}
+	}
+
+	// A source's steps, with the warning its unencrypted export needs.
+	out = h.ok("", "import", "firefox")
+	for _, want := range []string{"To import from Firefox:", "1. In Firefox, type about:logins", "Export", "logins.csv",
+		"unencrypted", "secretvault import firefox FILE"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Firefox's steps lack %q:\n%s", want, out)
+		}
+	}
+	// By another name, in any case.
+	if out := h.ok("", "import", "Edge"); !strings.Contains(out, "chrome://password-manager/settings") || !strings.Contains(out, "secretvault import chrome FILE") {
+		t.Errorf("Edge's steps:\n%s", out)
+	}
+	// An encrypted export's: its password, and the key file.
+	out = h.ok("", "import", "keepassxc")
+	if !strings.Contains(out, "master password") || !strings.Contains(out, "--source-keyfile") || strings.Contains(out, "unencrypted") {
+		t.Errorf("KeePass's steps:\n%s", out)
+	}
+}
+
+// A source's name stands for its format; an unencrypted export is said
+// to be deletable once imported, and is not deleted.
+func TestImportFromFirefoxByItsName(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	file := h.write("logins.csv", firefoxCSV)
+	out, errs, code := h.run("", h.with("import", "firefox", file, "--dry-run")...)
+	if code != 0 || out != "www.mozilla.org\nintranet.example\n" || strings.Contains(errs, "Reading") {
+		t.Fatalf("dry run: %d %q %q", code, out, errs)
+	}
+	out = h.ok("", h.with("import", "firefox", file, "--prefix", "ff")...)
+	if !strings.Contains(out, "Imported 2 items, skipped 0") {
+		t.Fatalf("import: %s", out)
+	}
+	wantRm := "delete it (rm -- " + svops.ShellQuote(file) + ")"
+	if runtime.GOOS == "windows" {
+		wantRm = `delete it (del "` + file + `")`
+	}
+	if !strings.Contains(out, file+" is not encrypted") || !strings.Contains(out, wantRm) {
+		t.Fatalf("the line on deleting it:\n%s", out)
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("the CLI deleted the export: %v", err)
+	}
+	if got := h.ok("", h.with("get", "ff/www.mozilla.org")...); got != "moz-pass\n" {
+		t.Fatalf("get = %q", got)
+	}
+}
+
+const firefoxCSV = `"url","username","password","httpRealm","formActionOrigin","guid","timeCreated","timeLastUsed","timePasswordChanged"
+"https://www.mozilla.org","ada","moz-pass",,"https://www.mozilla.org","{0b5f8b1c}","1600000000000","1600000000000","1600000000000"
+"chrome://FirefoxAccounts","sync","ignored",,,"{1}","1","1","1"
+"https://intranet.example:8443","ada","basic-pass","Intranet",,"{2}","1","1","1"
+`

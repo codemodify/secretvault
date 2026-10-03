@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"text/tabwriter"
+	"unicode/utf8"
 
 	"github.com/codemodify/secretvault/svimport"
 	"github.com/codemodify/secretvault/svops"
@@ -15,7 +19,17 @@ import (
 // CXF files. The work is svimport's and svops' (transfer.go); here are
 // the flags, the prompts and the printing.
 
+// importUsage is import's usage, after "secretvault import".
+const importUsage = `SOURCE|FORMAT FILE [flags]
+       secretvault import SOURCE     how to make SOURCE's export
+       secretvault import sources    the programs to import from
+
+SOURCE is where the passwords are now: `
+
 func (c *cli) cmdImport(args []string) error {
+	if len(args) > 0 && args[0] == "sources" {
+		return c.importSources(args[1:])
+	}
 	fs := c.flags("import")
 	prefix := fs.String("prefix", "", "put every item under `FOLDER`, like imported/keepass")
 	dryRun := fs.Bool("dry-run", false, "list the names that would be created, and store nothing")
@@ -24,9 +38,21 @@ func (c *cli) cmdImport(args []string) error {
 	srcKey := fs.String("source-keyfile", "", "the KeePass key file (`FILE`) that opens a KDBX export")
 	var u unlockFlags
 	u.register(fs)
-	pos, err := parse(fs, args, 2, 2, "FORMAT FILE [flags]\n\nFORMAT is auto (guess from the file), or one of: "+svops.FormatNames())
+	usage := importUsage + svops.SourceNames() + " (secretvault import sources lists them).\n" +
+		"FORMAT is auto (guess from the file), or one of: " + svops.FormatNames()
+	pos, err := parse(fs, args, 1, 2, usage)
 	if err != nil {
 		return err
+	}
+	if len(pos) == 1 {
+		src, ok := svops.FindImportSource(pos[0])
+		if !ok {
+			fmt.Fprintf(fs.Output(), "usage: secretvault import %s\n", usage)
+			fs.PrintDefaults()
+			return errUsage
+		}
+		c.printSourceSteps(src)
+		return nil
 	}
 	format, path := pos[0], pos[1]
 	if format == "pass" || format == "gopass" {
@@ -89,7 +115,84 @@ func (c *cli) cmdImport(args []string) error {
 		withFiles = fmt.Sprintf(" (%d files)", rep.Files)
 	}
 	fmt.Fprintf(c.stdout, "Imported %d items%s, skipped %d, with %d warnings.\n", rep.Imported, withFiles, rep.Skipped, len(rep.Warnings))
+	if !res.Encrypted {
+		fmt.Fprintf(c.stdout, "%s is not encrypted, and what it holds is in the vault now: delete it (%s).\n", path, deleteCommand(path))
+	}
 	return nil
+}
+
+// deleteCommand is how to delete the file at path in the system's shell:
+// an ordinary delete, which is all RemoveExport does too.
+func deleteCommand(path string) string {
+	if runtime.GOOS == "windows" {
+		return `del "` + path + `"`
+	}
+	return "rm -- " + svops.ShellQuote(path)
+}
+
+// importSources is 'secretvault import sources': the programs to import
+// from (svops.ImportSources), and the names import takes for them.
+func (c *cli) importSources(args []string) error {
+	fs := c.flags("import sources")
+	if _, err := parse(fs, args, 0, 0, ""); err != nil {
+		return err
+	}
+	tw := tabwriter.NewWriter(c.stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "SOURCE\tFORMAT\tPROGRAM\tALSO")
+	for _, s := range svops.ImportSources {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.Name, s.Format, s.Label, strings.Join(s.Aliases, ", "))
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	fmt.Fprintln(c.stderr, "'secretvault import SOURCE' says how to make its export; 'secretvault import SOURCE FILE' imports it.")
+	return nil
+}
+
+// printSourceSteps is 'secretvault import SOURCE': how to make that
+// program's export, and the command that imports it.
+func (c *cli) printSourceSteps(s svops.ImportSource) {
+	fmt.Fprintf(c.stdout, "To import from %s:\n\n", s.Label)
+	for _, st := range s.NumberedSteps() {
+		fmt.Fprintln(c.stdout, wrapText(st, 76, "  ", "     "))
+	}
+	if note := s.UnencryptedNote(); note != "" {
+		fmt.Fprintln(c.stdout)
+		fmt.Fprintln(c.stdout, wrapText(note, 76, "  ", "  "))
+	}
+	fmt.Fprintf(c.stdout, "\nThen import it:\n\n  secretvault import %s FILE\n\n", s.Name)
+	var then string
+	switch {
+	case s.Keyfile:
+		then = fmt.Sprintf("It asks for the %s; --source-keyfile FILE gives the key file, if you use one. ", strings.ToLower(s.Passphrase))
+	case s.Passphrase != "":
+		then = fmt.Sprintf("It asks for the %s if the file is encrypted. ", strings.ToLower(s.Passphrase))
+	}
+	fmt.Fprintln(c.stdout, wrapText(then+"--dry-run shows the names it would make, and stores nothing.", 76, "", ""))
+}
+
+// wrapText breaks text into lines of at most width runes, the first
+// indented by first and the rest by rest.
+func wrapText(text string, width int, first, rest string) string {
+	var b strings.Builder
+	line, indent := 0, first
+	for i, w := range strings.Fields(text) {
+		n := utf8.RuneCountInString(w)
+		switch {
+		case i == 0:
+			b.WriteString(indent)
+			line = utf8.RuneCountInString(indent)
+		case line+1+n > width:
+			b.WriteString("\n" + rest)
+			line = utf8.RuneCountInString(rest)
+		default:
+			b.WriteByte(' ')
+			line++
+		}
+		b.WriteString(w)
+		line += n
+	}
+	return b.String()
 }
 
 // readExport imports, asking on the terminal for the export's passphrase
