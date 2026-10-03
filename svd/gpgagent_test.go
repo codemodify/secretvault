@@ -461,7 +461,7 @@ func TestAKeyThatConfirmsIsAskedAboutEveryTime(t *testing.T) {
 		h.desk.script("choose:" + svrpc.ChoiceOnce)
 		g.must([]byte("z"), "--local-user", k.fpr+"!", "--detach-sign")
 		q := h.desk.asked[len(h.desk.asked)-1]
-		if len(q.Choices) != 2 || !strings.Contains(q.Description, "confirmed on every use") {
+		if !onlyOnceOrDeny(q.Choices) || !strings.Contains(q.Description, "confirmed on every use") {
 			t.Fatalf("use %d: asked %+v", i, q)
 		}
 	}

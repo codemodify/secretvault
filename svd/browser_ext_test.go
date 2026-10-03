@@ -14,6 +14,26 @@ import (
 // The secretvault extension's session as the daemon opens it;
 // cmd/secretvault's tests play the extension through the host, end to end.
 
+// onlyOnceOrDeny reports whether a prompt asked every time offers nothing
+// to remember, and says no by default: its first choice (a plain
+// pinentry's OK, Enter) is Deny.
+func onlyOnceOrDeny(cs []svrpc.Choice) bool {
+	if len(cs) == 0 || cs[0].ID != svrpc.ChoiceDeny {
+		return false
+	}
+	allows := false
+	for _, c := range cs {
+		switch c.ID {
+		case svrpc.ChoiceOnce:
+			allows = true
+		case svrpc.ChoiceDeny:
+		default:
+			return false
+		}
+	}
+	return allows
+}
+
 func TestTheExtensionsSessionIsForTheExtensionAlone(t *testing.T) {
 	h := newHarness(t)
 	h.opts.Launcher = func(*svpeer.Process) (*svpeer.Process, error) {

@@ -337,7 +337,7 @@ async function verified(w) {
   } catch {
     // The frame is gone.
   }
-  if (!r || r.ok !== true) throw fail("denied", "the page tampered with the panel: use the toolbar button");
+  if (!r || r.ok !== true) throw fail("denied", "the page covered or changed the panel: choose again, or use the toolbar button");
 }
 
 // stillThere checks the tab still shows the origin a panel was for.

@@ -111,14 +111,15 @@
   }
 
   // raise puts host in the top layer (again: above the page's own), and
-  // remembers what of the page's was there under it.
-  function raise(host) {
+  // remembers what of the page's was there under it: in the document, or,
+  // with deep (at a click, not for every new mark), in shadow roots too.
+  function raise(host, deep) {
     if (!popovers) return;
     raising = true;
     try {
       if (host.matches(":popover-open")) host.hidePopover();
       host.showPopover();
-      raisedOver.set(host, { at: performance.now(), under: new Set(foreignTopLayer()) });
+      raisedOver.set(host, { at: performance.now(), under: new Set(foreignTopLayer(!!deep)) });
     } catch {
       // It stays shut, and so not shown.
     } finally {
@@ -296,7 +297,7 @@
   // foreignTopLayer is what the page has in the top layer (popovers, modal
   // dialogs, a full-screen element), in shadow roots too: wherever it is,
   // its ::backdrop may lie over the whole window.
-  function foreignTopLayer() {
+  function foreignTopLayer(deep = true) {
     const out = [];
     const visit = (root) => {
       for (const sel of [":popover-open", "dialog:modal", ":fullscreen"]) {
@@ -306,6 +307,7 @@
           // A selector this browser does not know.
         }
       }
+      if (!deep) return;
       for (const el of root.querySelectorAll("*")) {
         if (ours.has(el)) continue;
         const sr = shadowOf(el);
@@ -343,8 +345,9 @@
   // ::backdrop that is not see-through): any could paint a lure over it.
   function bare(host) {
     for (const p of ["::before", "::after"]) {
-      const c = getComputedStyle(host, p).content;
-      if (c && c !== "none" && c !== "normal") return false;
+      const cs = getComputedStyle(host, p);
+      const c = cs.content;
+      if (c && c !== "none" && c !== "normal" && !(c === '""' && paintsNothing(cs))) return false;
     }
     if (popovers) {
       const b = getComputedStyle(host, "::backdrop");
@@ -356,12 +359,24 @@
     return true;
   }
 
-  // sized reports whether host is the size it was given: not zoomed, nor
-  // scaled.
+  // paintsNothing reports whether an empty pseudo-element draws nothing:
+  // no background, border, shadow, outline or filter.
+  function paintsNothing(cs) {
+    const none = (v) => !v || v === "none";
+    return alpha(cs.backgroundColor) <= 0.01 && none(cs.backgroundImage) && none(cs.boxShadow) && none(cs.filter) &&
+      none(cs.backdropFilter) && ["Top", "Right", "Bottom", "Left"].every((d) => cs["border" + d + "Style"] === "none" || parseFloat(cs["border" + d + "Width"]) === 0) &&
+      (cs.outlineStyle === "none" || parseFloat(cs.outlineWidth) === 0);
+  }
+
+  // sized reports whether host is the size it was given, times the page's
+  // zoom: not shrunk or scaled, and not so small it cannot be seen.
   function sized(host) {
     const w = wanted.get(host);
     const r = host.getBoundingClientRect();
-    return Math.abs(r.width - parseFloat(w.props.width)) <= 1 && Math.abs(r.height - parseFloat(w.props.height)) <= 1;
+    const z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+    const width = parseFloat(w.props.width) * z;
+    const height = parseFloat(w.props.height) * z;
+    return width >= 12 && height >= 12 && Math.abs(r.width - width) <= 1 && Math.abs(r.height - height) <= 1;
   }
 
   // intact reports whether one of our hosts is as it was put: in <html>,
@@ -389,7 +404,7 @@
   function trusted(m, e) {
     if (!e.isTrusted || performance.now() - m.movedAt < SETTLE_MS) return false;
     if (covered(m.host)) {
-      raise(m.host); // above the page's again; a later click may count
+      raise(m.host, true); // above the page's again; a later click may count
       m.movedAt = performance.now();
       return false;
     }
@@ -724,11 +739,15 @@
       case "panel:close":
         closePanel();
         return false;
-      case "panel:verify":
-        // Asked before a choice made in the panel is acted on: was the
-        // panel the page showed as it was put, when the person chose?
-        sendResponse({ ok: !!panel && intact(panel.host) });
+      case "panel:verify": {
+        // Asked before a choice made in the panel is acted on: is the
+        // panel as it was put? One the page's top layer came over (a
+        // tooltip, say) is raised again, for the person to choose again.
+        const ok = !!panel && intact(panel.host);
+        if (!ok && panel && covered(panel.host)) raise(panel.host, true);
+        sendResponse({ ok });
         return false;
+      }
     }
     return false;
   });

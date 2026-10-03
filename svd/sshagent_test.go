@@ -112,8 +112,8 @@ func TestAKeyAddedWithConfirmIsAskedAboutEveryTime(t *testing.T) {
 			t.Fatalf("sign %d: %v %s", i, err, out)
 		}
 		q := h.desk.asked[len(h.desk.asked)-1]
-		if len(q.Choices) != 2 {
-			t.Fatalf("an every-use prompt offered %d choices", len(q.Choices))
+		if !onlyOnceOrDeny(q.Choices) {
+			t.Fatalf("an every-use prompt offered %+v", q.Choices)
 		}
 	}
 	h.desk.done(t)

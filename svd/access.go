@@ -361,7 +361,12 @@ func (d *Daemon) ask(ctx context.Context, cl *client, mv *managedVault, item, it
 		{ID: svrpc.ChoiceDeny, Label: "Deny"},
 	}
 	if everyTime {
-		choices = []svrpc.Choice{{ID: svrpc.ChoiceOnce, Label: "Allow"}, {ID: svrpc.ChoiceDeny, Label: "Deny"}}
+		// Asked every time, it defaults to no: Deny comes first, which a
+		// plain pinentry makes its OK (Enter), with Allow a button of its
+		// own and Cancel (Escape) a no as well. A keypress meant for
+		// something else (a page that has the person pressing Enter, say)
+		// does not allow it.
+		choices = []svrpc.Choice{{ID: svrpc.ChoiceDeny, Label: "Deny"}, {ID: svrpc.ChoiceOnce, Label: "Allow"}, {ID: svrpc.ChoiceDeny, Label: "Cancel"}}
 	}
 	choice, err := p.Choose(ctx, svrpc.PromptAsk{
 		Kind:        svrpc.PromptChoose,

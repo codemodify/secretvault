@@ -340,9 +340,11 @@ section covers what the extension adds. It is enforced in the files named.
     - Where the browser cannot vouch (Firefox has no
       IntersectionObserver v2), a login or code chosen in an in-page
       panel is confirmed by secretvault's own prompt every time, in a
-      window of its own that no page can reach. A remembered "always"
-      does not skip it; a remembered "no" still refuses. Choices in the
-      toolbar popup are not confirmed this way.
+      window of its own that no page can draw on. Keystrokes do reach
+      it, so it says no by default: Deny is first, which a plain
+      pinentry makes its OK (Enter), and Escape denies too. A remembered
+      "always" does not skip it; a remembered "no" still refuses. Choices
+      in the toolbar popup are not confirmed this way.
   - **Our elements go in the top layer** (a manual popover), above the
     page's content. They are shown only while they are open there and
     children of `<html>`. One the page restyles, or takes out of
@@ -352,16 +354,20 @@ section covers what the extension adds. It is enforced in the files named.
   - **A mark takes a click only when all of these hold:**
     - it has stood still for 400 ms (and, from the keyboard, has held
       the focus that long);
-    - the page has put nothing in the top layer since the mark was
-      raised over what was there: popovers, modal dialogs or a
-      full-screen element, in shadow roots too where the browser shows
-      them to extensions; and no view transition is running;
-    - it is open in the top layer, a child of `<html>`, styled as set and
-      the size it was given (not zoomed or scaled);
+    - nothing of the page's is in the top layer (popovers, modal
+      dialogs, a full-screen element, in shadow roots too where the
+      browser shows them to extensions) that the mark was not raised
+      over, nor shown since as far as the browser signals it (its toggle
+      events, which a re-shown popover in a shadow root, or a dialog in
+      browsers before Chrome 132 and Firefox 133, does not send); and no
+      view transition is running;
+    - it is open in the top layer, a child of `<html>`, styled as set, and
+      the size it was given times the page's zoom, and at least 12 pixels
+      (not shrunk or scaled);
     - neither it nor `<html>` is see-through, filtered, clipped or
       masked, and the mark is not transformed;
-    - the page has given none of our elements `::before`, `::after`, or
-      a `::backdrop` that is not see-through;
+    - the page has given none of our elements a `::before` or `::after`
+      that paints anything, nor a `::backdrop` that is not see-through;
     - the pointer is on it.
   - **The panel in a page:**
     - it closes when its field moves;

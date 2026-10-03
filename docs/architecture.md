@@ -244,7 +244,10 @@ Prompters speak the **pinentry protocol** (Assuan, [`svprompt`](../svprompt)),
 so they double as `pinentry` for gpg-agent and as askpass helpers.
 secretvault's own prompters understand an extension (`ADDCHOICE`, `CHOOSE`)
 for the four-way consent question. A plain pinentry gets three buttons:
-allow once, allow until locked, and deny.
+allow once, allow until locked, and deny. A question asked every time
+(an item confirmed on every use; a login the browser extension could not
+vouch for) offers Deny, Allow and Cancel, Deny first: a plain
+pinentry's OK, so Enter, meant for something else, says no.
 
 Security keys add two questions (`prompt.ask` kinds `pin` and `notice`).
 A key's PIN is asked for like a passphrase, by the same prompters, saying
