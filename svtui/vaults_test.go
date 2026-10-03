@@ -165,7 +165,7 @@ func TestTheVaultsPanelSaysWhereEachIsAndWhenItLocks(t *testing.T) {
 
 	// Open at login: on, through the fake sealer.
 	h.typeText("o")
-	h.waitFor("Open work when you log in?")
+	h.waitFor("Open vault work when you log in?")
 	h.waitForWords("Anyone who can use your logged-in account can then open this vault")
 	h.key(tcell.KeyTab)
 	h.key(tcell.KeyTab) // Cancel, then Open it at login

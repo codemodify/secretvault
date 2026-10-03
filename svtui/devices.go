@@ -22,7 +22,7 @@ func (u *UI) showDevices() {
 		return
 	}
 	vault := u.vault
-	p := u.newPanel("Devices · "+vault, "KEY", "LABEL", "DEVICE", "REGISTERED", "STANDING")
+	p := u.newPanel("Devices · "+vault, "KEY", "NAME", "DEVICE", "ADDED", "TRUSTED")
 	p.vault = vault
 	var policy svrpc.SignaturePolicy
 	p.reload = func() {
@@ -59,7 +59,7 @@ func (u *UI) showDevices() {
 	isDevice := is[svrpc.Device]
 	p.rowAct('l', "Name it…", isDevice, func(ref any) {
 		d := ref.(svrpc.Device)
-		u.ask("Name device "+d.Key[:min(16, len(d.Key))], "Name:", d.Label, func(label string) {
+		u.askTo("Name device "+d.Key[:min(16, len(d.Key))], "Name:", d.Label, "Save the name", func(label string) {
 			device := d.Key
 			if d.This {
 				device = ""
@@ -124,7 +124,7 @@ func (u *UI) showDevices() {
 					u.fail(err)
 					return
 				}
-				u.say("Removed device %s %q", res.Key, res.Label)
+				u.say("Marked %s as removed", svops.DeviceName(res.Label, res.Key))
 				p.refresh()
 			})
 		})
@@ -175,15 +175,15 @@ var opsList = []string{"read", "list", "write", "delete", "manage", "sign", "dec
 
 // decideProgram is 'secretvault grant allow|deny PROGRAM'.
 func (u *UI) decideProgram(vault string, allow bool, then func()) {
-	title, action := "Allow a program", "Allow"
+	title, action := "Allow a program", "Allow the program"
 	if !allow {
-		title, action = "Deny a program", "Deny"
+		title, action = "Deny a program", "Deny the program"
 	}
 	f := u.newForm(title+" · "+vault, "Decide now whether a program may use this vault, so that it is not asked later. The decision covers one item, the vault's contacts, or (neither) the whole vault, for the operations listed.")
 	program := f.path("Program", "", "/usr/bin/… or flatpak:APP or snap:NAME")
 	item := f.text("Only the item", "", "(optional: the whole vault)")
 	contacts := f.check("The vault's contacts, not an item", false)
-	ops := f.text("Operations", "read", strings.Join(opsList, ","))
+	ops := f.text("What it may do", "read", strings.Join(opsList, ","))
 	var untilLock *tview.Checkbox
 	if allow {
 		untilLock = f.check("Only until the vault locks", false)

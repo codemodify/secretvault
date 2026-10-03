@@ -73,7 +73,7 @@ func (u *UI) showContacts() {
 		u.removeContact(ct.ID, ct.Name, "", p.refresh)
 	})
 	p.act('/', "Find…", func() {
-		u.ask("Find contacts", "Name or address:", query, func(q string) {
+		u.askTo("Find contacts", "Name or address:", query, "Find", func(q string) {
 			query = q
 			p.refresh()
 		})

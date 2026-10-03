@@ -435,8 +435,11 @@ func (u *UI) inspectMail() {
 	f := u.newForm("Inspect a message", svops.InspectMessageAbout)
 	in := f.path("Message", "", "")
 	decrypt := f.check("Decrypt what is encrypted to your keys", false)
-	levels := []string{"", "tofu", "logged", "organisation", "in-person"}
-	minLevel := f.choice("Counts as verified", []string{"published (the default)", "accepted as it was, or seen before", "logged", "an organisation vouches", "compared in person"}, 0)
+	var levels, texts []string
+	for _, l := range svops.TrustLevels {
+		levels, texts = append(levels, l.Level), append(texts, l.Text)
+	}
+	minLevel := f.choice("Counts as verified", texts, 0)
 	contacts := f.text("Contacts vault", "", "default: the one set for them")
 	f.show("Inspect the message", func() string {
 		src := filePath(in)

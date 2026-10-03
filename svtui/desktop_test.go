@@ -54,7 +54,7 @@ func TestTheKeyringIsTakenOverAndGivenBack(t *testing.T) {
 	service := filepath.Join(h.home, ".local", "share", "dbus-1", "services", "org.freedesktop.secrets.service")
 	h.typeText("t")
 	h.waitFor("Make secretvault your system keyring")
-	h.waitForWords("an app has to ask you before it reads a password")
+	h.waitForWords("secretvault becomes the system keyring")
 	if strings.Contains(h.text(), "org.freedesktop.secrets.service") {
 		t.Fatalf("the plan names its files before Show details:\n%s", h.text())
 	}
@@ -86,12 +86,12 @@ func TestTheKeyringIsTakenOverAndGivenBack(t *testing.T) {
 
 	// Given back.
 	h.typeText("r")
-	h.waitFor("Give the keyring back")
+	h.waitFor("Stop being the system keyring")
 	h.details()
 	h.waitFor("- remove ")
 	h.key(tcell.KeyBacktab)
 	h.key(tcell.KeyEnter)
-	h.waitFor("is your system keyring again")
+	h.waitFor("secretvault is no longer the system keyring")
 	if _, err := os.Stat(service); err == nil {
 		t.Fatal("the service file is still there")
 	}
@@ -151,7 +151,7 @@ func TestBrowsersAreSetUpAndUndone(t *testing.T) {
 	h.unlock()
 	h.typeText("B")
 	h.waitFor("the secretvault extension")
-	h.waitFor("firefox")
+	h.waitFor("Firefox")
 
 	// secretvault's own extension's host: the plan in plain words, its
 	// files behind Show details.
@@ -178,7 +178,7 @@ func TestBrowsersAreSetUpAndUndone(t *testing.T) {
 		t.Fatalf("the manifest: %s", b)
 	}
 	h.key(tcell.KeyEscape)
-	h.waitFor("secretvault (" + cli + ")")
+	h.waitFor("Yes")
 
 	h.typeText("u")
 	h.waitFor("Stop Firefox using secretvault")
@@ -314,7 +314,7 @@ func TestProgramHelpersAreLinkedAndConfigured(t *testing.T) {
 		t.Fatalf("git's helpers: %q", git)
 	}
 	h.key(tcell.KeyEscape)
-	h.waitFor("credential.helper includes secretvault")
+	h.waitFor("keeps its logins in your vault")
 
 	h.typeText("u")
 	h.waitFor("Stop git, docker and age using secretvault")

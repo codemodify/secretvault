@@ -61,7 +61,7 @@ func (u *UI) showKeyring() {
 			p.clear()
 			switch {
 			case holder.BusErr != nil:
-				p.row(nil, "keyring", fmt.Sprintf("not known: there is no desktop session to ask (%v)", holder.BusErr))
+				p.row(nil, "keyring", "not known: secretvault cannot reach your desktop session")
 			case holder.Held:
 				p.row(nil, "keyring", fmt.Sprintf("%s (%s, process %d)", svops.KeyringName(holder.Owner.Exe), holder.Owner.Exe, holder.Owner.PID))
 			default:
@@ -128,7 +128,7 @@ func (u *UI) keyringImport(then func()) {
 		return
 	}
 	vault := u.vault
-	u.ask("Copy the keyring's passwords into "+vault, "Put them in the folder: ", "imported", func(prefix string) {
+	u.askTo("Copy the keyring's passwords into "+vault, "Put them in the folder: ", "imported", "Next", func(prefix string) {
 		u.readKeyring(func(holder string, secrets []svsecret.Secret, warnings []string) {
 			names, _, _ := svops.ImportKeyring(u.ctx, nil, vault, prefix, secrets)
 			u.showPlan(svops.KeyringImportPlain(holder, vault, prefix, names, warnings), func() {
@@ -274,13 +274,12 @@ func (u *UI) keyringRestore(then func()) {
 			if serveErr != nil {
 				done = append(done, "warning: "+u.describe(serveErr))
 			}
-			who := svops.SentenceStart(svops.KeyringName(s.Previous))
-			title, summary := "Keyring given back", who+" is your system keyring again."
+			title, summary := svops.RestoredText(s.Previous)
 			if err != nil {
 				u.fail(err)
 				title, summary = "Giving the keyring back did not finish", sentence(err.Error())
 			} else {
-				u.say("%s is your system keyring again", who)
+				u.say("%s", strings.TrimSuffix(summary, "."))
 			}
 			if then != nil {
 				then()
@@ -297,7 +296,7 @@ type browserRow struct{ svops.BrowserState }
 // for secretvault's own extension ('secretvault browser status');
 // installing and uninstalling its host, writing the extension out.
 func (u *UI) showBrowsers() {
-	p := u.newPanel("Browsers", "BROWSER", "STARTS", "")
+	p := u.newPanel("Browsers", "BROWSER", "CAN USE SECRETVAULT", "")
 	p.reload = func() {
 		var state *svops.BrowserInstall
 		var host string
@@ -309,11 +308,11 @@ func (u *UI) showBrowsers() {
 			return nil
 		}, func(error) {
 			head := "The secretvault extension fills and saves logins in your browser, asking you first. Two steps: i gives a browser permission to start secretvault " +
-				"(one small settings file; u takes it back), and e writes the extension out for you to add to the browser."
+				"(one small settings file; u takes it back), and e saves the extension for you to add to the browser."
 			if cli == "" {
-				head = "[yellow]" + tview.Escape(sentence(svops.ErrNoCLI.Error())) + "[-] Setting the browsers up needs it; e still writes the extension out."
+				head = "[yellow]" + tview.Escape(sentence(svops.ErrNoCLI.Error())) + "[-] Setting the browsers up needs it; e still saves the extension."
 			} else if state != nil {
-				head += fmt.Sprintf("\nSet up %s, starting %s.", state.When.Local().Format("2006-01-02 15:04"), tview.Escape(state.Host))
+				head += "\n" + svops.BrowserSetUpWhen(state)
 			}
 			if statusErr != nil {
 				head += "\n[red]" + tview.Escape(sentence(statusErr.Error())) + "[-]"
@@ -323,8 +322,7 @@ func (u *UI) showBrowsers() {
 			for _, h := range svops.NativeHosts {
 				p.heading(h.Title)
 				for _, b := range svops.StatesOf(browsers, h) {
-					line := svops.BrowserStateLine(b, host)
-					p.row(browserRow{b}, b.Spot.Name, strings.TrimSpace(strings.TrimPrefix(line, b.Spot.Name)))
+					p.row(browserRow{b}, b.Spot.Title, svops.BrowserCanUse(b, host))
 				}
 			}
 			p.done()
@@ -332,7 +330,7 @@ func (u *UI) showBrowsers() {
 	}
 	p.act('i', "Let a browser use secretvault…", func() { u.browserInstall(svops.ExtensionHost, p.refresh) })
 	p.act('u', "Take the permission back…", func() { u.browserUninstall(&svops.ExtensionHost, p.refresh) })
-	p.act('e', "Write the extension out…", u.browserExtension)
+	p.act('e', "Save the extension…", u.browserExtension)
 	p.show()
 }
 
@@ -374,13 +372,13 @@ func (u *UI) browserInstall(native svops.NativeHost, then func()) {
 				}
 				return nil
 			}, func(err error) {
-				title := strings.Join(who, ", ") + " can now use secretvault"
-				summary := "Restart the browser, then add the secretvault extension to it: e on this panel writes it out, and says how. u takes the permission back."
+				title := svops.AndList(who) + " can now use secretvault"
+				summary := "Restart the browser, then add the secretvault extension to it: e on this panel saves it, and says how. u takes the permission back."
 				if err != nil {
 					u.fail(err)
 					title, summary = "Setting up the browsers did not finish", sentence(err.Error())
 				} else {
-					u.say("%s can now use secretvault", strings.Join(who, ", "))
+					u.say("%s can now use secretvault", svops.AndList(who))
 				}
 				if then != nil {
 					then()
@@ -432,7 +430,7 @@ func (u *UI) browserUninstall(only *svops.NativeHost, then func()) {
 // written out, as a zip for Firefox (--out) or a folder for Chromium
 // (--dir), then how to load it.
 func (u *UI) browserExtension() {
-	u.choose("Write the secretvault extension out", []string{"as a .zip, for Firefox", "as a folder, for Chromium's Load unpacked"}, func(i int) {
+	u.choose("Save the extension, to add to your browser", []string{"as a .zip, for Firefox (until it restarts)", "as a folder, for Chrome, Chromium, Brave, Edge or Vivaldi"}, func(i int) {
 		dir := i == 1
 		value := svops.ExtensionFileName()
 		if dir {
@@ -441,7 +439,7 @@ func (u *UI) browserExtension() {
 		if wd, err := os.Getwd(); err == nil {
 			value = filepath.Join(wd, value)
 		}
-		u.ask("Write the extension out", "Path: ", value, func(path string) {
+		u.askTo("Save the extension", "Path: ", value, "Save the extension", func(path string) {
 			if dir {
 				u.extensionWritten(path, true, svops.WriteExtensionDir(path))
 				return
@@ -465,8 +463,9 @@ func (u *UI) extensionWritten(path string, dir bool, err error) {
 		u.fail(err)
 		return
 	}
-	u.say("Wrote the extension to %s", path)
-	u.showText("The secretvault extension", tview.Escape(lines(svops.ExtensionWrittenLines(path, dir))))
+	u.say("Saved the extension to %s", path)
+	u.showText("Add the extension to your browser", "The browser also needs your permission to start secretvault: i on this panel gives it.\n\n"+
+		lines(svops.ExtensionAddedLines(path, dir)))
 }
 
 // gpgSetup is 'secretvault pgp gpg-setup' (and with --remove): a GnuPG
@@ -532,7 +531,8 @@ func (u *UI) gpgSetup(vault string) {
 					if plan.OwnHome {
 						summary += "Use gpg as you always do."
 					} else {
-						summary += "To use them, set GNUPGHOME to this folder: export GNUPGHOME=" + h
+						summary += "To use them, run gpg with this folder: the first line under Details is the command to type in your terminal first."
+						done = append([]string{"export GNUPGHOME=" + h}, done...)
 					}
 					u.say("gpg uses the keys in vault %s", vault)
 					u.showDone("gpg uses the vault's keys", summary, done)
@@ -606,12 +606,12 @@ func (p *panel) fillHelpers(plan *svops.HelpersPlan, err error) {
 		p.done()
 		return
 	}
-	for i, r := range plan.StatusRows() {
-		var ref any
-		if i < len(plan.Links) {
-			ref = helperRef{plan.Links[i]}
-		}
-		p.row(ref, r[0], r[1])
+	rows := plan.StatusRows()
+	for i, l := range plan.Links {
+		p.row(helperRef{l}, rows[i][0], rows[i][1])
+	}
+	for _, r := range plan.PlainRows() {
+		p.row(nil, r[0], r[1])
 	}
 	p.done()
 }

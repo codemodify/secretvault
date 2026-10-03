@@ -217,7 +217,7 @@ func (u *UI) syncInvite(vault string) {
 			code = nil
 		}
 		u.showOnce("Invite a device to "+vault, []onceLine{
-			{text: "On the other device, join with this invite: Sync › Join a synced vault there, or 'secretvault sync join INVITE'."},
+			{text: "On the other device, open secretvault and join with this invite (Join a synced vault)."},
 			{secret: []byte(inv.Invite)},
 			{},
 			{text: svops.SyncInviteNote(inv.Expires.Local().Format("15:04"))},
@@ -230,7 +230,7 @@ func (u *UI) syncInvite(vault string) {
 func (u *UI) syncJoin() {
 	f := u.newForm("Join a synced vault", svops.SyncJoinLead+" On that device: Sync › Invite a device (i).")
 	invite := f.text("Invite", "", "secretvault-sync:…")
-	name := f.text("Name here", "", "what to call it on this device (default: default)")
+	name := f.text("Name here", "", "what to call it on this device (empty: default)")
 	dir := f.path("Folder", "", "empty: secretvault's own")
 	label := f.text("This device's name", "", "default: the host name")
 	f.show("Join", func() string {

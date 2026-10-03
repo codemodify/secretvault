@@ -242,7 +242,7 @@ func (u *UI) hostAllowUnit(then func()) {
 	unit := f.text("Unit", "", "app.service, or a glob: app@*.service")
 	cred := f.text("Credential", "", "its name in the unit")
 	ref := f.text("Reference", "", "sv://VAULT/ITEM[#FIELD]")
-	f.show("Allow", func() string {
+	f.show("Let it read secrets", func() string {
 		r := svrpc.HostRule{Unit: trimmed(unit), Credential: trimmed(cred), Ref: trimmed(ref)}
 		if r.Unit == "" || r.Credential == "" || r.Ref == "" {
 			return "Give the unit, the credential's name, and the reference."
@@ -259,7 +259,7 @@ func (u *UI) hostAllowService(then func()) {
 	user := f.text("User", "", "a name or a uid")
 	program := f.path("Program", "", "its path, or the script an interpreter runs (optional)")
 	refs := f.text("References", "", "sv://VAULT/ITEM[#FIELD], space-separated; globs allowed")
-	f.show("Allow", func() string {
+	f.show("Let it read secrets", func() string {
 		r := svrpc.HostRule{User: trimmed(user), Refs: strings.Fields(trimmed(refs))}
 		if r.User == "" || len(r.Refs) == 0 {
 			return "Give the user, and the references."
@@ -311,7 +311,7 @@ func (u *UI) hostDenyRefs(then func()) {
 	user := f.text("User", "", "a name or a uid")
 	program := f.path("Program", "", "as it was allowed (optional)")
 	refs := f.text("References", "", "space-separated (none: all of them)")
-	f.show("Deny", func() string {
+	f.show("Stop it reading secrets", func() string {
 		r := svrpc.HostRule{User: trimmed(user), Refs: strings.Fields(trimmed(refs))}
 		if r.User == "" {
 			return "Give the user."

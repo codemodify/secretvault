@@ -71,7 +71,7 @@ func (u *UI) showSlots() {
 	}
 	p.rowAct('x', "Remove it…", is[svrpc.SlotInfo], func(ref any) {
 		s := ref.(svrpc.SlotInfo)
-		u.confirm(svops.RemoveSlotTitle, svops.RemoveSlotText(vault, s)+" (r on this panel; Sharing's Cut off does both.)", svops.RemoveSlotAction, func() {
+		u.confirm(svops.RemoveSlotTitle, svops.RemoveSlotText(vault, s)+" That is r on this panel.", svops.RemoveSlotAction, func() {
 			u.call(func(ctx context.Context, c *secretvault.Client) error {
 				return c.RemoveSlot(ctx, vault, s.ID)
 			}, func(err error) {

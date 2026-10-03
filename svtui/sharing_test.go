@@ -271,7 +271,7 @@ func TestSharingAndEmergencyAccess(t *testing.T) {
 	})
 	owner.waitFor("REQUESTED")
 	owner.typeText("d")
-	owner.waitFor("Denying it")
+	owner.waitFor("denying gives them nothing")
 	owner.typeText("y")
 	owner.waitFor("Denied")
 

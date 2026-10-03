@@ -509,7 +509,7 @@ func (u *UI) renameItem() {
 		return
 	}
 	vault := u.vault
-	u.ask("Rename "+name, "New name:", name, func(to string) {
+	u.askTo("Rename "+name, "New name:", name, "Rename", func(to string) {
 		if to == name {
 			return
 		}

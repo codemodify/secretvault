@@ -71,10 +71,10 @@ func TestDevicesAreNamedVouchedForAndRemoved(t *testing.T) {
 	h.waitFor("vouched for")
 	selectWhere(h, func(d svrpc.Device) bool { return !d.This })
 	h.typeText("x")
-	h.waitFor("Remove the other one?")
-	h.tabs(2) // Cancel, then Remove the device
+	h.waitFor("Mark the other one as removed?")
+	h.tabs(2) // Cancel, then Mark as removed
 	h.key(tcell.KeyEnter)
-	h.waitFor("Removed device")
+	h.waitFor("as removed")
 	h.waitFor("removed")
 
 	// Only signed changes count.
