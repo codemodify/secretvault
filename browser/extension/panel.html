@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>secretvault</title>
+<link rel="stylesheet" href="panel.css">
+</head>
+<body>
+<header>
+  <img src="icons/32.png" alt="" width="20" height="20">
+  <h1>secretvault</h1>
+  <span id="site"></span>
+  <button id="close" type="button" class="quiet" aria-label="Close" hidden>✕</button>
+</header>
+<main>
+  <section id="status" aria-live="polite"></section>
+  <section id="vaults" hidden>
+    <label for="vault">Vault</label>
+    <select id="vault"></select>
+  </section>
+  <section id="offer" hidden>
+    <h2 id="offer-title"></h2>
+    <p id="offer-what"></p>
+    <label for="offer-name">Name</label>
+    <input id="offer-name" type="text" maxlength="200" autocomplete="off" spellcheck="false">
+    <div class="buttons">
+      <button id="offer-save" type="button" class="primary">Save</button>
+      <button id="offer-skip" type="button">Not now</button>
+    </div>
+  </section>
+  <section id="list" hidden>
+    <ul id="logins"></ul>
+  </section>
+</main>
+<footer id="actions" hidden>
+  <button id="generate" type="button">Fill a new password</button>
+  <button id="lock" type="button" class="quiet">Lock</button>
+</footer>
+<script src="lib/origin.js"></script>
+<script src="panel.js"></script>
+</body>
+</html>
