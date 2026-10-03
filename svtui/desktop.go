@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -292,9 +294,11 @@ func (u *UI) keyringRestore(then func()) {
 // browserRow is a browser's row of the browsers panel.
 type browserRow struct{ svops.BrowserState }
 
-// showBrowsers is the browsers panel: which host each browser starts
-// ('secretvault browser status'), and the extensions connected to the
-// vault ('browser ls'); installing, uninstalling, disconnecting.
+// showBrowsers is the browsers panel: which program each browser starts
+// for secretvault's own extension, then for the legacy KeePassXC-Browser
+// link ('secretvault browser status'), and the KeePassXC-Browser
+// extensions connected to the vault ('browser ls'); installing and
+// uninstalling either, writing the extension out, disconnecting.
 func (u *UI) showBrowsers() {
 	vault := u.vault
 	p := u.newPanel("Browsers", "BROWSER", "STARTS", "")
@@ -313,29 +317,32 @@ func (u *UI) showBrowsers() {
 			}
 			return nil
 		}, func(error) {
-			head := "secretvault stands in for KeePassXC behind KeePassXC-Browser: the browsers start the secretvault program for it. i installs it, u undoes that exactly."
+			head := "secretvault's own extension fills logins: i sets its host up in the browsers, e writes the extension out to load, u undoes the setup. " +
+				"The legacy link, secretvault behind KeePassXC-Browser, goes once the extension has replaced it: k sets it up, l undoes it."
 			if cli == "" {
-				head = "[yellow]" + tview.Escape(sentence(svops.ErrNoCLI.Error())) + "[-] Installing needs it."
+				head = "[yellow]" + tview.Escape(sentence(svops.ErrNoCLI.Error())) + "[-] Setting the browsers up needs it; e still writes the extension out."
 			} else if state != nil {
-				head = fmt.Sprintf("Installed %s, starting %s. u undoes it.", state.When.Local().Format("2006-01-02 15:04"), tview.Escape(state.Host))
+				head += fmt.Sprintf("\nSet up %s, starting %s.", state.When.Local().Format("2006-01-02 15:04"), tview.Escape(state.Host))
 			}
 			if statusErr != nil {
 				head += "\n[red]" + tview.Escape(sentence(statusErr.Error())) + "[-]"
 			}
 			p.setHead(head)
 			p.clear()
-			p.heading("Browsers here")
-			for _, b := range browsers {
-				line := svops.BrowserStateLine(b, host)
-				p.row(browserRow{b}, b.Spot.Name, strings.TrimSpace(strings.TrimPrefix(line, b.Spot.Name)))
+			for _, h := range svops.NativeHosts {
+				p.heading(h.Title)
+				for _, b := range svops.StatesOf(browsers, h) {
+					line := svops.BrowserStateLine(b, host)
+					p.row(browserRow{b}, b.Spot.Name, strings.TrimSpace(strings.TrimPrefix(line, b.Spot.Name)))
+				}
 			}
-			p.heading("Connected to " + vault)
+			p.heading("KeePassXC-Browser in " + vault)
 			switch {
 			case vault == "":
 			case assocErr != nil:
 				p.none(u.describe(assocErr))
 			case len(assoc) == 0:
-				p.none("None yet.")
+				p.none("None connected.")
 			}
 			for _, a := range assoc {
 				p.row(a, a.Name, a.Program+" · "+a.Extension, "since "+a.Created.Local().Format("2006-01-02"))
@@ -343,8 +350,11 @@ func (u *UI) showBrowsers() {
 			p.done()
 		})
 	}
-	p.act('i', "Install…", func() { u.browserInstall(p.refresh) })
-	p.act('u', "Uninstall…", func() { u.browserUninstall(p.refresh) })
+	p.act('i', "Set up…", func() { u.browserInstall(svops.ExtensionHost, p.refresh) })
+	p.act('u', "Undo…", func() { u.browserUninstall(&svops.ExtensionHost, p.refresh) })
+	p.act('e', "Write the extension out…", u.browserExtension)
+	p.act('k', "Set up the legacy link…", func() { u.browserInstall(svops.KeePassXCHost, p.refresh) })
+	p.act('l', "Undo the legacy link…", func() { u.browserUninstall(&svops.KeePassXCHost, p.refresh) })
 	p.rowAct('x', "Disconnect it…", is[svrpc.BrowserAssociation], func(ref any) {
 		a := ref.(svrpc.BrowserAssociation)
 		u.confirm("Disconnect?", fmt.Sprintf("Disconnect %s (%s)? Its extension must ask to connect again.", a.Name, a.Program), "Disconnect", func() {
@@ -363,27 +373,28 @@ func (u *UI) showBrowsers() {
 	p.show()
 }
 
-// browserInstall is 'secretvault browser install': which browsers, the
-// plan (svops.PlanBrowserInstall, naming the CLI), then each applied.
-func (u *UI) browserInstall(then func()) {
+// browserInstall is 'secretvault browser install' (with --keepassxc for
+// the legacy host): which browsers, the plan (svops.PlanBrowserInstall,
+// naming the CLI), then each applied.
+func (u *UI) browserInstall(native svops.NativeHost, then func()) {
 	cli := u.cliProgram()
 	if cli == "" {
 		u.fail(svops.ErrNoCLI)
 		return
 	}
 	options := append([]string{"every browser used here"}, svops.BrowserNames...)
-	u.choose("Install for", options, func(i int) {
+	u.choose("Set up "+native.Title+" for", options, func(i int) {
 		var names []string
 		if i > 0 {
 			names = []string{svops.BrowserNames[i-1]}
 		}
-		plan, err := svops.PlanBrowserInstall(svops.ExtensionHost, names, cli)
+		plan, err := svops.PlanBrowserInstall(native, names, cli)
 		if err != nil {
 			u.fail(err)
 			return
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "The browsers would start %s for KeePassXC-Browser:\n", tview.Escape(plan.Host))
+		fmt.Fprintf(&b, "The browsers would start %s for %s:\n", tview.Escape(plan.Host), tview.Escape(native.Title))
 		todo := 0
 		for _, hp := range plan.Hosts {
 			if hp.Skip != "" {
@@ -399,10 +410,10 @@ func (u *UI) browserInstall(then func()) {
 			b.WriteString("\nKeePassXC writes its manifests back each time it starts with browser integration on. Turn that off in KeePassXC (Settings › Browser Integration), or its advanced option to update the manifest files at startup.\n")
 		}
 		if todo == 0 {
-			u.showText("Install for browsers", b.String()+"\nThere is nothing to do.")
+			u.showText("Set up the browsers", b.String()+"\nThere is nothing to do.")
 			return
 		}
-		u.showPlan("Install for browsers", b.String(), "Install", func() {
+		u.showPlan("Set up the browsers", b.String(), "Set up", func() {
 			var out []string
 			u.call(func(context.Context, *secretvault.Client) error {
 				for _, hp := range plan.Hosts {
@@ -411,7 +422,7 @@ func (u *UI) browserInstall(then func()) {
 					}
 					rec, err := plan.Apply(hp)
 					if err != nil {
-						return fmt.Errorf("%s: %w (Uninstall undoes what was done)", hp.Label(), err)
+						return fmt.Errorf("%s: %w (Undo undoes what was done)", hp.Label(), err)
 					}
 					out = append(out, fmt.Sprintf("%s: wrote %s", hp.Label(), hp.Spot.Manifest))
 					if rec.Backup != nil {
@@ -421,28 +432,32 @@ func (u *UI) browserInstall(then func()) {
 				return nil
 			}, func(err error) {
 				text := lines(out)
-				if err != nil {
+				switch {
+				case err != nil:
 					u.fail(err)
 					text += "\n\n[red]" + tview.Escape(sentence(err.Error())) + "[-]"
-				} else {
+				case native.Legacy:
 					text += "\n\nRestart the browsers, then connect KeePassXC-Browser from its toolbar button."
-					u.say("Installed for the browsers")
+					u.say("Set the browsers up for KeePassXC-Browser")
+				default:
+					text += "\n\nRestart the browsers, then load the extension: e writes it out, and says how."
+					u.say("Set the browsers up for the secretvault extension")
 				}
 				if then != nil {
 					then()
 				}
-				u.showText("Installed", text)
+				u.showText("Set up", text)
 			})
 		})
 	})
 }
 
-// browserUninstall is 'secretvault browser uninstall': its dry run, then
-// the undoing.
-func (u *UI) browserUninstall(then func()) {
-	planned, err := svops.UninstallBrowsers(nil, true)
+// browserUninstall is 'secretvault browser uninstall' for one host
+// (--extension, --keepassxc): its dry run, then the undoing.
+func (u *UI) browserUninstall(only *svops.NativeHost, then func()) {
+	planned, err := svops.UninstallBrowsers(only, true)
 	if errors.Is(err, svops.ErrNoBrowserInstall) {
-		u.say("%s", sentence(err.Error()))
+		u.say("%s is not set up in any browser", sentence(only.Title))
 		return
 	}
 	if err != nil {
@@ -457,10 +472,10 @@ func (u *UI) browserUninstall(then func()) {
 			ls = append(ls, svops.UndoLines(x.InstalledHost)...)
 		}
 	}
-	u.showPlan("Uninstall from browsers", lines(ls), "Uninstall", func() {
+	u.showPlan("Undo "+only.Title, lines(ls), "Undo", func() {
 		var done []svops.Uninstalled
 		u.call(func(context.Context, *secretvault.Client) (err error) {
-			done, err = svops.UninstallBrowsers(nil, false)
+			done, err = svops.UninstallBrowsers(only, false)
 			return err
 		}, func(err error) {
 			var out []string
@@ -472,14 +487,55 @@ func (u *UI) browserUninstall(then func()) {
 				u.fail(err)
 				text += "\n\n[red]" + tview.Escape(sentence(err.Error())) + "[-]"
 			} else {
-				u.say("Uninstalled from the browsers")
+				u.say("Undone: %s", only.Title)
 			}
 			if then != nil {
 				then()
 			}
-			u.showText("Uninstalled", text)
+			u.showText("Undone", text)
 		})
 	})
+}
+
+// browserExtension is 'secretvault browser extension': the extension
+// written out, as a zip for Firefox (--out) or a folder for Chromium
+// (--dir), then how to load it.
+func (u *UI) browserExtension() {
+	u.choose("Write the secretvault extension out", []string{"as a .zip, for Firefox", "as a folder, for Chromium's Load unpacked"}, func(i int) {
+		dir := i == 1
+		value := svops.ExtensionFileName()
+		if dir {
+			value = strings.TrimSuffix(value, ".zip")
+		}
+		if wd, err := os.Getwd(); err == nil {
+			value = filepath.Join(wd, value)
+		}
+		u.ask("Write the extension out", "Path: ", value, func(path string) {
+			if dir {
+				u.extensionWritten(path, true, svops.WriteExtensionDir(path))
+				return
+			}
+			err := svops.WriteExtension(path, false)
+			if errors.Is(err, svops.ErrExtensionExists) {
+				u.confirm("Replace it?", tview.Escape(path)+" is there already. Replace it?", "Replace", func() {
+					u.extensionWritten(path, false, svops.WriteExtension(path, true))
+				})
+				return
+			}
+			u.extensionWritten(path, false, err)
+		})
+	})
+}
+
+// extensionWritten says how writing the extension to path went, and how
+// to load it.
+func (u *UI) extensionWritten(path string, dir bool, err error) {
+	if err != nil {
+		u.fail(err)
+		return
+	}
+	u.say("Wrote the extension to %s", path)
+	u.showText("The secretvault extension", tview.Escape(lines(svops.ExtensionWrittenLines(path, dir))))
 }
 
 // gpgSetup is 'secretvault pgp gpg-setup' (and with --remove): a GnuPG

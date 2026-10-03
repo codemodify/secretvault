@@ -5,6 +5,8 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+
+	"github.com/codemodify/secretvault/svops"
 )
 
 // The action menu (':'): every operation, grouped as the desktop
@@ -184,8 +186,11 @@ func (u *UI) menu() []menuEntry {
 		{"Desktop", "Become the system keyring…", "", func() { u.keyringTakeover(nil) }},
 		{"Desktop", "Give the system keyring back…", "", func() { u.keyringRestore(nil) }},
 		{"Desktop", "Browsers: which host each starts, the extensions connected", "B", u.showBrowsers},
-		{"Desktop", "Set the browsers up (KeePassXC-Browser)…", "", func() { u.browserInstall(nil) }},
-		{"Desktop", "Undo the browsers' setup…", "", func() { u.browserUninstall(nil) }},
+		{"Desktop", "Set the browsers up for the secretvault extension…", "", func() { u.browserInstall(svops.ExtensionHost, nil) }},
+		{"Desktop", "Undo the browsers' setup for the secretvault extension…", "", func() { u.browserUninstall(&svops.ExtensionHost, nil) }},
+		{"Desktop", "Write out the browser extension…", "", u.browserExtension},
+		{"Desktop", "Set up the legacy KeePassXC-Browser link…", "", func() { u.browserInstall(svops.KeePassXCHost, nil) }},
+		{"Desktop", "Undo the legacy KeePassXC-Browser link…", "", func() { u.browserUninstall(&svops.KeePassXCHost, nil) }},
 		{"Desktop", "GnuPG: let gpg use the vault's keys, or stop…", "", func() {
 			if u.needVault() {
 				u.gpgSetup(u.vault)
