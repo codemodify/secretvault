@@ -105,8 +105,11 @@ func TestTheHostDaemonIsSetUpFromThePanel(t *testing.T) {
 	// The unit denied again.
 	selectRef[svrpc.HostCredential](h)
 	h.typeText("x")
-	h.waitFor("Deny?")
-	h.typeText("y")
+	h.waitFor("Stop the service app.service reading secrets")
+	h.waitForWords("will no longer get its credential db")
+	h.key(tcell.KeyTab)
+	h.key(tcell.KeyTab) // Cancel, then Deny
+	h.key(tcell.KeyEnter)
 	h.waitSaid("Removed from the host policy")
 	h.waitFor("None (a allows one)")
 

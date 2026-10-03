@@ -47,15 +47,15 @@ func TestImportFromFirefoxShowsItsStepsStoresAndDeletesTheFile(t *testing.T) {
 	h.typeText(file)
 	h.tabs(3) // the folder, replace, Read it
 	h.key(tcell.KeyEnter)
-	h.waitFor("2 items to import into personal")
+	h.waitForWords("2 items from logins.csv will be added to vault personal")
+	h.details()
 	h.waitFor("www.mozilla.org")
 	if strings.Contains(h.text(), "moz-pass") {
 		t.Fatal("the plan shows a password")
 	}
-	h.key(tcell.KeyTab)
-	h.key(tcell.KeyTab) // Cancel, then Import
+	h.key(tcell.KeyBacktab) // Import 2 items
 	h.key(tcell.KeyEnter)
-	h.waitFor("Imported 2 items, skipped 0")
+	h.waitFor("2 items were imported.")
 	h.waitFor("Delete logins.csv?")
 	if s := h.text(); !strings.Contains(s, "unencrypted") || strings.Contains(strings.ToLower(s), "secure") {
 		t.Errorf("the offer:\n%s", s)
@@ -117,16 +117,16 @@ func TestImportAsksOnlyWhatTheSourceNeeds(t *testing.T) {
 	h.typeText(pass)
 	h.tabs(3) // the folder, replace, Read it
 	h.key(tcell.KeyEnter)
-	h.waitFor("2 items to import into personal")
+	h.waitForWords("2 items from bitwarden_export.json will be added to vault personal")
 	h.key(tcell.KeyTab)
 	h.key(tcell.KeyTab)
 	h.key(tcell.KeyEnter)
-	h.waitFor("Imported 2 items, skipped 0")
+	h.waitFor("2 items were imported.")
 	if strings.Contains(h.text(), "Delete bitwarden_export.json?") {
 		t.Fatal("an encrypted export was offered for deletion")
 	}
 	h.key(tcell.KeyEscape)
-	h.waitGone("Imported 2 items, skipped 0") // the report; the status line still says so
+	h.waitGone("2 items were imported.") // the report; the status line says it otherwise
 	if strings.Contains(h.text(), "Delete bitwarden_export.json?") {
 		t.Fatal("an encrypted export was offered for deletion")
 	}

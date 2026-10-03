@@ -47,27 +47,33 @@ func TestTheKeyringIsTakenOverAndGivenBack(t *testing.T) {
 	h.unlock()
 	h.typeText("Y")
 	h.waitFor("System keyring")
-	h.waitFor("nothing holds org.freedesktop.secrets")
+	h.waitFor("nothing: no app can keep passwords there now")
 
-	// The plan, declined: nothing changes.
+	// The plan, in plain words, its files behind Show details; declined:
+	// nothing changes.
 	service := filepath.Join(h.home, ".local", "share", "dbus-1", "services", "org.freedesktop.secrets.service")
 	h.typeText("t")
-	h.waitFor("Take the keyring over")
+	h.waitFor("Make secretvault your system keyring")
+	h.waitForWords("an app has to ask you before it reads a password")
+	if strings.Contains(h.text(), "org.freedesktop.secrets.service") {
+		t.Fatalf("the plan names its files before Show details:\n%s", h.text())
+	}
+	h.details()
 	h.waitFor("org.freedesktop.secrets.service")
 	h.waitFor("turn on secretvaultd's Secret Service")
 	h.key(tcell.KeyEscape)
-	h.waitGone("Take the keyring over")
+	h.waitGone("Make secretvault your system keyring")
 	if _, err := os.Stat(service); err == nil {
 		t.Fatal("declining the plan wrote the service file")
 	}
 
 	// Accepted.
 	h.typeText("t")
-	h.waitFor("Take the keyring over")
+	h.waitFor("Make secretvault your system keyring")
 	h.key(tcell.KeyTab)
-	h.key(tcell.KeyTab) // Cancel, then Take it over
+	h.key(tcell.KeyTab) // Cancel, then Take over the keyring
 	h.key(tcell.KeyEnter)
-	h.waitFor("secretvault is now the keyring")
+	h.waitFor("secretvault is your system keyring")
 	b, err := os.ReadFile(service)
 	if err != nil || !strings.Contains(string(b), "Exec="+daemon) {
 		t.Fatalf("the service file: %q %v", b, err)
@@ -81,11 +87,11 @@ func TestTheKeyringIsTakenOverAndGivenBack(t *testing.T) {
 	// Given back.
 	h.typeText("r")
 	h.waitFor("Give the keyring back")
+	h.details()
 	h.waitFor("- remove ")
-	h.key(tcell.KeyTab)
-	h.key(tcell.KeyTab)
+	h.key(tcell.KeyBacktab)
 	h.key(tcell.KeyEnter)
-	h.waitFor("is the keyring again")
+	h.waitFor("is your system keyring again")
 	if _, err := os.Stat(service); err == nil {
 		t.Fatal("the service file is still there")
 	}
@@ -116,15 +122,15 @@ func TestTheKeyringsSecretsAreImportedNamesFirst(t *testing.T) {
 	h.typeText("Y")
 	h.waitFor("System keyring")
 	h.typeText("i")
-	h.waitFor("Under the folder:")
+	h.waitFor("Put them in the folder:")
 	h.key(tcell.KeyEnter)
-	h.waitFor("Import the keyring")
-	h.waitFor("secrets to import into personal")
+	h.waitFor("Copy the keyring's passwords into personal")
+	h.waitForWords("into vault personal, in the folder imported/")
+	h.details()
 	h.waitFor("imported/")
-	h.key(tcell.KeyTab)
-	h.key(tcell.KeyTab)
+	h.key(tcell.KeyBacktab)
 	h.key(tcell.KeyEnter)
-	h.waitSaid("Imported")
+	h.waitSaid("Copied")
 	entries, err := h.admin.List(h.ctx(), "", "imported/")
 	if err != nil {
 		h.unlockAdmin("")
@@ -147,19 +153,22 @@ func TestBrowsersAreSetUpAndUndone(t *testing.T) {
 	h.waitFor("the secretvault extension")
 	h.waitFor("firefox")
 
-	// secretvault's own extension's host.
+	// secretvault's own extension's host: the plan in plain words, its
+	// files behind Show details.
 	dir := filepath.Join(h.home, ".mozilla", "native-messaging-hosts")
 	manifest := filepath.Join(dir, svext.HostName+".json")
 	h.typeText("i")
-	h.waitFor(" for ")
-	h.key(tcell.KeyDown) // firefox
+	h.waitFor("Which browser should the extension work in?")
+	h.key(tcell.KeyDown) // Firefox
 	h.key(tcell.KeyEnter)
+	h.waitFor("Let Firefox use secretvault")
+	h.waitForWords("Firefox needs your permission to start secretvault")
+	h.details()
 	h.waitFor("The browsers would start " + cli)
 	h.waitFor("firefox: write")
-	h.key(tcell.KeyTab)
-	h.key(tcell.KeyTab)
+	h.key(tcell.KeyBacktab) // Allow Firefox
 	h.key(tcell.KeyEnter)
-	h.waitFor("Restart the browsers")
+	h.waitFor("Restart the browser, then add")
 	b, err := os.ReadFile(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -172,8 +181,8 @@ func TestBrowsersAreSetUpAndUndone(t *testing.T) {
 	h.waitFor("secretvault (" + cli + ")")
 
 	h.typeText("u")
-	h.waitFor("Undo the secretvault extension")
-	h.waitFor("firefox: remove ")
+	h.waitFor("Stop Firefox using secretvault")
+	h.waitForWords("the secretvault extension cannot fill logins there")
 	h.key(tcell.KeyTab)
 	h.key(tcell.KeyTab)
 	h.key(tcell.KeyEnter)
@@ -232,12 +241,13 @@ func TestGPGIsPointedAtTheVaultAndBack(t *testing.T) {
 	h.typeText(filepath.Join(bin, "gpg"))
 	h.tabs(2)
 	h.key(tcell.KeyEnter)
+	h.waitFor("Let gpg use the keys in vault personal")
+	h.details()
 	h.waitFor("Pointing the GnuPG home ")
 	h.waitFor("import the public key")
-	h.key(tcell.KeyTab)
-	h.key(tcell.KeyTab)
+	h.key(tcell.KeyBacktab) // Let gpg use the keys
 	h.key(tcell.KeyEnter)
-	h.waitFor("signs and decrypts with secretvault's keys")
+	h.waitFor("gpg now signs and decrypts with the keys in vault personal")
 	conf, _ := os.ReadFile(filepath.Join(home, "gpg.conf"))
 	if !strings.Contains(string(conf), "agent-program "+cli+"|"+svops.GPGAgentProgramFlag) {
 		t.Fatalf("gpg.conf: %s", conf)
@@ -251,11 +261,11 @@ func TestGPGIsPointedAtTheVaultAndBack(t *testing.T) {
 	h.key(tcell.KeyEnter) // stop
 	h.tabs(1)
 	h.key(tcell.KeyEnter)
-	h.waitFor("Removing would take away the links")
+	h.waitForWords("gpg goes back to its own agent")
 	h.key(tcell.KeyTab)
 	h.key(tcell.KeyTab)
 	h.key(tcell.KeyEnter)
-	h.waitSaid("is no longer pointed at secretvault")
+	h.waitSaid("no longer uses the vault's keys")
 	conf, _ = os.ReadFile(filepath.Join(home, "gpg.conf"))
 	if strings.Contains(string(conf), svops.GPGAgentProgramFlag) {
 		t.Fatalf("gpg.conf still names secretvault: %s", conf)
@@ -288,12 +298,12 @@ func TestProgramHelpersAreLinkedAndConfigured(t *testing.T) {
 	h.waitFor("git-credential-secretvault")
 	h.waitFor("not there")
 	h.typeText("s")
-	h.waitFor("Set the helpers up")
+	h.waitFor("Set up git, docker and age")
+	h.details()
 	h.waitFor("git config --global --add credential.helper secretvault")
-	h.key(tcell.KeyTab)
-	h.key(tcell.KeyTab)
+	h.key(tcell.KeyBacktab) // Set up git, docker and age
 	h.key(tcell.KeyEnter)
-	h.waitFor("Helpers set up")
+	h.waitFor("git, docker and age can use secretvault")
 	if target, err := os.Readlink(filepath.Join(h.dir, "bin", "docker-credential-secretvault")); err != nil || target != "secretvault" {
 		t.Fatalf("the docker link: %q %v", target, err)
 	}
@@ -307,11 +317,11 @@ func TestProgramHelpersAreLinkedAndConfigured(t *testing.T) {
 	h.waitFor("credential.helper includes secretvault")
 
 	h.typeText("u")
-	h.waitFor("Undo the helpers")
+	h.waitFor("Stop git, docker and age using secretvault")
 	h.key(tcell.KeyTab)
 	h.key(tcell.KeyTab)
 	h.key(tcell.KeyEnter)
-	h.waitFor("Helpers undone")
+	h.waitFor("git, docker and age no longer use secretvault")
 	if _, err := os.Lstat(filepath.Join(h.dir, "bin", "git-credential-secretvault")); err == nil {
 		t.Fatal("the git link is still there")
 	}

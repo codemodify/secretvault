@@ -61,42 +61,45 @@ func (u *UI) showKeyring() {
 			p.clear()
 			switch {
 			case holder.BusErr != nil:
-				p.row(nil, "keyring", fmt.Sprintf("no session bus (%v)", holder.BusErr))
+				p.row(nil, "keyring", fmt.Sprintf("not known: there is no desktop session to ask (%v)", holder.BusErr))
 			case holder.Held:
-				p.row(nil, "keyring", fmt.Sprintf("%s (process %d)", svops.DescribeExe(holder.Owner.Exe), holder.Owner.PID))
+				p.row(nil, "keyring", fmt.Sprintf("%s (%s, process %d)", svops.KeyringName(holder.Owner.Exe), holder.Owner.Exe, holder.Owner.PID))
 			default:
-				p.row(nil, "keyring", "none (nothing holds org.freedesktop.secrets)")
+				p.row(nil, "keyring", "nothing: no app can keep passwords there now")
 			}
 			if stErr == nil {
 				p.row(nil, "secretvault", st.SecretService)
 			}
 			if s, err := svops.LoadTakeover(); err == nil {
-				p.row(nil, "takeover", "done "+s.When.Local().Format("2006-01-02 15:04")+" (r gives it back)")
+				p.row(nil, "takeover", "secretvault took over on "+s.When.Local().Format("2006-01-02 15:04")+", from "+svops.KeyringName(s.Previous)+" (r gives it back)")
 			}
 			p.done()
 		})
 	}
-	head := "The desktop's keyring (the Secret Service) is where programs keep their passwords. secretvault can import its secrets, and take its place: then programs ask secretvault, and you are asked before they read."
+	head := "Apps such as your browser, mail and Wi-Fi settings keep their passwords in the system keyring. secretvault can copy them into your vault, " +
+		"or take the keyring's place so that an app must ask you before it reads one. Giving the keyring back undoes every change."
 	if err := svops.KeyringHere(); err != nil {
 		head = "[yellow]" + tview.Escape(sentence(err.Error())) + "[-]"
 	}
 	p.setHead(head)
-	p.act('i', "Import its secrets…", func() { u.keyringImport(nil) })
-	p.act('t', "Take it over…", func() { u.keyringTakeover(p.refresh) })
-	p.act('r', "Give it back…", func() { u.keyringRestore(p.refresh) })
+	p.act('i', "Copy its passwords into the vault…", func() { u.keyringImport(nil) })
+	p.act('t', "Take over the keyring…", func() { u.keyringTakeover(p.refresh) })
+	p.act('r', "Give the keyring back…", func() { u.keyringRestore(p.refresh) })
 	p.show()
 }
 
 // readKeyring reads the keyring's secrets off the interface's goroutine
 // (it may ask to be unlocked), then hands them to then, which wipes them.
-func (u *UI) readKeyring(then func([]svsecret.Secret, []string)) {
+func (u *UI) readKeyring(then func(string, []svsecret.Secret, []string)) {
 	var secrets []svsecret.Secret
 	var warnings []string
+	var holder string
 	u.call(func(context.Context, *secretvault.Client) (err error) {
 		ctx, cancel := context.WithTimeout(u.ctx, 10*time.Minute)
 		defer cancel()
 		secrets, warnings, err = svops.ReadKeyring(ctx, func(o svsecret.Owner) {
-			u.post(func() { u.say("Reading from %s; it may ask you to unlock it", svops.DescribeExe(o.Exe)) })
+			holder = o.Exe
+			u.post(func() { u.say("Reading from %s; it may ask you to unlock it", svops.KeyringName(o.Exe)) })
 		})
 		return err
 	}, func(err error) {
@@ -104,7 +107,7 @@ func (u *UI) readKeyring(then func([]svsecret.Secret, []string)) {
 			u.fail(err)
 			return
 		}
-		then(secrets, warnings)
+		then(holder, secrets, warnings)
 	})
 }
 
@@ -125,14 +128,10 @@ func (u *UI) keyringImport(then func()) {
 		return
 	}
 	vault := u.vault
-	u.ask("Import the keyring's secrets", "Under the folder:", "imported", func(prefix string) {
-		u.readKeyring(func(secrets []svsecret.Secret, warnings []string) {
+	u.ask("Copy the keyring's passwords into "+vault, "Put them in the folder: ", "imported", func(prefix string) {
+		u.readKeyring(func(holder string, secrets []svsecret.Secret, warnings []string) {
 			names, _, _ := svops.ImportKeyring(u.ctx, nil, vault, prefix, secrets)
-			body := fmt.Sprintf("[::b]%d secrets to import into %s:[::-]\n%s", len(names), tview.Escape(vault), lines(names))
-			for _, w := range warnings {
-				body += "\n[yellow]warning:[-] " + tview.Escape(w)
-			}
-			u.showPlan("Import the keyring", body, fmt.Sprintf("Import %d", len(names)), func() {
+			u.showPlan(svops.KeyringImportPlain(holder, vault, prefix, names, warnings), func() {
 				var n int
 				u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 					defer wipeSecrets(secrets)
@@ -143,7 +142,7 @@ func (u *UI) keyringImport(then func()) {
 						u.fail(err)
 						return
 					}
-					u.say("Imported %d secrets", n)
+					u.say("Copied %d passwords into vault %s", n, vault)
 					if vault == u.vault {
 						u.loadItems()
 					}
@@ -189,11 +188,7 @@ func (u *UI) keyringTakeover(then func()) {
 			return
 		}
 		importFirst := exe != "" && vault != ""
-		body := lines(svops.TakeoverLines(plan, exe, importFirst))
-		if importFirst {
-			body += "\n\nIts secrets go into " + tview.Escape(vault) + ", under imported/."
-		}
-		u.showPlan("Take the keyring over", body, "Take it over", func() {
+		u.showPlan(svops.TakeoverPlain(plan, exe, importFirst, vault), func() {
 			var written, notes []string
 			var failed []svops.RestartFailure
 			u.call(func(ctx context.Context, c *secretvault.Client) error {
@@ -220,27 +215,30 @@ func (u *UI) keyringTakeover(then func()) {
 				notes = plan.Notes
 				return nil
 			}, func(err error) {
-				var b strings.Builder
+				var done []string
 				for _, f := range written {
-					fmt.Fprintf(&b, "Wrote %s\n", tview.Escape(f))
+					done = append(done, "Wrote "+f)
 				}
 				for _, f := range failed {
-					fmt.Fprintf(&b, "[yellow]warning:[-] restarting %s: %v %s\n", tview.Escape(f.Unit), f.Err, tview.Escape(string(f.Output)))
+					done = append(done, fmt.Sprintf("warning: restarting %s: %v %s", f.Unit, f.Err, strings.TrimSpace(string(f.Output))))
 				}
 				for _, n := range notes {
-					fmt.Fprintf(&b, "Still to do by hand: %s\n", tview.Escape(n))
+					done = append(done, "Still to do by hand: "+n)
+				}
+				title, summary := "secretvault is your system keyring", "Apps now ask secretvault for their passwords, and it asks you before they read one. r on this panel gives the keyring back."
+				if len(notes) > 0 {
+					summary += " One step is left for you to do: the details say which."
 				}
 				if err != nil {
-					fmt.Fprintf(&b, "\n[red]%s[-]", tview.Escape(sentence(u.describe(err))))
 					u.fail(err)
+					title, summary = "The takeover did not finish", sentence(u.describe(err))+" r on this panel undoes what was done; the details say what that is."
 				} else {
-					b.WriteString("\nsecretvault is now the keyring. Give it back from this panel (r).")
-					u.say("secretvault is now the keyring")
+					u.say("secretvault is now your system keyring")
 				}
 				if then != nil {
 					then()
 				}
-				u.showText("Keyring takeover", b.String())
+				u.showDone(title, summary, done)
 			})
 		})
 	})
@@ -254,14 +252,14 @@ func (u *UI) keyringRestore(then func()) {
 	}
 	s, err := svops.LoadTakeover()
 	if errors.Is(err, fs.ErrNotExist) {
-		u.say("There is no takeover to undo.")
+		u.say("secretvault has not taken over the keyring: there is nothing to give back.")
 		return
 	}
 	if err != nil {
 		u.fail(err)
 		return
 	}
-	u.showPlan("Give the keyring back", lines(svops.RestoreLines(s)), "Give it back", func() {
+	u.showPlan(svops.RestorePlain(s), func() {
 		var removed []string
 		var serveErr error
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
@@ -269,24 +267,25 @@ func (u *UI) keyringRestore(then func()) {
 			removed, _, err = svops.UndoTakeover(s)
 			return err
 		}, func(err error) {
-			var b strings.Builder
+			var done []string
 			for _, f := range removed {
-				fmt.Fprintf(&b, "Removed %s\n", tview.Escape(f))
+				done = append(done, "Removed "+f)
 			}
 			if serveErr != nil {
-				fmt.Fprintf(&b, "[yellow]warning:[-] %s\n", tview.Escape(u.describe(serveErr)))
+				done = append(done, "warning: "+u.describe(serveErr))
 			}
+			who := svops.SentenceStart(svops.KeyringName(s.Previous))
+			title, summary := "Keyring given back", who+" is your system keyring again."
 			if err != nil {
 				u.fail(err)
-				fmt.Fprintf(&b, "\n[red]%s[-]", tview.Escape(sentence(err.Error())))
+				title, summary = "Giving the keyring back did not finish", sentence(err.Error())
 			} else {
-				fmt.Fprintf(&b, "\nRestored: %s is the keyring again.", tview.Escape(svops.DescribeExe(s.Previous)))
-				u.say("Restored: %s is the keyring again", svops.DescribeExe(s.Previous))
+				u.say("%s is your system keyring again", who)
 			}
 			if then != nil {
 				then()
 			}
-			u.showText("Keyring restored", b.String())
+			u.showDone(title, summary, done)
 		})
 	})
 }
@@ -309,7 +308,8 @@ func (u *UI) showBrowsers() {
 			state, host, browsers, statusErr = svops.BrowserStatus(cli)
 			return nil
 		}, func(error) {
-			head := "secretvault's own extension fills logins: i sets its host up in the browsers, e writes the extension out to load, u undoes the setup."
+			head := "The secretvault extension fills and saves logins in your browser, asking you first. Two steps: i gives a browser permission to start secretvault " +
+				"(one small settings file; u takes it back), and e writes the extension out for you to add to the browser."
 			if cli == "" {
 				head = "[yellow]" + tview.Escape(sentence(svops.ErrNoCLI.Error())) + "[-] Setting the browsers up needs it; e still writes the extension out."
 			} else if state != nil {
@@ -330,22 +330,26 @@ func (u *UI) showBrowsers() {
 			p.done()
 		})
 	}
-	p.act('i', "Set up…", func() { u.browserInstall(svops.ExtensionHost, p.refresh) })
-	p.act('u', "Undo…", func() { u.browserUninstall(&svops.ExtensionHost, p.refresh) })
+	p.act('i', "Let a browser use secretvault…", func() { u.browserInstall(svops.ExtensionHost, p.refresh) })
+	p.act('u', "Take the permission back…", func() { u.browserUninstall(&svops.ExtensionHost, p.refresh) })
 	p.act('e', "Write the extension out…", u.browserExtension)
 	p.show()
 }
 
-// browserInstall is 'secretvault browser install': which browsers, the
-// plan (svops.PlanBrowserInstall, naming the CLI), then each applied.
+// browserInstall is 'secretvault browser install': which browsers, then
+// the plan in plain words (svops.BrowserInstallPlain, naming the CLI),
+// its manifests behind Show details, then each applied.
 func (u *UI) browserInstall(native svops.NativeHost, then func()) {
 	cli := u.cliProgram()
 	if cli == "" {
 		u.fail(svops.ErrNoCLI)
 		return
 	}
-	options := append([]string{"every browser used here"}, svops.BrowserNames...)
-	u.choose("Set up "+native.Title+" for", options, func(i int) {
+	options := []string{"Every browser on this computer"}
+	for _, n := range svops.BrowserNames {
+		options = append(options, svops.BrowserTitle(n))
+	}
+	u.choose("Which browser should the extension work in?", options, func(i int) {
 		var names []string
 		if i > 0 {
 			names = []string{svops.BrowserNames[i-1]}
@@ -355,76 +359,51 @@ func (u *UI) browserInstall(native svops.NativeHost, then func()) {
 			u.fail(err)
 			return
 		}
-		var b strings.Builder
-		fmt.Fprintf(&b, "The browsers would start %s for %s:\n", tview.Escape(plan.Host), tview.Escape(native.Title))
-		todo := 0
-		for _, hp := range plan.Hosts {
-			if hp.Skip != "" {
-				fmt.Fprintf(&b, "  %s: nothing to do: %s\n", tview.Escape(hp.Label()), tview.Escape(ownWords(hp.Skip)))
-				continue
-			}
-			todo++
-			for _, l := range svops.HostPlanLines(hp, plan.Host) {
-				b.WriteString("  " + tview.Escape(l) + "\n")
-			}
-		}
-		if todo == 0 {
-			u.showText("Set up the browsers", b.String()+"\nThere is nothing to do.")
-			return
-		}
-		u.showPlan("Set up the browsers", b.String(), "Set up", func() {
-			var out []string
+		u.showPlan(svops.BrowserInstallPlain(plan), func() {
+			var out, who []string
 			u.call(func(context.Context, *secretvault.Client) error {
-				for _, hp := range plan.Hosts {
-					if hp.Skip != "" {
-						continue
+				for _, hp := range plan.Todo() {
+					_, err := plan.Apply(hp)
+					if err != nil {
+						return fmt.Errorf("%s: %w (u on this panel takes back what was done)", hp.Label(), err)
 					}
-					if _, err := plan.Apply(hp); err != nil {
-						return fmt.Errorf("%s: %w (Undo undoes what was done)", hp.Label(), err)
+					for _, b := range hp.Browsers {
+						who = append(who, svops.BrowserTitle(b))
 					}
 					out = append(out, fmt.Sprintf("%s: wrote %s", hp.Label(), hp.Spot.Manifest))
 				}
 				return nil
 			}, func(err error) {
-				text := lines(out)
-				switch {
-				case err != nil:
+				title := strings.Join(who, ", ") + " can now use secretvault"
+				summary := "Restart the browser, then add the secretvault extension to it: e on this panel writes it out, and says how. u takes the permission back."
+				if err != nil {
 					u.fail(err)
-					text += "\n\n[red]" + tview.Escape(sentence(err.Error())) + "[-]"
-				default:
-					text += "\n\nRestart the browsers, then load the extension: e writes it out, and says how."
-					u.say("Set the browsers up for the secretvault extension")
+					title, summary = "Setting up the browsers did not finish", sentence(err.Error())
+				} else {
+					u.say("%s can now use secretvault", strings.Join(who, ", "))
 				}
 				if then != nil {
 					then()
 				}
-				u.showText("Set up", text)
+				u.showDone(title, summary, out)
 			})
 		})
 	})
 }
 
-// browserUninstall is 'secretvault browser uninstall' for one host: its
-// dry run, then the undoing.
+// browserUninstall is 'secretvault browser uninstall': its dry run, in
+// plain words, then the undoing.
 func (u *UI) browserUninstall(only *svops.NativeHost, then func()) {
 	planned, err := svops.UninstallBrowsers(only, true)
 	if errors.Is(err, svops.ErrNoBrowserInstall) {
-		u.say("%s is not set up in any browser", sentence(only.Title))
+		u.say("No browser is set up to use secretvault: there is nothing to undo.")
 		return
 	}
 	if err != nil {
 		u.fail(err)
 		return
 	}
-	var ls []string
-	for _, x := range planned {
-		if x.Changed {
-			ls = append(ls, svops.UninstalledLines(x)...)
-		} else {
-			ls = append(ls, svops.UndoLines(x.InstalledHost)...)
-		}
-	}
-	u.showPlan("Undo "+only.Title, lines(ls), "Undo", func() {
+	u.showPlan(svops.BrowserUninstallPlain(planned), func() {
 		var done []svops.Uninstalled
 		u.call(func(context.Context, *secretvault.Client) (err error) {
 			done, err = svops.UninstallBrowsers(only, false)
@@ -434,17 +413,17 @@ func (u *UI) browserUninstall(only *svops.NativeHost, then func()) {
 			for _, x := range done {
 				out = append(out, svops.UninstalledLines(x)...)
 			}
-			text := lines(out)
+			title, summary := "Browser access removed", "The browsers no longer start secretvault, and their files are as they were before. Your passwords stay in the vault."
 			if err != nil {
 				u.fail(err)
-				text += "\n\n[red]" + tview.Escape(sentence(err.Error())) + "[-]"
+				title, summary = "Removing browser access did not finish", sentence(err.Error())
 			} else {
-				u.say("Undone: %s", only.Title)
+				u.say("The browsers no longer start secretvault")
 			}
 			if then != nil {
 				then()
 			}
-			u.showText("Undone", text)
+			u.showDone(title, summary, out)
 		})
 	})
 }
@@ -499,11 +478,12 @@ func (u *UI) gpgSetup(vault string) {
 		return
 	}
 	cli := u.cliProgram()
-	f := u.newForm("Let gpg use the vault's keys", "gpg signs and decrypts with the OpenPGP keys of "+vault+" through secretvaultd, the keys never leaving it. Or stop that.")
-	home := f.path("GnuPG home", "", "default: secretvault's data directory/gnupg")
-	gpg := f.path("gpg program", "", "default: gpg on PATH")
-	remove := f.check("Stop: point the home back at GnuPG's own agent", false)
-	f.show("Plan it", func() string {
+	f := u.newForm("Let gpg use the vault's keys", "gpg can sign and decrypt with the OpenPGP keys in vault "+vault+"; the private keys stay inside secretvault. "+
+		"Which GnuPG folder? Empty means secretvault's own, which leaves your usual gpg setup alone; your own (usually ~/.gnupg) stops gpg using its own agent.")
+	home := f.path("GnuPG folder", "", "empty: secretvault's own")
+	gpg := f.path("gpg program", "", "empty: the gpg on your PATH")
+	remove := f.check("Stop gpg using the vault's keys in this folder instead", false)
+	f.show("Next", func() string {
 		h, err := svops.GnuPGHome(filePath(home))
 		if err != nil {
 			return err.Error()
@@ -525,11 +505,7 @@ func (u *UI) gpgSetup(vault string) {
 				u.fail(err)
 				return
 			}
-			body := lines(svops.GnuPGPlanLines(plan))
-			if plan.OwnHome {
-				body = "[yellow]" + tview.Escape(svops.GnuPGOwnHomeNote(h)) + "[-]\n\n" + body
-			}
-			u.showPlan("gpg setup", body, "Set it up", func() {
+			u.showPlan(svops.GnuPGSetupPlain(plan, vault), func() {
 				var res svrpc.GnuPGLinkResult
 				var note string
 				u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
@@ -540,24 +516,26 @@ func (u *UI) gpgSetup(vault string) {
 						u.fail(err)
 						return
 					}
-					var b strings.Builder
+					var done []string
 					if note != "" {
-						fmt.Fprintf(&b, "[yellow]warning:[-] %s\n\n", tview.Escape(note))
+						done = append(done, "warning: "+note)
 					}
-					fmt.Fprintf(&b, "The GnuPG home %s signs and decrypts with secretvault's keys:\n", tview.Escape(h))
 					for _, k := range plan.Keys {
-						fmt.Fprintf(&b, "  %s  %s\n", svops.GroupFingerprint(k.Fingerprint), tview.Escape(svops.FirstUserID(k)))
+						done = append(done, svops.GroupFingerprint(k.Fingerprint)+"  "+svops.FirstUserID(k))
 					}
-					fmt.Fprintf(&b, "Its agent is secretvaultd: %s -> %s\n", tview.Escape(plan.Socket), tview.Escape(res.Agent))
+					done = append(done, "Its agent is secretvaultd: "+plan.Socket+" -> "+res.Agent)
 					if res.SSHAgent != "" {
-						fmt.Fprintf(&b, "and so is its SSH agent: %s -> %s\n", tview.Escape(plan.SSHSocket), tview.Escape(res.SSHAgent))
+						done = append(done, "and so is its SSH agent: "+plan.SSHSocket+" -> "+res.SSHAgent)
 					}
-					if ns := svops.GnuPGNotes(plan.Skipped, plan.Unreachable, h); len(ns) > 0 {
-						b.WriteString(lines(ns) + "\n")
+					done = append(done, svops.GnuPGNotes(plan.Skipped, plan.Unreachable, h)...)
+					summary := "gpg now signs and decrypts with the keys in vault " + vault + ", and you are asked the first time each program uses one. "
+					if plan.OwnHome {
+						summary += "Use gpg as you always do."
+					} else {
+						summary += "To use them, set GNUPGHOME to this folder: export GNUPGHOME=" + h
 					}
-					fmt.Fprintf(&b, "Use it with: export GNUPGHOME=%s\nEach program's first signature or decryption with a key is asked about.", tview.Escape(h))
-					u.say("gpg in %s uses secretvault's keys", h)
-					u.showText("gpg setup", b.String())
+					u.say("gpg uses the keys in vault %s", vault)
+					u.showDone("gpg uses the vault's keys", summary, done)
 				})
 			}, plan.Discard)
 		})
@@ -577,10 +555,10 @@ func (u *UI) gpgRemove(home string) {
 			return
 		}
 		if !pointed {
-			u.say("%s is not pointed at secretvault", home)
+			u.say("gpg does not use the vault's keys in %s: there is nothing to stop", home)
 			return
 		}
-		u.showPlan("Stop gpg using the vault's keys", tview.Escape(svops.GnuPGRemoveText(home)), "Stop", func() {
+		u.showPlan(svops.GnuPGRemovePlain(home), func() {
 			u.call(func(ctx context.Context, c *secretvault.Client) error {
 				return svops.RemoveGnuPG(ctx, c, home)
 			}, func(err error) {
@@ -588,7 +566,7 @@ func (u *UI) gpgRemove(home string) {
 					u.fail(err)
 					return
 				}
-				u.say("The GnuPG home %s is no longer pointed at secretvault; the public keys stay", home)
+				u.say("gpg no longer uses the vault's keys in %s; the public keys stay", home)
 			})
 		})
 	})
@@ -602,7 +580,8 @@ type helperRef struct{ svops.HelperLinkState }
 // credsStore (svops.PlanHelpers); setting them up and undoing that.
 func (u *UI) showHelpers() {
 	p := u.newPanel("Program helpers", "HELPER", "STATE")
-	p.setHead("git and docker keep their logins as items under git/ and docker/, through these helpers; age and SOPS reach the vault's age identities through its plugin. They are links to the secretvault program.")
+	p.setHead("git and docker can keep their logins in your vault (under git/ and docker/), and age and SOPS can decrypt with the vault's age keys. " +
+		"s lets them, and you are asked before any of them reads a password; u removes only what secretvault added.")
 	p.reload = func() {
 		var plan *svops.HelpersPlan
 		cli := u.cliProgram()
@@ -613,8 +592,8 @@ func (u *UI) showHelpers() {
 			p.fillHelpers(plan, err)
 		})
 	}
-	p.act('s', "Set them up…", func() { u.helpersPlan(true, p.refresh) })
-	p.act('u', "Undo them…", func() { u.helpersPlan(false, p.refresh) })
+	p.act('s', "Let git, docker and age use secretvault…", func() { u.helpersPlan(true, p.refresh) })
+	p.act('u', "Remove the setup…", func() { u.helpersPlan(false, p.refresh) })
 	p.show()
 }
 
@@ -650,37 +629,33 @@ func (u *UI) helpersPlan(setup bool, then func()) {
 			u.fail(err)
 			return
 		}
-		title, intro, body, action, doneTitle, do := "Set the helpers up", svops.HelpersSetupIntro(plan.CLI), plan.SetupLines(), "Set up", "Helpers set up", plan.Apply
+		pl, do := svops.HelpersSetupPlain(plan), plan.Apply
+		doneTitle, doneSummary := "git, docker and age can use secretvault", "You are asked before any of them reads a password. u on this panel removes what was added."
 		if !setup {
 			if !plan.Undoable() {
-				u.say("%s", svops.HelpersNothingToUndo)
+				u.say("git, docker and age are not set up to use secretvault: there is nothing to undo")
 				return
 			}
-			title, intro, body, action, doneTitle, do = "Undo the helpers", svops.HelpersUndoIntro, plan.UndoLines(), "Undo", "Helpers undone", plan.Undo
+			pl, do = svops.HelpersUndoPlain(plan), plan.Undo
+			doneTitle, doneSummary = "git, docker and age no longer use secretvault", "What secretvault added is removed; everything else is as it was."
 		}
-		body = append([]string{intro, ""}, body...)
-		u.showPlan(title, lines(body), action, func() {
+		u.showPlan(pl, func() {
 			var done []string
 			u.call(func(context.Context, *secretvault.Client) (err error) {
 				done, err = do()
 				return err
 			}, func(err error) {
-				u.helpersDone(doneTitle, done, err)
+				if err != nil {
+					u.fail(err)
+					doneTitle, doneSummary = "It did not finish", sentence(err.Error())+" The details say what was done so far."
+				} else {
+					u.say("%s", doneTitle)
+				}
+				u.showDone(doneTitle, doneSummary, done)
 				if then != nil {
 					then()
 				}
 			})
 		})
 	})
-}
-
-func (u *UI) helpersDone(title string, done []string, err error) {
-	text := lines(done)
-	if err != nil {
-		u.fail(err)
-		text += "\n\n[red]" + tview.Escape(sentence(err.Error())) + "[-]"
-	} else {
-		u.say("%s", title)
-	}
-	u.showText(title, text)
 }

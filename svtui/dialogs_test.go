@@ -34,7 +34,7 @@ func TestADialogWaitsForTheOneUp(t *testing.T) {
 	})
 	planned, cancelled := false, false
 	h.u.post(func() {
-		h.u.showPlan("A later plan", "something to do", "Do it", func() { planned = true }, func() { cancelled = true })
+		h.u.showPlan(svops.Plain{Title: "A later plan", Summary: "something to do", Action: "Do it"}, func() { planned = true }, func() { cancelled = true })
 	})
 	time.Sleep(100 * time.Millisecond)
 	if s := h.text(); !strings.Contains(s, "New vault") || strings.Contains(s, "A later plan") {

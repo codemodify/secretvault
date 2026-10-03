@@ -96,11 +96,17 @@ func TestANewVaultShowsItsRecoveryKeyOnce(t *testing.T) {
 	h.typeText(newPass)
 	h.tabs(3)
 	h.key(tcell.KeyEnter)
-	h.waitFor("Recovery key of work")
+	h.waitFor("Recovery key for work")
 	h.waitFor("shown only now")
 	h.waitFor("No items yet") // listed without asking again: the passphrase was presented
 	var held []byte
-	h.do(func() { held = h.u.once.lines[2].secret })
+	h.do(func() {
+		for _, l := range h.u.once.lines {
+			if l.secret != nil {
+				held = l.secret
+			}
+		}
+	})
 	rk := string(bytes.Clone(held))
 	if !strings.Contains(h.text(), rk) {
 		t.Fatalf("the recovery key %q is not shown:\n%s", rk, h.text())
@@ -127,7 +133,7 @@ func TestANewVaultShowsItsRecoveryKeyOnce(t *testing.T) {
 	h.key(tcell.KeyEscape)
 	h.waitFor("This is not shown again")
 	h.typeText("n")
-	h.waitFor("Recovery key of work")
+	h.waitFor("Recovery key for work")
 	h.closeOnce()
 	if !bytes.Equal(held, make([]byte, len(held))) {
 		t.Fatal("the recovery key is still held after the view closed")
@@ -159,8 +165,11 @@ func TestTheVaultsPanelSaysWhereEachIsAndWhenItLocks(t *testing.T) {
 
 	// Open at login: on, through the fake sealer.
 	h.typeText("o")
-	h.waitFor("Open vault \"work\" when you log in")
-	h.typeText("y")
+	h.waitFor("Open work when you log in?")
+	h.waitForWords("Anyone who can use your logged-in account can then open this vault")
+	h.key(tcell.KeyTab)
+	h.key(tcell.KeyTab) // Cancel, then Open it at login
+	h.key(tcell.KeyEnter)
 	h.waitAnswering("Vault work opens when you log in")
 	if !h.vaults()["work"].LoginUnlock {
 		t.Fatal("work does not open at login")
@@ -168,21 +177,21 @@ func TestTheVaultsPanelSaysWhereEachIsAndWhenItLocks(t *testing.T) {
 
 	// Verify, from the row's own menu (Enter).
 	h.key(tcell.KeyEnter)
-	h.waitFor("Do what?")
+	h.waitFor("What to do with it?")
 	h.typeText("vvvv") // not keys of a list: nothing happens
 	h.key(tcell.KeyDown)
 	h.key(tcell.KeyDown)
 	h.key(tcell.KeyDown)
 	h.key(tcell.KeyEnter)
-	h.waitFor("authenticated")
-	h.waitFor("Everything is as it was written")
+	h.waitFor("Vault work is sound")
+	h.waitFor("is as secretvault wrote it")
 	h.key(tcell.KeyEscape)
-	h.waitGone("authenticated")
+	h.waitGone("is as secretvault wrote it")
 
 	// Forget it; then add its folder back under another name.
 	path := h.vaults()["work"].Path
 	h.typeText("x")
-	h.waitFor(`Forget vault "work"?`)
+	h.waitFor("Forget vault work?")
 	h.typeText("y")
 	h.waitFor("Forgot vault work")
 	if _, ok := h.vaults()["work"]; ok {
@@ -192,7 +201,7 @@ func TestTheVaultsPanelSaysWhereEachIsAndWhenItLocks(t *testing.T) {
 		t.Fatalf("forgetting removed the folder: %v", err)
 	}
 	h.typeText("a")
-	h.waitFor("Add a vault folder")
+	h.waitFor("Add an existing vault")
 	h.typeText("job")
 	h.tabs(1)
 	h.typeText(path)

@@ -3,9 +3,7 @@ package svtui
 import (
 	"context"
 	"fmt"
-	"maps"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/rivo/tview"
@@ -23,15 +21,20 @@ import (
 // newVault is 'secretvault init': a name, a folder of one's own if
 // wanted, the suite, the passphrase, and a recovery key shown once.
 func (u *UI) newVault() {
-	f := u.newForm("New vault", "The passphrase opens the vault; a recovery key, if you make one, opens it too, and is shown only once.")
+	f := u.newForm("New vault", svops.NewVaultIntro)
 	name := f.text("Name", "", "default")
-	dir := f.path("Folder", "", "secretvault's own (or a folder of your own, a synced one say)")
-	suite := f.choice("Cipher suite", []string{"modern", "nist"}, 0)
+	dir := f.path("Folder", "", svops.VaultFolderPlaceholder+" (or choose one: a synced folder, say)")
+	suites := make([]string, len(svops.VaultSuites))
+	for i, s := range svops.VaultSuites {
+		suites[i] = s.Text
+	}
+	suite := f.choice(svops.SuiteLabel, suites, 0)
 	pass := f.secret("Passphrase")
 	again := f.secret("Repeat it")
 	recovery := f.check("Make a recovery key", false)
-	f.show("Create", func() string {
-		p := svrpc.VaultCreateParams{Name: trimmed(name), Suite: option(suite), Recovery: recovery.IsChecked()}
+	f.show(svops.CreateVaultAction, func() string {
+		si, _ := suite.GetCurrentOption()
+		p := svrpc.VaultCreateParams{Name: trimmed(name), Suite: svops.VaultSuites[max(0, si)].Name, Recovery: recovery.IsChecked()}
 		if p.Name == "" {
 			p.Name = "default"
 		}
@@ -62,10 +65,10 @@ func (u *UI) newVault() {
 				u.fail(err)
 				return
 			}
-			u.say("Created vault %s (%s) at %s", res.Vault.Name, res.Vault.Suite, res.Vault.Path)
+			u.say("Created vault %s", res.Vault.Name)
 			u.afterVaultsChange(res.Vault.Name)
 			if res.RecoveryKey != "" {
-				u.showRecoveryKey("Recovery key of "+res.Vault.Name, res.RecoveryKey)
+				u.showRecoveryKey(res.Vault.Name, res.RecoveryKey)
 			}
 		})
 		return ""
@@ -84,14 +87,14 @@ func newPassphraseProblem(pass, again *secretInput) string {
 	return ""
 }
 
-// showRecoveryKey shows a new recovery key, once.
-func (u *UI) showRecoveryKey(title, rk string) {
-	u.showOnce(title, []onceLine{
-		{text: "Write it down and keep it somewhere safe; it is shown only now."},
+// showRecoveryKey shows vault's new recovery key, once.
+func (u *UI) showRecoveryKey(vault, rk string) {
+	u.showOnce("Recovery key for "+vault, []onceLine{
+		{text: svops.RecoveryKeyNote(vault)},
 		{},
 		{secret: []byte(rk)},
 		{},
-		{text: "It opens the vault on its own, like the passphrase: Unlock with… › The recovery key."},
+		{text: "To open the vault with it: Unlock with… › " + svops.UnlockKindText[svformat.SlotRecovery] + "."},
 	}, nil)
 }
 
@@ -142,10 +145,10 @@ func (u *UI) afterVaultsChange(name string) {
 
 // addVault is 'secretvault vault add NAME DIR'.
 func (u *UI) addVault() {
-	f := u.newForm("Add a vault folder", "A vault's folder from elsewhere (a synced folder, a copy) is added under a name of your choosing.")
-	name := f.text("Name", "", "")
-	dir := f.path("Folder", "", "the vault's folder")
-	f.show("Add", func() string {
+	f := u.newForm(svops.AddVaultTitle, svops.AddVaultIntro)
+	name := f.text("Name it", "", "personal, work…")
+	dir := f.path("Its folder", "", "the vault's folder")
+	f.show(svops.AddVaultAction, func() string {
 		n, d := trimmed(name), filePath(dir)
 		if n == "" || d == "" {
 			return "Give the vault a name, and its folder."
@@ -163,7 +166,7 @@ func (u *UI) addVault() {
 				u.fail(err)
 				return
 			}
-			u.say("Added vault %s at %s", v.Name, v.Path)
+			u.say("Added vault %s", v.Name)
 			u.afterVaultsChange(v.Name)
 		})
 		return ""
@@ -210,11 +213,11 @@ func (u *UI) showVaults() {
 	})
 	p.rowAct('d', "Make it the default", isVault, func(ref any) { u.makeDefaultOf(vault(ref)) })
 	p.rowAct('o', "Open it when I log in (on or off)…", isVault, func(ref any) { u.toggleLoginOf(ref.(svrpc.VaultInfo)) })
-	p.rowAct('v', "Verify every file", isVault, func(ref any) { u.verify(vault(ref)) })
+	p.rowAct('v', "Check every file", isVault, func(ref any) { u.verify(vault(ref)) })
 	p.rowAct('u', "Unlock with another key…", isVault, func(ref any) { u.unlockWithOf(vault(ref)) })
 	p.rowAct('x', "Forget it…", isVault, func(ref any) { u.forget(vault(ref)) })
 	p.act('n', "New vault…", u.newVault)
-	p.act('a', "Add a vault folder…", u.addVault)
+	p.act('a', "Add an existing vault…", u.addVault)
 	p.show()
 }
 
@@ -276,7 +279,7 @@ func (u *UI) forgetVault() {
 
 // forget is 'secretvault vault forget NAME': the folder stays.
 func (u *UI) forget(vault string) {
-	u.confirm("Forget "+vault+"?", fmt.Sprintf("Forget vault %q?\n\nIts folder is left as it is: Add a vault folder brings it back.", vault), "Forget", func() {
+	u.confirm(svops.ForgetVaultTitle(vault), svops.ForgetVaultText(vault)+" Add an existing vault (a, on the vaults panel) brings it back.", svops.ForgetVaultAction, func() {
 		u.call(func(ctx context.Context, c *secretvault.Client) error {
 			return c.ForgetVault(ctx, vault)
 		}, func(err error) {
@@ -306,13 +309,15 @@ func (u *UI) toggleLogin() {
 // toggleLoginOf is 'secretvault vault login on|off'.
 func (u *UI) toggleLoginOf(v svrpc.VaultInfo) {
 	on := !v.LoginUnlock
-	text := fmt.Sprintf("Open vault %q when you log in, with a key the system keeps for you? It then locks when you log out; programs still ask before they read it.", v.Name)
-	action := "Turn on"
+	pl := svops.LoginUnlockPlain(v.Name)
 	if !on {
-		text = fmt.Sprintf("Stop opening vault %q when you log in? It then locks when idle, on screen lock and on sleep.", v.Name)
-		action = "Turn off"
+		pl = svops.Plain{
+			Title:   "Stop opening " + v.Name + " at login?",
+			Summary: fmt.Sprintf("Vault %s will need its passphrase again, and it locks after a few idle minutes, on screen lock and on sleep.", v.Name),
+			Action:  "Stop opening it at login",
+		}
 	}
-	u.confirm("Open at login", text, action, func() {
+	u.showPlan(pl, func() {
 		var res svrpc.VaultInfo
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 			res, err = c.SetLoginUnlock(ctx, v.Name, on)
@@ -341,7 +346,7 @@ func (u *UI) verifyVault() {
 // verify is 'secretvault verify': the report.
 func (u *UI) verify(vault string) {
 	var rep svrpc.VerifyResult
-	u.say("Verifying %s…", vault)
+	u.say("Checking every file of %s…", vault)
 	u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 		rep, err = c.Verify(ctx, vault)
 		return err
@@ -350,25 +355,9 @@ func (u *UI) verify(vault string) {
 			u.fail(err)
 			return
 		}
-		var b strings.Builder
-		fmt.Fprintf(&b, "%d items (%d objects, %d revisions) authenticated.\n", rep.Live, rep.Objects, rep.Revisions)
-		for _, p := range rep.Problems {
-			fmt.Fprintf(&b, "\n[red]problem:[-] %s", tview.Escape(p))
-		}
-		for _, c := range rep.Conflicts {
-			fmt.Fprintf(&b, "\n[yellow]conflict:[-] %s (its history settles it)", tview.Escape(c))
-		}
-		for _, name := range slices.Sorted(maps.Keys(rep.Duplicates)) {
-			fmt.Fprintf(&b, "\n[yellow]duplicate:[-] %d items are named %s", len(rep.Duplicates[name]), tview.Escape(name))
-		}
-		if len(rep.Problems)+len(rep.Conflicts)+len(rep.Duplicates) > 0 {
-			b.WriteString("\n\n[red]The vault needs attention.[-]")
-			u.say("%s needs attention", vault)
-		} else {
-			b.WriteString("\nEverything is as it was written.")
-			u.say("%s verified", vault)
-		}
-		u.showText("Verify "+vault, b.String())
+		title, summary, details, ok := svops.VerifyReport(vault, rep)
+		u.say("%s", svops.VerifyStatus(vault, ok))
+		u.showDone(title, summary, details)
 	})
 }
 
@@ -382,13 +371,13 @@ func (u *UI) unlockWith() {
 // --recovery, --shares, --fido2 or --passphrase-file.
 func (u *UI) unlockWithOf(vault string) {
 	options := []string{
-		"The passphrase (asked for by secretvaultd)",
-		"A security key (its PIN, if it has one, is asked for here)",
-		"A keyfile…",
-		"An identity file…",
-		"The recovery key…",
-		"Recovery shares…",
-		"A passphrase in a file…",
+		svops.UnlockKindText[svformat.SlotPassphrase],
+		svops.UnlockKindText[svformat.SlotFIDO2] + " (its PIN, if it has one, is asked for here)",
+		svops.UnlockKindText[svformat.SlotKeyfile] + "…",
+		svops.UnlockKindText["identity"] + "…",
+		svops.UnlockKindText[svformat.SlotRecovery] + "…",
+		svops.UnlockKindText["shares"] + "…",
+		svops.UnlockKindText["passphrase-file"] + "…",
 	}
 	u.choose("Unlock "+vault+" with", options, func(i int) {
 		switch i {
@@ -443,7 +432,7 @@ func (u *UI) askShares(vault string, shares *svops.ShareCollector) {
 	if shares.Need() > 0 {
 		label = fmt.Sprintf("Share %d of %d", shares.Have()+1, shares.Need())
 	}
-	f := u.newForm("Unlock "+vault+" with recovery shares", "Type the shares one at a time; the first says how many it takes.")
+	f := u.newForm("Unlock "+vault+" with recovery shares", svops.SharesIntro)
 	in := f.secret(label)
 	f.onCancel = shares.Wipe
 	f.show("Next", func() string {
@@ -509,7 +498,7 @@ func statusText(st svrpc.Status, err error) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[::b]secretvault-tui %s[::-]\n", tview.Escape(secretvault.Version))
 	if err != nil {
-		b.WriteString("secretvaultd: not answering.\n")
+		b.WriteString(svops.DaemonNotAnswering + "\n")
 		return b.String()
 	}
 	fmt.Fprintf(&b, "secretvaultd %s, process %d\n", tview.Escape(st.Version), st.PID)
@@ -526,7 +515,7 @@ func statusText(st svrpc.Status, err error) string {
 		fmt.Fprintf(&b, "ssh:     %s (export SSH_AUTH_SOCK=%s)\n", tview.Escape(st.SSHAgent), tview.Escape(st.SSHAgent))
 	}
 	if st.GPGAgent != "" {
-		homes := "no GnuPG home pointed at it yet: Desktop › GnuPG"
+		homes := "no GnuPG folder uses it yet: Desktop › GnuPG"
 		if len(st.GnuPGHomes) > 0 {
 			homes = "for " + strings.Join(st.GnuPGHomes, ", ")
 		}

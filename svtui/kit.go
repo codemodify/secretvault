@@ -50,9 +50,12 @@ type formDialog struct {
 // newForm starts a dialog. intro, if not "", is said above the fields.
 func (u *UI) newForm(title, intro string) *formDialog {
 	f := &formDialog{u: u, title: title, form: tview.NewForm(), width: 78}
-	f.form.SetBorderPadding(1, 0, 1, 1)
+	// The padding is the children's own, not the frame's: a Flex does not
+	// clear its padding, and the panel under the dialog would show through.
+	f.form.SetBorderPadding(1, 0, 2, 2)
 	if intro != "" {
 		f.intro = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true)
+		f.intro.SetBorderPadding(0, 0, 1, 1)
 		f.intro.SetText(intro)
 		f.introH = wrappedLines(intro, f.width-4)
 	}
@@ -131,6 +134,7 @@ func (f *formDialog) area(label, value string, height int) *tview.TextArea {
 func (f *formDialog) show(action string, ok func() string) {
 	u := f.u
 	problem := tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true)
+	problem.SetBorderPadding(0, 0, 1, 1)
 	frame := tview.NewFlex().SetDirection(tview.FlexRow)
 	if f.intro != nil {
 		frame.AddItem(f.intro, f.introH, 0, false)
@@ -175,7 +179,7 @@ func (f *formDialog) show(action string, ok func() string) {
 	}
 	h += 2 // the buttons, and the space before them
 	frame.AddItem(f.form, h, 0, true)
-	frame.SetBorder(true).SetBorderPadding(0, 0, 1, 1).SetTitle(" " + tview.Escape(f.title) + " ")
+	frame.SetBorder(true).SetTitle(" " + tview.Escape(f.title) + " ")
 	height := 2 + f.introH + h + 3 // the problem's room
 	f.id = u.openDialog(centred(frame, f.width, u.fit(height)), f.form, f.cancel)
 }
@@ -276,58 +280,6 @@ func (u *UI) showText(title, body string) {
 	u.openPage(pageInfo, inset(view), view)
 }
 
-// showPlan shows what an operation is about to do, and does it only when
-// the person says so: the TUI's --dry-run. Nothing is done on Escape but
-// cancelled, if given.
-func (u *UI) showPlan(title, body, action string, do func(), cancelled ...func()) {
-	view := tview.NewTextView().SetDynamicColors(true).SetScrollable(true).SetWrap(true).SetWordWrap(true)
-	view.SetText(body)
-	buttons := tview.NewForm().SetButtonsAlign(tview.AlignCenter)
-	buttons.SetBorderPadding(0, 0, 0, 0)
-	closed := false
-	var id int
-	cancel := func() {
-		if !closed {
-			closed = true
-			u.closeDialog(id)
-			for _, f := range cancelled {
-				f()
-			}
-		}
-	}
-	buttons.AddButton("Cancel", cancel).AddButton(action, func() {
-		if !closed {
-			closed = true
-			u.closeDialog(id)
-			do()
-		}
-	})
-	buttons.SetCancelFunc(cancel)
-	frame := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(view, 0, 1, false).
-		AddItem(buttons, 1, 0, true)
-	frame.SetBorder(true).SetBorderPadding(0, 0, 1, 1).SetTitle(" " + tview.Escape(title) + " — ↑↓ scroll · Tab: " + action + " · Esc cancels ")
-	view.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
-		switch ev.Key() {
-		case tcell.KeyEscape:
-			cancel()
-			return nil
-		case tcell.KeyTab, tcell.KeyBacktab:
-			u.app.SetFocus(buttons)
-			return nil
-		}
-		return ev
-	})
-	buttons.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
-		if ev.Key() == tcell.KeyUp || ev.Key() == tcell.KeyDown || ev.Key() == tcell.KeyPgUp || ev.Key() == tcell.KeyPgDn {
-			u.app.SetFocus(view)
-			return ev
-		}
-		return ev
-	})
-	id = u.openDialog(centred(frame, 78, u.fit(wrappedLines(body, 70)+4)), view, cancel)
-}
-
 // choose asks which of options; done gets its index.
 func (u *UI) choose(title string, options []string, done func(int)) {
 	u.chooseAt(title, options, 0, done)
@@ -350,14 +302,6 @@ func (u *UI) chooseAt(title string, options []string, at int, done func(int)) {
 		width = max(width, len(o)+6)
 	}
 	u.openDialog(centred(list, min(width, 90), len(options)+2), list, nil)
-}
-
-// yesNo is how the TUI writes a flag.
-func yesNo(b bool) string {
-	if b {
-		return "yes"
-	}
-	return "no"
 }
 
 var colourTag = regexp.MustCompile(`\[[a-zA-Z0-9_,;:#.\-]*\]`)

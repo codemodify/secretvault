@@ -144,14 +144,13 @@ func (u *UI) showHost() {
 		return is[svrpc.HostCredential](ref) || is[svrpc.HostClient](ref)
 	}, func(ref any) {
 		var r svrpc.HostRule
-		var what string
 		switch x := ref.(type) {
 		case svrpc.HostCredential:
-			r, what = svrpc.HostRule{Unit: x.Unit, Credential: x.Credential}, fmt.Sprintf("%s's credential %s", x.Unit, x.Credential)
+			r = svrpc.HostRule{Unit: x.Unit, Credential: x.Credential}
 		case svrpc.HostClient:
-			r, what = svrpc.HostRule{User: x.User, Program: x.Program}, svops.HostClientName(x.User, x.Program)+" and every reference it may read"
+			r = svrpc.HostRule{User: x.User, Program: x.Program}
 		}
-		u.confirm("Deny?", "Take "+strings.TrimSuffix(what, ",")+" out of the host's policy?", "Deny", func() {
+		u.showPlan(svops.HostRulePlain(r, false), func() {
 			u.hostDeny(r, p.refresh)
 		})
 	})
@@ -191,14 +190,15 @@ func hostStatusText(st svrpc.HostStatus) string {
 
 // hostInit is 'secretvault host init'.
 func (u *UI) hostInit(then func()) {
-	f := u.newForm("Make the host identity", "The host daemon opens the vaults shared to its identity. Sealed, systemd-creds keeps it (to the TPM2, and the host key), and it is never written in the clear; else it is a file root alone reads.")
-	suite := f.choice("Cipher suite", []string{"modern", "nist"}, 0)
-	seal := f.check("Seal it with systemd-creds", false)
-	out := f.path("Plain file", svrpc.HostIdentityFile(), "")
-	credstore := f.path("Sealed file", svrpc.HostCredstore, "")
-	pcrs := f.text("TPM2 PCRs", "", "with sealing: also bind it to these, such as 7 (optional)")
-	f.show("Make it", func() string {
-		o := svops.HostInitOptions{Suite: option(suite), Seal: seal.IsChecked(), Out: filePath(out), Credstore: filePath(credstore), PCRs: trimmed(pcrs), SystemdCreds: u.opts.SystemdCreds}
+	pl := svops.HostInitPlain()
+	f := u.newForm(pl.Title, pl.Summary)
+	suite := f.choice("Cipher suite", []string{"modern (X25519)", "nist (P-256, for FIPS 140-3)"}, 0)
+	seal := f.check("Seal it to this machine (systemd-creds, with the TPM2)", false)
+	out := f.path("Identity file", svrpc.HostIdentityFile(), "")
+	credstore := f.path("Sealed identity file", svrpc.HostCredstore, "")
+	pcrs := f.text("TPM2 PCRs", "", "optional, when sealed: also bind it to these, such as 7")
+	f.show(pl.Action, func() string {
+		o := svops.HostInitOptions{Suite: strings.Fields(option(suite))[0], Seal: seal.IsChecked(), Out: filePath(out), Credstore: filePath(credstore), PCRs: trimmed(pcrs), SystemdCreds: u.opts.SystemdCreds}
 		if o.Out == "" {
 			o.Out = svrpc.HostIdentityFile()
 		}

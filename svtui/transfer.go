@@ -145,24 +145,16 @@ func (u *UI) readExport(vault, path, format string, opts svimport.Options, overw
 			return
 		}
 		wipe()
-		var b strings.Builder
-		if guessed {
-			fmt.Fprintf(&b, "Reading %s as %s.\n\n", tview.Escape(path), f)
-		}
-		fmt.Fprintf(&b, "[::b]%d items to import into %s:[::-]\n", len(res.Items), tview.Escape(vault))
+		var names []string
 		for _, it := range res.Items {
-			b.WriteString("  " + tview.Escape(it.Name) + "\n")
+			names = append(names, it.Name)
 		}
-		for _, w := range res.Warnings {
-			b.WriteString("\n[yellow]warning:[-] " + tview.Escape(w))
-		}
-		if overwrite {
-			b.WriteString("\n\nItems that exist already are replaced.")
-		} else {
-			b.WriteString("\n\nItems that exist already are skipped.")
+		pl := svops.ImportPlain(path, vault, names, res.Warnings, overwrite)
+		if guessed {
+			pl.Details = append([]string{fmt.Sprintf("Read %s as %s.", path, f)}, pl.Details...)
 		}
 		plain := !res.Encrypted
-		u.showPlan("Import "+filepath.Base(path), b.String(), fmt.Sprintf("Import %d items", len(res.Items)), func() {
+		u.showPlan(pl, func() {
 			u.storeImport(vault, path, res, opts.Prefix, overwrite, plain)
 		}, res.Wipe)
 	})
@@ -176,16 +168,17 @@ func (u *UI) storeImport(vault, path string, res *svimport.Result, prefix string
 	u.call(func(_ context.Context, c *secretvault.Client) (err error) {
 		defer res.Wipe()
 		rep, err = svops.StoreImport(u.newCtx, c, res, svops.ImportOptions{Vault: vault, Prefix: prefix, Overwrite: overwrite, Describe: describeErr,
-			Skipped: func(name string) string { return name + ": already exists, skipped (tick Replace to replace it)" }})
+			Skipped: func(name string) string {
+				return name + ": the vault has it already, so it was skipped (tick Replace to replace it)"
+			}})
 		return err
 	}, func(err error) {
 		var b strings.Builder
 		if rep != nil {
-			withFiles := ""
-			if rep.Files > 0 {
-				withFiles = fmt.Sprintf(" (%d files)", rep.Files)
+			b.WriteString(tview.Escape(svops.ImportedText(rep.Imported, rep.Files, rep.Skipped, len(rep.Warnings))))
+			if len(rep.Warnings) > 0 {
+				b.WriteString("\n\n[::b]Details[::-]")
 			}
-			fmt.Fprintf(&b, "Imported %d items%s, skipped %d, with %d warnings.\n", rep.Imported, withFiles, rep.Skipped, len(rep.Warnings))
 			for _, w := range rep.Warnings {
 				b.WriteString("\n[yellow]warning:[-] " + tview.Escape(w))
 			}
@@ -196,7 +189,7 @@ func (u *UI) storeImport(vault, path string, res *svimport.Result, prefix string
 		} else {
 			u.say("Imported %d items into %s", rep.Imported, vault)
 		}
-		u.showText("Import", b.String())
+		u.showText("Imported into "+vault, b.String())
 		if err == nil && plain {
 			u.offerDeleteExport(path, vault)
 		}
@@ -210,7 +203,7 @@ func (u *UI) storeImport(vault, path string, res *svimport.Result, prefix string
 // unencrypted, now that they are in vault: a plain remove
 // (svops.RemoveExport), and said to be no more than that.
 func (u *UI) offerDeleteExport(path, vault string) {
-	u.confirmWith("Delete "+filepath.Base(path)+"?", svops.DeleteExportNote(path, vault), "Keep it", "Delete it", func() {
+	u.confirmWith("Delete "+filepath.Base(path)+"?", svops.DeleteExportNote(path, vault), "Keep it", "Delete the file", func() {
 		if err := svops.RemoveExport(path); err != nil {
 			u.fail(err)
 			return
@@ -225,14 +218,15 @@ func (u *UI) exportFile() {
 		return
 	}
 	vault := u.vault
-	f := u.newForm("Export from "+vault, "KDBX (KeePass) is encrypted under the passphrase given here. CXF is not encrypted: anyone who can read the file has every secret in it.")
-	format := f.choice("Format", svops.ExportFormats, 1)
-	path := f.path("New file", "", "export writes only new files")
+	f := u.newForm("Export from "+vault, "Writes the vault's items to a new file, for another password manager. A KeePass file is encrypted with the passphrase you give here; a CXF file is not encrypted: anyone who can read it has every secret in it.")
+	format := f.choice("Format", []string{"CXF, not encrypted", "KeePass (KDBX), encrypted"}, 1)
+	path := f.path("New file", "", "only a new file is written, never over one")
 	prefix := f.text("Only the items under", "", "a folder (optional: all of them)")
-	pass := f.secret("KDBX passphrase")
+	pass := f.secret("KeePass passphrase")
 	again := f.secret("Repeat it")
 	f.show("Export", func() string {
-		fmtName, p := option(format), filePath(path)
+		i, _ := format.GetCurrentOption()
+		fmtName, p := svops.ExportFormats[max(0, i)], filePath(path)
 		if p == "" {
 			return "Give the new file's path."
 		}
@@ -249,7 +243,7 @@ func (u *UI) exportFile() {
 		do := func() { u.writeExport(vault, fmtName, p, trimmed(prefix), secret) }
 		if fmtName == "cxf" {
 			u.post(func() {
-				u.confirm("Not encrypted", p+" will not be encrypted: anyone who can read it has every secret in it. Import it where it is going, then delete it.", "Export", do)
+				u.confirm("Export without encryption?", "The new file will not be encrypted: anyone who can read it has every secret in it. Import it where it is going, then delete it.", "Export unencrypted", do)
 			})
 			return ""
 		}

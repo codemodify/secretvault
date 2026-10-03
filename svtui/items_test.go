@@ -48,7 +48,7 @@ func TestTheHistorySaysWhoSignedAndRestoresARevision(t *testing.T) {
 	h.waitFor("current")
 	h.key(tcell.KeyDown) // the older revision
 	h.typeText("R")
-	h.waitFor("current again?")
+	h.waitFor("Go back to this version?")
 	h.typeText("y")
 	h.waitFor("Restored web/gitlab.com")
 	if e, err := h.get("web/gitlab.com"); err != nil || field(e, "password") != "gitlab-pass-42" {
@@ -116,7 +116,7 @@ func TestAConflictIsSettledByKeepingOneVersion(t *testing.T) {
 	h.key(tcell.KeyEscape)
 	h.waitGone("(read-only)")
 	h.typeText("k")
-	h.waitFor("on every device?")
+	h.waitFor("Keep this version?")
 	h.typeText("y")
 	h.waitFor("the conflict is settled")
 	e, err := h.get("web/gitlab.com")
@@ -193,7 +193,7 @@ func TestAnItemsFilesAreAttachedSavedAndRemoved(t *testing.T) {
 	h.waitGone("Save passport.pdf")
 
 	h.typeText("x")
-	h.waitFor("Remove passport.pdf from web/github.com?")
+	h.waitFor("Remove passport.pdf?")
 	h.typeText("y")
 	h.waitFor("No files")
 	if e, _ := h.get("web/github.com"); len(e.Item.Files) != 0 {
@@ -224,15 +224,15 @@ func TestImportShowsTheNamesFirstThenStores(t *testing.T) {
 	h.typeText("imported/chrome")
 	h.tabs(2) // replace, Read it
 	h.key(tcell.KeyEnter)
-	h.waitFor("2 items to import into personal")
+	h.waitForWords("2 items from Chrome Passwords.csv will be added to vault personal")
+	h.details()
 	h.waitFor("imported/chrome/github.com")
 	if _, err := h.get("imported/chrome/github.com"); err == nil {
 		t.Fatal("something was stored before the plan was accepted")
 	}
-	h.key(tcell.KeyTab)
-	h.key(tcell.KeyTab) // Cancel, then Import
+	h.key(tcell.KeyBacktab) // Import 2 items
 	h.key(tcell.KeyEnter)
-	h.waitFor("Imported 2 items, skipped 0")
+	h.waitFor("2 items were imported.")
 	if e, err := h.get("imported/chrome/github.com"); err != nil || field(e, "password") != "gh-p4ss" {
 		t.Fatalf("imported: %v %+v", err, e.Item)
 	}
