@@ -57,7 +57,7 @@ func (m *Manager) fillSlots(p *vaultPage, pn *pane) {
 			widgets.NewButton("Add a keyslot…", func() { m.addSlot(p) }),
 			remove,
 			widgets.NewButton("Change the passphrase…", func() { m.changePassphrase(p) }),
-			widgets.NewButton("Give it a new key…", func() { m.rotateKey(p, nil, "") }))
+			widgets.NewButton("Give the vault a new key…", func() { m.rotateKey(p, nil, "") }))
 	})
 }
 
@@ -235,7 +235,7 @@ func (m *Manager) removeSlot(p *vaultPage) {
 		m.selectTab(p.tabbedPage, tabSharing)
 		return
 	}
-	m.confirm(svops.RemoveSlotTitle, svops.RemoveSlotText(p.vault, s)+" (Give it a new key… on this tab; Sharing › Cut off… does both.)",
+	m.confirm(svops.RemoveSlotTitle, svops.RemoveSlotText(p.vault, s)+" That is Give the vault a new key… on this tab.",
 		svops.RemoveSlotAction, func() {
 			m.call(func(ctx context.Context, c *secretvault.Client) error {
 				return c.RemoveSlot(ctx, p.vault, s.ID)

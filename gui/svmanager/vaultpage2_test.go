@@ -69,7 +69,7 @@ func TestTheVaultsSettings(t *testing.T) {
 	}
 	login := find(h.m.ui.main, func(c *widgets.Checkbox) bool { return c.Text == "Open when I log in" })
 	h.win().ClickComponent(login)
-	h.waitText("Open personal when you log in?")
+	h.waitText("Open vault personal when you log in?")
 	h.press("Open it at login")
 	h.said("opens when you log in")
 	h.waitFor("the vault to open at login", func() bool { v := h.m.vaultInfo("personal"); return v != nil && v.LoginUnlock })

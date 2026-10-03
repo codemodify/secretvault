@@ -84,7 +84,7 @@ func (m *Manager) showGone() {
 		why = svops.DaemonNotRunning
 	}
 	m.ui.pane.Set(m.message("Not connected",
-		why+" Nothing can be shown or changed until it is back: Reconnect starts it again.", again))
+		why+" Nothing can be shown or changed until it is back: Reconnect tries to start it.", again))
 	m.drawItems()
 	m.drawStatus()
 }

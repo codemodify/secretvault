@@ -30,10 +30,10 @@ func (m *Manager) fillDevices(p *vaultPage, pn *pane) {
 		p.devices, p.policy = devs, policy
 		p.dtable = table("Devices", []widgets.TableColumn{
 			{Title: "Key", Width: 150},
-			{Title: "Label"},
+			{Title: "Name"},
 			{Title: "Device", Width: 80},
-			{Title: "Registered", Width: 130},
-			{Title: "Standing", Width: 130},
+			{Title: "Added", Width: 130},
+			{Title: "Trusted", Width: 130},
 		}, len(devs), func(r, c int) string {
 			d := devs[r]
 			switch c {
@@ -152,7 +152,7 @@ func (m *Manager) removeDevice(p *vaultPage) {
 				m.fail(err)
 				return
 			}
-			m.say("Removed device %s.", deviceName(d.Label, d.Key))
+			m.say("Marked %s as removed.", deviceName(d.Label, d.Key))
 			m.refreshTab(p, tabDevices)
 		})
 	}, nil)

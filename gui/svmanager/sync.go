@@ -93,7 +93,7 @@ func (m *Manager) drawSync(p *vaultPage, pn *pane, open bool, devErr error) widg
 		devs := p.syncDevs
 		p.sdtable = table("Devices that sync", []widgets.TableColumn{
 			{Title: "Key", Width: 160},
-			{Title: "Label"},
+			{Title: "Name"},
 			{Title: "Added", Width: 130},
 			{Title: "Last seen", Width: 130},
 		}, len(devs), func(r, c int) string {
@@ -210,19 +210,14 @@ func (m *Manager) removeSyncDevice(p *vaultPage) {
 				m.fail(err)
 				return
 			}
-			m.say("%s no longer syncs vault %s.", deviceName(d.Label, d.Key), p.vault)
+			m.say("%s no longer syncs vault %s.", svops.SentenceStart(deviceName(d.Label, d.Key)), p.vault)
 			m.refreshTab(p, tabSync)
 		})
 	}, nil)
 }
 
 // deviceName names a device in a sentence: its label, else its key.
-func deviceName(label, key string) string {
-	if label != "" {
-		return label
-	}
-	return "Device " + key
-}
+func deviceName(label, key string) string { return svops.DeviceName(label, key) }
 
 // syncOff stops syncing the vault (the CLI's sync off).
 func (m *Manager) syncOff(p *vaultPage) {

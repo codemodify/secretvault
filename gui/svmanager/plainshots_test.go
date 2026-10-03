@@ -40,7 +40,7 @@ func TestPlanScreenshots(t *testing.T) {
 
 	h.openDesktopPage(tabBrowsers)
 	shoot(h.win(), "40-browsers-tab")
-	h.pressOn("Set up…")
+	h.pressOn("Let browsers use secretvault…")
 	shoot(h.win(), "41-browsers-choose")
 	h.tick("Firefox", true)
 	h.press("Next")
@@ -60,7 +60,7 @@ func TestPlanScreenshots(t *testing.T) {
 	h.press("Cancel")
 
 	h.openDesktopPage(tabHelpers)
-	h.pressOn("Set up…")
+	h.pressOn("Let git, docker and age use secretvault…")
 	h.waitText("Let git, docker and age use secretvault")
 	shoot(h.win(), "46-helpers-plan")
 	h.press("Cancel")

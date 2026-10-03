@@ -64,7 +64,7 @@ func TestTheKeyringIsTakenOverAndGivenBackOnAPlan(t *testing.T) {
 		t.Fatalf("XDG_DATA_HOME is %q, not the test's", data)
 	}
 	h.openDesktopPage(tabKeyring)
-	h.waitText("there is no desktop session to ask")
+	h.waitText("secretvault cannot reach your desktop session")
 
 	// Importing needs the keyring on the session bus, which there is not.
 	h.pressOn("Copy its passwords into the vault…")
@@ -79,7 +79,7 @@ func TestTheKeyringIsTakenOverAndGivenBackOnAPlan(t *testing.T) {
 	h.m.daemonExe = func() string { return "/opt/test/secretvaultd" }
 	h.pressOn("Take over the keyring…")
 	h.waitText("Make secretvault your system keyring")
-	h.waitText("an app has to ask you before it reads a password")
+	h.waitText("secretvault becomes the system keyring")
 	service := filepath.Join(data, "dbus-1", "services", "org.freedesktop.secrets.service")
 	if strings.Contains(h.text(), service) {
 		t.Fatalf("the plan's files are shown before Show details:\n%s", h.text())
@@ -119,13 +119,13 @@ func TestTheKeyringIsTakenOverAndGivenBackOnAPlan(t *testing.T) {
 	}
 
 	h.pressOn("Give the keyring back…")
-	h.waitText("becomes the system keyring again")
+	h.waitText("secretvault stops being the system keyring")
 	h.expand("Show details")
 	if !strings.Contains(h.text(), "- remove "+service) {
 		t.Fatalf("the plan:\n%s", h.text())
 	}
-	h.press("Give the keyring back")
-	h.waitText("Keyring given back")
+	h.press("Stop being the keyring")
+	h.waitText("secretvault is no longer the system keyring")
 	h.expand("Show details")
 	h.waitText("Removed " + service)
 	if _, err := os.Stat(service); err == nil {
@@ -150,7 +150,7 @@ func TestBrowsersAreSetUpForTheCLIAndUndone(t *testing.T) {
 	h.m.cliProgram = func() string { return "" }
 	h.openDesktopPage(tabBrowsers)
 	h.waitText("not installed beside this one")
-	if b := button(h.m.ui.main, "Set up…"); b == nil || b.Enabled() {
+	if b := button(h.m.ui.main, "Let browsers use secretvault…"); b == nil || b.Enabled() {
 		t.Fatal("Set up… was offered with no CLI to name")
 	}
 
@@ -162,7 +162,7 @@ func TestBrowsersAreSetUpForTheCLIAndUndone(t *testing.T) {
 	}
 	dir := filepath.Join(home, ".mozilla", "native-messaging-hosts")
 	manifest := filepath.Join(dir, svext.HostName+".json")
-	h.pressOn("Set up…")
+	h.pressOn("Let browsers use secretvault…")
 	h.tick("Firefox", true)
 	h.press("Next")
 	// What it means first; the files it writes under Show details.
@@ -195,7 +195,7 @@ func TestBrowsersAreSetUpForTheCLIAndUndone(t *testing.T) {
 	}
 	h.idle()
 
-	h.pressOn("Undo…")
+	h.pressOn("Take the permission back…")
 	h.waitText("Stop Firefox using secretvault")
 	h.waitText("the secretvault extension cannot fill logins there")
 	h.press("Remove access")
@@ -363,21 +363,21 @@ func TestProgramHelpersAreSetUpOnAPlanAndUndone(t *testing.T) {
 	h.m.cliProgram = func() string { return "" }
 	h.openDesktopPage(tabHelpers)
 	h.waitText("not installed beside this one")
-	if b := button(h.m.ui.main, "Set up…"); b == nil || b.Enabled() {
+	if b := button(h.m.ui.main, "Let git, docker and age use secretvault…"); b == nil || b.Enabled() {
 		t.Fatal("Set up… was offered with no CLI to name")
 	}
 
 	cli := h.fakeCLI()
 	link := filepath.Join(filepath.Dir(cli), "git-credential-secretvault")
 	h.m.dpage.panes[tabHelpers].refresh()
-	h.waitText("credsStore is desktop")
-	h.waitText("secretvault is not among git's credential helpers")
-	if b := button(h.m.ui.main, "Undo…"); b == nil || b.Enabled() {
+	h.waitText("docker: keeps its logins with desktop")
+	h.waitText("git: does not use secretvault yet")
+	if b := button(h.m.ui.main, "Remove the setup…"); b == nil || b.Enabled() {
 		t.Fatal("Undo… was offered with nothing to undo")
 	}
 
 	// The plan, said no to: nothing changes.
-	h.pressOn("Set up…")
+	h.pressOn("Let git, docker and age use secretvault…")
 	h.waitText("Let git, docker and age use secretvault")
 	h.expand("Show details")
 	h.waitText("Setting the helpers up, as links to " + cli + ", would:")
@@ -394,7 +394,7 @@ func TestProgramHelpersAreSetUpOnAPlanAndUndone(t *testing.T) {
 	}
 
 	// Said yes to: carried out, and the pane filled again.
-	h.pressOn("Set up…")
+	h.pressOn("Let git, docker and age use secretvault…")
 	h.waitText("Let git, docker and age use secretvault")
 	h.press("Set up git, docker and age")
 	h.waitText("git, docker and age can use secretvault")
@@ -411,12 +411,12 @@ func TestProgramHelpersAreSetUpOnAPlanAndUndone(t *testing.T) {
 	if b, _ := os.ReadFile(docker); !strings.Contains(string(b), `"credsStore": "secretvault"`) || !strings.Contains(string(b), "r.example") {
 		t.Fatalf("docker's config: %s", b)
 	}
-	h.waitText("credential.helper includes secretvault")
-	h.waitText("credsStore is secretvault (" + docker + ")")
+	h.waitText("git: keeps its logins in your vault")
+	h.waitText("docker: keeps its logins in your vault")
 	h.waitText("Installed as: " + link)
 
 	// Undone, on a plan too: only what is secretvault's goes.
-	h.pressOn("Undo…")
+	h.pressOn("Remove the setup…")
 	h.waitText("Stop git, docker and age using secretvault")
 	h.expand("Show details")
 	h.waitText("Undoing the helpers would:")
@@ -441,8 +441,8 @@ func TestProgramHelpersAreSetUpOnAPlanAndUndone(t *testing.T) {
 	if b, _ := os.ReadFile(docker); !strings.Contains(string(b), `"credsStore": "desktop"`) {
 		t.Fatalf("docker's config: %s", b)
 	}
-	h.waitText("credsStore is desktop")
-	if b := button(h.m.ui.main, "Undo…"); b == nil || b.Enabled() {
+	h.waitText("docker: keeps its logins with desktop")
+	if b := button(h.m.ui.main, "Remove the setup…"); b == nil || b.Enabled() {
 		t.Fatal("Undo… is offered with nothing left to undo")
 	}
 }
@@ -521,20 +521,20 @@ func TestTheHostDaemonIsSetUp(t *testing.T) {
 	h.hostDaemon()
 	h.m.dpage.panes[tabHost].refresh()
 	h.waitText("secretvaultd --host")
-	h.pressOn("Allow…")
+	h.pressOn("Let a service read secrets…")
 	h.fill("Unit", "backup.service")
 	h.fill("Credential", "db-password")
 	h.fill("References", "sv://prod/db/postgres")
-	h.press("Allow")
+	h.press("Let it read secrets")
 	h.waitText("backup.service now gets its credential db-password")
 	h.press("Close")
 	h.idle()
 	if !strings.Contains(h.text(), "backup.service") || !strings.Contains(h.text(), "changed") {
 		t.Fatalf("the policy and the log:\n%s", h.text())
 	}
-	h.pressOn("Deny…")
+	h.pressOn("Stop a service reading secrets…")
 	h.fill("Unit", "backup.service")
 	h.fill("Credential", "db-password")
-	h.press("Deny")
+	h.press("Stop it reading secrets")
 	h.said("Removed from the host policy.")
 }

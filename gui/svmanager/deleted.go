@@ -107,7 +107,7 @@ func (m *Manager) copyReference() {
 	}
 	f := m.newForm("Copy a reference to " + name)
 	f.intro("A reference names a secret without holding it, for scripts and settings files to use. " +
-		"secretvault run and secretvault inject read what it names, asking you first as any program's read does.")
+		"Whatever reads it through secretvault asks you first, as any program's read does.")
 	which := f.choice("Refer to", fields, 0)
 	named := f.check("Name vault "+vault+" in it (else: the default vault)", true)
 	f.show("Copy the reference", func() {

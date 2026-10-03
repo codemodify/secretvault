@@ -236,7 +236,7 @@ func TestChangingThePassphraseAndRotatingTheKey(t *testing.T) {
 	h.waitFor("the page to close on the lock", func() bool { return !h.m.showingVaultPage() })
 	h.m.showVaultPage(tabKeyslots)
 	h.idle()
-	h.pressOn("Give it a new key…")
+	h.pressOn("Give the vault a new key…")
 	h.waitFor("the rotation's form, or the daemon's question", func() bool {
 		return h.m.asking != nil && h.m.asking.win != nil || strings.Contains(h.text(), "Give vault personal a new key")
 	})

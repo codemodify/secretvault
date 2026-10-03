@@ -89,7 +89,7 @@ func (m *Manager) fillKeyring(p *desktopPage, pn *pane) {
 		keyring := "nothing: no app can keep passwords there now"
 		switch {
 		case holder.BusErr != nil:
-			keyring = "not known: there is no desktop session to ask (" + holder.BusErr.Error() + ")"
+			keyring = "not known: secretvault cannot reach your desktop session"
 		case holder.Held:
 			keyring = fmt.Sprintf("%s (%s, process %d)", svops.KeyringName(holder.Owner.Exe), holder.Owner.Exe, holder.Owner.PID)
 		}
@@ -367,7 +367,7 @@ func (m *Manager) restoreKeyring(p *desktopPage) {
 			}
 			return err
 		}, func(err error) {
-			title, intro := "Keyring given back", svops.SentenceStart(svops.KeyringName(s.Previous))+" is your system keyring again."
+			title, intro := svops.RestoredText(s.Previous)
 			if err != nil {
 				title, intro = "Giving the keyring back did not finish", m.describe(err)
 			}
@@ -390,10 +390,10 @@ func (m *Manager) fillBrowsers(p *desktopPage, pn *pane) {
 		return nil
 	}, func() widget.Component {
 		col := widgets.NewColumn(m.paragraph("The secretvault extension fills and saves logins in your browser, asking you first. Two steps: " +
-			"Set up… gives a browser permission to start secretvault (one small settings file; Undo… takes it back), " +
+			"Let browsers use secretvault… gives a browser permission to start secretvault (one small settings file; Take the permission back… removes it), " +
 			"and Save the extension… writes the extension for you to add to the browser.")).WithGap(gap).WithPad(gap)
 		if state != nil {
-			col.Add(m.paragraph(fmt.Sprintf("Set up %s, starting %s.", state.When.Local().Format("2006-01-02 15:04"), state.Host)))
+			col.Add(m.paragraph(svops.BrowserSetUpWhen(state)))
 		}
 		if statusErr != nil {
 			col.Add(toned(m.describe(statusErr), widgets.ToneWarning))
@@ -403,11 +403,11 @@ func (m *Manager) fillBrowsers(p *desktopPage, pn *pane) {
 			if len(ss) == 0 {
 				return
 			}
-			t := table(h.Title, []widgets.TableColumn{{Title: "Browser", Width: 130}, {Title: "Starts"}}, len(ss), func(r, c int) string {
+			t := table(h.Title, []widgets.TableColumn{{Title: "Browser", Width: 130}, {Title: "Can use secretvault"}}, len(ss), func(r, c int) string {
 				if c == 0 {
 					return ss[r].Spot.Title
 				}
-				return browserLine(ss[r], host)
+				return svops.BrowserCanUse(ss[r], host)
 			})
 			col.Add(widgets.NewHeightBox(min(40+28*float32(len(ss)), 220), t))
 		}
@@ -425,8 +425,8 @@ func (m *Manager) fillBrowsers(p *desktopPage, pn *pane) {
 
 		col.Add(section(m, "secretvault's own extension"))
 		hostTable(svops.ExtensionHost)
-		setup := widgets.NewButton("Set up…", func() { m.installBrowsers(p, states, svops.ExtensionHost) })
-		undo := widgets.NewButton("Undo…", func() { m.uninstallBrowsers(p, &svops.ExtensionHost) })
+		setup := widgets.NewButton("Let browsers use secretvault…", func() { m.installBrowsers(p, states, svops.ExtensionHost) })
+		undo := widgets.NewButton("Take the permission back…", func() { m.uninstallBrowsers(p, &svops.ExtensionHost) })
 		save := widgets.NewButton("Save the extension…", func() { m.saveExtension() })
 		setup.SetEnabled(cli != "")
 		undo.SetEnabled(recorded(svops.ExtensionHost))
@@ -434,31 +434,6 @@ func (m *Manager) fillBrowsers(p *desktopPage, pn *pane) {
 		col.Add(buttons(setup, undo, save))
 		return scrolled(col)
 	})
-}
-
-// browserLine says which host a browser starts, as the CLI's browser
-// status does.
-func browserLine(b svops.BrowserState, host string) string {
-	s := b.Spot
-	var line string
-	switch {
-	case b.NoKey:
-		return "no host (no HKEY_CURRENT_USER\\" + s.RegKey + ")"
-	case b.Err != nil:
-		return b.Path + ": " + b.Err.Error()
-	case !b.Current.Exists:
-		used := "not used here"
-		if s.Used() {
-			used = "used here"
-		}
-		line = "no host (" + used + ")"
-	default:
-		line = svops.DescribeHost(b.Current.Host, host)
-	}
-	if b.Changed {
-		line += "; changed since secretvault set it up"
-	}
-	return line
 }
 
 // installBrowsers lets the browsers chosen start secretvault for a
@@ -513,10 +488,10 @@ func (m *Manager) installBrowsers(p *desktopPage, states []svops.BrowserState, n
 					}
 					return nil
 				}, func(err error) {
-					title := strings.Join(who, ", ") + " can now use secretvault"
-					intro := "Restart the browser, then add the secretvault extension to it: Save the extension… on this tab writes it, and says how. Undo… takes the permission back."
+					title := svops.AndList(who) + " can now use secretvault"
+					intro := "Restart the browser, then add the secretvault extension to it: Save the extension… on this tab writes it, and says how. Take the permission back… removes it again."
 					if err != nil {
-						title, intro = "Setting up the browsers did not finish", m.describe(err)+" Undo… on this tab takes back what was done."
+						title, intro = "Setting up the browsers did not finish", m.describe(err)+" Take the permission back… on this tab undoes what was done."
 					}
 					m.showDone(title, intro, report)
 					m.refreshDesktop(p, tabBrowsers)
@@ -568,8 +543,7 @@ func (m *Manager) uninstallBrowsers(p *desktopPage, only *svops.NativeHost) {
 // says how to load it.
 func (m *Manager) saveExtension() {
 	f := m.newForm("Save the extension")
-	f.intro("This saves the secretvault extension for you to add to your browser: Firefox takes the .zip file; " +
-		"Chrome, Chromium, Brave, Edge and Vivaldi take a folder. The next window says how to add it.")
+	f.intro(svops.ExtensionSaveAbout)
 	out := f.path("Save to", PickSave, svops.ExtensionFileName())
 	if wd, err := os.Getwd(); err == nil {
 		out.field.SetText(filepath.Join(wd, svops.ExtensionFileName()))
@@ -589,16 +563,9 @@ func (m *Manager) saveExtension() {
 				return svops.WriteExtension(path, true)
 			}, func() {
 				m.say("Saved the extension to %s.", path)
-				// The CLI's lines, but for the command they end with: here
-				// it is a button.
-				var lines []string
-				for _, l := range svops.ExtensionWrittenLines(path, dir) {
-					if !strings.Contains(l, "secretvault browser install") {
-						lines = append(lines, l)
-					}
-				}
+				lines := svops.ExtensionAddedLines(path, dir)
 				m.showText("Add the extension to your browser",
-					"The browser also needs your permission to start secretvault: Set up… on this tab gives it.", strings.Join(lines, "\n"))
+					"The browser also needs your permission to start secretvault: Let browsers use secretvault… on this tab gives it.", strings.Join(lines, "\n"))
 			})
 		}
 		if dir {
@@ -740,7 +707,8 @@ func (m *Manager) gnupgSetup(p *desktopPage) {
 					if plan.OwnHome {
 						intro += "Use gpg as you always do."
 					} else {
-						intro += "To use them, set GNUPGHOME to this folder: export GNUPGHOME=" + home
+						intro += "To use them, run gpg with this folder: the first line under Show details is the command to type in your terminal first."
+						report = append([]string{"export GNUPGHOME=" + home}, report...)
 					}
 					m.showDone("gpg uses the vault's keys", intro, report)
 					m.refreshDesktop(p, tabGnuPG)
@@ -792,7 +760,7 @@ var helperUse = map[string]string{
 	"git-credential-secretvault":    "git config --global credential.helper secretvault",
 	"docker-credential-secretvault": `"credsStore": "secretvault" in ~/.docker/config.json`,
 	"age-plugin-secretvault":        "age -d -i IDENTITY-FILE (the identity line of Keys › age identities)",
-	"secretvault-browser":           "Desktop › Browsers › Set up…",
+	"secretvault-browser":           "Desktop › Browsers › Let browsers use secretvault…",
 }
 
 func (m *Manager) fillHelpers(p *desktopPage, pn *pane) {
@@ -813,7 +781,7 @@ func (m *Manager) fillHelpers(p *desktopPage, pn *pane) {
 			return
 		}
 		col := widgets.NewColumn(m.paragraph("git and docker can keep their logins in your vault, and age can decrypt with the vault's keys. " +
-			"Set up… lets them, and you are asked before any of them reads a password; Undo… removes only what secretvault added.")).WithGap(gap).WithPad(gap)
+			"Let git, docker and age use secretvault… does that, and you are asked before any of them reads a password; Remove the setup… removes only what secretvault added.")).WithGap(gap).WithPad(gap)
 		if cli == "" {
 			col.Add(toned(m.describe(svops.ErrNoCLI), widgets.ToneWarning))
 		}
@@ -823,11 +791,10 @@ func (m *Manager) fillHelpers(p *desktopPage, pn *pane) {
 		if plan != nil {
 			// What the plan sees, in the words the CLI's helpers status
 			// uses: git's credential helpers and docker's credsStore.
-			rows := plan.StatusRows()
-			col.Add(m.facts(rows[len(plan.Links):]))
+			col.Add(m.facts(plan.PlainRows()))
 		}
-		setup := widgets.NewButton("Set up…", func() { m.helpersPlan(p, true) })
-		undo := widgets.NewButton("Undo…", func() { m.helpersPlan(p, false) })
+		setup := widgets.NewButton("Let git, docker and age use secretvault…", func() { m.helpersPlan(p, true) })
+		undo := widgets.NewButton("Remove the setup…", func() { m.helpersPlan(p, false) })
 		setup.SetEnabled(plan != nil)
 		undo.SetEnabled(plan != nil && plan.Undoable())
 		col.Add(buttons(setup, undo))
@@ -884,7 +851,7 @@ func (m *Manager) helpersPlan(p *desktopPage, setup bool) {
 			return
 		}
 		pl, do := svops.HelpersSetupPlain(plan), plan.Apply
-		doneTitle, doneIntro := "git, docker and age can use secretvault", "You are asked before any of them reads a password. Undo… on this tab removes what was added."
+		doneTitle, doneIntro := "git, docker and age can use secretvault", "You are asked before any of them reads a password. Remove the setup… on this tab removes what was added."
 		if !setup {
 			if !plan.Undoable() {
 				m.say("git, docker and age are not set up to use secretvault: there is nothing to undo.")
@@ -993,9 +960,9 @@ func (m *Manager) drawHost(p *desktopPage, pn *pane, st svrpc.HostStatus, pol sv
 	}
 	rows = append(rows, [2]string{"Policy", policy}, [2]string{"Since it started", fmt.Sprintf("%d delivered, %d refused or failed", st.Delivered, st.Refused)})
 	col := widgets.NewColumn(m.facts(rows)).WithGap(gap).WithPad(gap)
-	allow := widgets.NewButton("Allow…", func() { m.hostRule(p, true) })
+	allow := widgets.NewButton("Let a service read secrets…", func() { m.hostRule(p, true) })
 	pn.focus = allow
-	col.Add(buttons(allow, widgets.NewButton("Deny…", func() { m.hostRule(p, false) }), initBtn, widgets.NewButton("Refresh", pn.refresh)))
+	col.Add(buttons(allow, widgets.NewButton("Stop a service reading secrets…", func() { m.hostRule(p, false) }), initBtn, widgets.NewButton("Refresh", pn.refresh)))
 
 	col.Add(section(m, "Vaults"))
 	if len(st.Vaults) == 0 {
@@ -1078,11 +1045,11 @@ func (m *Manager) drawHost(p *desktopPage, pn *pane, st svrpc.HostStatus, pol sv
 // hostRule allows or denies on the host daemon (the CLI's host allow and
 // host deny): a unit's credential, or a local service's references.
 func (m *Manager) hostRule(p *desktopPage, allow bool) {
-	title, action, intro := "Stop a service reading secrets", "Deny",
+	title, action, intro := "Stop a service reading secrets", "Stop it reading secrets",
 		"The service will no longer get the secrets named from the host daemon. The secrets themselves do not change."
 	if allow {
-		title, action, intro = "Let a service read secrets", "Allow",
-			"The service gets the secrets you name from the host daemon, without anyone being asked. Deny… takes it back."
+		title, action, intro = "Let a service read secrets", "Let it read secrets",
+			"The service gets the secrets you name from the host daemon, without anyone being asked. Stop a service reading secrets… takes it back."
 	}
 	f := m.newForm(title)
 	f.intro(intro)
@@ -1214,7 +1181,7 @@ func (m *Manager) hostInit(p *desktopPage) {
 					"    shred -u "+o.Out, "")
 			}
 			next = append(next, "Then: install the host service (secretvaultd install --host); share a vault to the recipient (Vault › Sharing › Share with…), "+
-				"bring it to "+filepath.Join(svrpc.HostDataDir(), "vaults", "NAME")+" and add it; and allow the units their credentials (Allow…).")
+				"bring it to "+filepath.Join(svrpc.HostDataDir(), "vaults", "NAME")+" and add it; and allow the units their credentials (Let a service read secrets…).")
 			m.showText("Host identity made", intro, strings.Join(next, "\n"))
 			m.refreshDesktop(p, tabHost)
 		})
