@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"text/tabwriter"
@@ -63,6 +64,10 @@ func (c *cli) cmdBrowserHost(args []string) error {
 		// secretvault's host serves secretvault's extension alone; the
 		// manifest says so to the browser, and this says it again.
 		return fmt.Errorf("the host %s serves the secretvault extension only, not %q", svext.HostName, origin)
+	case !slices.Contains(svbrowser.FirefoxExtensions, origin) && !slices.Contains(svbrowser.ChromeOrigins, origin):
+		// Chromium does not say which manifest started the host: an
+		// extension that is neither is refused here too.
+		return fmt.Errorf("secretvault-browser serves the secretvault extension and KeePassXC-Browser only, not %q", origin)
 	}
 	var wmu sync.Mutex
 	write := func(frame []byte) {

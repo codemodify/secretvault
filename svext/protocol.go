@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"unicode/utf8"
 
@@ -129,8 +130,12 @@ func ParseRequest(frame []byte) (*Request, error) {
 	}
 	var m map[string]json.RawMessage
 	d := json.NewDecoder(bytes.NewReader(frame))
-	if err := d.Decode(&m); err != nil || m == nil || d.More() {
+	if err := d.Decode(&m); err != nil || m == nil {
 		return nil, Errorf(CodeBadRequest, "a request is one JSON object")
+	}
+	if _, err := d.Token(); err != io.EOF {
+		// Anything after the object, even a stray } or ].
+		return nil, Errorf(CodeBadRequest, "a request is one JSON object, and nothing after it")
 	}
 	defer func() {
 		for _, v := range m {
@@ -223,7 +228,9 @@ func (r *Request) read(m map[string]json.RawMessage) error {
 		case len(p) == 0 || len(p) > MaxPassword:
 			clear(p)
 			return Errorf(CodeBadRequest, "password: 1 to %d bytes", MaxPassword)
-		case !utf8.Valid(p):
+		case !utf8.Valid(p) || bytes.ContainsRune(p, utf8.RuneError):
+			// U+FFFD is also what a lone surrogate (\ud800) decodes to:
+			// refused, not stored mangled.
 			clear(p)
 			return Errorf(CodeBadRequest, "password: UTF-8 text")
 		}

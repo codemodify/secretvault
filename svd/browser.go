@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -130,7 +131,10 @@ func (d *Daemon) browserOpen(ctx context.Context, cl *client, decode func(any) e
 		return nil, svrpc.Errorf(svrpc.CodeDenied, "the program that started secretvault-browser could not be identified: %v", err)
 	}
 	switch p.Protocol {
-	case "": // KeePassXC-Browser's
+	case "": // KeePassXC-Browser's, for KeePassXC-Browser alone
+		if !slices.Contains(svbrowser.FirefoxExtensions, p.Origin) && !slices.Contains(svbrowser.ChromeOrigins, p.Origin) {
+			return nil, svrpc.Errorf(svrpc.CodeDenied, "KeePassXC-Browser's protocol serves KeePassXC-Browser only, not %q", p.Origin)
+		}
 	case svext.Protocol:
 		return d.extOpen(cl, p, proc) // browser_ext.go
 	default:

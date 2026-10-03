@@ -36,6 +36,12 @@ func TestTheExtensionsSessionIsForTheExtensionAlone(t *testing.T) {
 			t.Fatalf("the extension's protocol for %q: %v", other, err)
 		}
 	}
+	// Nor does KeePassXC-Browser's protocol serve any other extension.
+	for _, other := range []string{"evil@example.com", "chrome-extension://aaaabbbbccccddddeeeeffffgggghhhh/", "", svext.FirefoxID, svext.ChromeOrigin} {
+		if err := relay.Call(ctx(t), svrpc.MBrowserOpen, svrpc.BrowserOpenParams{Origin: other}, nil); !errors.Is(err, svrpc.ErrDenied) {
+			t.Fatalf("KeePassXC-Browser's protocol for %q: %v", other, err)
+		}
+	}
 	var opened svrpc.BrowserOpenResult
 	if err := relay.Call(ctx(t), svrpc.MBrowserOpen, svrpc.BrowserOpenParams{Protocol: svext.Protocol, Origin: svext.ChromeOrigin}, &opened); err != nil {
 		t.Fatal(err)

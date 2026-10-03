@@ -66,7 +66,7 @@ func TestOnlyTheRelayOpensABrowserSessionForTheBrowserBehindIt(t *testing.T) {
 	if opened.Browser != "firefox (/usr/bin/firefox)" || opened.Vault != "personal" {
 		t.Fatalf("opened %+v", opened)
 	}
-	if err := relay.Call(ctx(t), svrpc.MBrowserOpen, svrpc.BrowserOpenParams{}, nil); !errors.Is(err, svrpc.ErrExists) {
+	if err := relay.Call(ctx(t), svrpc.MBrowserOpen, svrpc.BrowserOpenParams{Origin: "keepassxc-browser@keepassxc.org"}, nil); !errors.Is(err, svrpc.ErrExists) {
 		t.Fatalf("a second session on one connection: %v", err)
 	}
 	nonce := base64.StdEncoding.EncodeToString(make([]byte, 24))

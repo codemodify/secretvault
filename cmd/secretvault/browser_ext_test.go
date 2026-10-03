@@ -262,6 +262,39 @@ func TestTheExtensionIsAskedAboutTheLoginsOfAPage(t *testing.T) {
 		t.Fatal("a fill into a page the login does not fit was asked about")
 	}
 
+	// Remembered for its own host, a login is not asked about there again;
+	// on another host of its site, it is asked about every time.
+	gh := map[string]any{"origin": "https://github.com", "login": ids["web/github.com"]}
+	h.desk.answer(svrpc.ChoiceAlways, "")
+	x.ask("fill", gh)
+	asked = h.desk.count()
+	if r := x.ask("fill", gh); r["password"] != "hunter2" || h.desk.count() != asked {
+		t.Fatalf("a remembered fill: %v (%d prompts)", r, h.desk.count()-asked)
+	}
+	h.desk.answer(svrpc.ChoiceOnce, "")
+	sibling := map[string]any{"origin": "https://gist.github.com", "login": ids["web/github.com"]}
+	for range 2 {
+		if r := x.ask("fill", sibling); r["password"] != "hunter2" {
+			t.Fatalf("a fill on another host of the site: %v", r)
+		}
+	}
+	if n := h.desk.count() - asked; n != 2 || !strings.Contains(h.desk.questions()[asked], "saved for another host of this site, so this is asked every time") {
+		t.Fatalf("%d prompts on another host of the site: %q", n, h.desk.questions()[asked:])
+	}
+	// Nor can another host of the site change it.
+	if r := x.ask("check", map[string]any{"origin": "https://gist.github.com", "username": "ada", "password": "0ther"}); r["status"] != svext.StatusNew {
+		t.Fatalf("check on another host of the site: %v", r)
+	}
+	if r := x.ask("check", map[string]any{"origin": "https://github.com", "username": "ada", "password": "0ther"}); r["status"] != svext.StatusChanged || r["login"] != ids["web/github.com"] {
+		t.Fatalf("check on its own host: %v", r)
+	}
+	if r := x.ask("save", map[string]any{"origin": "https://gist.github.com", "username": "ada", "password": "0ther", "login": ids["web/github.com"]}); refused(r) != svext.CodeNotFound {
+		t.Fatalf("an update from another host of the site: %v", r)
+	}
+	if got := h.ok("", h.with("get", "web/github.com")...); got != "hunter2\n" {
+		t.Fatalf("the password became %q", got)
+	}
+
 	audit := h.ok("", h.with("audit", "--limit", "0")...)
 	for _, want := range []string{`allowed\s+read web/github.com\s+firefox \(/usr/lib/firefox/firefox\)`, `denied\s+read web/github.com\s+firefox`, `allowed\s+list\s+.*firefox`} {
 		if !regexp.MustCompile(want).MatchString(audit) {
@@ -421,16 +454,26 @@ func TestTheExtensionsHostChecksEveryMessage(t *testing.T) {
 
 func TestTheExtensionsHostServesTheExtensionAlone(t *testing.T) {
 	h, _ := browserHarness(t)
-	// Started by its own manifest for another extension: it refuses.
-	for _, other := range []string{"keepassxc-browser@keepassxc.org", "evil@example.com"} {
-		x := startOwnExtension(t, h, extManifest, other)
+	// Started by its own manifest for another extension, or by Chromium
+	// (which names no manifest) for an extension that is neither: it
+	// refuses.
+	for _, c := range []struct {
+		args []string
+		says string
+	}{
+		{[]string{extManifest, "keepassxc-browser@keepassxc.org"}, "serves the secretvault extension only"},
+		{[]string{extManifest, "evil@example.com"}, "serves the secretvault extension only"},
+		{[]string{"chrome-extension://aaaabbbbccccddddeeeeffffgggghhhh/"}, "serves the secretvault extension and KeePassXC-Browser only"},
+		{[]string{"/home/u/.mozilla/native-messaging-hosts/org.keepassxc.keepassxc_browser.json", "evil@example.com"}, "and KeePassXC-Browser only"},
+	} {
+		x := startOwnExtension(t, h, c.args...)
 		select {
 		case code := <-x.exited:
-			if code != 1 || !strings.Contains(x.stderr.String(), "serves the secretvault extension only") {
-				t.Fatalf("%s: exit %d: %s", other, code, x.stderr.String())
+			if code != 1 || !strings.Contains(x.stderr.String(), c.says) {
+				t.Fatalf("%s: exit %d: %s", c.args, code, x.stderr.String())
 			}
 		case <-time.After(10 * time.Second):
-			t.Fatalf("the host served %s", other)
+			t.Fatalf("the host served %s", c.args)
 		}
 		x.exited <- 1
 	}

@@ -14,6 +14,47 @@ const $ = (id) => document.getElementById(id);
 let view = { origin: null, state: null, offer: null, mode: "popup", forms: [] };
 let busy = false;
 
+// A panel in a page sits among the page's own elements, which can be
+// moved under the pointer just before a click, or laid over the panel.
+// So it takes no click until it has been in view for a moment, and,
+// where the browser can tell (IntersectionObserver v2, in Chromium), none
+// while anything covers it. Nothing in it takes the focus by itself. The
+// toolbar popup is the browser's own window, and needs none of this.
+const ARM_MS = 500;
+let armedAt = performance.now() + ARM_MS;
+let unobscured = true;
+
+function rearm() {
+  armedAt = performance.now() + ARM_MS;
+}
+
+function armed() {
+  return !inPage || (performance.now() >= armedAt && unobscured && document.visibilityState === "visible");
+}
+
+if (inPage) {
+  document.addEventListener("visibilitychange", rearm);
+  if ("IntersectionObserver" in globalThis && "isVisible" in IntersectionObserverEntry.prototype) {
+    unobscured = false;
+    new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isVisible && !unobscured) rearm();
+          unobscured = e.isVisible;
+        }
+      },
+      { threshold: [1.0], trackVisibility: true, delay: 100 },
+    ).observe(document.body);
+  }
+}
+
+// act is a handler that runs only on a panel that is armed.
+function act(fn) {
+  return (...args) => {
+    if (armed()) return fn(...args);
+  };
+}
+
 // ask asks the background, and throws what it refused with.
 async function ask(type, extra) {
   const r = await ext.runtime.sendMessage({ type, token, ...extra });
@@ -113,7 +154,7 @@ function renderLocked(v) {
   $("actions").hidden = true;
   const unlock = el("button", "primary", "Unlock");
   unlock.type = "button";
-  unlock.addEventListener("click", async () => {
+  unlock.addEventListener("click", act(async () => {
     unlock.disabled = true;
     status("secretvault is asking for the passphrase of vault " + v.name + ", in a window of its own.");
     try {
@@ -124,7 +165,7 @@ function renderLocked(v) {
       unlock.disabled = false;
       $("status").append(unlock);
     }
-  });
+  }));
   status(el("p", null, "Vault " + v.name + " is locked."), unlock);
 }
 
@@ -139,7 +180,6 @@ function renderOffer() {
   $("offer-name").parentElement.querySelector("label[for=offer-name]").hidden = o.status === "changed";
   $("offer-name").hidden = o.status === "changed";
   $("offer-save").textContent = o.status === "changed" ? "Update" : "Save";
-  if (inPage && view.mode === "save") setTimeout(() => $("offer-save").focus(), 0);
 }
 
 async function renderList() {
@@ -175,19 +215,17 @@ async function renderList() {
     b.append(el("span", "title", l.title || l.url));
     b.append(el("span", "user", l.username || "(no user name)"));
     if (l.match === "site") b.append(el("span", "note", "saved for " + (globalThis.SVOrigin.storedOrigin(l.url) || { host: l.url }).host));
-    b.addEventListener("click", () => fill(l, "login"));
+    b.addEventListener("click", act(() => fill(l, "login")));
     li.append(b);
     if (l.totp) {
       const c = el("button", "code", "Code");
       c.type = "button";
       c.title = "Fill the one-time code";
-      c.addEventListener("click", () => fill(l, "totp"));
+      c.addEventListener("click", act(() => fill(l, "totp")));
       li.append(c);
     }
     ul.append(li);
   }
-  const first = ul.querySelector("button");
-  if (first && inPage) first.focus();
 }
 
 async function render() {
@@ -204,12 +242,6 @@ async function render() {
     return;
   }
   if (v.locked) return renderLocked(v);
-  if (view.mode === "save") {
-    $("list").hidden = true;
-    $("actions").hidden = true;
-    status();
-    return;
-  }
   await renderList();
 }
 
@@ -250,7 +282,6 @@ async function decide(decision) {
     view.offer = null;
     renderOffer();
     if (r.saved) status(r.created ? "Saved." : "Updated.");
-    if (view.mode === "save") setTimeout(close, r.saved ? 900 : 0);
   } catch (e) {
     warn(words(e));
   }
@@ -269,15 +300,15 @@ async function start() {
 
 $("close").hidden = !inPage;
 $("close").addEventListener("click", close);
-$("generate").addEventListener("click", generate);
-$("lock").addEventListener("click", async () => {
+$("generate").addEventListener("click", act(generate));
+$("lock").addEventListener("click", act(async () => {
   try {
     view.state = await ask("panel:lock", { vault: vault() });
     await render();
   } catch (e) {
     warn(words(e));
   }
-});
+}));
 $("vault").addEventListener("change", async () => {
   const name = $("vault").value;
   await ask("panel:vault", { vault: name }).catch(() => {});

@@ -10,7 +10,16 @@
 //
 // What it will not do: fill when the page loads (only when the person
 // asks), fill a frame of another origin than its tab's page (background.js
-// does not serve one), or fill a field that cannot be seen.
+// does not serve one), or fill a field that cannot be seen. Nor will it
+// show anything in the page that depends on what secretvault holds: a
+// login to save is offered on the toolbar button only.
+//
+// A page can still restyle, cover or move what is its own (the elements
+// that hold the marks and the panel are in its DOM), to trick a click.
+// So they are put in the top layer, above the page's content; one the
+// page touches is taken away; a click counts only on a mark that has
+// stood still, uncovered and unaltered, for a moment; and the panel
+// closes when the field it was opened for moves.
 (function () {
   "use strict";
 
@@ -21,16 +30,84 @@
   const MARK = 20;
   const PANEL_W = 320;
   const PANEL_H = 360;
-  const OFFER_H = 230;
+  const SETTLE_MS = 400; // a mark must have stood still this long to be clicked
 
   let active = false;
   let nextHandle = 1;
   const fields = new Map(); // handle -> input
   const handles = new WeakMap(); // input -> handle
-  const marks = new Map(); // handle -> {host, el}
-  let panel = null; // {host, handle}
-  let offer = null; // {host}
+  const marks = new Map(); // handle -> {host, el, at, movedAt}
+  const spoiled = new WeakSet(); // fields whose mark the page touched: not marked again
+  let panel = null; // {host, handle, rect}
   let reported = "";
+
+  // ---------------------------------------------------- our elements
+
+  const ours = new WeakSet(); // the elements that hold the marks and the panel
+  const wanted = new WeakMap(); // host -> {props, css}: its style, as set here
+  const guard = new MutationObserver((records) => {
+    for (const r of records) {
+      const host = r.target;
+      const w = wanted.get(host);
+      if (!w || !host.isConnected) continue;
+      if (r.attributeName !== "style" || host.getAttribute("style") !== w.css) tampered(host);
+    }
+  });
+
+  function cssOf(props) {
+    return Object.entries(props)
+      .map(([k, v]) => k + ":" + v + " !important")
+      .join(";");
+  }
+
+  // restyle sets a host's whole style attribute: what the page added to
+  // it goes, and a change that is not this is the page's.
+  function restyle(host, changes) {
+    const w = wanted.get(host);
+    Object.assign(w.props, changes);
+    w.css = cssOf(w.props);
+    host.setAttribute("style", w.css);
+    w.css = host.getAttribute("style");
+  }
+
+  // shadowHost is an element of ours in the page, its insides in a
+  // closed shadow root, in the top layer where the browser has one.
+  function shadowHost(props) {
+    const host = document.createElement("span");
+    ours.add(host);
+    wanted.set(host, { props: { all: "initial", position: "fixed", "z-index": "2147483647", display: "block", margin: "0", padding: "0", border: "0", overflow: "visible", ...props }, css: "" });
+    restyle(host, {});
+    const root = host.attachShadow({ mode: "closed" });
+    try {
+      host.setAttribute("popover", "manual");
+    } catch {
+      // No popovers here: the z-index is all there is.
+    }
+    document.documentElement.append(host);
+    raise(host);
+    guard.observe(host, { attributes: true });
+    return { host, root };
+  }
+
+  function raise(host) {
+    try {
+      if (host.matches(":popover-open")) host.hidePopover();
+      host.showPopover();
+    } catch {
+      // Not in the top layer; still above most of the page.
+    }
+  }
+
+  function tampered(host) {
+    for (const [h, m] of marks) {
+      if (m.host === host) {
+        spoiled.add(m.el);
+        marks.delete(h);
+      }
+    }
+    if (panel && panel.host === host) panel = null;
+    host.remove();
+  }
 
   // ---------------------------------------------------------- the fields
 
@@ -53,8 +130,27 @@
     };
   }
 
+  // hides reports whether a CSS filter all but hides what it is on.
+  function hides(filter) {
+    if (!filter || filter === "none") return false;
+    for (const m of filter.matchAll(/(opacity|brightness|contrast)\(\s*([\d.]+)(%?)\s*\)/g)) {
+      const v = parseFloat(m[2]) / (m[3] ? 100 : 1);
+      if ((m[1] === "opacity" && v < 0.5) || (m[1] !== "opacity" && v < 0.3)) return true;
+    }
+    const blur = filter.match(/blur\(\s*([\d.]+)px\s*\)/);
+    return !!(blur && parseFloat(blur[1]) > 2);
+  }
+
+  function alpha(color) {
+    const m = /rgba?\(([^)]*)\)/.exec(color || "");
+    if (!m) return 1;
+    const parts = m[1].split(/[\s,/]+/).filter(Boolean);
+    return parts.length >= 4 ? parseFloat(parts[3]) : 1;
+  }
+
   // visible: the field is there to be seen: in the page, not hidden by
-  // CSS, not see-through, not shrunk to nothing.
+  // CSS, not see-through, not clipped or masked away, its text not
+  // transparent, not shrunk to nothing.
   function visible(el) {
     if (!el.isConnected || el.disabled || el.type === "hidden") return false;
     const r = el.getBoundingClientRect();
@@ -63,10 +159,13 @@
         !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, opacityProperty: true, visibilityProperty: true })) {
       return false;
     }
+    const own = getComputedStyle(el);
+    if (own.clipPath !== "none" || alpha(own.color) < 0.2) return false;
     let opacity = 1;
     for (let e = el; e && e.nodeType === 1; e = e.parentElement) {
       const s = getComputedStyle(e);
       if (s.display === "none" || s.visibility === "hidden" || s.visibility === "collapse") return false;
+      if (hides(s.filter) || (s.maskImage && s.maskImage !== "none")) return false;
       const o = parseFloat(s.opacity);
       opacity *= Number.isFinite(o) ? o : 1;
       if (opacity < 0.2) return false;
@@ -74,22 +173,27 @@
     return true;
   }
 
-  // onScreen: the field is in view and nothing covers its middle. It is
-  // scrolled to first, as a field the toolbar's list fills may be below.
-  function onScreen(el) {
-    let r = el.getBoundingClientRect();
-    if (r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) {
-      el.scrollIntoView({ block: "center", inline: "nearest" });
-      r = el.getBoundingClientRect();
-    }
-    const x = r.left + r.width / 2;
-    const y = r.top + r.height / 2;
+  // hits reports whether a point of the field is the field (or its label).
+  function hits(el, x, y) {
     if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return false;
     const hit = document.elementFromPoint(x, y);
     if (!hit) return false;
     if (hit === el || el.contains(hit)) return true;
     const label = hit.closest && hit.closest("label");
     return !!(label && label.control === el);
+  }
+
+  // onScreen: the field is in view and nothing covers its middle, nor
+  // both its sides. It is scrolled to first, as a field the toolbar's list
+  // fills may be below.
+  function onScreen(el) {
+    let r = el.getBoundingClientRect();
+    if (r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) {
+      el.scrollIntoView({ block: "center", inline: "nearest" });
+      r = el.getBoundingClientRect();
+    }
+    const y = r.top + r.height / 2;
+    return hits(el, r.left + r.width / 2, y) && (hits(el, r.left + r.width / 4, y) || hits(el, r.left + (3 * r.width) / 4, y));
   }
 
   function usable(el) {
@@ -138,10 +242,6 @@
 
   // ------------------------------------------------------------- marking
 
-  function style(el, props) {
-    for (const [k, v] of Object.entries(props)) el.style.setProperty(k, v, "important");
-  }
-
   function icon() {
     const ns = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(ns, "svg");
@@ -157,57 +257,110 @@
     return svg;
   }
 
-  // shadowHost is an element of ours in the page, its insides in a
-  // closed shadow root.
-  function shadowHost() {
-    const host = document.createElement("span");
-    style(host, { all: "initial", position: "fixed", "z-index": "2147483646", display: "block", margin: "0", padding: "0", border: "0" });
-    const root = host.attachShadow({ mode: "closed" });
-    document.documentElement.append(host);
-    return { host, root };
+  function overlaps(a, b) {
+    return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  }
+
+  // covered reports whether something of the page's own in the top layer
+  // (a popover, a modal dialog, a full-screen element) is over host.
+  function covered(host) {
+    const r = host.getBoundingClientRect();
+    for (const sel of [":popover-open", "dialog:modal", ":fullscreen"]) {
+      let list = [];
+      try {
+        list = document.querySelectorAll(sel);
+      } catch {
+        continue;
+      }
+      for (const el of list) {
+        if (!ours.has(el) && overlaps(r, el.getBoundingClientRect())) return true;
+      }
+    }
+    return false;
+  }
+
+  // plain reports whether an element's style shows what is in it as it is.
+  function plain(el) {
+    const s = getComputedStyle(el);
+    return parseFloat(s.opacity) >= 0.99 && s.visibility === "visible" && !hides(s.filter) && s.clipPath === "none" &&
+      (!s.maskImage || s.maskImage === "none") && (el !== document.documentElement ? s.transform === "none" : true);
+  }
+
+  // trusted reports whether a click on a mark is the person's, on a mark
+  // they could see: a real click, on a mark that has stood still, that
+  // nothing covers and nothing has restyled.
+  function trusted(m, e) {
+    if (!e.isTrusted || performance.now() - m.movedAt < SETTLE_MS) return false;
+    const w = wanted.get(m.host);
+    if (!m.host.isConnected || !w || m.host.getAttribute("style") !== w.css) return false;
+    if (!plain(m.host) || !plain(document.documentElement)) return false;
+    // A click with the pointer must land on the mark itself; one from the
+    // keyboard (detail 0) comes from the person tabbing to it, which the
+    // page cannot do for them.
+    if (e.detail !== 0 && document.elementFromPoint(e.clientX, e.clientY) !== m.host) return false;
+    if (covered(m.host)) {
+      raise(m.host); // above the page's again; the next click counts
+      m.movedAt = performance.now();
+      return false;
+    }
+    return true;
   }
 
   function addMark(el, handle) {
-    const { host, root } = shadowHost();
-    style(host, { width: MARK + "px", height: MARK + "px" });
+    const { host, root } = shadowHost({ width: MARK + "px", height: MARK + "px" });
     const b = document.createElement("button");
     b.type = "button";
     b.title = "secretvault";
     b.setAttribute("aria-label", "Fill from secretvault");
-    style(b, {
+    for (const [k, v] of Object.entries({
       all: "initial", display: "flex", "align-items": "center", "justify-content": "center", width: MARK + "px", height: MARK + "px",
-      "border-radius": "4px", background: "#2f6f4f", cursor: "pointer", "box-sizing": "border-box", opacity: "0.9",
-    });
+      "border-radius": "4px", background: "#2f6f4f", cursor: "pointer", "box-sizing": "border-box",
+    })) {
+      b.style.setProperty(k, v, "important");
+    }
     b.append(icon());
+    const m = { host, el, at: "", movedAt: performance.now() };
     // The field keeps the focus.
     b.addEventListener("mousedown", (e) => e.isTrusted && e.preventDefault());
     b.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (e.isTrusted) openPanel(handle); // a page cannot click it for the person
+      if (trusted(m, e)) openPanel(handle); // a page cannot click it for the person
     });
     root.append(b);
-    marks.set(handle, { host, el });
+    marks.set(handle, m);
   }
 
   function placeMark(m) {
     const r = m.el.getBoundingClientRect();
     const shown = r.width >= 8 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
-    style(m.host, {
-      display: shown ? "block" : "none",
-      left: Math.round(r.right - MARK - 4) + "px",
-      top: Math.round(r.top + (r.height - MARK) / 2) + "px",
-    });
+    const at = shown ? Math.round(r.right - MARK - 4) + "," + Math.round(r.top + (r.height - MARK) / 2) : "none";
+    if (at === m.at) return;
+    m.at = at;
+    m.movedAt = performance.now();
+    if (!shown) {
+      restyle(m.host, { display: "none" });
+      return;
+    }
+    const [left, top] = at.split(",");
+    restyle(m.host, { display: "block", left: left + "px", top: top + "px" });
   }
 
-  function placePanel(p, h) {
+  // placePanel puts the panel under its field (or above, if there is no
+  // room below), once: a field that moves after closes it.
+  function placePanel(p) {
     const el = fields.get(p.handle);
     if (!el || !el.isConnected) return closePanel();
     const r = el.getBoundingClientRect();
+    if (p.rect) {
+      if (Math.abs(r.left - p.rect.left) > 2 || Math.abs(r.top - p.rect.top) > 2) closePanel();
+      return;
+    }
+    p.rect = { left: r.left, top: r.top };
     let top = r.bottom + 4;
-    if (top + h > innerHeight && r.top - h - 4 >= 0) top = r.top - h - 4;
+    if (top + PANEL_H > innerHeight && r.top - PANEL_H - 4 >= 0) top = r.top - PANEL_H - 4;
     const left = Math.max(4, Math.min(r.left, innerWidth - PANEL_W - 4));
-    style(p.host, { left: Math.round(left) + "px", top: Math.round(Math.max(4, top)) + "px" });
+    restyle(p.host, { left: Math.round(left) + "px", top: Math.round(Math.max(4, top)) + "px" });
   }
 
   let placing = false;
@@ -217,7 +370,7 @@
     requestAnimationFrame(() => {
       placing = false;
       for (const m of marks.values()) placeMark(m);
-      if (panel) placePanel(panel, PANEL_H);
+      if (panel) placePanel(panel);
     });
   }
 
@@ -231,7 +384,7 @@
       if (!a.kind) continue;
       forms.add(a.kind);
       for (const i of [a.username, a.password, ...a.newPasswords, a.otp]) {
-        if (i < 0) continue;
+        if (i < 0 || spoiled.has(vis[i])) continue;
         const h = handleOf(vis[i]);
         keep.add(h);
         if (!marks.has(h)) addMark(vis[i], h);
@@ -263,21 +416,7 @@
 
   // --------------------------------------------------------------- panel
 
-  function frame(url, w, h) {
-    const { host, root } = shadowHost();
-    style(host, { width: w + "px", height: h + "px", "z-index": "2147483647" });
-    const f = document.createElement("iframe");
-    style(f, {
-      all: "initial", display: "block", width: "100%", height: "100%", border: "0", "border-radius": "8px",
-      "box-shadow": "0 4px 18px rgba(0,0,0,.28)", background: "Canvas", "color-scheme": "light dark",
-    });
-    f.setAttribute("referrerpolicy", "no-referrer");
-    f.src = url;
-    root.append(f);
-    return host;
-  }
-
-  function ours(url) {
+  function isPanelURL(url) {
     return typeof url === "string" && url.startsWith(ext.runtime.getURL("panel.html#"));
   }
 
@@ -289,30 +428,26 @@
     } catch {
       return;
     }
-    if (!r || !r.ok || !ours(r.url)) return;
-    panel = { host: frame(r.url, PANEL_W, PANEL_H), handle };
-    placePanel(panel, PANEL_H);
+    if (!r || !r.ok || !isPanelURL(r.url)) return;
+    const { host, root } = shadowHost({ width: PANEL_W + "px", height: PANEL_H + "px", left: "-10000px", top: "0" });
+    const f = document.createElement("iframe");
+    for (const [k, v] of Object.entries({
+      all: "initial", display: "block", width: "100%", height: "100%", border: "0", "border-radius": "8px",
+      "box-shadow": "0 4px 18px rgba(0,0,0,.28)", background: "Canvas", "color-scheme": "light dark",
+    })) {
+      f.style.setProperty(k, v, "important");
+    }
+    f.setAttribute("referrerpolicy", "no-referrer");
+    f.src = r.url;
+    root.append(f);
+    panel = { host, handle, rect: null };
+    placePanel(panel);
   }
 
   function closePanel() {
     if (panel) {
       panel.host.remove();
       panel = null;
-    }
-  }
-
-  function showOffer(url) {
-    if (window !== window.top || !ours(url)) return;
-    if (offer) offer.host.remove();
-    const host = frame(url, PANEL_W, OFFER_H);
-    style(host, { top: "12px", right: "12px", left: "auto" });
-    offer = { host };
-  }
-
-  function closeOffer() {
-    if (offer) {
-      offer.host.remove();
-      offer = null;
     }
   }
 
@@ -331,14 +466,15 @@
   // clicked): the focused field's, else the first that has what is filled.
   function pick(what) {
     const want = what === "totp" ? ["otp"] : what === "new" ? ["signup", "change"] : ["login", "change", "username"];
+    const fits = (g) => want.includes(g.a.kind) || (what === "totp" && g.a.otp >= 0);
     const focused = document.activeElement;
     if (focused instanceof HTMLInputElement && handles.has(focused)) {
       const g = groupOf(focused);
-      if (want.includes(g.a.kind) || (what === "totp" && g.a.otp >= 0)) return { g, el: focused };
+      if (fits(g)) return { g, el: focused };
     }
     for (const [key, inputs] of groups()) {
       const g = analyzed(key, inputs);
-      if (want.includes(g.a.kind) || (what === "totp" && g.a.otp >= 0)) return { g, el: null };
+      if (fits(g)) return { g, el: null };
     }
     return null;
   }
@@ -382,8 +518,9 @@
   let lastSent = 0;
 
   // report sends a form's user name and password to the background, to
-  // offer saving them: only for what the person did (a trusted event,
-  // with the page holding the person's activation), at most once a second.
+  // offer saving them on the toolbar button: only for what the person did
+  // (a trusted event, with the page holding the person's activation), at
+  // most once a second. Nothing comes back to the page.
   function report(g) {
     if (!active || (navigator.userActivation && !navigator.userActivation.isActive)) return;
     const now = Date.now();
@@ -420,9 +557,8 @@
     }, true);
     document.addEventListener("keydown", (e) => {
       if (!e.isTrusted) return;
-      if (e.key === "Escape" && (panel || offer)) {
+      if (e.key === "Escape" && panel) {
         closePanel();
-        closeOffer();
         return;
       }
       if (e.key === "Enter" && e.target instanceof HTMLInputElement && e.target.type === "password") report(groupOf(e.target));
@@ -442,7 +578,10 @@
     }, true);
     addEventListener("scroll", place, { capture: true, passive: true });
     addEventListener("resize", place, { passive: true });
-    new MutationObserver(later).observe(document.documentElement, {
+    new MutationObserver(() => {
+      later();
+      place();
+    }).observe(document.documentElement, {
       childList: true, subtree: true, attributes: true, attributeFilter: ["type", "hidden", "style", "class", "disabled"],
     });
     document.addEventListener("focusin", later, true);
@@ -458,10 +597,6 @@
         return false;
       case "panel:close":
         closePanel();
-        closeOffer();
-        return false;
-      case "offer:show":
-        showOffer(msg.url);
         return false;
     }
     return false;
@@ -472,6 +607,5 @@
     active = true;
     listen();
     scan();
-    if (r.offer) showOffer(r.offer);
   }, () => {});
 })();

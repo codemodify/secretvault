@@ -17,6 +17,10 @@
 // Secrets: a login read for a fill goes to the frame it was chosen for,
 // and is dropped. A password a page sent, offered for saving, is kept in
 // memory for two minutes at most, then dropped; nothing secret is stored.
+//
+// Saving is offered on the toolbar button (its badge, then the popup),
+// never in the page: whether secretvault already holds what a page sent
+// must not be something the page can see.
 "use strict";
 
 if (typeof importScripts === "function") {
@@ -31,7 +35,8 @@ const P = globalThis.SVProtocol;
 const QUICK = 15 * 1000; // hello, state, generate
 const PATIENT = 5 * 60 * 1000; // anything the daemon may ask the person about
 const OFFER_LIFE = 2 * 60 * 1000;
-const PANEL_LIFE = 10 * 60 * 1000;
+const PANEL_IDLE = 60 * 1000; // a panel in a page unused this long is let go
+const PANEL_LIFE = 10 * 60 * 1000; // and any after this long
 
 // ---------------------------------------------------------------- the host
 
@@ -140,7 +145,7 @@ async function suffixes() {
 }
 
 const tabs = new Map(); // tabId -> {origin, frames: Map<frameId, {origin, forms: Set}>}
-const panels = new Map(); // token -> {tabId, frameId, origin, handle, mode, expires}
+const panels = new Map(); // token -> {tabId, frameId, origin, handle, until, ends, panelFrame, panelDoc}
 const offers = new Map(); // tabId -> {origin, vault, username, password, login, status, expires, timer}
 const listed = new Map(); // tabId -> {origin, logins: Map<id, login>}: what a panel was shown
 const sent = new Map(); // tabId -> [times]: forms reported sent, to limit them
@@ -200,6 +205,7 @@ function dropOffer(tabId) {
   o.password = null;
   offers.delete(tabId);
   ext.action.setBadgeText({ tabId, text: "" }).catch(() => {});
+  ext.action.setTitle({ tabId, title: "secretvault" }).catch(() => {});
 }
 
 function offerView(o) {
@@ -232,9 +238,7 @@ const fromContent = {
     }
     if (s.frameOrigin !== s.topOrigin) return { active: false };
     t.frames.set(s.frameId, { origin: s.frameOrigin, forms: new Set() });
-    const reply = { active: true };
-    if (s.frameId === 0 && offers.has(s.tabId)) reply.offer = panelFor(s, null, "save");
-    return reply;
+    return { active: true };
   },
 
   // A frame found login fields (or lost them).
@@ -253,7 +257,7 @@ const fromContent = {
     const s = served(sender);
     if (!s) throw fail("denied", "this frame is not served");
     if (!Number.isInteger(msg.handle) || msg.handle < 0) throw fail("bad-request", "no field");
-    return { url: panelFor(s, msg.handle, "fill") };
+    return { url: panelFor(s, msg.handle) };
   },
 
   // A form with a password was sent, by the person.
@@ -281,18 +285,19 @@ const fromContent = {
     offers.set(s.tabId, o);
     ext.action.setBadgeBackgroundColor({ tabId: s.tabId, color: "#2f6f4f" }).catch(() => {});
     ext.action.setBadgeText({ tabId: s.tabId, text: "1" }).catch(() => {});
-    // A page that stays (one that signs in without leaving) shows the
-    // offer now; one that leaves shows it when the next page starts.
-    ext.tabs.sendMessage(s.tabId, { type: "offer:show", url: panelFor({ ...s, frameId: 0 }, null, "save") }, { frameId: 0 }).catch(() => {});
+    ext.action.setTitle({ tabId: s.tabId, title: "secretvault: save the login you just used?" }).catch(() => {});
     return {};
   },
 };
 
-// panelFor makes the token a panel in the page is opened with.
-function panelFor(s, handle, mode) {
+// panelFor makes the token a panel in the page is opened with, for the
+// field handle of the frame s. The panel's own frame is bound to it when
+// the panel first uses it; any other frame is refused.
+function panelFor(s, handle) {
   for (const [token, p] of panels) if (p.tabId === s.tabId) panels.delete(token);
   const token = newToken();
-  panels.set(token, { tabId: s.tabId, frameId: s.frameId, origin: s.topOrigin, handle, mode, expires: Date.now() + PANEL_LIFE });
+  const now = Date.now();
+  panels.set(token, { tabId: s.tabId, frameId: s.frameId, origin: s.topOrigin, handle, until: now + PANEL_IDLE, ends: now + PANEL_LIFE, panelFrame: null, panelDoc: null });
   return panelURL(token);
 }
 
@@ -303,8 +308,18 @@ function panelFor(s, handle, mode) {
 async function where(msg, sender) {
   if (sender.tab) {
     const p = typeof msg.token === "string" ? panels.get(msg.token) : null;
-    if (!p || p.tabId !== sender.tab.id || p.expires < Date.now()) throw fail("denied", "this panel has expired: click the mark again");
-    return { tabId: p.tabId, frameId: p.frameId, origin: p.origin, handle: p.handle, mode: p.mode, token: msg.token };
+    const now = Date.now();
+    if (!p || p.tabId !== sender.tab.id || p.until < now || p.ends < now) throw fail("denied", "this panel has expired: click the mark again");
+    // The first frame to use the token is the panel's; no other may.
+    const doc = typeof sender.documentId === "string" ? sender.documentId : null;
+    if (p.panelFrame === null) {
+      p.panelFrame = sender.frameId;
+      p.panelDoc = doc;
+    } else if (p.panelFrame !== sender.frameId || p.panelDoc !== doc) {
+      throw fail("denied", "this panel is another's");
+    }
+    p.until = now + PANEL_IDLE;
+    return { tabId: p.tabId, frameId: p.frameId, origin: p.origin, handle: p.handle, mode: "fill", token: msg.token };
   }
   const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
   if (!tab || typeof tab.id !== "number") throw fail("no-page", "no page");
@@ -349,7 +364,8 @@ const fromPages = {
       mode: w.mode,
       origin: w.origin,
       state: await state(),
-      offer: offerView(offers.get(w.tabId)),
+      // The offer is the toolbar popup's alone.
+      offer: w.mode === "popup" ? offerView(offers.get(w.tabId)) : null,
       forms: w.frameId === null ? formsOf(w) : [],
     };
   },
@@ -425,6 +441,7 @@ const fromPages = {
 
   async "panel:save"(msg, sender) {
     const w = await where(msg, sender);
+    if (w.mode !== "popup") throw fail("denied", "a login is saved from the toolbar button");
     const o = offers.get(w.tabId);
     if (!o) throw fail("not-found", "nothing waits to be saved");
     if (msg.decision !== "save") {

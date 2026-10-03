@@ -134,6 +134,22 @@ func (b *extSession) decide(ctx context.Context, mv *managedVault, item, itemNam
 	if err := b.d.decide(ctx, b.app, mv, item, itemName, op, why, false, false, record); err != nil {
 		return b.fail(err)
 	}
+	return b.stillOpen(mv)
+}
+
+// confirm is decide for a request that is asked about every time, whatever
+// was remembered: a login handed to another host of its site than the one
+// it was saved for.
+func (b *extSession) confirm(ctx context.Context, mv *managedVault, item, itemName string, op svbroker.Op, why string) error {
+	record := b.d.recorder(b.app, mv, itemName, op)
+	why += "\n(It was saved for another host of this site, so this is asked every time.)"
+	if err := b.d.ask(ctx, b.app, mv, item, itemName, op, why, record, true); err != nil {
+		return b.fail(err)
+	}
+	return b.stillOpen(mv)
+}
+
+func (b *extSession) stillOpen(mv *managedVault) error {
 	if mv.v.Locked() {
 		// Locked while the person was being asked: nothing is handed out.
 		return svext.Errorf(svext.CodeLocked, "vault %q locked", mv.cfg.Name)
@@ -239,6 +255,15 @@ func wipeAll(es []svcore.Entry) {
 	}
 }
 
+// clip cuts what a vault holds to what the extension is sent of it, so
+// that the most logins an answer holds stay well under a frame.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return strings.ToValidUTF8(s[:n], "")
+}
+
 func (b *extSession) Logins(ctx context.Context, vault string, o svext.Origin) ([]svext.Login, error) {
 	mv, err := b.unlocked(vault)
 	if err != nil {
@@ -263,31 +288,44 @@ func (b *extSession) Logins(ctx context.Context, vault string, o svext.Origin) (
 		if k != nil {
 			k.Wipe()
 		}
-		out = append(out, svext.Login{ID: es[i].ID.String(), Title: title(&es[i]), Username: user, URL: urls[i], Match: ms[i].String(), TOTP: k != nil})
+		out = append(out, svext.Login{ID: es[i].ID.String(), Title: clip(title(&es[i]), 256), Username: clip(user, 1024),
+			URL: clip(urls[i], 1024), Match: ms[i].String(), TOTP: k != nil})
 	}
 	return out, nil
 }
 
-// login finds the login id names, which must fit o: a login that does not
-// is as good as none. The caller wipes it.
-func (b *extSession) login(mv *managedVault, id string, o svext.Origin) (svcore.Entry, error) {
+// login finds the login id names, which must fit o (with exact, its very
+// host): a login that does not is as good as none. The caller wipes it.
+func (b *extSession) login(mv *managedVault, id string, o svext.Origin, exact bool) (svcore.Entry, svext.Match, error) {
 	nf := svext.Errorf(svext.CodeNotFound, "no such login for %s", o)
 	oid, err := svformat.ParseID(id)
 	if err != nil {
-		return svcore.Entry{}, nf
+		return svcore.Entry{}, svext.MatchNone, nf
 	}
 	e, err := mv.v.GetID(oid)
 	if err != nil {
 		if errors.Is(err, svcore.ErrNotFound) {
-			return svcore.Entry{}, nf
+			return svcore.Entry{}, svext.MatchNone, nf
 		}
-		return svcore.Entry{}, b.fail(err)
+		return svcore.Entry{}, svext.MatchNone, b.fail(err)
 	}
-	if m, _ := fit(&e.Item, o); m == svext.MatchNone {
+	m, _ := fit(&e.Item, o)
+	if m == svext.MatchNone || exact && m != svext.MatchHost {
 		e.Item.Wipe()
-		return svcore.Entry{}, nf
+		return svcore.Entry{}, svext.MatchNone, nf
 	}
-	return e, nil
+	return e, m, nil
+}
+
+// read decides whether the browser may read a login for o: as any read,
+// when the login is the page's host's; asked every time when it is
+// another host's of the same site, which a remembered decision about the
+// login (one made on its own host, or for saving it) does not cover.
+func (b *extSession) read(ctx context.Context, mv *managedVault, e *svcore.Entry, m svext.Match, why string) error {
+	if m == svext.MatchSite {
+		return b.confirm(ctx, mv, e.ID.String(), e.Item.Name, svbroker.OpRead, why)
+	}
+	return b.decide(ctx, mv, e.ID.String(), e.Item.Name, svbroker.OpRead, why)
 }
 
 func (b *extSession) Fill(ctx context.Context, vault string, o svext.Origin, id string) (svext.Credentials, error) {
@@ -295,13 +333,13 @@ func (b *extSession) Fill(ctx context.Context, vault string, o svext.Origin, id 
 	if err != nil {
 		return svext.Credentials{}, err
 	}
-	e, err := b.login(mv, id, o)
+	e, m, err := b.login(mv, id, o, false)
 	if err != nil {
 		return svext.Credentials{}, err
 	}
 	defer e.Item.Wipe()
 	why := fmt.Sprintf("%s wants the login %q for %s%s", b.app.display(), e.Item.Name, o, through)
-	if err := b.decide(ctx, mv, e.ID.String(), e.Item.Name, svbroker.OpRead, why); err != nil {
+	if err := b.read(ctx, mv, &e, m, why); err != nil {
 		return svext.Credentials{}, err
 	}
 	var c svext.Credentials
@@ -321,7 +359,7 @@ func (b *extSession) TOTP(ctx context.Context, vault string, o svext.Origin, id 
 	if err != nil {
 		return "", err
 	}
-	e, err := b.login(mv, id, o)
+	e, m, err := b.login(mv, id, o, false)
 	if err != nil {
 		return "", err
 	}
@@ -332,13 +370,17 @@ func (b *extSession) TOTP(ctx context.Context, vault string, o svext.Origin, id 
 	}
 	defer k.Wipe()
 	why := fmt.Sprintf("%s wants the one-time code of the login %q for %s%s", b.app.display(), e.Item.Name, o, through)
-	if err := b.decide(ctx, mv, e.ID.String(), e.Item.Name, svbroker.OpRead, why); err != nil {
+	if err := b.read(ctx, mv, &e, m, why); err != nil {
 		return "", err
 	}
 	code, _ := k.Code(b.d.opts.Now())
 	return code, nil
 }
 
+// Check compares what a page sent with the logins that fit it. Known is
+// a login of the site with that user name and password; changed is one
+// of the page's very host with that user name and another password
+// (another host's login is never offered for changing, from this page).
 func (b *extSession) Check(ctx context.Context, vault string, o svext.Origin, user string, password []byte) (svext.CheckResult, error) {
 	mv, err := b.unlocked(vault)
 	if err != nil {
@@ -348,7 +390,7 @@ func (b *extSession) Check(ctx context.Context, vault string, o svext.Origin, us
 	if err := b.decide(ctx, mv, "", "", svbroker.OpList, why); err != nil {
 		return svext.CheckResult{}, err
 	}
-	es, _, _, err := fitting(mv, o)
+	es, ms, _, err := fitting(mv, o)
 	if err != nil {
 		return svext.CheckResult{}, b.fail(err)
 	}
@@ -362,7 +404,7 @@ func (b *extSession) Check(ctx context.Context, vault string, o svext.Origin, us
 		if ok && subtle.ConstantTimeCompare(f.Value, password) == 1 {
 			return svext.CheckResult{Status: svext.StatusKnown, Login: es[i].ID.String()}, nil
 		}
-		if changed == "" {
+		if changed == "" && ms[i] == svext.MatchHost {
 			changed = es[i].ID.String()
 		}
 	}
@@ -417,8 +459,10 @@ func (b *extSession) Save(ctx context.Context, vault string, o svext.Origin, s s
 }
 
 // update changes a login's password, and its user name when one is given.
+// Only a login of the page's very host may be changed from it: another
+// host of the site could otherwise overwrite its sibling's password.
 func (b *extSession) update(ctx context.Context, mv *managedVault, o svext.Origin, s svext.SaveLogin) (string, bool, error) {
-	e, err := b.login(mv, s.Login, o)
+	e, _, err := b.login(mv, s.Login, o, true)
 	if err != nil {
 		return "", false, err
 	}

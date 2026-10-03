@@ -36,6 +36,15 @@ func (c *cli) extensionHost(origin string) error {
 		defer wmu.Unlock()
 		svbrowser.WriteFrame(c.stdout, frame)
 	}
+	// answer writes an answer to request id, and wipes it: one the browser
+	// would not take (over its 1 MiB) is a refusal instead, not silence.
+	answer := func(id string, frame []byte) {
+		defer clear(frame)
+		if len(frame) > svbrowser.MaxFrame {
+			frame = svext.Refusal(id, svext.Errorf(svext.CodeFailed, "the answer is too large to send"))
+		}
+		write(frame)
+	}
 	cl, err := c.connect(secretvault.Options{
 		Name: "secretvault-browser",
 		OnNotify: func(method string, params json.RawMessage) {
@@ -86,7 +95,8 @@ func (c *cli) extensionHost(origin string) error {
 			}
 			go func() {
 				defer func() { <-waiting }()
-				write(c.extensionAnswer(ctx, cl, r, frame))
+				id := r.ID
+				answer(id, c.extensionAnswer(ctx, cl, r, frame))
 			}()
 		}
 	}()
