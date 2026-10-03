@@ -23,7 +23,7 @@ const (
 	SharingAbout = "Share this vault with a person or another device: they open it with their own key, not your passphrase. " +
 		"Cutting one off gives the vault a new key, so nothing written after that opens for them."
 	EmergencyAbout = "Emergency access lets someone you trust into this vault if something happens to you: they ask, you are told, " +
-		"and unless you deny it within the wait you set, they get it. The vault must sync with a server, which keeps the time."
+		"and unless you deny it within the wait you set, they get it. The vault must sync with a server, which counts the wait."
 	ShareLead = "Give a person or another device their own way into this vault. " +
 		"They open it with their own key, and you can cut them off later."
 	EmergencyGrantLead = "Choose someone you trust. They can ask for this vault at any time: " +
@@ -52,8 +52,8 @@ func EmergencyGrantedText(who, vault string, wait int64) string {
 func DenyEmergencyPlain(who, vault string) Plain {
 	return Plain{
 		Title: "Deny " + who + "'s request?",
-		Summary: SentenceStart(who) + " asked for emergency access to vault " + vault + ". Denying it gives them nothing now. " +
-			"They keep their access: if they ask again, the wait starts over, and you are told again.",
+		Summary: SentenceStart(who) + " asked for emergency access to vault " + vault + "; denying gives them nothing this time. " +
+			"They can still ask again later, when the wait starts over and you are told again; revoking their emergency access stops that.",
 		Action: "Deny the request",
 	}
 }
@@ -135,14 +135,23 @@ func orDevice(label string) string {
 	return label
 }
 
+// DeviceName names a device of the vault: its name, or, with none, "the
+// device" and its key's start.
+func DeviceName(label, key string) string {
+	if label != "" {
+		return label
+	}
+	return "the device " + key
+}
+
 // VouchPlain asks before vouching for the device of label and key.
 func VouchPlain(label, key string) Plain {
 	name := orDevice(label)
 	return Plain{
 		Title: "Vouch for " + name + "?",
-		Summary: "Vouching says you trust this device: what it signs, and what the devices it vouches for sign, then counts as yours. " +
-			"Anyone who can open the vault can add a device under any name, so check first that " + name +
-			"'s own devices list shows this key as \"this device\": " + key,
+		Summary: "Changes this device signs will count as yours, and so will changes from devices it vouches for. " +
+			"Anyone who can open the vault can add a device under any name, so first check that " + name +
+			"'s own Devices list shows this key as \"this device\":\n" + key,
 		Action: "Vouch for it",
 	}
 }
@@ -159,11 +168,10 @@ func WithdrawPlain(label string) Plain {
 // RemoveDevicePlain asks before marking a device of the vault removed.
 func RemoveDevicePlain(label, key string) Plain {
 	return Plain{
-		Title: "Remove " + orDevice(label) + "?",
-		Summary: "It is marked removed, and what it signed stays in the history as a removed device's. " +
-			"It can still open the vault and change it until the vault gets a new key without it: " +
-			"Cut off… under Sharing, or a new key under Keyslots.",
-		Action:  "Remove the device",
+		Title: "Mark " + orDevice(label) + " as removed?",
+		Summary: SentenceStart(orDevice(label)) + " can still open and change the vault until the vault gets a new key without it " +
+			"(Cut off… under Sharing, or a new key under Keyslots). Marking it removed shows its changes from now on as a removed device's.",
+		Action:  "Mark as removed",
 		Details: []string{"Device key: " + key},
 	}
 }
@@ -203,9 +211,9 @@ var VerifyWays = []struct{ Method, Text string }{
 // TrustLevels are the weakest verifications a check of a signer counts,
 // as trust.check takes them ("": the default).
 var TrustLevels = []struct{ Level, Text string }{
-	{"", "published by the address's provider or a keyserver that checks addresses (the default)"},
+	{"", "published by their email provider (the default)"},
 	{"tofu", "accepted as it was, or seen before"},
-	{"logged", "logged"},
+	{"logged", "listed in a public key log"},
 	{"organisation", "vouched for by an organisation"},
 	{"in-person", "compared in person"},
 }

@@ -110,6 +110,61 @@ func BrowserInstallDetails(plan *BrowserInstallPlan) []string {
 	return out
 }
 
+// AndList joins names as a sentence does: "a", "a and b", "a, b and c".
+func AndList(names []string) string { return andList(names) }
+
+// BrowserCanUse says whether a browser can start secretvault for the
+// extension, for a person (the CLI's browser status says it in its own
+// words, BrowserStateLine); host is the program secretvault's manifests
+// name.
+func BrowserCanUse(b BrowserState, host string) string {
+	switch {
+	case b.NoKey:
+		return "Not yet"
+	case b.Err != nil:
+		return "Not known: its settings file cannot be read"
+	case !b.Current.Exists && b.Spot.Used():
+		return "Not yet"
+	case !b.Current.Exists:
+		return "Not yet (not found on this computer)"
+	case b.Changed:
+		return "Its file was changed since it was set up: take the permission back, then set it up again"
+	case b.Current.Host == host:
+		return "Yes"
+	case b.Current.Host == "":
+		return "No: a settings file naming no program is there"
+	}
+	return "No: another program's settings file is there"
+}
+
+// BrowserSetUpWhen says when the browsers were set up.
+func BrowserSetUpWhen(state *BrowserInstall) string {
+	return "Set up on " + state.When.Local().Format("2006-01-02") + " at " + state.When.Local().Format("15:04") + "."
+}
+
+// ExtensionSaveAbout says, over the managers' saving of the extension,
+// what it is for and what to expect.
+const ExtensionSaveAbout = "This saves the secretvault extension for you to add to your browser: Firefox takes the .zip file; " +
+	"Chrome, Chromium, Brave, Edge and Vivaldi take a folder. In Firefox it lasts until Firefox restarts, and has to be added again after that."
+
+// ExtensionAddedLines are the steps to add the extension written to
+// file (a folder when dir), as the managers say them: the CLI's
+// ExtensionWrittenLines, but for its commands and its pointer to the
+// docs, which a manager's own button replaces.
+func ExtensionAddedLines(file string, dir bool) []string {
+	var out []string
+	for _, l := range ExtensionWrittenLines(file, dir) {
+		switch {
+		case strings.Contains(l, "secretvault browser install"):
+		case strings.Contains(l, "docs/browser.md"):
+			out = append(out, "Firefox keeps only extensions Mozilla has signed: this one has to be added again after each restart.")
+		default:
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
 // BrowserInstallPlain says a browser install for a person.
 func BrowserInstallPlain(plan *BrowserInstallPlan) Plain {
 	var names, done, changed, other []string
@@ -223,7 +278,7 @@ func ImportPlain(file, vault string, names, warnings []string, overwrite bool) P
 		return pl
 	}
 	n := countOf(len(names), "item", "items")
-	pl.Title = "Import into " + vault
+	pl.Title = "Import into vault " + vault
 	pl.Summary = fmt.Sprintf("%s from %s will be added to vault %s. Items that are there already are skipped. The file itself is not changed.", SentenceStart(n), base, vault)
 	if overwrite {
 		pl.Summary = strings.Replace(pl.Summary, "are skipped", "are replaced", 1)
@@ -306,20 +361,45 @@ func TakeoverPlain(p *TakeoverPlan, exe string, importFirst bool, vault string) 
 		Action:  "Take over the keyring",
 		Details: TakeoverLines(p, exe, importFirst),
 	}
-	now := ", now " + from
 	if exe == "" {
-		now = ", which nothing holds now"
-	}
-	pl.Summary = "Apps keep passwords such as Wi-Fi, mail and chat logins in the system keyring" + now +
-		"; secretvault takes its place, so an app has to ask you before it reads a password."
-	if importFirst && exe != "" {
-		pl.Summary += " First, its passwords are copied into " + VaultPhrase(vault) + ", and " + from + " keeps its own copies."
+		pl.Summary = "No program is the system keyring now, so apps cannot keep passwords such as Wi-Fi, mail and chat logins there. " +
+			"secretvault becomes the system keyring: apps keep their passwords in your vault and must ask you before they read one."
+	} else {
+		pl.Summary = "Apps keep passwords such as Wi-Fi, mail and chat logins in the system keyring, now " + from +
+			"; secretvault takes its place, so an app has to ask you before it reads a password."
+		if importFirst {
+			pl.Summary += " First, its passwords are copied into " + VaultPhrase(vault) + ", and " + from + " keeps its own copies."
+		}
 	}
 	pl.Summary += " Giving the keyring back undoes every change."
 	for _, n := range p.Notes {
-		pl.Notes = append(pl.Notes, "Left for you to do: "+n+".")
+		pl.Notes = append(pl.Notes, takeoverNote(n, exe))
 	}
 	return pl
+}
+
+// takeoverNote says a step of a takeover left to the person (a
+// TakeoverPlan's note, which the details keep as it is) in plain words.
+func takeoverNote(n, exe string) string {
+	switch {
+	case strings.HasPrefix(n, "gnome-keyring runs only its secrets component"):
+		return "GNOME Keyring would keep starting by itself: one command stops it for good, and the details have it."
+	case strings.HasPrefix(n, "gnome-keyring is not a systemd user service"):
+		return "Log out and back in afterwards, so that GNOME Keyring stops."
+	case strings.HasPrefix(n, "KWallet serves"):
+		return "Turn off KWallet's password service in System Settings › KWallet, then log out and back in."
+	case strings.HasPrefix(n, "KeePassXC serves"):
+		return "Turn off Secret Service Integration in KeePassXC's settings."
+	case strings.HasPrefix(n, "oo7 serves"):
+		return "Stop oo7's background service, and keep it from starting again."
+	case strings.HasPrefix(n, "no Secret portal backend"):
+		return "Apps installed as Flatpaks keep their own passwords, and will not ask secretvault."
+	case strings.HasPrefix(n, "for Flatpak apps"):
+		return "For apps installed as Flatpaks to use secretvault, one line in a settings file has to change; the details say which."
+	case strings.HasSuffix(n, "holds the keyring: turn off its Secret Service integration"):
+		return "Turn off the password service (Secret Service integration) in " + KeyringName(exe) + "."
+	}
+	return "Left for you to do: " + n + "."
 }
 
 // RestorePlain says giving the keyring back for a person.
@@ -330,12 +410,26 @@ func RestorePlain(s *TakeoverState) Plain {
 		Action:  "Give the keyring back",
 		Details: RestoreLines(s),
 	}
-	if s.Previous != "" {
-		pl.Title = "Give the keyring back to " + to
+	if s.Previous == "" {
+		pl.Title, pl.Action = "Stop being the system keyring", "Stop being the keyring"
+		pl.Summary = "secretvault stops being the system keyring, and what it changed is put back as it was. No program held the keyring before, " +
+			"so apps have nowhere to keep passwords until one starts. Passwords in your vault stay there."
+		return pl
 	}
+	pl.Title = "Give the keyring back to " + to
 	pl.Summary = SentenceStart(to) + " becomes the system keyring again, and what secretvault changed is put back as it was. " +
-		"Passwords in your vault stay there; ones apps saved in secretvault meanwhile are not copied back."
+		"Passwords apps saved while secretvault was the keyring stay only in your vault; " + to + " will not have them, so those apps may ask you to sign in again."
 	return pl
+}
+
+// RestoredText says, as a done dialog's title and summary, that the
+// keyring was given back to the program at previous ("" when none held
+// it before).
+func RestoredText(previous string) (title, summary string) {
+	if previous == "" {
+		return "Keyring given back", "secretvault is no longer the system keyring."
+	}
+	return "Keyring given back", SentenceStart(KeyringName(previous)) + " is your system keyring again."
 }
 
 // GnuPGSetupPlain says pointing a GnuPG home at secretvault, for vault's
@@ -349,13 +443,18 @@ func GnuPGSetupPlain(p *GnuPGPlan, vault string) Plain {
 		pl.Details = append(pl.Details, strings.Split(GnuPGOwnHomeNote(p.Home), "\n")...)
 	}
 	pl.Details = append(pl.Details, GnuPGPlanLines(p)...)
-	folder := "secretvault's own GnuPG folder"
 	if p.OwnHome {
-		folder = "your own GnuPG folder"
+		pl.Summary = fmt.Sprintf("Your usual gpg will sign and decrypt with the OpenPGP keys in %s; the private keys stay inside secretvault, "+
+			"and you are asked the first time each program uses one. Stopping it gives gpg its own agent back.", VaultPhrase(vault))
+	} else {
+		folder := "this GnuPG folder"
+		if def, err := GnuPGHome(""); err == nil && sameDir(p.Home, def) {
+			folder = "secretvault's own GnuPG folder"
+		}
+		pl.Summary = fmt.Sprintf("gpg run with %s will sign and decrypt with the OpenPGP keys in %s; the private keys stay inside secretvault, "+
+			"and you are asked the first time each program uses one. Your usual gpg is not changed: to use these keys, gpg must be pointed at "+
+			"this folder, which the next window shows how to do. Stopping it puts the folder back.", folder, VaultPhrase(vault))
 	}
-	pl.Summary = fmt.Sprintf("gpg will sign and decrypt with the OpenPGP keys in %s. The private keys stay inside secretvault, "+
-		"and you are asked the first time each program uses one. This links %s to secretvault and adds one line to its settings; "+
-		"stopping it takes them out again.", VaultPhrase(vault), folder)
 	if p.OwnHome {
 		pl.Notes = append(pl.Notes, "gpg stops using its own agent for this folder. If systemd starts gpg-agent for you, stop that first: the details say how.")
 	}
@@ -398,6 +497,29 @@ func HelpersSetupPlain(p *HelpersPlan) Plain {
 	}
 }
 
+// PlainRows say, for a person, whether git and docker keep their logins
+// with secretvault: StatusRows' last two, which the CLI prints, in plain
+// words.
+func (p *HelpersPlan) PlainRows() [][2]string {
+	git := "does not use secretvault yet"
+	switch {
+	case p.GitErr != nil:
+		git = "not known: " + p.GitErr.Error()
+	case p.GitHas:
+		git = "keeps its logins in your vault"
+	}
+	docker := "keeps its logins in its own settings file"
+	switch {
+	case p.DockerErr != nil:
+		docker = "not known: " + p.DockerErr.Error()
+	case p.DockerStore == helperStore:
+		docker = "keeps its logins in your vault"
+	case p.DockerStore != "":
+		docker = "keeps its logins with " + p.DockerStore
+	}
+	return [][2]string{{"git", git}, {"docker", docker}}
+}
+
 // HelpersUndoPlain says undoing the helpers' setup for a person.
 func HelpersUndoPlain(p *HelpersPlan) Plain {
 	pl := Plain{
@@ -415,7 +537,7 @@ func HelpersUndoPlain(p *HelpersPlan) Plain {
 // LoginUnlockPlain says having vault open at login, for a person.
 func LoginUnlockPlain(vault string) Plain {
 	return Plain{
-		Title: "Open " + vault + " when you log in?",
+		Title: "Open vault " + vault + " when you log in?",
 		Summary: "Your computer will keep a key that opens vault " + vault + " whenever you log in, so you will not need its passphrase. " +
 			"It locks when you log out, not after a few idle minutes. Apps still ask you before they read a password, and you can turn this off at any time.",
 		Notes:  []string{"Anyone who can use your logged-in account can then open this vault."},
@@ -433,9 +555,8 @@ func LoginUnlockPlain(vault string) Plain {
 func HostInitPlain() Plain {
 	return Plain{
 		Title: "Make this server's identity",
-		Summary: "The host daemon opens the vaults shared with this server with its own identity, a key made now. " +
-			"It is made once and never replaced: vaults shared with it would need sharing again. " +
-			"Sealed, it is tied to this machine and never written to disk in the clear; otherwise it is kept in a file only root can read.",
+		Summary: "The host daemon needs its own key to open the vaults shared with this server. Make it once: a new one means sharing those vaults with it again. " +
+			"Sealed, it is tied to this machine's security chip and never written out unencrypted; otherwise it is a file only root can read.",
 		Action: "Make the identity",
 	}
 }
@@ -470,11 +591,11 @@ func HostRulePlain(r svrpc.HostRule, allow bool) Plain {
 	if allow {
 		pl.Title = "Let " + who + " read secrets"
 		pl.Summary = SentenceStart(who) + " will get " + what + " from the host daemon, without anyone being asked. Denying it takes that back."
-		pl.Action = "Allow"
+		pl.Action = "Let it read secrets"
 		return pl
 	}
 	pl.Title = "Stop " + who + " reading secrets"
 	pl.Summary = SentenceStart(who) + " will no longer get " + what + " from the host daemon. The secrets themselves do not change."
-	pl.Action = "Deny"
+	pl.Action = "Stop it reading secrets"
 	return pl
 }

@@ -96,8 +96,8 @@ const (
 	HeaderBackupAbout = "The header is the start of the container file, where the ways to open it are kept. " +
 		"If it is damaged, nothing opens the container again, unless you have a copy of it."
 	// HeaderBackupWarning says how to keep one.
-	HeaderBackupWarning = "Keep the copy as safe as the key: whatever opens the container today, its key or a passphrase, " +
-		"still opens it with this copy, even after you remove it."
+	HeaderBackupWarning = "Keep the copy as safe as the key: whatever opens the container today still opens it with this copy, " +
+		"even after you remove that passphrase or key from the container."
 )
 
 // ContainerCreated says a container was made: its file, its size and

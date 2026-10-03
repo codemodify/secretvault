@@ -384,7 +384,7 @@ const (
 	PGPVersionNote  = "Version 6 is the default; GnuPG 2.4 and older read only version 4."
 	FingerprintNote = "Its fingerprint (a short code people compare to be sure a key is yours), and who it is for:"
 	AgeNote         = "age encrypts files to a public key (a recipient); the identity, its private half, stays in the vault and decrypts them. " +
-		"age and SOPS reach it through its identity line, which holds no secret."
+		"age and SOPS reach it through its identity line (a line that names the key for them; it holds no secret)."
 	IdentityFileNote = "An identity file holds a private key of yours. Its public half (the recipient) is what you give people " +
 		"so they can share a vault with you or grant you emergency access, and the file then opens it. Keep the file as safe as a passphrase."
 	IdentityMadeNote = "Only you can read the new file. Its public key (recipient), to give to people who share vaults with you:"
@@ -461,7 +461,7 @@ func PromptAction(q svrpc.PromptAsk) string {
 
 // The daemon, when it cannot be reached.
 const (
-	DaemonNotRunning   = "secretvault's background service (secretvaultd) is not running, and could not be started."
+	DaemonNotRunning   = "secretvault's background service (secretvaultd) is not running."
 	DaemonNotAnswering = "secretvault's background service (secretvaultd) is not answering."
 	DaemonTooSlow      = "secretvault's background service took too long to answer."
 )
