@@ -12,7 +12,7 @@ secretvault deliberately differs. The decisions referred to are in
 | Secret Service (GNOME Keyring, ksecretd, oo7) | the Linux desktop keyring API | **replaced**: secretvaultd becomes the provider |
 | macOS Keychain | the Apple system keyring | **bridged**: import and mirror; later an AutoFill extension |
 | Windows Credential Manager | the Windows system keyring | **bridged**: import and mirror; later the passkey provider |
-| KeePassXC | local password database | **competitor**: import KDBX; its browser extension works with us |
+| KeePassXC | local password database | **competitor**: import KDBX; its browser extension works with us, until ours replaces it |
 | 1Password, Bitwarden, Proton Pass | cloud password managers | **competitors**: import from all three; own-server sync instead of their cloud |
 | pass / gopass | GPG-encrypted files in git | **competitor**: import; our synced-folder mode is the same idea, encrypted better |
 | systemd-creds | encrypted service credentials | **complemented**: we deliver credentials to units over systemd's socket interface |
@@ -94,9 +94,11 @@ login" keyslot, and adopts the passkey plug-in later.
   storage, and a browser extension. The extension talks through
   `keepassxc-proxy` over native messaging, using NaCl `crypto_box`.
 
-**secretvault** imports and exports KDBX 4. Its browser face speaks the
-KeePassXC-Browser protocol, so that extension, already in every browser's
-store and reviewed, works with secretvault.
+**secretvault** imports and exports KDBX 4. It has a browser extension of
+its own ([browser.md](browser.md)). Until that has replaced it, its
+browser face also speaks the KeePassXC-Browser protocol, so that
+extension, already in every browser's store and reviewed, works with
+secretvault.
 
 Where we differ, deliberately:
 - **Revisions, not one file.** A vault is many small immutable revisions, so
@@ -288,7 +290,8 @@ In roughly the order they arrive.
 | --- | --- | --- |
 | pinentry (Assuan) | our prompts double as pinentry and askpass | M1 |
 | Secret Service D-Bus + portal backend | every Linux desktop app's keyring | M3 |
-| KeePassXC-Browser protocol | browser autofill with an existing, reviewed extension | M3 |
+| Native messaging, with a protocol of our own | browser autofill with secretvault's own extension | M3 |
+| KeePassXC-Browser protocol | browser autofill with an existing, reviewed extension, until ours replaces it | M3 |
 | KDBX 4, 1PUX, Bitwarden JSON, CSVs, Aegis, CXF | switching to us without loss | M2 |
 | ssh-agent protocol | SSH, and git signing | M5 |
 | gpg-agent protocol | gpg, pass, git, Thunderbird external GnuPG | M5 |

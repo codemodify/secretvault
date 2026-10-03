@@ -104,11 +104,47 @@ Linux with a TPM2. Without a TPM2, systemd's host key lies on the same disk
 as the sealed key, so only full-disk encryption protects it: use login
 unlock on such machines only with full-disk encryption.
 
-### The browser path
+### The browser extension
 
-Browsers get logins through KeePassXC's extension, KeePassXC-Browser,
-which talks to `secretvault-browser`, a relay the browser starts, which
-talks to the daemon ([architecture.md](architecture.md#password-manager)).
+Browsers get logins through secretvault's own extension, which talks to
+`secretvault-browser` (the CLI) by native messaging, which talks to the
+daemon. Its threat model is in [browser.md](browser.md#threat-model).
+In short:
+
+- **Who is asking.** The browser, which the daemon identifies itself as
+  the host's parent process. The browser starts the host only for the
+  extension's ID (the manifest's `allowed_extensions` or
+  `allowed_origins`), and the host and the daemon refuse any other.
+- **For what page.** The page's origin, which the extension takes from
+  the browser and the daemon cannot check.
+- **Matching.** Logins fit a page by origin: the scheme (never https to
+  http), the port, and the host, or its registrable domain by the
+  bundled Public Suffix List. A read on another host of the site is asked
+  about every time.
+- **Fills.**
+  - A fill happens only on the person's choice, in the extension's own
+    UI (the toolbar popup, or an extension-page iframe the page cannot
+    read).
+  - It goes into the frame of the page's origin it was chosen for,
+    never a cross-origin frame, and into fields that can be seen.
+  - The extension keeps nothing but a password offered for saving, in
+    memory, for two minutes at most.
+- **Consent.** Listing a page's logins is listing the vault; each fill
+  or code is a read of that login; saving is a write. Each is decided by
+  the broker and audited.
+- **Pages.** A hostile page cannot trigger a fill, read the list, or
+  learn whether secretvault holds a login. The marks and the panel resist
+  being restyled, moved or covered to trick a click.
+- **Messages.** Every message is checked whole, by the host and again by
+  the daemon: its size (64 KiB), its members, their types and lengths.
+
+### The browser path: the KeePassXC-Browser link (legacy)
+
+Browsers can also get logins through KeePassXC's extension,
+KeePassXC-Browser, which talks to `secretvault-browser`, a relay the
+browser starts, which talks to the daemon
+([architecture.md](architecture.md#password-manager)). This link goes
+once secretvault's own extension has replaced it.
 
 - **The extension itself.** A malicious or compromised KeePassXC-Browser
   (a bad update, or on Chromium a developer-mode extension claiming its
@@ -945,7 +981,10 @@ guess, like `svpgp`:
 | OpenPGP designated revokers (a deprecated mechanism) are not honoured | escrowed revocation signatures instead |
 | OpenPGP version 6 interoperability is checked against the RFC's vectors only | Sequoia in the test suite |
 | A browser in Flatpak or Snap starts its host through the desktop portal, which the daemon then names instead of the browser | identifying the app behind the portal |
-| The browser extension names the page it asks for, and "always" for a browser covers any page | decisions that name the site as well as the item |
+| The browser extension names the page it asks for, and the daemon cannot check it | none within native messaging: the browser's word is all there is |
+| KeePassXC-Browser (the legacy link) names the page as it likes, and "always" for a browser covers any page | removing the link ([browser.md](browser.md#removing-the-keepassxc-browser-link)); secretvault's extension offers a login only on its site |
+| A web page owns the elements that hold the extension's marks and panel: tricking a click on them is made hard, not impossible | the toolbar popup, which no page can cover |
+| On Chromium a page can tell the extension is installed (its panel is web-accessible, its ID fixed) | `use_dynamic_url` |
 | An OpenPGP certificate seen again is not merged packet by packet with the copy held | certificate merging in `svpgp` |
 | No transparency log is checked; the level is reserved | key transparency, when a log to check exists |
 | S/MIME signatures are verified by `svmail`, but `trust.check` takes a certificate the caller checked | the daemon's `mail.inspect` |

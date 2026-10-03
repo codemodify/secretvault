@@ -545,15 +545,56 @@ $ secretvault emergency revoke 3f2a --rotate            # the owner ends it, and
   Proton Pass, browser CSVs, pass, and Aegis / Google Authenticator, plus the
   FIDO Credential Exchange Format (CXF).
 - **Export.** To CXF, KDBX, and encrypted JSON.
-- **Browser autofill.** secretvault stands in for KeePassXC behind
-  KeePassXC's existing, reviewed browser extension, KeePassXC-Browser
-  (Firefox, Chrome, Chromium, Brave, Edge, Vivaldi). We write no extension
-  of our own.
+- **Browser autofill.** secretvault has a browser extension of its own,
+  plain JavaScript (Manifest V3) in [`browser/extension`](../browser/extension):
+  Firefox first, and Chrome, Chromium, Brave, Edge and Vivaldi too.
+  [browser.md](browser.md) has it whole: the names, the protocol, the
+  threat model, how to load it, and the plan for the legacy link below.
+  - **The extension.**
+    - It marks login fields, in closed shadow roots in the top layer.
+    - It shows the logins for the page in its own panel: the toolbar
+      popup, or an extension-page iframe a mark opens, which the page
+      cannot read.
+    - It fills the one chosen, and nothing before the person chooses.
+    - It offers to save a login sent, on the toolbar button only.
+    - It fills one-time codes, and new passwords from the managers'
+      generator.
+    - It shows whether secretvault runs and the vault is unlocked;
+      Unlock makes the daemon ask for the passphrase itself.
+  - **The host is the CLI.** The browser starts `secretvault-browser`
+    (the CLI) by the manifest `io.github.codemodify.secretvault`,
+    allowed for the extension's ID alone. The host refuses any other
+    extension. It checks every request of the extension's versioned JSON
+    protocol ([`svext`](../svext)) before passing it to the daemon
+    (`browser.open` with the protocol, then `browser.message`).
+  - **Who is asking is the browser**, which the daemon identifies as for
+    the legacy link below. **What page** is the origin the extension
+    names, the browser's word.
+  - **Consent.**
+    - Listing a page's logins (no passwords) is listing the vault.
+    - Each fill or one-time code is a read of that login, decided like
+      any program's.
+    - On another host of the login's site, a read is asked about every
+      time.
+    - Saving is a write.
+  - **Logins fit a page by origin:**
+    - the scheme (never https to http);
+    - the port;
+    - the host itself, or its registrable domain by the bundled Public
+      Suffix List.
+  - **Setting it up.** `secretvault browser install` writes the host's
+    manifest in each browser's per-user place, and `browser extension`
+    writes the extension out to load.
+- **Browser autofill, the legacy link.** secretvault also stands in for
+  KeePassXC behind KeePassXC's own extension, KeePassXC-Browser
+  (`browser install --keepassxc`). It stays until secretvault's
+  extension has replaced it, then goes ([browser.md](browser.md#removing-the-keepassxc-browser-link)).
   - **The host is a relay.** The browser starts `secretvault-browser` (the
     CLI) by the manifest named `org.keepassxc.keepassxc_browser`, and talks
     to it in native-messaging frames on stdin and stdout. The relay hands
     each frame to the daemon (`browser.open`, then `browser.message`) and
-    the answers back. It holds no key and makes no decision.
+    the answers back. It holds no key and makes no decision. It serves
+    KeePassXC-Browser's IDs alone.
   - **The protocol lives in the daemon** ([`svbrowser`](../svbrowser),
     `svd/browser.go`): `change-public-keys` swaps X25519 keys in the clear;
     everything after is NaCl `crypto_box` with the extension's random
@@ -586,11 +627,11 @@ $ secretvault emergency revoke 3f2a --rotate            # the owner ends it, and
   - **Not served:** passkeys and auto-type, answered as KeePassXC before
     2.7.7 answers them; the host reports that version, so the extension
     leaves passkeys to the browser.
-  - **Setting it up.** `secretvault browser install` writes the manifest
-    in each browser's per-user place (Linux fully; macOS's Library paths
-    and Windows' registry keys written but untested). A manifest already
-    there (KeePassXC's) is kept, and `uninstall` puts it back exactly,
-    recorded as `keyring takeover` records its changes.
+  - **Setting it up.** `secretvault browser install --keepassxc` writes
+    the manifest in each browser's per-user place (Linux fully; macOS's
+    Library paths and Windows' registry keys written but untested). A
+    manifest already there (KeePassXC's) is kept, and `uninstall` puts it
+    back exactly, recorded as `keyring takeover` records its changes.
 
 #### The desktop manager
 
@@ -1047,7 +1088,8 @@ projects, with `sv` as the prefix:
 | `svd` (`ss*.go`, `portal.go`), `svsecret` | the Secret Service face and the Flatpak portal; a Secret Service client, for importing | M3 |
 | `svseal` | sealing a key to the user by the OS, to open vaults at login | M1 |
 | `svotp` | HOTP, TOTP and Steam codes | M2 |
-| `svbrowser` | the KeePassXC-Browser protocol, for browser autofill | M3 |
+| `svext`, `browser` | secretvault's own browser extension: its protocol and matching logins to origins (with the Public Suffix List); the extension itself, embedded ([browser.md](browser.md)) | M3 |
+| `svbrowser` | the KeePassXC-Browser protocol, the legacy link, until the extension replaces it | M3 |
 | `svwayland`, `svx11`, `svclip` | the clipboard in our own protocol code | M2 |
 | `svimport` | import from other password managers; export to KDBX and CXF | M2 |
 | `svpgp` | OpenPGP, our own | M5 |
@@ -1081,6 +1123,12 @@ projects, with `sv` as the prefix:
     of it ([../uitoolkit-gaps.md](../uitoolkit-gaps.md)) against that
     release;
   - `tview`/`tcell` in the TUI only.
+  - **Data, not code:** the Public Suffix List
+    (`browser/extension/data/public_suffix_list.dat`, MPL 2.0), which
+    the browser extension and the daemon read to match logins to sites;
+    `scripts/update-psl.sh` refreshes it ([browser.md](browser.md#the-public-suffix-list)).
+  - **The browser extension** is plain JavaScript, with no npm packages
+    and no bundler; its tests run under `node --test` alone.
 - **Everything else is our own code**, including D-Bus, OpenPGP, CTAP2, PC/SC,
   TPM2 and the Assuan protocol.
 - **Adding a dependency** needs an entry in this section saying why.

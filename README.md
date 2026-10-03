@@ -76,7 +76,8 @@ decision. If there is none, it asks you.
 | [`svcms`](svcms) | CMS and S/MIME, our own: signed and enveloped data (RFC 5652, 8551), certificate checks, PKCS #12 |
 | [`svmail`](svmail) | Whole mail messages: PGP/MIME, inline OpenPGP and S/MIME taken apart, verified, decrypted and reported; and built |
 | [`svage`](svage) | age files and the age plugin protocol, both ends |
-| [`svbrowser`](svbrowser) | The KeePassXC-Browser protocol, for filling logins in browsers |
+| [`browser`](browser), [`svext`](svext) | secretvault's own browser extension (plain JavaScript, Manifest V3), its protocol, and matching logins to sites |
+| [`svbrowser`](svbrowser) | The KeePassXC-Browser protocol, the legacy link for filling logins in browsers |
 | [`svimport`](svimport) | Import from other password managers, export to KeePass and CXF |
 | [`svluks`](svluks) | LUKS2, our own: headers, keyslots, and the encrypted sectors in userspace |
 | [`svcontainer`](svcontainer), [`svudisks`](svudisks) | Encrypted containers, and mounting them through UDisks2 on Linux |
@@ -320,29 +321,49 @@ $ bin/secretvault helpers status            # the links, git's helpers, docker's
 $ bin/secretvault helpers undo              # only what is secretvault's; docker's old store goes back
 ```
 
-For browsers, secretvault stands in for KeePassXC behind KeePassXC's own
-extension, [KeePassXC-Browser](https://github.com/keepassxreboot/keepassxc-browser)
-(Firefox, Chrome, Chromium, Brave, Edge, Vivaldi):
+For browsers, secretvault has an extension of its own (Firefox first;
+Chrome, Chromium, Brave, Edge and Vivaldi too). The browser starts
+secretvault for it, once it is set up:
 
 ```console
 $ ln -s secretvault bin/secretvault-browser   # optional: the host's name in process lists
-$ bin/secretvault browser install --dry-run   # what would change: KeePassXC's manifest is kept
-$ bin/secretvault browser install             # then restart the browser, and press Connect in the extension
+$ bin/secretvault browser install --dry-run   # what would change
+$ bin/secretvault browser install             # then restart the browser
+$ bin/secretvault browser extension           # writes secretvault-extension-0.1.0.zip
 $ bin/secretvault browser status              # which host each browser starts
-$ bin/secretvault browser ls                  # connected extensions; 'rm NAME' disconnects one
-$ bin/secretvault browser uninstall           # put KeePassXC's manifest back, exactly
+$ bin/secretvault browser uninstall --extension   # undo the setup, exactly
 ```
 
-- **Connecting** asks you once. After that, each login the browser asks
-  for is asked about like any program's request, naming the browser and
-  the site; "always" stops the asking for that login.
+To try it in Firefox, open `about:debugging`, choose This Firefox, then
+Load Temporary Add-on…, and choose the `.zip`. Firefox forgets it on
+restart. For every day, Mozilla must sign it; [docs/browser.md](docs/browser.md)
+says how, and has the protocol and the threat model.
+
+- **Filling.** Login fields get a small secretvault mark. Its panel, or
+  the toolbar button (Ctrl+Shift+L), lists the page's logins; choosing
+  one fills it. secretvault asks about each login handed over, naming
+  the browser and the site; "always" stops the asking for that login.
 - **Which logins.** Login items (`--kind login`) whose `url` field (or
-  `url2`..., `website`) has the page's host, or a parent domain of it,
-  with the same scheme: `--field url=https://github.com`.
-- **Saving** a login from the browser puts it under `web/`, or in the
-  folder you pick (the extension calls folders groups).
-- **KeePassXC** writes its own manifest back each time it starts with
-  browser integration on: turn that off in KeePassXC first.
+  `url2`..., `website`) has the page's origin: the same scheme (an https
+  login never goes to http), the same port, and the same host, or the
+  same registrable domain by the Public Suffix List:
+  `--field url=https://github.com`.
+- **Saving.** A login sent from a form is offered for saving on the
+  toolbar button. New logins go under `web/`.
+- **One-time codes and new passwords** fill from the panel too.
+
+The legacy link, secretvault in KeePassXC's place behind KeePassXC's own
+extension, [KeePassXC-Browser](https://github.com/keepassxreboot/keepassxc-browser),
+still works until the extension replaces it:
+
+```console
+$ bin/secretvault browser install --keepassxc     # KeePassXC's manifest is kept
+$ bin/secretvault browser ls                      # connected extensions; 'rm NAME' disconnects one
+$ bin/secretvault browser uninstall --keepassxc   # put KeePassXC's manifest back, exactly
+```
+
+KeePassXC writes its own manifest back each time it starts with browser
+integration on: turn that off in KeePassXC first.
 
 For age and SOPS, its plugin must be on `PATH` (`helpers setup` links it
 beside the CLI, as above):
@@ -477,6 +498,7 @@ where it stops. In short:
 | [docs/delivery.md](docs/delivery.md) | The secret-delivery server: setup, unsealing, the API, auth, policies; GitHub Actions, GitLab CI, Kubernetes and External Secrets Operator |
 | [docs/format.md](docs/format.md) | The v1 vault format, byte by byte |
 | [docs/security.md](docs/security.md) | The threat model and known gaps |
+| [docs/browser.md](docs/browser.md) | The browser extension: what it does, its protocol, its threat model, loading and signing it, and retiring the KeePassXC-Browser link |
 | [docs/roadmap.md](docs/roadmap.md) | Milestones M0–M10, and the decisions log |
 | [docs/landscape.md](docs/landscape.md) | The tools secretvault replaces or meets, and what it takes from each |
 | [uitoolkit-gaps.md](uitoolkit-gaps.md) | What the GUI toolkit provides for the prompt and manager, and what it still lacks |
@@ -526,6 +548,11 @@ The tests include:
   partly signed, and protected-header messages changed in transit.
 - all 147 C2SP CCTV age test vectors, and files the reference age
   implementation wrote;
+- secretvault's extension's side of its protocol, played through the host
+  against the daemon: consent, matching by origin and the Public Suffix
+  List's own test vectors, saving, codes, unlocking, other extensions'
+  IDs, and messages too large or malformed; the extension's own modules
+  under `node --test` when node is installed;
 - KeePassXC-Browser's side of its protocol, played through the relay
   against the daemon: consent, saving, codes, locking, replays, bad
   nonces and bad frames; and browser installs in a home of the test's own;
