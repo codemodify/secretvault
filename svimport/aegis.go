@@ -82,6 +82,7 @@ func readAegis(b *builder, data []byte, opts Options) error {
 			return err
 		}
 		defer clear(raw)
+		b.crypted = true
 	}
 	var db aegisDB
 	if err := json.Unmarshal(raw, &db); err != nil {

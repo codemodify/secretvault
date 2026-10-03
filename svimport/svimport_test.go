@@ -274,3 +274,31 @@ func TestOTPKeysAreStoredAsOtpauthURIs(t *testing.T) {
 		t.Fatalf("an unreadable key: %+v %q", d.fields, d.lost)
 	}
 }
+
+// Result.Encrypted says whether the file took a key to read: one that did
+// not held its secrets in the clear, whatever it was given.
+func TestAResultSaysWhetherItsFileWasEncrypted(t *testing.T) {
+	for _, c := range []struct {
+		f    Format
+		file string
+		opts Options
+		want bool
+	}{
+		{FormatAegis, "aegis-encrypted.json", Options{Passphrase: testPassphrase}, true},
+		{FormatAegis, "aegis-plain.json", Options{Passphrase: testPassphrase}, false},
+		{FormatBitwarden, "bitwarden-encrypted-pbkdf2.json", Options{Passphrase: testPassphrase}, true},
+		{FormatBitwarden, "bitwarden.json", Options{Passphrase: testPassphrase}, false},
+		{FormatKDBX, "kdbx31-aes-aeskdf-salsa20.kdbx", Options{Passphrase: testPassphrase}, true},
+		{FormatCXF, "cxf.json", Options{}, false},
+		{Format1PUX, "1pux-export.data", Options{}, false},
+	} {
+		res := mustImport(t, c.f, readFixture(t, c.file), c.opts)
+		if res.Encrypted != c.want {
+			t.Errorf("%s: Encrypted = %v", c.file, res.Encrypted)
+		}
+	}
+	res := mustImport(t, FormatCSV, []byte("url,username,password\nhttps://x.example,ada,pw\n"), Options{})
+	if res.Encrypted {
+		t.Error("a CSV file is said to be encrypted")
+	}
+}

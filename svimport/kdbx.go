@@ -202,6 +202,7 @@ func readKDBX(b *builder, data []byte, opts Options) error {
 	if len(opts.Passphrase) == 0 && len(opts.Keyfile) == 0 {
 		return ErrPassphrase
 	}
+	b.crypted = true
 	composite, err := kdbxCompositeKey(opts.Passphrase, opts.Keyfile)
 	if err != nil {
 		return err

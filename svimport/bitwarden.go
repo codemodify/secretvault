@@ -130,6 +130,7 @@ func readBitwarden(b *builder, data []byte, opts Options) error {
 			return err
 		}
 		defer clear(plain)
+		b.crypted = true
 		ex = bwExport{}
 		if err := json.Unmarshal(plain, &ex); err != nil {
 			return jsonError("the Bitwarden export inside the encryption", err)

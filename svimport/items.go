@@ -175,6 +175,7 @@ type builder struct {
 	history []string // items whose older versions were left behind
 	trashed int
 	files   map[string][]File
+	crypted bool // the file was encrypted (Result.Encrypted)
 }
 
 func newBuilder(prefix string) (*builder, error) {
@@ -245,7 +246,7 @@ func (b *builder) result() *Result {
 	if b.trashed > 0 {
 		warns = append(warns, fmt.Sprintf("%s in the trash or recycle bin skipped", plural(b.trashed, "item")))
 	}
-	return &Result{Items: b.items, Files: b.files, Warnings: warns}
+	return &Result{Items: b.items, Files: b.files, Warnings: warns, Encrypted: b.crypted}
 }
 
 // name makes a valid, unused item name from a folder path and a title.

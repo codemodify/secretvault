@@ -38,9 +38,13 @@ func FormatNames() string {
 // caller clears it.
 func ReadImportFile(path string) ([]byte, error) { return ReadFileLimit(path, MaxImportFile) }
 
-// ImportFormat is the format to read an export in: format itself, or,
-// for "auto", the one svimport recognises; guessed says it was guessed.
+// ImportFormat is the format to read an export in: format itself, the
+// format of the source it names (firefox: csv), or, for "auto", the one
+// svimport recognises; guessed says it was guessed.
 func ImportFormat(format, path string, data []byte) (f svimport.Format, guessed bool, err error) {
+	if s, ok := FindImportSource(format); ok {
+		return s.Format, false, nil
+	}
 	switch format {
 	case "pass", "gopass":
 		return "", false, errors.New("pass and gopass stores are encrypted with OpenPGP, which secretvault reads from milestone M5 on")

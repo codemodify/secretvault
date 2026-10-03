@@ -58,6 +58,11 @@ type Result struct {
 	// passkeys, history, trashed items, keys of unknown kinds), naming the
 	// item but never holding a secret.
 	Warnings []string
+
+	// Encrypted says the file was encrypted: it took a passphrase or a
+	// key file to read. An export that was not holds every secret in the
+	// clear, and is best deleted once it is imported.
+	Encrypted bool
 }
 
 // File is an attached file brought across with its item.
