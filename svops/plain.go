@@ -112,28 +112,26 @@ func BrowserInstallDetails(plan *BrowserInstallPlan) []string {
 
 // BrowserInstallPlain says a browser install for a person.
 func BrowserInstallPlain(plan *BrowserInstallPlan) Plain {
-	var names, replaced, changed, all []string
+	var names, done, changed, other []string
 	registry := false
 	for _, p := range plan.Hosts {
-		all = append(all, browserTitlesOf(p.Browsers)...)
-		switch {
-		case p.Skip == SkipAlreadyDone:
-		case p.Skip != "":
-			changed = append(changed, browserTitlesOf(p.Browsers)...)
-		default:
-			names = append(names, browserTitlesOf(p.Browsers)...)
+		titles := browserTitlesOf(p.Browsers)
+		switch p.Skip {
+		case "":
+			names = append(names, titles...)
 			registry = registry || p.Spot.RegKey != ""
-			if p.Current.Exists || p.RegPrev != nil {
-				replaced = append(replaced, browserTitlesOf(p.Browsers)...)
-			}
+		case SkipAlreadyDone:
+			done = append(done, titles...)
+		case SkipOther:
+			other = append(other, titles...)
+		default:
+			changed = append(changed, titles...)
 		}
 	}
 	who := andList(names)
 	pl := Plain{Details: BrowserInstallDetails(plan)}
-	if len(names) == 0 {
-		pl.Title = "Nothing to set up"
-		pl.Summary = andList(all) + " can already start secretvault for its extension, or was changed since it was set up."
-	} else {
+	switch {
+	case len(names) > 0:
 		file, needs := "one small settings file in its folder", "needs"
 		if len(names) > 1 {
 			file, needs = "one small settings file in each browser's folder", "need"
@@ -148,12 +146,23 @@ func BrowserInstallPlain(plan *BrowserInstallPlan) Plain {
 		if len(names) > 2 {
 			pl.Action = fmt.Sprintf("Allow %d browsers", len(names))
 		}
+	case len(done) > 0:
+		pl.Title = "Nothing to set up"
+		pl.Summary = andList(done) + " can already use secretvault, so there is nothing to change."
+	default:
+		pl.Title = "Nothing to set up"
+		pl.Summary = "secretvault cannot set up this browser now; the note says why. Nothing is changed."
 	}
-	if len(replaced) > 0 {
-		pl.Notes = append(pl.Notes, andList(replaced)+" already had such a file, for another program; a copy is kept, and put back when you undo this.")
+	if len(done) > 0 && len(names) > 0 {
+		pl.Notes = append(pl.Notes, andList(done)+" can already use secretvault, and is left as it is.")
+	}
+	if len(other) > 0 {
+		pl.Notes = append(pl.Notes, andList(other)+" already has this kind of file from another program, so secretvault leaves it alone. "+
+			"To use secretvault there instead, remove that program's browser connection first, then set this up again.")
 	}
 	if len(changed) > 0 {
-		pl.Notes = append(pl.Notes, andList(changed)+": its file was changed since secretvault wrote it, so it is left alone. Undo the setup first, then set it up again.")
+		pl.Notes = append(pl.Notes, andList(changed)+": the file secretvault wrote was changed since, so it is left alone. "+
+			"Take the permission back first, then set it up again.")
 	}
 	return pl
 }
@@ -175,32 +184,26 @@ func BrowserUninstallDetails(would []Uninstalled) []string {
 // uninstall's dry run found it) for a person.
 func BrowserUninstallPlain(would []Uninstalled) Plain {
 	var names, changed []string
-	putBack := false
 	for _, u := range would {
 		if u.Changed {
 			changed = append(changed, browserTitlesOf(u.Browsers)...)
 			continue
 		}
 		names = append(names, browserTitlesOf(u.Browsers)...)
-		putBack = putBack || u.Backup != nil || u.RegPrev != nil
 	}
 	who := andList(names)
 	pl := Plain{Details: BrowserUninstallDetails(would)}
-	file := "The settings file secretvault wrote is removed"
-	if putBack {
-		file += ", and the one it replaced is put back"
-	}
-	switch {
-	case len(names) == 0:
+	if len(names) == 0 {
 		pl.Title = "Nothing to undo"
-		pl.Summary = "Every browser's file was changed since secretvault wrote it, so each is left as it is."
-	default:
+		pl.Summary = "Nothing will be removed."
+	} else {
 		pl.Title = "Stop " + who + " using secretvault"
-		pl.Summary = who + " will no longer start secretvault, so the secretvault extension cannot fill logins there. " + file + ". Your passwords stay in the vault."
+		pl.Summary = who + " will no longer start secretvault, so the secretvault extension cannot fill logins there. " +
+			"The settings file secretvault wrote is removed. Your passwords stay in the vault."
 		pl.Action = "Remove access"
 	}
 	if len(changed) > 0 {
-		pl.Notes = append(pl.Notes, andList(changed)+": its file was changed since secretvault wrote it, so it is left as it is.")
+		pl.Notes = append(pl.Notes, andList(changed)+": the file secretvault wrote was changed since, so it is left as it is.")
 	}
 	return pl
 }

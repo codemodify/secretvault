@@ -16,7 +16,7 @@ func TestEveryPlanHasATitleAndASummary(t *testing.T) {
 	chrome := BrowserSpot{Name: "chrome", Title: "Google Chrome", Manifest: "/home/ada/.config/google-chrome/NativeMessagingHosts/x.json"}
 	browsers := &BrowserInstallPlan{Native: ExtensionHost, Host: "/usr/bin/secretvault", Hosts: []*HostPlan{
 		{Browsers: []string{"firefox"}, Spot: firefox},
-		{Browsers: []string{"chrome"}, Spot: chrome, Current: CurrentManifest{Exists: true, Host: "/usr/bin/other"}},
+		{Browsers: []string{"chrome"}, Spot: chrome, Current: CurrentManifest{Exists: true, Host: "/usr/bin/other"}, Skip: SkipOther},
 	}}
 	done := &BrowserInstallPlan{Native: ExtensionHost, Host: "/usr/bin/secretvault", Hosts: []*HostPlan{
 		{Browsers: []string{"firefox"}, Spot: firefox, Skip: SkipAlreadyDone},
@@ -81,8 +81,8 @@ func TestEveryPlanHasATitleAndASummary(t *testing.T) {
 		}
 	}
 	// The browsers are named as people know them, and so is the keyring.
-	if p := plans["browser install"]; p.Title != "Let Firefox and Google Chrome use secretvault" || p.Action != "Allow Firefox and Google Chrome" ||
-		!strings.Contains(strings.Join(p.Notes, " "), "Google Chrome already had such a file") {
+	if p := plans["browser install"]; p.Title != "Let Firefox use secretvault" || p.Action != "Allow Firefox" ||
+		!strings.Contains(strings.Join(p.Notes, " "), "Google Chrome already has this kind of file from another program") {
 		t.Errorf("the browser plan: %+v", p)
 	}
 	if p := plans["keyring restore"]; p.Title != "Give the keyring back to GNOME Keyring" {
