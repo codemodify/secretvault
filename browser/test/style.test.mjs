@@ -24,7 +24,7 @@ test("a colour's opacity, however the browser writes it", () => {
 });
 
 test("filters that all but hide what they are on", () => {
-  for (const f of ["opacity(0)", "opacity(0.2)", "opacity(10%)", "brightness(0)", "contrast(0.1)", "blur(8px)", "drop-shadow(0 0 2px red) opacity(0.01)"]) {
+  for (const f of ["opacity(0)", "opacity(0.2)", "opacity(10%)", "brightness(0)", "contrast(0.1)", "blur(8px)", "drop-shadow(0 0 2px red) opacity(0.01)", "url(\"#hide\")", "url(data:image/svg+xml,x) invert(1)"]) {
     assert.equal(S.hides(f), true, f);
   }
   for (const f of ["none", "", undefined, "opacity(0.9)", "brightness(1.2)", "drop-shadow(0 1px 2px rgb(0 0 0 / 0.2))", "blur(1px)", "invert(1)", "grayscale(1)"]) {

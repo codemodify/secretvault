@@ -8,6 +8,7 @@ const login = "0123456789abcdef0123456789abcdef";
 test("requests are built as the host checks them", () => {
   assert.deepEqual(P.request("r1", "logins", { vault: "", origin }), { v: 1, id: "r1", op: "logins", vault: "", origin });
   assert.deepEqual(P.request("r2", "fill", { origin, login, vault: undefined }), { v: 1, id: "r2", op: "fill", origin, login });
+  assert.deepEqual(P.request("r2", "totp", { origin, login, confirm: true }), { v: 1, id: "r2", op: "totp", origin, login, confirm: true });
   assert.deepEqual(P.request("r3", "save", { origin, username: "ada", password: "pä$$ 😀", title: "GitHub" }).password, "pä$$ 😀");
   assert.deepEqual(P.request("r4", "generate", { length: 24, symbols: true }), { v: 1, id: "r4", op: "generate", length: 24, symbols: true });
   assert.deepEqual(P.request("r5", "state"), { v: 1, id: "r5", op: "state" });
@@ -35,6 +36,8 @@ test("requests the host would refuse are not sent", () => {
     ["r", "generate", { length: 4 }, "bad-request"],
     ["r", "generate", { length: 24.5 }, "bad-request"],
     ["r", "generate", { symbols: "yes" }, "bad-request"],
+    ["r", "fill", { origin, login, confirm: "yes" }, "bad-request"],
+    ["r", "save", { origin, password: "x", confirm: true }, "bad-request"],
   ];
   for (const [id, op, params, code] of bad) {
     assert.throws(() => P.request(id, op, params), (e) => e instanceof P.ProtocolError && e.code === code, op + " " + JSON.stringify(params));

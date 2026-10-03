@@ -18,11 +18,14 @@ let busy = false;
 // moved under the pointer just before a click, or laid over the panel.
 // So it takes no click until it has been in view for a moment, and,
 // where the browser can tell (IntersectionObserver v2, in Chromium), none
-// while anything covers it. Nothing in it takes the focus by itself. The
-// toolbar popup is the browser's own window, and needs none of this.
+// while anything covers it. Nothing in it takes the focus by itself. Where
+// the browser cannot tell (Firefox), a login chosen here is confirmed by
+// secretvault's own prompt, every time. The toolbar popup is the
+// browser's own window, and needs none of this.
 const ARM_MS = 500;
 let armedAt = performance.now() + ARM_MS;
 let unobscured = true;
+let watched = false; // the browser says whether anything covers the panel
 
 function rearm() {
   armedAt = performance.now() + ARM_MS;
@@ -36,6 +39,7 @@ if (inPage) {
   document.addEventListener("visibilitychange", rearm);
   if ("IntersectionObserver" in globalThis && "isVisible" in IntersectionObserverEntry.prototype) {
     unobscured = false;
+    watched = true;
     new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
@@ -252,7 +256,8 @@ async function fill(l, what) {
   busy = true;
   status("Asking secretvault for " + (l.title || "the login") + "…");
   try {
-    const r = await ask("panel:fill", { vault: vault(), login: l.id, what });
+    // seen: the browser vouched that nothing covered the panel.
+    const r = await ask("panel:fill", { vault: vault(), login: l.id, what, seen: inPage && watched && unobscured });
     if (r.filled > 0) return close();
     warn(r.why ? "Not filled: " + r.why + "." : "Not filled.");
   } catch (e) {

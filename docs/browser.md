@@ -57,7 +57,10 @@ its public half in `key`, and change `svext.ChromeID` to the ID it gives
 - **Fills the login chosen.** The user name and password go into the
   fields of the form whose mark was clicked; from the popup, into the
   focused login form, else the first one. Nothing is filled until the
-  person chooses.
+  person chooses. In Firefox, a login chosen in the panel a mark opens is
+  also confirmed in secretvault's own prompt, each time (the browser
+  cannot say whether the page covered the panel); one chosen in the
+  toolbar popup is not.
 - **Fills one-time codes.** A login with a TOTP key shows a Code button.
   Its current code fills a one-time-code field. A login filled into a
   form that also has one gets the code as well.
@@ -153,8 +156,8 @@ event     {"v":1, "event":"vault", "vault":"personal", "locked":true}
 | `unlock` | `vault` | `vaults`; the daemon asks for the passphrase on the desktop |
 | `lock` | `vault` | `vaults` |
 | `logins` | **`origin`**, `vault` | `origin`, `logins`: `[{id, title, username, url, match, totp}]`, best first, at most 200. `match` is `host` or `site`; `url` is the stored URL that fits; `totp` says the login has a code. No passwords. |
-| `fill` | **`origin`**, **`login`**, `vault` | `username`, `password`, and `totp` (the current code) when the login has a key |
-| `totp` | **`origin`**, **`login`**, `vault` | `code` |
+| `fill` | **`origin`**, **`login`**, `vault`, `confirm` (ask the person every time, whatever was remembered) | `username`, `password`, and `totp` (the current code) when the login has a key |
+| `totp` | **`origin`**, **`login`**, `vault`, `confirm` | `code` |
 | `check` | **`origin`**, **`password`**, `username`, `vault` | `status`: `new`, `changed` (with `login`, a login of the page's very host with that user name and another password) or `known` (with `login`) |
 | `save` | **`origin`**, **`password`**, `username`, `login` (to change that login), `title`, `vault` | `login`, `created` |
 | `generate` | `length` (8 to 128, default 24), `symbols` (default true) | `password` (answered by the host) |
@@ -301,10 +304,12 @@ section covers what the extension adds. It is enforced in the files named.
   - connected, enabled and not read-only;
   - at least 8×8 pixels, with an opacity of at least 0.2 down its
     ancestors;
-  - not hidden by CSS, not clipped or masked, under no hiding filter,
+  - not hidden by CSS, not clipped or masked, under no hiding filter
+    (a low opacity, brightness or contrast, blur, or any SVG filter),
     with text that is not transparent;
-  - uncovered at its middle and at one of its sides
-    (`visible`, `onScreen`).
+  - uncovered at its middle and at one of its sides, by hit testing
+    (`visible`, `onScreen`), which a cover with `pointer-events: none`
+    passes.
 
   All the fields are filled, or none.
 - **No fill on page load.** Nothing is filled but in answer to a choice
@@ -322,26 +327,49 @@ section covers what the extension adds. It is enforced in the files named.
     origin when its mark was clicked:
     - it is bound to the first frame that uses it;
     - it lapses after a minute unused, or ten minutes in all;
-    - it is dropped when the page changes.
+    - it is dropped when a new page's content script starts in the tab
+      (a page changed within the same document keeps its origin, which
+      every fill checks).
 - **Clickjacking.** A page owns the elements that hold the marks and the
-  panel, and could restyle, move or cover them to trick a click. So:
-  - **They go in the top layer** (a manual popover), above the page's
-    content. They are shown only while they are there and children of
-    `<html>`. One the page restyles, takes out of the top layer or moves
-    is removed.
+  panel, and could restyle, move or cover them to trick a click. A mark
+  only opens the panel, which holds no secret, so what matters is a
+  choice made in the panel. It is defended in layers:
+  - **A choice in a panel inside the page is vouched for or confirmed.**
+    - In Chromium, the browser vouches for it: the panel takes no click
+      while IntersectionObserver v2 says anything covers or alters it.
+    - Where the browser cannot vouch (Firefox has no
+      IntersectionObserver v2), a login or code chosen in an in-page
+      panel is confirmed by secretvault's own prompt every time, in a
+      window of its own that no page can reach. A remembered "always"
+      does not skip it; a remembered "no" still refuses. Choices in the
+      toolbar popup are not confirmed this way.
+  - **Our elements go in the top layer** (a manual popover), above the
+    page's content. They are shown only while they are open there and
+    children of `<html>`. One the page restyles, or takes out of
+    `<html>`, is removed. One it takes out of the top layer is removed
+    when we hear of it (its `beforetoggle`), and is not trusted anyway,
+    as below.
   - **A mark takes a click only when all of these hold:**
-    - it has stood still for 400 ms;
-    - the page has nothing in the top layer, whose backdrop could lie
-      over it;
-    - neither it nor `<html>` is made see-through, filtered, clipped,
-      masked or transformed;
+    - it has stood still for 400 ms (and, from the keyboard, has held
+      the focus that long);
+    - the page has put nothing in the top layer since the mark was
+      raised over what was there: popovers, modal dialogs or a
+      full-screen element, in shadow roots too where the browser shows
+      them to extensions; and no view transition is running;
+    - it is open in the top layer, a child of `<html>`, styled as set and
+      the size it was given (not zoomed or scaled);
+    - neither it nor `<html>` is see-through, filtered, clipped or
+      masked, and the mark is not transformed;
+    - the page has given none of our elements `::before`, `::after`, or
+      a `::backdrop` that is not see-through;
     - the pointer is on it.
   - **The panel in a page:**
     - it closes when its field moves;
-    - it takes no click for 500 ms after it shows, and in Chromium none
-      while anything covers it (IntersectionObserver v2);
-    - before a choice in it is acted on, the content script confirms
-      the panel was as it was put;
+    - it takes no click for 500 ms after it shows;
+    - before a choice in it is acted on, the content script confirms the
+      panel is still as it was put, by the checks above. That is when it
+      is asked, a moment after the click, which is why Firefox also
+      confirms;
     - it focuses nothing by itself.
   - **The popup** is the browser's own window, which no page can cover.
 - **Nothing in the page depends on what secretvault holds.** Whether a
@@ -349,15 +377,20 @@ section covers what the extension adds. It is enforced in the files named.
   page that sends guesses through its own form learns nothing. The check
   is also limited:
   - three a tab every ten seconds;
-  - only for what the person did (a trusted event, with user activation);
+  - only for what the person did: a trusted event, with user activation,
+    and for a form sent, the person pressed or typed in it within the
+    last three seconds (a script's `requestSubmit()` alone does not
+    count);
   - never in private windows.
 - **Consent stays secretvault's.**
   - Listing a page's logins is listing the vault (`OpList`), decided and
     remembered as for any program. So is `check`.
   - Each fill or code is a read of that login (`OpRead`), prompted unless
     a decision is remembered.
-  - A login filled on another host of its site than its own is asked
-    about every time, whatever was remembered, but a remembered no.
+  - A login filled on another host of its site than its own, or chosen
+    in an in-page panel the browser could not vouch for (`confirm` in the
+    protocol), is asked about every time, whatever was remembered, but a
+    remembered no.
   - Saving is a write (`OpWrite`). Only a login of the page's very host
     can be changed from it. The browser may then read, change and delete
     the login it saved, as with KeePassXC-Browser.
@@ -398,12 +431,17 @@ section covers what the extension adds. It is enforced in the files named.
   listing it in the Public Suffix List (a university's `~user` pages on
   its own domain) share a site with their login pages. Store such logins
   with their exact host, and refuse what is asked elsewhere.
-- **Clickjacking a mark is made hard, not impossible.** A cover with
-  `pointer-events: none` that is not in the top layer is below our
-  elements and does not matter, but a page could still draw a convincing
-  lure around a real mark. What a mark opens is a list, and a fill is
-  still the broker's decision; the popup (toolbar button, Ctrl+Shift+L)
-  is the safest way in.
+- **Clickjacking a mark is made hard, not impossible.** A page could
+  still draw a convincing lure around a real mark, or find a way over it
+  that the checks miss (a closed shadow root the browser hides even from
+  extensions, say). What a mark opens is a list, and a choice in it is
+  vouched for by the browser (Chromium) or confirmed by secretvault
+  (Firefox). The popup (toolbar button, Ctrl+Shift+L) is the safest way
+  in.
+- **Fields covered with `pointer-events: none`.** Hit testing does not
+  see such a cover, so a field under one is filled. The page filled is
+  the login's own origin, which gets the password anyway once the person
+  logs in; the risk is a login filled where the person did not see it.
 - **The panel moving with the page.** It closes when its field moves.
   It does not follow scrolling, so scrolling the page closes it: click
   the mark again.
@@ -466,9 +504,16 @@ section covers what the extension adds. It is enforced in the files named.
       package again, and upload it as a new version of the same add-on.
 
    Mozilla's command-line tool `web-ext sign` does steps 2 to 4 with AMO
-   API keys, if that is preferred. The extension ID must stay
-   `secretvault@codemodify.github.io`, or every installation is a new
-   add-on, and the host's manifest must name the new ID.
+   API keys, if that is preferred.
+
+   **The ID belongs to whoever signs it first.** Extension IDs are
+   global on AMO: the first account to sign `secretvault@codemodify.github.io`
+   owns it, and nobody else can sign that ID again. So the project's own
+   account should claim it, by signing the first release, and publish the
+   signed `.xpi` for everyone. Anyone who builds and signs their own must
+   use an ID of their own in `manifest.json`, `svext.FirefoxID` (which the
+   host's manifest allows, and the host and the daemon check), and
+   rebuild secretvault. Keep the ID stable: a new one is a new add-on.
 
 ## Chromium
 
@@ -496,7 +541,8 @@ Vivaldi, with these gaps:
   dynamic URL, and the background tells its pages from content scripts
   by `runtime.getURL`.
 - **IntersectionObserver v2** (whether anything covers the panel) is
-  Chromium's alone; Firefox relies on the other checks.
+  Chromium's alone. In Firefox, a login chosen in an in-page panel is
+  confirmed by secretvault's prompt instead.
 - **Windows and macOS.** The host's manifest is written in the browsers'
   per-user places on macOS, and named by registry keys under
   HKEY_CURRENT_USER on Windows. Both are tested in temporary homes only,

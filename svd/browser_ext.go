@@ -138,9 +138,10 @@ func (b *extSession) decide(ctx context.Context, mv *managedVault, item, itemNam
 }
 
 // confirm is decide for a request that is asked about every time, whatever
-// was remembered: a login handed to another host of its site than the one
-// it was saved for.
-func (b *extSession) confirm(ctx context.Context, mv *managedVault, item, itemName string, op svbroker.Op, why string) error {
+// was remembered (but a no), saying why it is asked: a login handed to
+// another host of its site than the one it was saved for, or one chosen
+// in a panel inside the page, which the extension cannot vouch for.
+func (b *extSession) confirm(ctx context.Context, mv *managedVault, item, itemName string, op svbroker.Op, why, because string) error {
 	record := b.d.recorder(b.app, mv, itemName, op)
 	// A remembered no still holds; only a yes is asked again.
 	if dec, found, err := b.d.broker.Check(mv.v, b.app, b.app.identity(), item, op); err != nil {
@@ -149,7 +150,7 @@ func (b *extSession) confirm(ctx context.Context, mv *managedVault, item, itemNa
 		record("denied", "remembered decision")
 		return b.fail(denied(mv))
 	}
-	why += "\n(It was saved for another host of this site, so this is asked every time.)"
+	why += "\n(" + because + ", so this is asked every time.)"
 	if err := b.d.ask(ctx, b.app, mv, item, itemName, op, why, record, true); err != nil {
 		return b.fail(err)
 	}
@@ -327,15 +328,20 @@ func (b *extSession) login(mv *managedVault, id string, o svext.Origin, exact bo
 // read decides whether the browser may read a login for o: as any read,
 // when the login is the page's host's; asked every time when it is
 // another host's of the same site, which a remembered decision about the
-// login (one made on its own host, or for saving it) does not cover.
-func (b *extSession) read(ctx context.Context, mv *managedVault, e *svcore.Entry, m svext.Match, why string) error {
-	if m == svext.MatchSite {
-		return b.confirm(ctx, mv, e.ID.String(), e.Item.Name, svbroker.OpRead, why)
+// login (one made on its own host, or for saving it) does not cover, or
+// when the extension asks so (chosen in a panel inside the page, which a
+// page could have tricked the person into clicking).
+func (b *extSession) read(ctx context.Context, mv *managedVault, e *svcore.Entry, m svext.Match, why string, confirm bool) error {
+	switch {
+	case m == svext.MatchSite:
+		return b.confirm(ctx, mv, e.ID.String(), e.Item.Name, svbroker.OpRead, why, "It was saved for another host of this site")
+	case confirm:
+		return b.confirm(ctx, mv, e.ID.String(), e.Item.Name, svbroker.OpRead, why, "It was chosen in a panel inside the page")
 	}
 	return b.decide(ctx, mv, e.ID.String(), e.Item.Name, svbroker.OpRead, why)
 }
 
-func (b *extSession) Fill(ctx context.Context, vault string, o svext.Origin, id string) (svext.Credentials, error) {
+func (b *extSession) Fill(ctx context.Context, vault string, o svext.Origin, id string, confirm bool) (svext.Credentials, error) {
 	mv, err := b.unlocked(vault)
 	if err != nil {
 		return svext.Credentials{}, err
@@ -346,7 +352,7 @@ func (b *extSession) Fill(ctx context.Context, vault string, o svext.Origin, id 
 	}
 	defer e.Item.Wipe()
 	why := fmt.Sprintf("%s wants the login %q for %s%s", b.app.display(), e.Item.Name, o, through)
-	if err := b.read(ctx, mv, &e, m, why); err != nil {
+	if err := b.read(ctx, mv, &e, m, why, confirm); err != nil {
 		return svext.Credentials{}, err
 	}
 	var c svext.Credentials
@@ -361,7 +367,7 @@ func (b *extSession) Fill(ctx context.Context, vault string, o svext.Origin, id 
 	return c, nil
 }
 
-func (b *extSession) TOTP(ctx context.Context, vault string, o svext.Origin, id string) (string, error) {
+func (b *extSession) TOTP(ctx context.Context, vault string, o svext.Origin, id string, confirm bool) (string, error) {
 	mv, err := b.unlocked(vault)
 	if err != nil {
 		return "", err
@@ -377,7 +383,7 @@ func (b *extSession) TOTP(ctx context.Context, vault string, o svext.Origin, id 
 	}
 	defer k.Wipe()
 	why := fmt.Sprintf("%s wants the one-time code of the login %q for %s%s", b.app.display(), e.Item.Name, o, through)
-	if err := b.read(ctx, mv, &e, m, why); err != nil {
+	if err := b.read(ctx, mv, &e, m, why, confirm); err != nil {
 		return "", err
 	}
 	code, _ := k.Code(b.d.opts.Now())

@@ -133,10 +133,11 @@ type Backend interface {
 	// Logins lists the logins that fit origin, best first, if the person
 	// allows the browser to list the vault.
 	Logins(ctx context.Context, vault string, o Origin) ([]Login, error)
-	// Fill reads a login that fits origin, if the person allows.
-	Fill(ctx context.Context, vault string, o Origin, login string) (Credentials, error)
+	// Fill reads a login that fits origin, if the person allows; with
+	// confirm, the person is asked whatever was remembered (but a no).
+	Fill(ctx context.Context, vault string, o Origin, login string, confirm bool) (Credentials, error)
 	// TOTP is a login's current one-time code, if the person allows.
-	TOTP(ctx context.Context, vault string, o Origin, login string) (string, error)
+	TOTP(ctx context.Context, vault string, o Origin, login string, confirm bool) (string, error)
 	// Check says whether a username and password a page at origin sent
 	// are new, a change, or known: the comparison is the daemon's, and
 	// nothing stored leaves it.
@@ -212,7 +213,7 @@ func (s *Session) serve(ctx context.Context, r *Request) ([]byte, error) {
 		out.set("logins", logins)
 
 	case OpFill:
-		c, err := s.b.Fill(ctx, r.Vault, r.Origin, r.Login)
+		c, err := s.b.Fill(ctx, r.Vault, r.Origin, r.Login, r.Confirm)
 		defer clear(c.Password)
 		if err != nil {
 			return nil, err
@@ -224,7 +225,7 @@ func (s *Session) serve(ctx context.Context, r *Request) ([]byte, error) {
 		}
 
 	case OpTOTP:
-		code, err := s.b.TOTP(ctx, r.Vault, r.Origin, r.Login)
+		code, err := s.b.TOTP(ctx, r.Vault, r.Origin, r.Login, r.Confirm)
 		if err != nil {
 			return nil, err
 		}

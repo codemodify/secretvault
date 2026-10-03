@@ -34,8 +34,8 @@
     unlock: { vault: false },
     lock: { vault: false },
     logins: { vault: false, origin: true },
-    fill: { vault: false, origin: true, login: true },
-    totp: { vault: false, origin: true, login: true },
+    fill: { vault: false, origin: true, login: true, confirm: false },
+    totp: { vault: false, origin: true, login: true, confirm: false },
     check: { vault: false, origin: true, username: false, password: true },
     save: { vault: false, origin: true, username: false, password: true, login: false, title: false },
     generate: { length: false, symbols: false },
@@ -65,6 +65,7 @@
     title: (v) => text(v, LIMITS.title),
     length: (v) => Number.isInteger(v) && v >= LIMITS.generateMin && v <= LIMITS.generateMax,
     symbols: (v) => typeof v === "boolean",
+    confirm: (v) => typeof v === "boolean",
   };
 
   class ProtocolError extends Error {

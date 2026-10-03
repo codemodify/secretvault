@@ -27,10 +27,11 @@
   }
 
   // hides reports whether a computed filter all but hides what it is on:
-  // a low opacity(), brightness() or contrast(), or more than a little
-  // blur().
+  // a low opacity(), brightness() or contrast(), more than a little
+  // blur(), or an SVG filter (url()), which could do anything.
   function hides(filter) {
     if (!filter || filter === "none") return false;
+    if (/url\(/i.test(filter)) return true;
     for (const m of String(filter).matchAll(/(opacity|brightness|contrast)\(\s*([\d.]+)(%?)\s*\)/g)) {
       const v = parseFloat(m[2]) / (m[3] ? 100 : 1);
       if ((m[1] === "opacity" && v < 0.5) || (m[1] !== "opacity" && v < 0.3)) return true;

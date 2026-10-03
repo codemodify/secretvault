@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"unicode/utf8"
 
@@ -37,8 +36,8 @@ const (
 	OpUnlock   = "unlock"   // vault -> vaults (the daemon asks for the passphrase itself)
 	OpLock     = "lock"     // vault -> vaults
 	OpLogins   = "logins"   // vault, origin -> logins (no secrets)
-	OpFill     = "fill"     // vault, origin, login -> username, password, totp
-	OpTOTP     = "totp"     // vault, origin, login -> code
+	OpFill     = "fill"     // vault, origin, login, [confirm] -> username, password, totp
+	OpTOTP     = "totp"     // vault, origin, login, [confirm] -> code
 	OpCheck    = "check"    // vault, origin, username, password -> status, login
 	OpSave     = "save"     // vault, origin, username, password, [login], [title] -> login, created
 	OpGenerate = "generate" // [length], [symbols] -> password (answered by the host)
@@ -70,8 +69,8 @@ var members = map[string]map[string]bool{
 	OpUnlock:   {"vault": false},
 	OpLock:     {"vault": false},
 	OpLogins:   {"vault": false, "origin": true},
-	OpFill:     {"vault": false, "origin": true, "login": true},
-	OpTOTP:     {"vault": false, "origin": true, "login": true},
+	OpFill:     {"vault": false, "origin": true, "login": true, "confirm": false},
+	OpTOTP:     {"vault": false, "origin": true, "login": true, "confirm": false},
 	OpCheck:    {"vault": false, "origin": true, "username": false, "password": true},
 	OpSave:     {"vault": false, "origin": true, "username": false, "password": true, "login": false, "title": false},
 	OpGenerate: {"length": false, "symbols": false},
@@ -117,6 +116,7 @@ type Request struct {
 	Title     string
 	Length    int
 	Symbols   bool
+	Confirm   bool // fill, totp: the person is asked every time (chosen where the extension cannot vouch for the choice)
 }
 
 // Wipe zeroes the request's password.
@@ -128,19 +128,17 @@ func ParseRequest(frame []byte) (*Request, error) {
 	if len(frame) > MaxRequest {
 		return nil, Errorf(CodeTooLarge, "a request of %d bytes, over %d", len(frame), MaxRequest)
 	}
+	// Unmarshal reads the frame in place (a Decoder would copy it, password
+	// and all, into a buffer of its own), and refuses anything after the
+	// object, even a stray } or ].
 	var m map[string]json.RawMessage
-	d := json.NewDecoder(bytes.NewReader(frame))
-	err := d.Decode(&m)
+	err := json.Unmarshal(frame, &m)
 	defer func() {
 		for _, v := range m {
 			clear(v)
 		}
 	}()
 	if err != nil || m == nil {
-		return nil, Errorf(CodeBadRequest, "a request is one JSON object")
-	}
-	if _, err := d.Token(); err != io.EOF {
-		// Anything after the object, even a stray } or ].
 		return nil, Errorf(CodeBadRequest, "a request is one JSON object, and nothing after it")
 	}
 	r := &Request{}
@@ -236,6 +234,11 @@ func (r *Request) read(m map[string]json.RawMessage) error {
 			return Errorf(CodeBadRequest, "password: UTF-8 text")
 		}
 		r.Password = p
+	}
+	if raw, ok := m["confirm"]; ok {
+		if s := string(raw); s != "true" && s != "false" || json.Unmarshal(raw, &r.Confirm) != nil {
+			return Errorf(CodeBadRequest, "confirm: true or false")
+		}
 	}
 	if r.Op == OpGenerate {
 		r.Length, r.Symbols = DefaultGenerate, true

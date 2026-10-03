@@ -134,7 +134,10 @@ In short:
   the broker and audited.
 - **Pages.** A hostile page cannot trigger a fill, read the list, or
   learn whether secretvault holds a login. The marks and the panel resist
-  being restyled, moved or covered to trick a click.
+  being restyled, moved or covered to trick a click. A login chosen in
+  the panel inside the page is vouched for by the browser
+  (IntersectionObserver v2, in Chromium), or else confirmed in
+  secretvault's own prompt every time (Firefox).
 - **Messages.** Every message is checked whole, by the host and again by
   the daemon: its size (64 KiB), its members, their types and lengths.
 

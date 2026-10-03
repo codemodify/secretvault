@@ -49,6 +49,9 @@
   const ours = new WeakSet(); // the elements that hold the marks and the panel
   const leaving = new WeakSet(); // those this script takes away itself
   const wanted = new WeakMap(); // host -> {props, css}: its style, as set here
+  const live = new Set(); // our hosts in the page now
+  const raisedOver = new WeakMap(); // host -> {at, under}: when it was raised, over what of the page's
+  let foreignShownAt = -1; // when the page last put something in the top layer
   let raising = false; // this script is putting a host in the top layer again
 
   // A host whose attributes change, but for its style as set here, is
@@ -90,6 +93,7 @@
   function shadowHost(props) {
     const host = document.createElement("span");
     ours.add(host);
+    live.add(host);
     wanted.set(host, { props: { all: "initial", position: "fixed", "z-index": "2147483647", display: "none", margin: "0", padding: "0", border: "0", overflow: "visible", ...props }, css: "" });
     restyle(host, {});
     const root = host.attachShadow({ mode: "closed" });
@@ -106,13 +110,15 @@
     return { host, root };
   }
 
-  // raise puts host in the top layer (again: above the page's own).
+  // raise puts host in the top layer (again: above the page's own), and
+  // remembers what of the page's was there under it.
   function raise(host) {
     if (!popovers) return;
     raising = true;
     try {
       if (host.matches(":popover-open")) host.hidePopover();
       host.showPopover();
+      raisedOver.set(host, { at: performance.now(), under: new Set(foreignTopLayer()) });
     } catch {
       // It stays shut, and so not shown.
     } finally {
@@ -128,6 +134,7 @@
 
   function drop(host) {
     leaving.add(host);
+    live.delete(host);
     host.remove();
   }
 
@@ -273,27 +280,100 @@
     return svg;
   }
 
-  // covered reports whether the page has something of its own in the top
-  // layer (a popover, a modal dialog, a full-screen element): wherever it
-  // is, its ::backdrop may lie over the whole window, ours included.
-  function covered() {
-    for (const sel of [":popover-open", "dialog:modal", ":fullscreen"]) {
-      let list = [];
-      try {
-        list = document.querySelectorAll(sel);
-      } catch {
-        continue;
-      }
-      for (const el of list) if (!ours.has(el)) return true;
+  // shadowOf is an element's shadow root, closed ones too where the
+  // browser shows them to extensions (Firefox's openOrClosedShadowRoot,
+  // Chromium's dom.openOrClosedShadowRoot).
+  function shadowOf(el) {
+    try {
+      if ("openOrClosedShadowRoot" in el) return el.openOrClosedShadowRoot;
+      if (ext.dom && ext.dom.openOrClosedShadowRoot) return ext.dom.openOrClosedShadowRoot(el);
+    } catch {
+      // None to be had.
     }
-    return false;
+    return el.shadowRoot;
+  }
+
+  // foreignTopLayer is what the page has in the top layer (popovers, modal
+  // dialogs, a full-screen element), in shadow roots too: wherever it is,
+  // its ::backdrop may lie over the whole window.
+  function foreignTopLayer() {
+    const out = [];
+    const visit = (root) => {
+      for (const sel of [":popover-open", "dialog:modal", ":fullscreen"]) {
+        try {
+          for (const el of root.querySelectorAll(sel)) if (!ours.has(el)) out.push(el);
+        } catch {
+          // A selector this browser does not know.
+        }
+      }
+      for (const el of root.querySelectorAll("*")) {
+        if (ours.has(el)) continue;
+        const sr = shadowOf(el);
+        if (sr) visit(sr);
+      }
+    };
+    visit(document);
+    return out;
+  }
+
+  // transitioning reports whether a view transition is running: its
+  // pseudo-elements paint above the top layer.
+  function transitioning() {
+    try {
+      if (document.activeViewTransition) return true;
+      return document.getAnimations().some((a) => String((a.effect && a.effect.pseudoElement) || "").startsWith("::view-transition"));
+    } catch {
+      return false;
+    }
+  }
+
+  // covered reports whether something of the page's may lie over host:
+  // a view transition, or something in the top layer that host was not
+  // raised over, or that was shown since (the page's toggle events say).
+  function covered(host) {
+    if (transitioning()) return true;
+    const foreign = foreignTopLayer();
+    if (foreign.length === 0) return false;
+    const r = raisedOver.get(host);
+    return !r || foreignShownAt >= r.at || foreign.some((el) => !r.under.has(el));
+  }
+
+  // bare reports whether the page has given host pseudo-elements of its
+  // own (::before, ::after, which our inline style does not reach, or a
+  // ::backdrop that is not see-through): any could paint a lure over it.
+  function bare(host) {
+    for (const p of ["::before", "::after"]) {
+      const c = getComputedStyle(host, p).content;
+      if (c && c !== "none" && c !== "normal") return false;
+    }
+    if (popovers) {
+      const b = getComputedStyle(host, "::backdrop");
+      if (alpha(b.backgroundColor) > 0.01 || (b.backgroundImage && b.backgroundImage !== "none") ||
+          (b.backdropFilter && b.backdropFilter !== "none") || (b.filter && b.filter !== "none")) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // sized reports whether host is the size it was given: not zoomed, nor
+  // scaled.
+  function sized(host) {
+    const w = wanted.get(host);
+    const r = host.getBoundingClientRect();
+    return Math.abs(r.width - parseFloat(w.props.width)) <= 1 && Math.abs(r.height - parseFloat(w.props.height)) <= 1;
   }
 
   // intact reports whether one of our hosts is as it was put: in <html>,
-  // in the top layer, styled as set, shown as it is, nothing over it.
+  // in the top layer, styled as set, its size, shown as it is, with no
+  // pseudo-element of the page's on it or on any other of ours, and
+  // nothing over it.
   function intact(host) {
     const w = wanted.get(host);
-    return !!w && up(host) && host.getAttribute("style") === w.css && plain(host) && plain(document.documentElement) && !covered();
+    if (!w || !up(host) || host.getAttribute("style") !== w.css || !sized(host)) return false;
+    if (!plain(host) || !plain(document.documentElement)) return false;
+    for (const h of live) if (!bare(h)) return false;
+    return !covered(host);
   }
 
   // plain reports whether an element's style shows what is in it as it is.
@@ -308,16 +388,19 @@
   // nothing covers and nothing has restyled.
   function trusted(m, e) {
     if (!e.isTrusted || performance.now() - m.movedAt < SETTLE_MS) return false;
-    if (covered()) {
+    if (covered(m.host)) {
       raise(m.host); // above the page's again; a later click may count
       m.movedAt = performance.now();
       return false;
     }
     if (!intact(m.host)) return false;
-    // A click with the pointer must land on the mark itself; one from the
-    // keyboard (detail 0) comes from the person tabbing to it, which the
-    // page cannot do for them.
-    return e.detail === 0 || document.elementFromPoint(e.clientX, e.clientY) === m.host;
+    if (e.detail === 0) {
+      // From the keyboard: the mark must have had the focus a moment (the
+      // person tabbed to it, and saw it), not been handed it just before.
+      return document.activeElement === m.host && m.focusedAt > 0 && performance.now() - m.focusedAt >= SETTLE_MS;
+    }
+    // With the pointer: on the mark itself.
+    return document.elementFromPoint(e.clientX, e.clientY) === m.host;
   }
 
   function addMark(el, handle) {
@@ -333,9 +416,15 @@
       b.style.setProperty(k, v, "important");
     }
     b.append(icon());
-    const m = { host, el, at: "", movedAt: performance.now() };
+    const m = { host, el, at: "", movedAt: performance.now(), focusedAt: 0 };
     // The field keeps the focus.
     b.addEventListener("mousedown", (e) => e.isTrusted && e.preventDefault());
+    b.addEventListener("focus", () => {
+      m.focusedAt = performance.now();
+    });
+    b.addEventListener("blur", () => {
+      m.focusedAt = 0;
+    });
     b.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -563,15 +652,36 @@
     return null;
   }
 
+  // lastAct is what the person last pressed or typed in, and when: a form
+  // a script sends (requestSubmit, during the person's activation) counts
+  // only if the person was just in it.
+  let lastAct = { at: 0, el: null };
+
+  function personIn(container) {
+    return performance.now() - lastAct.at < 3000 && lastAct.el instanceof Node && container.contains(lastAct.el);
+  }
+
   function listen() {
+    document.addEventListener("pointerdown", (e) => {
+      if (e.isTrusted) lastAct = { at: performance.now(), el: e.target };
+    }, true);
+    for (const type of ["toggle", "beforetoggle"]) {
+      document.addEventListener(type, (e) => {
+        if (e.newState === "open" && !ours.has(e.target)) foreignShownAt = performance.now();
+      }, true);
+    }
+    document.addEventListener("fullscreenchange", () => {
+      foreignShownAt = performance.now();
+    }, true);
     document.addEventListener("submit", (e) => {
-      if (e.isTrusted && e.target instanceof HTMLFormElement) {
+      if (e.isTrusted && e.target instanceof HTMLFormElement && personIn(e.target)) {
         const first = e.target.querySelector("input[type=password]");
         if (first) report(groupOf(first));
       }
     }, true);
     document.addEventListener("keydown", (e) => {
       if (!e.isTrusted) return;
+      lastAct = { at: performance.now(), el: e.target };
       if (e.key === "Escape" && panel) {
         closePanel();
         return;

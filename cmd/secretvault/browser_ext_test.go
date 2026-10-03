@@ -271,7 +271,14 @@ func TestTheExtensionIsAskedAboutTheLoginsOfAPage(t *testing.T) {
 	if r := x.ask("fill", gh); r["password"] != "hunter2" || h.desk.count() != asked {
 		t.Fatalf("a remembered fill: %v (%d prompts)", r, h.desk.count()-asked)
 	}
+	// Chosen in a panel inside the page, which the extension cannot vouch
+	// for, it is asked about every time, remembered or not.
 	h.desk.answer(svrpc.ChoiceOnce, "")
+	if r := x.ask("fill", map[string]any{"origin": "https://github.com", "login": ids["web/github.com"], "confirm": true}); r["password"] != "hunter2" ||
+		h.desk.count() != asked+1 || !strings.Contains(h.desk.questions()[asked], "It was chosen in a panel inside the page, so this is asked every time") {
+		t.Fatalf("a fill to confirm: %v (%d prompts) %q", r, h.desk.count()-asked, h.desk.questions()[asked:])
+	}
+	asked = h.desk.count()
 	sibling := map[string]any{"origin": "https://gist.github.com", "login": ids["web/github.com"]}
 	for range 2 {
 		if r := x.ask("fill", sibling); r["password"] != "hunter2" {

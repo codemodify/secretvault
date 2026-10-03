@@ -251,6 +251,8 @@ func TestRequestsAreCheckedWhole(t *testing.T) {
 		"a fractional length":  {[]byte(`{"v":1,"id":"x","op":"generate","length":24.5}`), CodeBadRequest},
 		"a null length":        {[]byte(`{"v":1,"id":"x","op":"generate","length":null}`), CodeBadRequest},
 		"symbols as a string":  {frame(map[string]any{"v": 1, "id": "x", "op": "generate", "symbols": "yes"}), CodeBadRequest},
+		"confirm as a string":  {frame(map[string]any{"v": 1, "id": "x", "op": "fill", "origin": "https://a.example", "login": strings.Repeat("ab", 16), "confirm": "yes"}), CodeBadRequest},
+		"confirm on a save":    {with("confirm", true), CodeBadRequest},
 	} {
 		_, err := ParseRequest(c.frame)
 		if !IsCode(err, c.code) {
@@ -303,14 +305,14 @@ func (b *backend) Logins(_ context.Context, vault string, o Origin) ([]Login, er
 	return []Login{{ID: strings.Repeat("0", 32), Title: "GitHub", Username: "ada", URL: "https://github.com", Match: "host"}}, nil
 }
 
-func (b *backend) Fill(_ context.Context, vault string, o Origin, login string) (Credentials, error) {
+func (b *backend) Fill(_ context.Context, vault string, o Origin, login string, confirm bool) (Credentials, error) {
 	if b.refuse {
 		return Credentials{}, Errorf(CodeDenied, "the person said no")
 	}
 	return Credentials{Username: "ada", Password: []byte(`hun"ter2`), TOTP: "123456"}, nil
 }
 
-func (b *backend) TOTP(context.Context, string, Origin, string) (string, error) { return "", nil }
+func (b *backend) TOTP(context.Context, string, Origin, string, bool) (string, error) { return "", nil }
 
 func (b *backend) Check(_ context.Context, vault string, o Origin, username string, password []byte) (CheckResult, error) {
 	if string(password) == "hunter2" {

@@ -427,9 +427,13 @@ const fromPages = {
     if (totp && !l.totp) throw fail("not-found", "that login has no one-time code");
     await stillThere(w);
     const frameId = frameFor(w, totp ? ["otp", "login"] : ["login", "username", "change"]);
-    let creds = totp
-      ? await call("totp", { vault: msg.vault || undefined, origin: w.origin, login: l.id })
-      : await call("fill", { vault: msg.vault || undefined, origin: w.origin, login: l.id });
+    // A choice made in a panel inside the page, where the browser could not
+    // say nothing covered it (Firefox has no IntersectionObserver v2), may
+    // be a click the page tricked: secretvault asks the person about it,
+    // in a window of its own, whatever was remembered.
+    const confirm = w.token && msg.seen !== true ? true : undefined;
+    const ask = { vault: msg.vault || undefined, origin: w.origin, login: l.id, confirm };
+    let creds = totp ? await call("totp", ask) : await call("fill", ask);
     try {
       await stillThere(w);
       const fill = totp
