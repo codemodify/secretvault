@@ -246,7 +246,7 @@ func (u *UI) build() {
 
 	u.status = tview.NewTextView().SetDynamicColors(true).SetWrap(false)
 	u.hints = tview.NewTextView().SetDynamicColors(true).SetWrap(false).SetTextAlign(tview.AlignRight)
-	hints := "? keys  / filter  q quit "
+	hints := "? help  / filter  q quit "
 	u.hints.SetText("[gray]" + hints)
 
 	u.body = tview.NewFlex().
@@ -390,7 +390,7 @@ func (u *UI) daemonGone() {
 	u.vaults = nil
 	u.drawVaults()
 	u.drawItems()
-	u.detail.reset("secretvaultd went away.")
+	u.detail.reset("secretvault's background service (secretvaultd) stopped.\n\nNothing can be shown until it is back. q quits.")
 	u.drawStatus()
 }
 
@@ -607,7 +607,7 @@ func (u *UI) fail(err error) {
 // describe turns an error from the daemon into something to tell a person.
 func (u *UI) describe(err error) string {
 	if u.gone {
-		return "secretvaultd is not answering."
+		return svops.DaemonNotAnswering
 	}
 	return describeErr(err)
 }
@@ -618,7 +618,7 @@ func describeErr(err error) string {
 	var e *svrpc.Error
 	switch {
 	case errors.Is(err, secretvault.ErrNoDaemon):
-		return "secretvaultd is not answering."
+		return svops.DaemonNotAnswering
 	case errors.Is(err, svrpc.ErrCanceled):
 		return "Canceled."
 	case errors.Is(err, svrpc.ErrWrongKey):
@@ -628,9 +628,9 @@ func describeErr(err error) string {
 	case errors.Is(err, svrpc.ErrLocked):
 		return "The vault is locked; U unlocks it."
 	case errors.Is(err, svrpc.ErrNoPrompter):
-		return "Nobody could be asked for permission: " + err.Error()
+		return "Nobody could be asked for permission, so nothing was done: " + err.Error()
 	case errors.Is(err, context.DeadlineExceeded):
-		return "secretvaultd took too long to answer."
+		return svops.DaemonTooSlow
 	case errors.Is(err, context.Canceled):
 		return "Canceled."
 	case errors.As(err, &e):
@@ -647,7 +647,7 @@ func ownWords(s string) string {
 }
 
 var wordsReplacer = strings.NewReplacer(
-	svops.ErrNoOwnKeys.Error(), "no keys to show: make an OpenPGP key in Keys (P, then n), or name key items or recipients",
+	svops.ErrNoOwnKeys.Error(), "no keys to show: make an OpenPGP key in Keys (P, then n), or name key items or people's public keys",
 	svops.ErrNoDefaultVault.Error(), "there is no default vault: N makes one, and V makes one the default",
 	svops.ErrNoGnuPGKey.Error(), "the vault holds no OpenPGP key gpg can use: make one in Keys (P, then n, version 4), or import one",
 	svops.ErrNotOneSecretKey.Error(), "someone's public key goes to Contacts (C, then a)",
@@ -675,7 +675,7 @@ func (u *UI) drawStatus() {
 	var b strings.Builder
 	switch {
 	case u.gone:
-		b.WriteString(" [red]secretvaultd went away: nothing can be shown until it is back. q quits.[-]")
+		b.WriteString(" [red]secretvault's background service stopped: nothing can be shown until it is back. q quits.[-]")
 		u.status.SetText(b.String())
 		return
 	case u.vault == "":
@@ -685,7 +685,7 @@ func (u *UI) drawStatus() {
 		switch v := u.vaultInfo(u.vault); {
 		case v == nil:
 		case v.ID == "":
-			b.WriteString("[red]missing[-]")
+			b.WriteString("[red]folder missing[-]")
 		case v.Locked:
 			b.WriteString("[gray]locked[-]")
 		default:

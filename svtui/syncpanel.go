@@ -11,6 +11,7 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svqr"
 	"github.com/codemodify/secretvault/svrpc"
 )
@@ -55,7 +56,7 @@ func (u *UI) showSync() {
 				return
 			}
 			p.clear()
-			p.setHead("A synced vault is kept in step with a sync server, through which its other devices get its ciphertext. u sets this vault up; i invites a device; j joins a vault from an invite.")
+			p.setHead(svops.SyncAbout + " u sets this vault up; i invites another device; j joins a vault from an invite.")
 			p.heading("Synced vaults")
 			if len(sts) == 0 {
 				p.none("None (u sets this one up).")
@@ -105,7 +106,7 @@ func (u *UI) showSync() {
 		return ok && !d.This
 	}, func(ref any) {
 		d := ref.(syncDeviceRef)
-		u.confirm("Remove device?", fmt.Sprintf("Remove %s (%s) from %s on the server?\n\nIt keeps what it already has, and any key it opens the vault with: to cut it off for good, remove its keyslot and rotate (Sharing › Cut off).", d.Label, d.Key, vault), "Remove", func() {
+		u.showPlan(svops.RemoveSyncDevicePlain(vault, d.Label, d.Key), func() {
 			u.call(func(ctx context.Context, c *secretvault.Client) error {
 				return c.SyncRemove(ctx, vault, d.Key)
 			}, func(err error) {
@@ -113,13 +114,18 @@ func (u *UI) showSync() {
 					u.fail(err)
 					return
 				}
-				u.say("Removed %s from %s", d.Label, vault)
+				name := d.Label
+				if name == "" {
+					name = "Device " + d.Key
+				}
+				u.say("%s no longer syncs %s", name, vault)
 				p.refresh()
 			})
 		})
 	})
 	p.act('o', "Stop syncing "+vault+"…", func() {
-		u.confirm("Stop syncing?", fmt.Sprintf("Stop syncing %s? It stays here as it is; the server's copy is left alone.", vault), "Stop", func() {
+		stop := svops.StopSyncPlain(vault)
+		u.confirm(stop.Title, stop.Summary, stop.Action, func() {
 			u.call(func(ctx context.Context, c *secretvault.Client) error {
 				return c.SyncOff(ctx, vault)
 			}, func(err error) {
@@ -151,19 +157,19 @@ func syncState(st svrpc.SyncStatus) string {
 	case st.Last.IsZero():
 		return "starting"
 	case st.Kept > 0:
-		return fmt.Sprintf("ok; refused %d keyslot removals that would have left no key", st.Kept)
+		return fmt.Sprintf("ok; refused %d changes that would have left no way to open it", st.Kept)
 	}
 	return "ok"
 }
 
 // syncSetup is 'secretvault sync setup URL'.
 func (u *UI) syncSetup(vault string, then func()) {
-	f := u.newForm("Sync "+vault+" with a server", "The vault is made on the server, with this device as its first device. A self-signed server is pinned by its certificate's fingerprint, as secretvault-server printed it.")
+	f := u.newForm("Sync "+vault+" with a server", svops.SyncSetupLead+" For a server with a self-signed certificate, give the fingerprint it printed.")
 	url := f.text("Server", "", "https://sync.example.com:8443")
-	fp := f.text("Fingerprint", "", "(for a self-signed certificate)")
-	token := f.path("Admin token file", "", "(when the server does not let anyone make vaults)")
-	label := f.text("This device's name", "", "default: the host name")
-	f.show("Set up", func() string {
+	fp := f.text("Fingerprint", "", "(only for a self-signed certificate)")
+	token := f.path("Admin token file", "", "(only if the server does not let anyone make vaults)")
+	label := f.text("This device's name", "", "its name to the others (default: the host name)")
+	f.show("Start syncing", func() string {
 		p := svrpc.SyncSetupParams{Vault: vault, URL: trimmed(url), Fingerprint: trimmed(fp), Label: trimmed(label)}
 		if p.URL == "" {
 			return "Give the server's address."
@@ -211,21 +217,21 @@ func (u *UI) syncInvite(vault string) {
 			code = nil
 		}
 		u.showOnce("Invite a device to "+vault, []onceLine{
-			{text: "On the new device, join with this invite (before " + inv.Expires.Local().Format("15:04") + "; it works once):"},
+			{text: "On the other device, join with this invite: Sync › Join a synced vault there, or 'secretvault sync join INVITE'."},
 			{secret: []byte(inv.Invite)},
 			{},
-			{text: "Sync › Join a synced vault here, or 'secretvault sync join INVITE'. It gets the vault's ciphertext;"},
-			{text: "opening it still takes the passphrase, or a keyslot you add for it. Or scan it (the same one-time code):"},
+			{text: svops.SyncInviteNote(inv.Expires.Local().Format("15:04"))},
+			{text: "Or scan it (the same one-time code):"},
 		}, code)
 	})
 }
 
 // syncJoin is 'secretvault sync join INVITE'.
 func (u *UI) syncJoin() {
-	f := u.newForm("Join a synced vault", "Paste the invite a device that syncs the vault made (Sync › Invite a device). The vault is fetched here, and syncs from then on.")
+	f := u.newForm("Join a synced vault", svops.SyncJoinLead+" On that device: Sync › Invite a device (i).")
 	invite := f.text("Invite", "", "secretvault-sync:…")
-	name := f.text("Name here", "", "default")
-	dir := f.path("Folder", "", "secretvault's own (or a folder of your own)")
+	name := f.text("Name here", "", "what to call it on this device (default: default)")
+	dir := f.path("Folder", "", "empty: secretvault's own")
 	label := f.text("This device's name", "", "default: the host name")
 	f.show("Join", func() string {
 		p := svrpc.SyncJoinParams{Invite: trimmed(invite), Name: trimmed(name), Label: trimmed(label)}
@@ -251,7 +257,7 @@ func (u *UI) syncJoin() {
 				u.fail(err)
 				return
 			}
-			u.say("Fetched vault %s into %s; it syncs from now on. Unlock it with its passphrase", v.Name, v.Path)
+			u.say("Fetched vault %s; it syncs from now on. Unlock it with its passphrase", v.Name)
 			u.afterVaultsChange(v.Name)
 		})
 		return ""

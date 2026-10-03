@@ -28,7 +28,7 @@ func TestContainersAreMadeOpenedClosedAndBackedUp(t *testing.T) {
 	h.unlock()
 	h.typeText("M")
 	h.waitFor("Containers · personal")
-	h.waitFor("None (n makes one)")
+	h.waitFor("None yet: n makes one")
 	h.typeText("n")
 	h.waitFor("New container in personal")
 	h.typeText(img)
@@ -42,7 +42,7 @@ func TestContainersAreMadeOpenedClosedAndBackedUp(t *testing.T) {
 	h.typeText(own)
 	h.tabs(3)
 	h.key(tcell.KeyEnter)
-	h.waitSaid("its key is the item containers/work")
+	h.waitSaid("its key is in the item containers/work")
 	st, _ := fake.Image(img)
 	if st.FSType != "ext4" || st.Label != "Work" || st.MountPoint == "" {
 		t.Fatalf("UDisks2 saw %+v", st)
@@ -50,7 +50,7 @@ func TestContainersAreMadeOpenedClosedAndBackedUp(t *testing.T) {
 	if _, err := svcontainer.CheckPassphrase(img, []byte(own)); err != nil {
 		t.Fatalf("its own passphrase: %v", err)
 	}
-	h.waitFor("mounted at ")
+	h.waitFor("open, in ")
 	if h.leaked.Load() {
 		t.Fatal("the passphrase was drawn")
 	}
@@ -58,7 +58,7 @@ func TestContainersAreMadeOpenedClosedAndBackedUp(t *testing.T) {
 	// Closed, then opened read-only.
 	selectRef[svrpc.ContainerInfo](h)
 	h.typeText("c")
-	h.waitSaid("Closed " + img)
+	h.waitSaid("Closed work.img")
 	h.waitFor("closed")
 	selectRef[svrpc.ContainerInfo](h)
 	h.typeText("o")
@@ -67,7 +67,7 @@ func TestContainersAreMadeOpenedClosedAndBackedUp(t *testing.T) {
 	h.typeText("ro")
 	h.tabs(1)
 	h.key(tcell.KeyEnter)
-	h.waitSaid("Opened " + img)
+	h.waitSaid("Opened work.img: its files are in ")
 	if st, _ := fake.Image(img); st.MountOptions != "ro" {
 		t.Fatalf("mount options: %+v", st)
 	}
@@ -75,11 +75,11 @@ func TestContainersAreMadeOpenedClosedAndBackedUp(t *testing.T) {
 	// Its passphrase removed; its header backed up.
 	selectRef[svrpc.ContainerInfo](h)
 	h.typeText("p")
-	h.waitFor("The passphrase of work.img")
+	h.waitFor("A passphrase of its own for work.img")
 	h.key(tcell.KeyEnter) // remove it
 	h.tabs(3)
 	h.key(tcell.KeyEnter)
-	h.waitSaid("Removed the passphrase keyslot")
+	h.waitSaid("Removed the passphrase of work.img")
 	if _, err := svcontainer.CheckPassphrase(img, []byte(own)); err == nil {
 		t.Fatal("the passphrase still opens it")
 	}
@@ -88,7 +88,7 @@ func TestContainersAreMadeOpenedClosedAndBackedUp(t *testing.T) {
 	h.waitFor("Back up the header of work.img")
 	h.typeText(backup)
 	h.key(tcell.KeyEnter)
-	h.waitSaid("Wrote " + img + "'s header to " + backup)
+	h.waitSaid("Copied the header of work.img to " + backup)
 	if st, err := os.Stat(backup); err != nil || st.Size() != svluks.DataOffset {
 		t.Fatalf("backup: %v", err)
 	}

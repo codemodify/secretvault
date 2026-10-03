@@ -233,15 +233,15 @@ const pageOnceAsk = "once-ask"
 // confirmOnce asks before closing a once view.
 func (u *UI) confirmOnce(close func()) {
 	m := tview.NewModal().SetText("This is not shown again. Have you written it down, or copied it where it belongs?").
-		AddButtons([]string{"Cancel", "Close"})
-	m.SetTitle(" Close? ")
+		AddButtons([]string{"Keep it open", "Close it"})
+	m.SetTitle(" Close it for good? ")
 	answer := func(yes bool) {
 		u.closePage(pageOnceAsk)
 		if yes {
 			close()
 		}
 	}
-	m.SetDoneFunc(func(_ int, label string) { answer(label == "Close") })
+	m.SetDoneFunc(func(_ int, label string) { answer(label == "Close it") })
 	m.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
 		switch ev.Rune() {
 		case 'y', 'Y':

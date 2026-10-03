@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/rivo/tview"
@@ -40,16 +41,16 @@ func (u *UI) signFile() {
 		return
 	}
 	vault := u.vault
-	f := u.newForm("Sign a file", "With your OpenPGP key, inside the daemon: a detached signature (the default), the file with its signature, or readable text with its signature.")
-	in := f.path("File", "", "")
-	key := f.text("Key", "", "default: your only key")
+	f := u.newForm("Sign a file", svops.SignFileAbout)
+	in := f.path("File to sign", "", "")
+	key := f.text("Sign with", "", "default: your only key")
 	modes := []string{svrpc.SignDetached, svrpc.SignInline, svrpc.SignCleartext}
-	mode := f.choice("Signature", []string{"detached", "inline (the file with its signature)", "cleartext (readable text)"}, 0)
-	armor := f.check("Armored (text)", true)
+	mode := f.choice("Make", []string{"a signature file (detached)", "the file, signed (inline)", "readable text, signed (cleartext)"}, 0)
+	armor := f.check("As text (armored)", true)
 	text := f.check("A text signature (ignores line endings)", false)
-	out := f.path("Write to", "", "default: the file .asc or .sig")
+	out := f.path("Save the signature to", "", "default: beside the file")
 	replace := f.check("Replace the file if it is there", false)
-	f.show("Sign", func() string {
+	f.show("Sign the file", func() string {
 		src := filePath(in)
 		if src == "" {
 			return "Give the file to sign."
@@ -82,7 +83,7 @@ func (u *UI) signFile() {
 				u.fail(err)
 				return
 			}
-			u.say("Signed with %s: wrote %s", res.Item, dst)
+			u.say("Signed %s with %s: the signature is in %s", filepath.Base(src), res.Item, dst)
 		})
 		return ""
 	})
@@ -94,14 +95,14 @@ func (u *UI) decryptPGPFile() {
 		return
 	}
 	vault := u.vault
-	f := u.newForm("Decrypt a file (OpenPGP)", "With your OpenPGP key, inside the daemon. The signatures inside are checked against your contacts if asked.")
-	in := f.path("File", "", "")
-	key := f.text("Key", "", "default: the key it is for")
-	verify := f.check("Check the signatures inside", false)
-	from := f.text("From", "", "the address it claims to be from (optional)")
-	out := f.path("Write to", "", "default: the file without .gpg, .pgp or .asc")
+	f := u.newForm("Decrypt a file (OpenPGP)", svops.DecryptPGPAbout)
+	in := f.path("Encrypted file", "", "")
+	key := f.text("Decrypt with", "", "default: the key it is for")
+	verify := f.check("Check its signatures", false)
+	from := f.text("Sent from", "", "its address (optional)")
+	out := f.path("Save it decrypted to", "", "default: beside the file")
 	replace := f.check("Replace the file if it is there", false)
-	f.show("Decrypt", func() string {
+	f.show("Decrypt the file", func() string {
 		src := filePath(in)
 		if src == "" {
 			return "Give the file to decrypt."
@@ -132,14 +133,14 @@ func (u *UI) decryptPGPFile() {
 				return
 			}
 			var b strings.Builder
-			fmt.Fprintf(&b, "Decrypted with %s; wrote %s.\n", tview.Escape(res.Item), tview.Escape(dst))
+			fmt.Fprintf(&b, "Decrypted %s with %s into %s, which only you can read.\n", tview.Escape(filepath.Base(src)), tview.Escape(res.Item), tview.Escape(dst))
 			for _, w := range res.Warnings {
 				fmt.Fprintf(&b, "\n[yellow]warning:[-] %s", tview.Escape(w))
 			}
 			if lines := svops.SignatureLines(res.Signatures); len(lines) > 0 {
 				b.WriteString("\n\n" + tview.Escape(strings.Join(lines, "\n")))
 			}
-			u.say("Wrote %s", dst)
+			u.say("Decrypted %s into %s, which only you can read", filepath.Base(src), dst)
 			u.showText("Decrypted", b.String())
 		})
 		return ""
@@ -152,13 +153,13 @@ func (u *UI) verifyPGPFile() {
 		return
 	}
 	vault := u.vault
-	f := u.newForm("Check a signature", "A signed message, or a file and its detached signature: the verdict on the signer, against your contacts.")
-	in := f.path("File", "", "")
-	sig := f.path("Detached signature", "", "(none: the file is a signed message)")
-	from := f.text("From", "", "the address it claims to be from (optional)")
-	out := f.path("Write a signed message's text to", "", "(optional)")
+	f := u.newForm("Check a signature", svops.CheckSignatureAbout)
+	in := f.path("Signed file", "", "")
+	sig := f.path("Signature file", "", "empty if inside the file")
+	from := f.text("Sent from", "", "its address (optional)")
+	out := f.path("Save its text to", "", "optional")
 	replace := f.check("Replace the file if it is there", false)
-	f.show("Check", func() string {
+	f.show("Check the signature", func() string {
 		src := filePath(in)
 		if src == "" {
 			return "Give the file."
@@ -211,7 +212,7 @@ func (u *UI) verifyPGPFile() {
 			if dst != "" && res.Body != nil {
 				text += "\n\nWrote the message's text to " + tview.Escape(dst) + "."
 			}
-			u.showText("Signature", text)
+			u.showText("Signature checked", text)
 		})
 		return ""
 	})
@@ -235,18 +236,18 @@ func (u *UI) pluginUI(ctx context.Context) *svage.PluginUI {
 
 // encryptAge is 'secretvault age encrypt'.
 func (u *UI) encryptAge() {
-	f := u.newForm("Encrypt a file (age)", "To recipients (age1…, age1pq1…, SSH public keys, other plugins', or sv://VAULT/ITEM for an identity kept in a vault), one per line; or to a passphrase instead.")
-	in := f.path("File", "", "")
-	rcpts := f.area("Recipients", "", 3)
-	rcpts.SetPlaceholder("one per line")
-	files := f.path("Recipients file", "", "one per line (optional)")
-	pass := f.secret("Or a passphrase")
+	f := u.newForm("Encrypt a file (age)", svops.EncryptAgeAbout+" Name one of your own as sv://vault/item.")
+	in := f.path("File to encrypt", "", "")
+	rcpts := f.area("Who can open it", "", 3)
+	rcpts.SetPlaceholder("public keys, one per line")
+	files := f.path("Or keys from a file", "", "optional")
+	pass := f.secret("Or a passphrase instead")
 	again := f.secret("Repeat it")
-	armor := f.check("Armored (text)", false)
-	mixed := f.check("Let post-quantum and classical recipients share it", false)
-	out := f.path("Write to", "", "default: the file .age")
+	armor := f.check("As text (armored)", false)
+	mixed := f.check("Mix PQ and classical keys (weaker)", false)
+	out := f.path("Save it encrypted to", "", "default: beside the file")
 	replace := f.check("Replace the file if it is there", false)
-	f.show("Encrypt", func() string {
+	f.show("Encrypt the file", func() string {
 		src := filePath(in)
 		if src == "" {
 			return "Give the file to encrypt."
@@ -261,11 +262,11 @@ func (u *UI) encryptAge() {
 		usePass := len(pass.buf) > 0
 		switch {
 		case usePass && (len(args) > 0 || recipientsFile != ""):
-			return "A passphrase must be a file's only recipient."
+			return "A file encrypted to a passphrase can have no keys besides: clear the keys, or the passphrase."
 		case usePass && string(pass.buf) != string(again.buf):
 			return "The two passphrases differ."
 		case !usePass && len(args) == 0 && recipientsFile == "":
-			return "Give recipients, or a passphrase."
+			return "Give the key of whoever is to open it, or a passphrase."
 		}
 		dst := filePath(out)
 		if dst == "" {
@@ -336,7 +337,7 @@ func (u *UI) encryptAge() {
 				u.fail(err)
 				return
 			}
-			u.say("Encrypted: wrote %s", dst)
+			u.say("Encrypted %s into %s", filepath.Base(src), dst)
 		})
 		return ""
 	})
@@ -344,13 +345,13 @@ func (u *UI) encryptAge() {
 
 // decryptAge is 'secretvault age decrypt'.
 func (u *UI) decryptAge() {
-	f := u.newForm("Decrypt a file (age)", "With identities (sv://VAULT/ITEM for one kept in a vault, or files of identities or SSH private keys), one per line; with none, the passphrase it was encrypted to is asked for.")
-	in := f.path("File", "", "")
-	ids := f.area("Identities", "", 3)
+	f := u.newForm("Decrypt a file (age)", svops.DecryptAgeAbout+" Name one in the vault as sv://vault/item, or give a key file's path.")
+	in := f.path("Encrypted file", "", "")
+	ids := f.area("Your age keys", "", 3)
 	ids.SetPlaceholder("one per line (none: a passphrase)")
-	out := f.path("Write to", "", "default: the file without .age")
+	out := f.path("Save it decrypted to", "", "default: beside the file")
 	replace := f.check("Replace the file if it is there", false)
-	f.show("Decrypt", func() string {
+	f.show("Decrypt the file", func() string {
 		src := filePath(in)
 		if src == "" {
 			return "Give the file to decrypt."
@@ -422,7 +423,7 @@ func (u *UI) decryptAge() {
 				u.fail(err)
 				return
 			}
-			u.say("Decrypted: wrote %s", dst)
+			u.say("Decrypted %s into %s, which only you can read", filepath.Base(src), dst)
 		})
 		return ""
 	})
@@ -431,13 +432,13 @@ func (u *UI) decryptAge() {
 // inspectMail is 'secretvault mail inspect'.
 func (u *UI) inspectMail() {
 	vault := u.vault
-	f := u.newForm("Inspect a message", "A message as received (.eml): who signed it, judged against your contacts, how it was encrypted, and its text.")
+	f := u.newForm("Inspect a message", svops.InspectMessageAbout)
 	in := f.path("Message", "", "")
 	decrypt := f.check("Decrypt what is encrypted to your keys", false)
-	levels := []string{"published (the default)", "tofu", "logged", "organisation", "in-person"}
-	minLevel := f.choice("Weakest verification that counts", levels, 0)
-	contacts := f.text("Contacts vault", "", "default: the configured one")
-	f.show("Inspect", func() string {
+	levels := []string{"", "tofu", "logged", "organisation", "in-person"}
+	minLevel := f.choice("Counts as verified", []string{"published (the default)", "accepted as it was, or seen before", "logged", "an organisation vouches", "compared in person"}, 0)
+	contacts := f.text("Contacts vault", "", "default: the one set for them")
+	f.show("Inspect the message", func() string {
 		src := filePath(in)
 		if src == "" {
 			return "Give the message's file."
@@ -473,16 +474,16 @@ func (u *UI) inspectMail() {
 // composeMail is 'secretvault mail compose'.
 func (u *UI) composeMail() {
 	vault := u.vault
-	f := u.newForm("Sign and encrypt a message", "A plain message (RFC 5322) becomes one signed with your key for its From address, and encrypted to every recipient's key and yours.")
+	f := u.newForm("Sign and encrypt a message", svops.ComposeMessageAbout)
 	in := f.path("Message", "", "")
-	sign := f.check("Sign it", true)
-	encrypt := f.check("Encrypt it", true)
+	sign := f.check("Sign it with your key", true)
+	encrypt := f.check("Encrypt it to everyone it is to, and you", true)
 	formats := []string{"", "openpgp", "smime"}
-	format := f.choice("Format", []string{"OpenPGP where everyone has a key for it, else S/MIME", "OpenPGP", "S/MIME"}, 0)
+	format := f.choice("Format", []string{"OpenPGP if all have a key, else S/MIME", "OpenPGP", "S/MIME"}, 0)
 	key := f.text("Your key", "", "default: the one for From")
-	out := f.path("Write to", "", "")
+	out := f.path("Save the result to", "", "")
 	replace := f.check("Replace the file if it is there", false)
-	f.show("Compose", func() string {
+	f.show("Sign and encrypt", func() string {
 		src, dst := filePath(in), filePath(out)
 		if src == "" || dst == "" {
 			return "Give the message, and where to write the result."

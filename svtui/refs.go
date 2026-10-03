@@ -52,9 +52,9 @@ func (u *UI) copyReference() {
 // resolveReference is 'secretvault read REF', for a person: the value,
 // masked until revealed (r), copied with c.
 func (u *UI) resolveReference() {
-	f := u.newForm("Resolve a reference", "What a reference names: sv://VAULT/ITEM[#FIELD], - for the default vault. The value stays masked until you reveal it.")
+	f := u.newForm("Resolve a reference", svops.ResolveReferenceAbout)
 	ref := f.text("Reference", "", "sv://-/web/example.com#password")
-	f.show("Resolve", func() string {
+	f.show("Show what it names", func() string {
 		r, err := svrpc.ParseRef(trimmed(ref))
 		if err != nil {
 			return err.Error()
@@ -146,38 +146,39 @@ func checkRefs(ctx context.Context, c *secretvault.Client, refs [][2]string) []c
 	return out
 }
 
+// checkText says how many of the references can be read, then each, and
+// why one cannot.
 func (u *UI) checkText(results []checkResult) string {
 	var b strings.Builder
 	bad := 0
 	for _, r := range results {
 		if r.err != nil {
 			bad++
-			fmt.Fprintf(&b, "[red]✗[-] %s  %s  [red]%s[-]\n", tview.Escape(r.where), tview.Escape(r.ref), tview.Escape(u.describe(r.err)))
+			fmt.Fprintf(&b, "\n[red]✗[-] %s  %s  [red]%s[-]", tview.Escape(r.where), tview.Escape(r.ref), tview.Escape(u.describe(r.err)))
 			continue
 		}
-		fmt.Fprintf(&b, "[green]✓[-] %s  %s  %s (%d bytes)\n", tview.Escape(r.where), tview.Escape(r.ref), mask, r.n)
+		fmt.Fprintf(&b, "\n[green]✓[-] %s  %s  %s (%d bytes)", tview.Escape(r.where), tview.Escape(r.ref), mask, r.n)
 	}
-	switch {
-	case len(results) == 0:
-		b.WriteString("There are no sv:// references in it.")
-	case bad == 0:
-		fmt.Fprintf(&b, "\nEvery reference resolves (%d).", len(results))
-	default:
-		fmt.Fprintf(&b, "\n[red]%d of %d do not resolve.[-]", bad, len(results))
+	summary := tview.Escape(svops.ReferencesChecked(len(results)-bad, len(results)))
+	if bad > 0 {
+		summary = "[red]" + summary + "[-]"
 	}
-	return b.String()
+	if b.Len() > 0 {
+		summary += "\n"
+	}
+	return summary + b.String()
 }
 
 // checkEnvFile is 'secretvault run --env-file F --env K=V', for a
 // person: each sv:// reference the environment would hold, and whether
 // it resolves (svops.Environ).
 func (u *UI) checkEnvFile() {
-	f := u.newForm("Check an env file", "The sv:// references 'secretvault run' would resolve in its environment, each checked; the values are never shown.")
+	f := u.newForm("Check an env file", svops.CheckEnvFileAbout)
 	files := f.area("Env files", "", 3)
 	files.SetPlaceholder("one path per line")
 	pairs := f.area("Variables", "", 2)
 	pairs.SetPlaceholder("KEY=VALUE, one per line (optional)")
-	f.show("Check", func() string {
+	f.show("Check the references", func() string {
 		env := svops.NewEnviron(nil)
 		var paths, kvs []string
 		for _, l := range strings.Split(files.GetText(), "\n") {
@@ -213,10 +214,10 @@ func (u *UI) checkEnvFile() {
 // person: each {{ sv://... }} reference checked, and, if asked, the
 // template filled into a new file (svops.Inject, svops.WriteNew).
 func (u *UI) checkTemplate() {
-	f := u.newForm("Check a template", "The {{ sv://... }} references 'secretvault inject' fills, each checked; the values are never shown. Filled, it goes only to a new file of yours (mode 0600).")
+	f := u.newForm("Check a template", svops.CheckTemplateAbout)
 	in := f.path("Template", "", "")
 	out := f.path("Fill it into", "", "a new file (optional)")
-	f.show("Check", func() string {
+	f.show("Check the template", func() string {
 		src := filePath(in)
 		if src == "" {
 			return "Give the template's path."
@@ -251,9 +252,9 @@ func (u *UI) checkTemplate() {
 			switch {
 			case dst == "":
 			case injectErr != nil:
-				text += "\n\n[red]Not filled: " + tview.Escape(u.describe(injectErr)) + "[-]"
+				text += "\n\n[red]The filled-in copy was not written: " + tview.Escape(u.describe(injectErr)) + "[-]"
 			default:
-				text += "\n\nFilled into " + tview.Escape(dst) + "."
+				text += "\n\nFilled into " + tview.Escape(dst) + ", which only you can read."
 				u.say("Filled the template into %s", dst)
 			}
 			u.showText("Template", text)

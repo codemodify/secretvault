@@ -135,11 +135,12 @@ func TestSyncSetUpInviteAndJoin(t *testing.T) {
 		}
 	})
 	h.typeText("x")
-	h.waitFor("Remove device?")
-	h.typeText("y")
-	h.waitFor("Removed")
+	h.waitFor("syncing?")
+	h.tabs(2) // Cancel, then Stop it syncing
+	h.key(tcell.KeyEnter)
+	h.waitFor("no longer syncs personal")
 	h.typeText("o")
-	h.waitFor("Stop syncing personal?")
+	h.waitFor("Stop syncing vault personal?")
 	h.typeText("y")
 	h.waitFor("personal no longer syncs")
 	h.waitFor("None (u sets this one up)")
@@ -168,13 +169,13 @@ func TestSharingAndEmergencyAccess(t *testing.T) {
 	owner.waitFor("Sharing and emergency access · personal")
 	owner.waitFor("Nobody (s shares)")
 	owner.typeText("s")
-	owner.waitFor("Share personal")
+	owner.waitFor("Share vault personal")
 	owner.typeText(recipient)
 	owner.tabs(1)
 	owner.typeText("alice")
 	owner.tabs(1)
 	owner.key(tcell.KeyEnter)
-	owner.waitFor("Shared: keyslot")
+	owner.waitFor("Shared vault personal with alice")
 	owner.waitFor("alice")
 	if _, err := owner.admin.Unlock(owner.ctx(), "", &svrpc.Key{Type: "identity", Secret: id}); err != nil {
 		t.Fatalf("her identity does not open the vault: %v", err)
@@ -188,15 +189,15 @@ func TestSharingAndEmergencyAccess(t *testing.T) {
 		}
 	})
 	owner.typeText("c")
-	owner.waitFor("Rotate the key of personal")
-	owner.waitFor("who are cut off")
+	owner.waitFor("vault personal a new key")
+	owner.waitFor("except the one being cut off")
 	owner.typeText(pass)
 	owner.tabs(1)
 	owner.typeText(pass)
 	owner.tabs(2)
 	owner.key(tcell.KeyEnter)
-	owner.waitFor("Rotated personal")
-	if !strings.Contains(owner.onceText(), "cut off: what is written from now on") {
+	owner.waitFor("Vault personal has a new key")
+	if !strings.Contains(owner.onceText(), "The one cut off can no longer open it") {
 		t.Fatalf("the rotation does not say she was cut off: %s", owner.onceText())
 	}
 	owner.key(tcell.KeyEscape) // nothing secret: closes at once
@@ -213,7 +214,7 @@ func TestSharingAndEmergencyAccess(t *testing.T) {
 	owner.setupSync(url, fp)
 	owner.key(tcell.KeyEscape)
 	owner.typeText("E")
-	owner.waitFor("None (g grants it)")
+	owner.waitFor("Nobody (g grants it)")
 	owner.typeText("g")
 	owner.waitFor("Grant emergency access to personal")
 	owner.typeText(recipient)
@@ -270,7 +271,7 @@ func TestSharingAndEmergencyAccess(t *testing.T) {
 	})
 	owner.waitFor("REQUESTED")
 	owner.typeText("d")
-	owner.waitFor("Deny?")
+	owner.waitFor("Denying it")
 	owner.typeText("y")
 	owner.waitFor("Denied")
 
@@ -314,13 +315,13 @@ func TestSharingAndEmergencyAccess(t *testing.T) {
 	owner.waitFor("Revoke emergency access")
 	owner.tabs(1)
 	owner.key(tcell.KeyEnter)
-	owner.waitFor("Rotate the key of personal")
+	owner.waitFor("Give vault personal a new key")
 	owner.typeText(pass)
 	owner.tabs(1)
 	owner.typeText(pass)
 	owner.tabs(2)
 	owner.key(tcell.KeyEnter)
-	owner.waitFor("The vault key was rotated")
+	owner.waitFor("Key epoch:")
 }
 
 // onceText is the once view's text, unwrapped.

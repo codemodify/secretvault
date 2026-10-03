@@ -41,14 +41,14 @@ func (u *UI) showDevices() {
 				return
 			}
 			policy = pol
-			rule := "[yellow]Every revision counts, signed or not[-]; the history says who signed each."
+			rule := "[yellow]Every change counts, signed or not[-]; the history says which device signed each."
 			if policy.Require {
-				rule = "[green]Only revisions signed by a device registered here count[-]; the rest show in the history as ignored."
+				rule = "[green]Only changes signed by a device listed here count[-]; the history marks the rest as ignored."
 			}
-			p.setHead(rule + " s changes it.\n\nAnyone who can open the vault can register a device, under any label. Before vouching for one, check that its key is the one this panel shows as \"this device\" on that device.")
+			p.setHead(rule + " s changes it.\n\n" + tview.Escape(svops.DevicesAbout))
 			p.clear()
 			if len(devs) == 0 {
-				p.none("None yet.")
+				p.none("None yet (added on unlock).")
 			}
 			for _, d := range devs {
 				p.row(d, d.Key, d.Label, d.Device[:min(8, len(d.Device))], d.Registered.Local().Format("2006-01-02 15:04"), svops.DeviceStanding(d))
@@ -59,7 +59,7 @@ func (u *UI) showDevices() {
 	isDevice := is[svrpc.Device]
 	p.rowAct('l', "Name it…", isDevice, func(ref any) {
 		d := ref.(svrpc.Device)
-		u.ask("Name device "+d.Key[:min(16, len(d.Key))], "Label:", d.Label, func(label string) {
+		u.ask("Name device "+d.Key[:min(16, len(d.Key))], "Name:", d.Label, func(label string) {
 			device := d.Key
 			if d.This {
 				device = ""
@@ -84,13 +84,7 @@ func (u *UI) showDevices() {
 	}, func(ref any) {
 		d := ref.(svrpc.Device)
 		withdraw := d.Vouched
-		text := fmt.Sprintf("Vouch for %s %q? This device then believes what it signs, and the devices it vouches for.\n\nCheck first that %s is the key that device shows as its own.", d.Key, d.Label, d.Key)
-		action := "Vouch"
-		if withdraw {
-			text = fmt.Sprintf("Stop vouching for %s %q?", d.Key, d.Label)
-			action = "Withdraw"
-		}
-		u.confirm(action+"?", text, action, func() {
+		do := func() {
 			var res svrpc.Device
 			u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 				res, err = c.VouchDevice(ctx, vault, d.Key, withdraw)
@@ -107,14 +101,20 @@ func (u *UI) showDevices() {
 				}
 				p.refresh()
 			})
-		})
+		}
+		if withdraw {
+			stop := svops.WithdrawPlain(d.Label)
+			u.confirm(stop.Title, stop.Summary, stop.Action, do)
+			return
+		}
+		u.showPlan(svops.VouchPlain(d.Label, d.Key), do)
 	})
 	p.rowAct('x', "Remove it…", func(ref any) bool {
 		d, ok := ref.(svrpc.Device)
 		return ok && !d.Removed
 	}, func(ref any) {
 		d := ref.(svrpc.Device)
-		u.confirm("Remove device?", fmt.Sprintf("Mark %s %q removed? What it signed still verifies, and shows as a removed device's.\n\nIt can still open the vault and write to it: to cut it off, rotate the key without it (Sharing › Cut off, or Keyslots › Rotate).", d.Key, d.Label), "Remove", func() {
+		u.showPlan(svops.RemoveDevicePlain(d.Label, d.Key), func() {
 			var res svrpc.Device
 			u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 				res, err = c.RemoveDevice(ctx, vault, d.Key)
@@ -141,13 +141,13 @@ func (u *UI) showDevices() {
 // toggleSignatures is 'secretvault vault signatures required|optional'.
 func (u *UI) toggleSignatures(vault string, required bool, then func()) {
 	require := !required
-	text := fmt.Sprintf("Count only revisions of %s signed by a device registered in it? The rest show in the history as ignored, and versions of secretvault that cannot sign cannot write to it.", vault)
-	action := "Require"
+	title, action := "Count only signed changes?", "Count only signed changes"
+	text := fmt.Sprintf("Changes to %s not signed by a device listed in it are then ignored, and the history marks them. Older versions of secretvault, which cannot sign, can then no longer change it.", vault)
 	if !require {
-		text = fmt.Sprintf("Count every revision of %s, signed or not?", vault)
-		action = "Allow unsigned"
+		title, action = "Count unsigned changes too?", "Count every change"
+		text = fmt.Sprintf("Every change to %s counts again, signed or not; the history still says which device signed each.", vault)
 	}
-	u.confirm("Signatures", text, action, func() {
+	u.confirm(title, text, action, func() {
 		var p svrpc.SignaturePolicy
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 			p, err = c.Signatures(ctx, vault, &require)
@@ -158,9 +158,9 @@ func (u *UI) toggleSignatures(vault string, required bool, then func()) {
 				return
 			}
 			if p.Require {
-				u.say("Vault %s counts only revisions signed by a device registered in it", p.Vault)
+				u.say("Vault %s counts only changes signed by a device listed in it", p.Vault)
 			} else {
-				u.say("Vault %s counts every revision, signed or not", p.Vault)
+				u.say("Vault %s counts every change, signed or not", p.Vault)
 			}
 			if then != nil {
 				then()
@@ -179,7 +179,7 @@ func (u *UI) decideProgram(vault string, allow bool, then func()) {
 	if !allow {
 		title, action = "Deny a program", "Deny"
 	}
-	f := u.newForm(title+" · "+vault, "Decide about a program ahead of time: a path, flatpak:APP or snap:NAME. The decision covers an item, the vault's contacts, or (neither) the whole vault, for the operations listed.")
+	f := u.newForm(title+" · "+vault, "Decide now whether a program may use this vault, so that it is not asked later. The decision covers one item, the vault's contacts, or (neither) the whole vault, for the operations listed.")
 	program := f.path("Program", "", "/usr/bin/… or flatpak:APP or snap:NAME")
 	item := f.text("Only the item", "", "(optional: the whole vault)")
 	contacts := f.check("The vault's contacts, not an item", false)
@@ -213,11 +213,7 @@ func (u *UI) decideProgram(vault string, allow bool, then func()) {
 				u.fail(err)
 				return
 			}
-			what := "the whole vault"
-			if g.Item != "" {
-				what = fmt.Sprintf("%q", g.Item)
-			}
-			u.say("%s: %s may %s %s", g.Decision, g.Program, strings.Join(g.Ops, ","), what)
+			u.say("%s", strings.TrimSuffix(svops.GrantDecided(g), "."))
 			if then != nil {
 				then()
 			}

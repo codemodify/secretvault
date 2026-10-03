@@ -33,9 +33,9 @@ func (u *UI) showKeys() {
 		return
 	}
 	vault := u.vault
-	p := u.newPanel("Keys · "+vault, "ITEM", "FINGERPRINT / RECIPIENT", "FOR")
+	p := u.newPanel("Keys · "+vault, "ITEM", "FINGERPRINT / PUBLIC KEY", "FOR")
 	p.vault = vault
-	p.setHead("Your keys, kept in the vault: the daemon signs and decrypts with them, so they never leave it unless exported. Signing, decrypting and encrypting files are in the : menu, under Tools.")
+	p.setHead(svops.KeysInVaultNote + " Signing, decrypting and encrypting files are in the : menu, under Tools.")
 	p.reload = func() {
 		var entries []svrpc.Entry
 		var smime []svrpc.SMIMEKey
@@ -97,23 +97,23 @@ func (u *UI) showKeys() {
 	p.act('g', "Let gpg use the vault's keys…", func() { u.gpgSetup(vault) })
 	p.act('m', "Import an S/MIME key (.p12)…", func() { u.importSMIME(vault, p.refresh) })
 	p.act('k', "New age identity…", func() { u.newAgeIdentity(vault, p.refresh) })
-	p.rowAct('r', "Copy the recipient", isAge, func(ref any) { u.copyAge(vault, ref.(ageRef).e.Item.Name, false) })
+	p.rowAct('r', "Copy the public key (recipient)", isAge, func(ref any) { u.copyAge(vault, ref.(ageRef).e.Item.Name, false) })
 	p.rowAct('l', "Copy the identity line (for age and SOPS)", isAge, func(ref any) { u.copyAge(vault, ref.(ageRef).e.Item.Name, true) })
 	p.act('f', "New identity file…", u.newIdentityFile)
-	p.act('p', "The recipient of an identity file…", u.identityFileRecipient)
+	p.act('p', "Show an identity file's public key…", u.identityFileRecipient)
 	p.enter = nil
 	p.show()
 }
 
 // newPGPKey is 'secretvault pgp new'.
 func (u *UI) newPGPKey(vault string, then func()) {
-	f := u.newForm("New OpenPGP key in "+vault, "The key is made inside the daemon. Version 6 is the default, which GnuPG 2.4 and older do not read: choose version 4 for them.")
-	name := f.text("Your name", "", "")
-	emails := f.text("Your addresses", "", "comma-separated: a user ID each")
+	f := u.newForm("New OpenPGP key in "+vault, "The key is made and kept in the vault. "+svops.PGPVersionNote)
+	name := f.text("Your name", "", "as people will see it")
+	emails := f.text("Your addresses", "", "several separated by commas")
 	version := f.choice("Version", []string{"6", "4 (for GnuPG 2.4 and older)"}, 0)
-	item := f.text("Item", "", "default: pgp/ADDRESS")
-	days := f.text("Expires after", "", "days (default: never)")
-	f.show("Make it", func() string {
+	item := f.text("Item name", "", "Leave empty for pgp/ADDRESS")
+	days := f.text("Expires after", "", "days (empty: never)")
+	f.show("Make the key", func() string {
 		p := svrpc.PGPGenerateParams{Vault: vault, Item: trimmed(item), Name: trimmed(name), Emails: splitList(trimmed(emails)), Version: 6}
 		if p.Name == "" && len(p.Emails) == 0 {
 			return "Give a name, or an address."
@@ -150,10 +150,10 @@ func (u *UI) newPGPKey(vault string, then func()) {
 // svops.StorePGPKey). A protected key's passphrase is asked for when the
 // key turns out to need it.
 func (u *UI) importPGPKey(vault string, then func()) {
-	f := u.newForm("Import an OpenPGP key into "+vault, "One secret key, from a file. Someone else's public key goes to Contacts instead.")
-	path := f.path("File", "", "")
-	item := f.text("Item", "", "default: pgp/ADDRESS")
-	f.show("Import", func() string {
+	f := u.newForm("Import an OpenPGP key into "+vault, "One secret key of yours, from a file. Someone else's public key goes to Contacts instead.")
+	path := f.path("Key file", "", "")
+	item := f.text("Item name", "", "Leave empty for pgp/ADDRESS")
+	f.show("Import the key", func() string {
 		pth := filePath(path)
 		if pth == "" {
 			return "Give the key's file."
@@ -207,13 +207,13 @@ func (u *UI) copyPGPPublic(vault, key string) {
 // exportPGPKey is 'secretvault pgp export KEY [--secret [--unprotected]]
 // -o FILE'.
 func (u *UI) exportPGPKey(vault, key string) {
-	f := u.newForm("Export "+key, "The public key is for anyone. The secret key leaves the vault: protected with a new passphrase, unless you say otherwise.")
+	f := u.newForm("Export "+key, "The public key is for anyone. A secret key taken out of the vault can be used by whoever gets the file, without asking you: it is protected with a new passphrase, unless you say otherwise.")
 	what := f.choice("Export", []string{"the public key", "the secret key, under a new passphrase", "the secret key, unprotected"}, 0)
 	path := f.path("To the file", "", "")
 	replace := f.check("Replace the file if it is there", false)
 	pass := f.secret("New passphrase")
 	again := f.secret("Repeat it")
-	f.show("Export", func() string {
+	f.show("Export the key", func() string {
 		pth := filePath(path)
 		if pth == "" {
 			return "Give the file to write."
@@ -309,11 +309,11 @@ func commitOut(f *svops.AtomicFile, replace bool) error {
 
 // importSMIME is 'secretvault smime import FILE.p12'.
 func (u *UI) importSMIME(vault string, then func()) {
-	f := u.newForm("Import an S/MIME key into "+vault, "A PKCS #12 file (.p12, .pfx): your certificate and its private key.")
+	f := u.newForm("Import an S/MIME key into "+vault, "A PKCS #12 file (.p12 or .pfx): your certificate and its private key, for signed and encrypted mail.")
 	path := f.path("File", "", "")
-	pass := f.secret("Its password")
-	item := f.text("Item", "", "default: smime/ADDRESS")
-	f.show("Import", func() string {
+	pass := f.secret("The file's password")
+	item := f.text("Item name", "", "Leave empty for smime/ADDRESS")
+	f.show("Import the key", func() string {
 		pth := filePath(path)
 		if pth == "" {
 			return "Give the file."
@@ -349,11 +349,11 @@ func (u *UI) importSMIME(vault string, then func()) {
 // newAgeIdentity is 'secretvault age keygen' (svops.GenerateAgeIdentity,
 // svops.StoreAgeIdentity).
 func (u *UI) newAgeIdentity(vault string, then func()) {
-	f := u.newForm("New age identity in "+vault, "The identity is kept in the vault. age and SOPS reach it through its identity line (age-plugin-secretvault), which holds no secret.")
-	name := f.text("Item", "", "like age/backups")
+	f := u.newForm("New age identity in "+vault, svops.AgeNote)
+	name := f.text("Item name", "", "like age/backups")
 	pq := f.check("Post-quantum (ML-KEM-768 + X25519, age 1.3 or later)", false)
 	out := f.path("Also write the identity line to", "", "a new file (optional)")
-	f.show("Make it", func() string {
+	f.show("Make the identity", func() string {
 		r, err := svops.AgeItemRef(vault, trimmed(name))
 		if err != nil {
 			return err.Error()
@@ -384,7 +384,7 @@ func (u *UI) newAgeIdentity(vault string, then func()) {
 				then()
 			}
 			u.showCode("age identity "+r.Item, []onceLine{
-				{text: "Its recipient, for anyone to encrypt to:"},
+				{text: "Its public key (recipient), for anyone to encrypt to:"},
 				{secret: []byte(k.Recipient)},
 				{},
 				{text: "Its identity line, for age -i and SOPS (it names the item; it holds no secret):"},
@@ -422,15 +422,20 @@ func (u *UI) copyAge(vault, item string, plugin bool) {
 
 // newIdentityFile is 'secretvault identity new --out FILE'.
 func (u *UI) newIdentityFile() {
-	f := u.newForm("New identity file", "An identity of your own, in a file of yours (mode 0600): its recipient is what a vault is shared with.")
+	f := u.newForm("New identity file", svops.IdentityFileNote)
 	out := f.path("File", "", "a new file")
-	suite := f.choice("Cipher suite", []string{"modern", "nist"}, 0)
-	f.show("Make it", func() string {
+	suites := make([]string, len(svops.IdentitySuites))
+	for i, s := range svops.IdentitySuites {
+		suites[i] = s.Text
+	}
+	suite := f.choice(svops.SuiteLabel, suites, 0)
+	f.show("Make the file", func() string {
 		pth := filePath(out)
 		if pth == "" {
 			return "Give the new file's path."
 		}
-		rcpt, body, err := svops.NewIdentity(option(suite), "identity")
+		si, _ := suite.GetCurrentOption()
+		rcpt, body, err := svops.NewIdentity(svops.IdentitySuites[max(0, si)].Name, "identity")
 		if err != nil {
 			return err.Error()
 		}
@@ -439,21 +444,21 @@ func (u *UI) newIdentityFile() {
 			return err.Error()
 		}
 		u.say("Wrote %s", pth)
-		u.showCode("Identity file", []onceLine{{text: "Its recipient:"}, {secret: []byte(rcpt)}}, nil)
+		u.showCode("Identity file made", []onceLine{{text: svops.IdentityMadeNote}, {secret: []byte(rcpt)}}, nil)
 		return ""
 	})
 }
 
 // identityFileRecipient is 'secretvault identity pub FILE'.
 func (u *UI) identityFileRecipient() {
-	f := u.newForm("The recipient of an identity file", "")
-	path := f.path("File", "", "")
-	f.show("Show it", func() string {
+	f := u.newForm("Public key of an identity file", "The public key (recipient) of the identity in a file, to give to people who share vaults with you.")
+	path := f.path("Identity file", "", "")
+	f.show("Show the public key", func() string {
 		rcpt, err := svops.IdentityRecipient(filePath(path))
 		if err != nil {
 			return err.Error()
 		}
-		u.post(func() { u.showCode("Recipient", []onceLine{{secret: []byte(rcpt)}}, nil) })
+		u.post(func() { u.showCode("Public key (recipient)", []onceLine{{secret: []byte(rcpt)}}, nil) })
 		return ""
 	})
 }
@@ -482,7 +487,7 @@ func (u *UI) askFromWorker(ctx context.Context, title, intro, label string, secr
 			in = f.text(label, "", "")
 		}
 		f.onCancel = func() { answer(nil) }
-		f.show("OK", func() string {
+		f.show("Continue", func() string {
 			if secret {
 				answer(s.value())
 			} else {
@@ -528,7 +533,7 @@ func (u *UI) confirmFromWorker(ctx context.Context, title, text, yes string) boo
 	}
 	id := -1
 	u.post(func() {
-		m := tview.NewModal().SetText(text).AddButtons([]string{"No", yes})
+		m := tview.NewModal().SetText(text).AddButtons([]string{"Cancel", yes})
 		m.SetTitle(" " + tview.Escape(title) + " ")
 		m.SetDoneFunc(func(_ int, label string) {
 			answer(label == yes)

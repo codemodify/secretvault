@@ -2,7 +2,6 @@ package svtui
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -45,7 +44,7 @@ func (u *UI) showSharing() {
 				return
 			}
 			p.clear()
-			p.setHead("People the vault is shared with open it with their own identity; cutting one off rotates the key. Emergency access lets someone ask for the vault, and get it after a wait you can refuse; the vault must sync with a server, which keeps the wait.")
+			p.setHead(svops.SharingAbout + "\n" + svops.EmergencyAbout)
 			p.heading("Shared with")
 			shared := 0
 			for _, s := range slots {
@@ -66,7 +65,7 @@ func (u *UI) showSharing() {
 			if listErr != nil {
 				p.setHead("[red]" + tview.Escape(u.describe(listErr)) + "[-]")
 			} else if len(list.Given) == 0 {
-				p.none("None (g grants it).")
+				p.none("Nobody (g grants it).")
 			}
 			for _, g := range list.Given {
 				state := svops.GrantState(g)
@@ -90,7 +89,7 @@ func (u *UI) showSharing() {
 		})
 	}
 	p.act('s', "Share with…", func() { u.shareWith(vault, p.refresh) })
-	p.rowAct('c', "Cut off… (rotates the key)", is[svrpc.SlotInfo], func(ref any) {
+	p.rowAct('c', "Cut off… (gives the vault a new key)", is[svrpc.SlotInfo], func(ref any) {
 		s := ref.(svrpc.SlotInfo)
 		u.rotateKey(vault, []string{s.ID}, p.refresh)
 	})
@@ -100,7 +99,8 @@ func (u *UI) showSharing() {
 		return ok && g.State == svrpc.GrantRequested
 	}, func(ref any) {
 		g := ref.(svrpc.EmergencyGrant)
-		u.confirm("Deny?", fmt.Sprintf("Deny %s's request for %s? They can ask again, which starts the wait over, and you are told again.", svops.TrusteeName(g), vault), "Deny", func() {
+		deny := svops.DenyEmergencyPlain(svops.TrusteeName(g), vault)
+		u.confirm(deny.Title, deny.Summary, deny.Action, func() {
 			u.call(func(ctx context.Context, c *secretvault.Client) error {
 				_, err := c.EmergencyDeny(ctx, vault, g.ID)
 				return err
@@ -149,14 +149,14 @@ func accessState(a svrpc.EmergencyAccess) string {
 
 // grantEmergency is 'secretvault emergency grant CONTACT|RECIPIENT'.
 func (u *UI) grantEmergency(vault string, then func()) {
-	f := u.newForm("Grant emergency access to "+vault, "A contact with a secretvault key (by name, address or fingerprint), or a recipient, may ask for the vault; unless you deny it within the wait, they get it. The vault must sync with a server, which keeps the wait.")
-	who := f.text("Contact or recipient", "", "")
-	wait := f.text("Wait", "7d", "like 48h, 7d or 2w (an hour to a year)")
-	fp := f.text("Key fingerprint", "", "which of the contact's keys, if several (optional)")
-	name := f.text("Name in the invite", "", "what the invite calls the vault (default: its name)")
-	f.show("Grant", func() string {
+	f := u.newForm("Grant emergency access to "+vault, svops.EmergencyGrantLead+" Name a contact who has a secretvault key, or paste their "+svops.RecipientMeans+".")
+	who := f.text("Who", "", "a contact's name, address or fingerprint, or their recipient")
+	wait := f.text("Wait", "7d", "how long you have to deny it: 48h, 7d, 2w (an hour to a year)")
+	fp := f.text("Which key", "", "only if the contact has several: its fingerprint")
+	name := f.text("Name they see", "", "what the invite calls the vault (default: its name)")
+	f.show("Give access", func() string {
 		if trimmed(who) == "" {
-			return "Name the contact, or give a recipient."
+			return "Name the contact, or paste their public key."
 		}
 		d, err := svops.ParseWait(trimmed(wait))
 		if err != nil {
@@ -177,14 +177,14 @@ func (u *UI) grantEmergency(vault string, then func()) {
 				then()
 			}
 			lines := []onceLine{
-				{text: fmt.Sprintf("%s may now ask for vault %q. Unless you deny it within %s of their asking, they get it.", svops.TrusteeName(g), g.Vault, svops.WaitText(g.Wait))},
+				{text: svops.EmergencyGrantedText(svops.TrusteeName(g), g.Vault, g.Wait)},
 			}
 			if res.Warning != "" {
 				lines = append(lines, onceLine{text: "Warning: " + res.Warning})
 			}
 			lines = append(lines,
 				onceLine{},
-				onceLine{text: "Send them this invite (it holds no secret: accepting it takes their identity):"},
+				onceLine{text: "Send them this invite. " + svops.InviteHoldsNoSecret},
 				onceLine{secret: []byte(res.Invite)},
 				onceLine{},
 				onceLine{text: "They accept it in Sharing › Accept an invite (or 'secretvault emergency accept'). You are told when they ask; deny or revoke it here."},
@@ -202,9 +202,13 @@ func (u *UI) grantEmergency(vault string, then func()) {
 
 // revokeEmergency is 'secretvault emergency revoke GRANT [--rotate]'.
 func (u *UI) revokeEmergency(vault string, g svrpc.EmergencyGrant, then func()) {
-	f := u.newForm("Revoke emergency access", fmt.Sprintf("End %s's emergency access to %s: its keyslot and the server's escrow go. Once they were given the key, rotating it too cuts them off from all that is written afterwards.", svops.TrusteeName(g), vault))
-	rotate := f.check("Rotate the vault key too", g.Released != nil)
-	f.show("Revoke", func() string {
+	intro := svops.RevokeEmergencyText(svops.TrusteeName(g), vault)
+	if g.Released != nil {
+		intro += " " + svops.KeptACopyText(svops.When(g.Released))
+	}
+	f := u.newForm("Revoke emergency access", intro)
+	rotate := f.check("Give the vault a new key too", g.Released != nil)
+	f.show("Revoke access", func() string {
 		alsoRotate := rotate.IsChecked()
 		var res svrpc.EmergencyGrant
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
@@ -215,7 +219,7 @@ func (u *UI) revokeEmergency(vault string, g svrpc.EmergencyGrant, then func()) 
 				u.fail(err)
 				return
 			}
-			msg := fmt.Sprintf("Revoked: %s's emergency access to %s is gone, with its keyslot and the server's escrow.", svops.TrusteeName(res), res.Vault)
+			msg := svops.RevokedText(svops.TrusteeName(res), res.Vault)
 			for _, p := range res.Problems {
 				msg += " Note: " + p
 			}
@@ -228,7 +232,7 @@ func (u *UI) revokeEmergency(vault string, g svrpc.EmergencyGrant, then func()) 
 				u.say("%s", msg)
 				u.rotateKey(vault, nil, then)
 			case res.Released != nil:
-				u.showText("Revoked", tview.Escape(msg)+fmt.Sprintf("\n\nThey were given the vault's key on %s, and may have kept it: rotate the key now (Keyslots › r) to cut them off from all that is written afterwards.", svops.When(res.Released)))
+				u.showText("Revoked", tview.Escape(msg+"\n\n"+svops.KeptACopyText(svops.When(res.Released))+" (Keyslots, r)"))
 			default:
 				u.say("%s", msg)
 			}
@@ -239,12 +243,12 @@ func (u *UI) revokeEmergency(vault string, g svrpc.EmergencyGrant, then func()) 
 
 // acceptEmergency is 'secretvault emergency accept INVITE --identity FILE'.
 func (u *UI) acceptEmergency(then func()) {
-	f := u.newForm("Accept an emergency access invite", "Paste the invite someone sent you, and choose the identity file their grant was made for. The identity is used once, and not kept.")
+	f := u.newForm("Accept an emergency access invite", svops.AcceptEmergencyLead+" It is used once here, and not kept: keep the file, to open the vault later.")
 	invite := f.text("Invite", "", "secretvault-emergency:…")
 	identity := f.path("Identity file", "", "")
-	as := f.text("Call it", "", "default: the invite's name")
-	label := f.text("This device's name", "", "default: the host name")
-	f.show("Accept", func() string {
+	as := f.text("Name it here", "", "default: the name in the invite")
+	label := f.text("This device's name", "", "its name to the owner (default: the host name)")
+	f.show("Accept the invite", func() string {
 		inv, idPath := trimmed(invite), filePath(identity)
 		if inv == "" || idPath == "" {
 			return "Paste the invite, and give the identity file."
@@ -264,7 +268,7 @@ func (u *UI) acceptEmergency(then func()) {
 				u.fail(err)
 				return
 			}
-			u.say("Accepted, as %s. Should you need it, ask for it (r): its owner is told, and unless they deny it within %s it opens then", a.Name, svops.WaitText(a.Wait))
+			u.say("Accepted, as %s. When you need the vault, ask for it (r): its owner is told, and unless they deny it within %s, it is yours", a.Name, svops.WaitText(a.Wait))
 			if then != nil {
 				then()
 			}
@@ -275,7 +279,7 @@ func (u *UI) acceptEmergency(then func()) {
 
 // requestEmergency is 'secretvault emergency request NAME'.
 func (u *UI) requestEmergency(name string, then func()) {
-	u.confirm("Ask for "+name+"?", "Ask for emergency access to "+name+"? Its owner is told at once, and the wait starts.", "Ask", func() {
+	u.confirm("Ask for "+name+"?", "Ask for emergency access to "+name+"? Its owner is told at once, and the wait starts: unless they deny it, the vault is yours when it ends.", "Ask for access", func() {
 		var a svrpc.EmergencyAccess
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 			a, err = c.EmergencyRequest(ctx, name)
@@ -299,10 +303,10 @@ func (u *UI) requestEmergency(name string, then func()) {
 
 // openEmergency is 'secretvault emergency open NAME --identity FILE'.
 func (u *UI) openEmergency(name string, then func()) {
-	f := u.newForm("Open "+name, "After the wait, the vault is fetched and opened with your identity, read-only: it follows its owner's copy.")
+	f := u.newForm("Open "+name, "After the wait, the vault is fetched and opened with your identity file, read-only: it follows its owner's copy.")
 	identity := f.path("Identity file", "", "")
-	dir := f.path("Folder", "", "secretvault's own (or a folder of your own)")
-	f.show("Open", func() string {
+	dir := f.path("Folder", "", "empty: secretvault's own")
+	f.show("Open the vault", func() string {
 		idPath := filePath(identity)
 		if idPath == "" {
 			return "Give the identity file."
@@ -328,7 +332,7 @@ func (u *UI) openEmergency(name string, then func()) {
 				u.fail(err)
 				return
 			}
-			u.say("Opened vault %s in %s, read-only; once it locks, Unlock with › An identity file opens it again", v.Name, v.Path)
+			u.say("Opened vault %s, read-only; once it locks, Unlock with › An identity file opens it again", v.Name)
 			if then != nil {
 				then()
 			}
@@ -341,13 +345,13 @@ func (u *UI) openEmergency(name string, then func()) {
 // shareWith is 'secretvault share RECIPIENT|FILE': a person's (or a
 // device's, or a server's) identity gets a keyslot.
 func (u *UI) shareWith(vault string, then func()) {
-	f := u.newForm("Share "+vault, "Give a person's identity a keyslot: their recipient, or a file holding it, or their identity file. They open the vault with their identity; Cut off undoes it.")
-	who := f.path("Recipient or file", "", "a recipient, or a path")
-	label := f.text("Label", "", "a name for the person or device")
-	f.show("Share", func() string {
+	f := u.newForm("Share vault "+vault, svops.ShareLead+" Paste their "+svops.RecipientMeans+", or give the file that holds it (an identity file works too: only its public half is used).")
+	who := f.path("Their public key", "", "their recipient, or a file holding it")
+	label := f.text("Name", "", "who or what it is: Bob, Bob's laptop")
+	f.show("Share the vault", func() string {
 		arg := trimmed(who)
 		if arg == "" {
-			return "Give a recipient, or a file."
+			return "Paste their public key, or give the file that holds it."
 		}
 		r, err := svops.RecipientArg(expandHome(arg))
 		if err != nil {
@@ -363,7 +367,7 @@ func (u *UI) shareWith(vault string, then func()) {
 				u.fail(err)
 				return
 			}
-			u.say("Shared: keyslot %s opens %s with that identity; Cut off undoes it", info.ID, vault)
+			u.say("%s", svops.SharedText(vault, info.Label))
 			if then != nil {
 				then()
 			}

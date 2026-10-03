@@ -50,12 +50,12 @@ func TestDevicesAreNamedVouchedForAndRemoved(t *testing.T) {
 	h.waitFor("this device")
 	h.waitFor("the other one")
 	h.waitFor("not vouched for")
-	h.waitFor("Every revision counts")
+	h.waitFor("Every change counts")
 
 	// Name this one.
 	selectWhere(h, func(d svrpc.Device) bool { return d.This })
 	h.typeText("l")
-	h.waitFor("Label:")
+	h.waitFor("Name:")
 	h.ctrl(tcell.KeyCtrlU)
 	h.typeText("my laptop")
 	h.key(tcell.KeyEnter)
@@ -64,22 +64,24 @@ func TestDevicesAreNamedVouchedForAndRemoved(t *testing.T) {
 	// Vouch for the other, then remove it.
 	selectWhere(h, func(d svrpc.Device) bool { return !d.This })
 	h.typeText("v")
-	h.waitFor("Vouch for")
-	h.typeText("y")
+	h.waitFor("Vouch for the other one?")
+	h.tabs(2) // Cancel, then Vouch for it
+	h.key(tcell.KeyEnter)
 	h.waitFor("This device vouches for")
 	h.waitFor("vouched for")
 	selectWhere(h, func(d svrpc.Device) bool { return !d.This })
 	h.typeText("x")
-	h.waitFor("Remove device?")
-	h.typeText("y")
+	h.waitFor("Remove the other one?")
+	h.tabs(2) // Cancel, then Remove the device
+	h.key(tcell.KeyEnter)
 	h.waitFor("Removed device")
 	h.waitFor("removed")
 
-	// Only signed revisions count.
+	// Only signed changes count.
 	h.typeText("s")
-	h.waitFor("Count only revisions of personal signed")
+	h.waitFor("Changes to personal not signed")
 	h.typeText("y")
-	h.waitFor("Only revisions signed by a device registered here count")
+	h.waitFor("Only changes signed by a device listed here count")
 	h.unlockAdmin("")
 	p, err := h.admin.Signatures(h.ctx(), "", nil)
 	if err != nil || !p.Require {
@@ -93,7 +95,7 @@ func TestProgramsAreAllowedAndDeniedAheadOfTime(t *testing.T) {
 	h.unlock()
 	h.typeText("G")
 	h.waitFor("Grants · personal")
-	h.waitFor("No decisions remembered")
+	h.waitFor("No program has a remembered decision")
 	h.typeText("a")
 	h.waitFor("Allow a program · personal")
 	h.typeText("/usr/bin/true")
@@ -105,13 +107,13 @@ func TestProgramsAreAllowedAndDeniedAheadOfTime(t *testing.T) {
 	h.key(tcell.KeyEnter) // until the vault locks
 	h.tabs(1)
 	h.key(tcell.KeyEnter)
-	h.waitFor("allow-until-lock: true (/usr/bin/true) may read,list")
+	h.waitFor("true (/usr/bin/true) may read and list item web/gitlab.com")
 	h.typeText("n")
 	h.waitFor("Deny a program · personal")
 	h.typeText("flatpak:org.example.Spy")
 	h.tabs(4)
 	h.key(tcell.KeyEnter)
-	h.waitFor("deny-always")
+	h.waitFor("may never")
 	h.unlockAdmin("")
 	gs, err := h.admin.Grants(h.ctx(), "")
 	if err != nil || len(gs) != 2 {

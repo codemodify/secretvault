@@ -482,8 +482,7 @@ func (u *UI) deleteItem() {
 		return
 	}
 	vault := u.vault
-	u.confirm("Delete "+name+"?",
-		fmt.Sprintf("Delete %q from vault %q?\n\nIts revisions stay in the vault's history.", name, vault), "Delete",
+	u.confirm("Delete "+name+"?", svops.DeleteItemText(name, vault, "R"), svops.DeleteItemAction,
 		func() {
 			u.call(func(ctx context.Context, c *secretvault.Client) error {
 				return c.Delete(ctx, vault, name)
@@ -515,7 +514,7 @@ func (u *UI) renameItem() {
 			return
 		}
 		if err := svcore.CheckName(to); err != nil {
-			u.say("%q is not a usable name: use path segments like web/example.com", to)
+			u.say("%s", svops.BadItemName(to))
 			return
 		}
 		u.call(func(ctx context.Context, c *secretvault.Client) error {

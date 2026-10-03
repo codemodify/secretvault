@@ -27,16 +27,16 @@ var menuGroups = []string{"File", "Edit", "Vault", "Keys", "Contacts", "Tools", 
 func (u *UI) menu() []menuEntry {
 	return []menuEntry{
 		{"File", "New vault…", "N", u.newVault},
-		{"File", "Add a vault folder…", "", u.addVault},
+		{"File", "Add an existing vault…", "", u.addVault},
 		{"File", "Import from a browser or another password manager…", "I", u.importFile},
 		{"File", "Export to KeePass (KDBX) or CXF…", "X", u.exportFile},
 		{"File", "Join a synced vault…", "", u.syncJoin},
 		{"File", "Emergency access: accept an invite…", "", func() { u.acceptEmergency(nil) }},
 		{"File", "Emergency access: ask for a vault you hold access to…", "", func() {
-			u.ask("Ask for emergency access", "Its name here:", "", func(name string) { u.requestEmergency(name, nil) })
+			u.askTo("Ask for emergency access", "The vault's name here:", "", "Ask for access", func(name string) { u.requestEmergency(name, nil) })
 		}},
 		{"File", "Emergency access: open a vault after the wait…", "", func() {
-			u.ask("Open with emergency access", "Its name here:", "", func(name string) { u.openEmergency(name, nil) })
+			u.askTo("Open with emergency access", "The vault's name here:", "", "Open the vault", func(name string) { u.openEmergency(name, nil) })
 		}},
 		{"File", "Quit", "q", u.quit},
 
@@ -59,13 +59,13 @@ func (u *UI) menu() []menuEntry {
 		{"Vault", "Unlock with a keyfile, identity, recovery key or security key…", "", u.unlockWith},
 		{"Vault", "Lock", "l", func() { u.lockVault(false) }},
 		{"Vault", "Lock every vault", "L", func() { u.lockVault(true) }},
-		{"Vault", "Vaults: list, default, forget, open at login, verify", "V", u.showVaults},
+		{"Vault", "Vaults: list, default, forget, open at login, check", "V", u.showVaults},
 		{"Vault", "Make this vault the default", "", u.makeDefault},
 		{"Vault", "Forget this vault…", "", u.forgetVault},
 		{"Vault", "Open this vault when I log in (on or off)…", "", u.toggleLogin},
-		{"Vault", "Verify every file of this vault", "", u.verifyVault},
+		{"Vault", "Check every file of this vault", "", u.verifyVault},
 		{"Vault", "Keyslots: the ways this vault opens; adding, removing one", "K", u.showSlots},
-		{"Vault", "Add a keyslot: passphrase, recovery key, keyfile, recipient, security key…", "", func() {
+		{"Vault", "Add a way to open this vault: passphrase, recovery key, keyfile, person's key, security key…", "", func() {
 			if u.needVault() {
 				u.addSlot(u.vault, nil)
 			}
@@ -75,7 +75,7 @@ func (u *UI) menu() []menuEntry {
 				u.changePassphrase(u.vault)
 			}
 		}},
-		{"Vault", "Rotate the vault key…", "", func() {
+		{"Vault", "Give this vault a new key (rotate it)…", "", func() {
 			if u.needVault() {
 				u.rotateKey(u.vault, nil, nil)
 			}
@@ -98,7 +98,7 @@ func (u *UI) menu() []menuEntry {
 			}
 		}},
 		{"Vault", "Close an encrypted container…", "", func() { u.closeContainerAsk(nil) }},
-		{"Vault", "Grants: what programs may do", "G", u.showGrants},
+		{"Vault", "Grants: what programs may do; forgetting a decision", "G", u.showGrants},
 		{"Vault", "Allow a program ahead of time…", "", func() {
 			if u.needVault() {
 				u.decideProgram(u.vault, true, nil)
@@ -133,17 +133,17 @@ func (u *UI) menu() []menuEntry {
 				u.newAgeIdentity(u.vault, nil)
 			}
 		}},
-		{"Keys", "Copy an age identity's recipient or identity line", "P", u.showKeys},
+		{"Keys", "Copy an age identity's public key or identity line", "P", u.showKeys},
 		{"Keys", "New identity file…", "", u.newIdentityFile},
-		{"Keys", "The recipient of an identity file…", "", u.identityFileRecipient},
+		{"Keys", "Show an identity file's public key…", "", u.identityFileRecipient},
 		{"Keys", "Security keys plugged in, and what each can do", "K", u.showSlots},
 		{"Vault", "Sharing and emergency access: who opens this vault", "E", u.showSharing},
-		{"Vault", "Share this vault with a person's identity…", "", func() {
+		{"Vault", "Share this vault with a person, by their public key…", "", func() {
 			if u.needVault() {
 				u.shareWith(u.vault, nil)
 			}
 		}},
-		{"Vault", "Cut someone off (rotates the key)…", "E", u.showSharing},
+		{"Vault", "Cut someone off (gives the vault a new key)…", "E", u.showSharing},
 		{"Vault", "Grant emergency access…", "", func() {
 			if u.needVault() {
 				u.grantEmergency(u.vault, nil)
@@ -202,8 +202,8 @@ func (u *UI) menu() []menuEntry {
 		{"Desktop", "Allow a local service…", "", func() { u.hostAllowService(nil) }},
 		{"Desktop", "Deny a local service's references…", "", func() { u.hostDenyRefs(nil) }},
 		{"Desktop", "What the host delivered and refused", "", u.showHostAudit},
-		{"Help", "Keys", "?", u.showHelp},
-		{"Help", "About secretvault: versions, the daemon's status", "", u.showStatus},
+		{"Help", "Keyboard shortcuts and status", "?", u.showHelp},
+		{"Help", "About secretvault: versions, the background service's status", "", u.showStatus},
 	}
 }
 
@@ -309,7 +309,10 @@ func (u *UI) showMenu() {
 		AddItem(find, 1, 0, true).
 		AddItem(tview.NewBox(), 1, 0, false).
 		AddItem(t, 0, 1, false)
-	frame.SetBorder(true).SetBorderPadding(0, 0, 1, 1).SetTitle(" Actions — type to find · ↑↓ choose · Enter does it · Esc closes ")
+	// The padding is the children's own: a Flex does not clear its own.
+	find.SetBorderPadding(0, 0, 1, 1)
+	t.SetBorderPadding(0, 0, 1, 1)
+	frame.SetBorder(true).SetTitle(" Actions — type to find · ↑↓ choose · Enter does it · Esc closes ")
 	_, _, _, h := u.pages.GetRect()
 	u.openDialog(centred(frame, 84, max(10, min(h-2, 40))), find, nil)
 }

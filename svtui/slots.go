@@ -26,7 +26,7 @@ func (u *UI) showSlots() {
 	vault := u.vault
 	p := u.newPanel("Keyslots · "+vault, "ID", "TYPE", "LABEL", "CREATED", "DETAIL")
 	p.vault = vault
-	p.setHead("Each keyslot opens the vault on its own. Removing one does not cut off whoever already opened the vault with it: rotate the key for that.")
+	p.setHead(svops.KeyslotsNote)
 	p.reload = func() {
 		var slots []svrpc.SlotInfo
 		var keys []svrpc.FIDO2Device
@@ -50,20 +50,17 @@ func (u *UI) showSlots() {
 				if s.Recipient != "" {
 					detail = s.Recipient[:min(40, len(s.Recipient))] + "…"
 				}
-				p.row(s, s.ID, s.Type, s.Label, s.Created.Local().Format("2006-01-02 15:04"), detail)
+				p.row(s, s.ID, svops.SlotTypeName(s.Type), s.Label, s.Created.Local().Format("2006-01-02 15:04"), detail)
 			}
 			p.heading("Security keys plugged in")
 			switch {
 			case keysErr != nil:
 				p.setHead("Security keys: [red]" + tview.Escape(u.describe(keysErr)) + "[-]")
 			case len(keys) == 0:
-				p.none("None.")
+				p.none("None plugged in.")
 			}
 			for _, k := range keys {
-				what := "cannot hold a keyslot"
-				if k.HMACSecret {
-					what = "can hold a keyslot"
-				}
+				what := svops.SecurityKeyCan(k)
 				if k.Problem != "" {
 					what = k.Problem
 				}
@@ -74,11 +71,7 @@ func (u *UI) showSlots() {
 	}
 	p.rowAct('x', "Remove it…", is[svrpc.SlotInfo], func(ref any) {
 		s := ref.(svrpc.SlotInfo)
-		name := s.Label
-		if name == "" {
-			name = s.Type
-		}
-		u.confirm("Remove keyslot?", fmt.Sprintf("Remove keyslot %s (%s)? It no longer opens %s.\n\nTo cut off someone who already opened it, rotate the key as well (Sharing › Cut off).", s.ID, name, vault), "Remove", func() {
+		u.confirm(svops.RemoveSlotTitle, svops.RemoveSlotText(vault, s)+" (r on this panel; Sharing's Cut off does both.)", svops.RemoveSlotAction, func() {
 			u.call(func(ctx context.Context, c *secretvault.Client) error {
 				return c.RemoveSlot(ctx, vault, s.ID)
 			}, func(err error) {
@@ -86,7 +79,7 @@ func (u *UI) showSlots() {
 					u.fail(err)
 					return
 				}
-				u.say("Removed slot %s", s.ID)
+				u.say("%s", svops.SlotRemoved(vault, s))
 				p.refresh()
 			})
 		})
@@ -94,7 +87,7 @@ func (u *UI) showSlots() {
 	p.rowAct('i', "What it can do", is[svrpc.FIDO2Device], func(ref any) { u.showSecurityKey(ref.(svrpc.FIDO2Device)) })
 	p.act('a', "Add a keyslot…", func() { u.addSlot(vault, p.refresh) })
 	p.act('p', "Change the passphrase…", func() { u.changePassphrase(vault) })
-	p.act('r', "Rotate the vault key…", func() { u.rotateKey(vault, nil, p.refresh) })
+	p.act('r', "Give the vault a new key…", func() { u.rotateKey(vault, nil, p.refresh) })
 	p.show()
 }
 
@@ -102,38 +95,19 @@ func (u *UI) showSlots() {
 func (u *UI) showSecurityKey(k svrpc.FIDO2Device) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[::b]%s[::-]\n", tview.Escape(k.Name))
-	if k.Path != "" {
-		fmt.Fprintf(&b, "  device:      %s\n", tview.Escape(k.Path))
-	}
-	if len(k.Versions) > 0 {
-		fmt.Fprintf(&b, "  speaks:      %s\n", tview.Escape(strings.Join(k.Versions, ", ")))
-		fmt.Fprintf(&b, "  model:       %s\n", tview.Escape(k.AAGUID))
-		pin := "cannot have one"
-		switch k.PIN {
-		case "set":
-			pin = fmt.Sprintf("set, %d tries left", k.Retries)
-		case "not set":
-			pin = "not set"
-		}
-		fmt.Fprintf(&b, "  PIN:         %s\n", pin)
-		fmt.Fprintf(&b, "  hmac-secret: %s\n", yesNo(k.HMACSecret))
-	}
-	if k.Problem != "" {
-		fmt.Fprintf(&b, "  problem:     %s\n", tview.Escape(k.Problem))
+	for _, r := range svops.SecurityKeyFacts(k) {
+		fmt.Fprintf(&b, "  %-14s %s\n", r[0]+":", tview.Escape(r[1]))
 	}
 	u.showText("Security key", b.String())
 }
 
 // addSlot is 'secretvault slot add TYPE'.
 func (u *UI) addSlot(vault string, then func()) {
-	kinds := []string{
-		"A passphrase",
-		"A recovery key (shown once, or as shares for several people)",
-		"A keyfile (made here, or one you have)",
-		"A recipient: a person's or device's identity",
-		"The security key plugged in",
+	kinds := make([]string, len(svops.SlotKinds))
+	for i, k := range svops.SlotKinds {
+		kinds[i] = k.Text
 	}
-	u.choose("Add which keyslot to "+vault+"?", kinds, func(i int) {
+	u.choose(svops.AddSlotTitle(vault)+": which?", kinds, func(i int) {
 		add := func(p svrpc.SlotAddParams, after func(svrpc.SlotInfo)) {
 			p.Vault = vault
 			var info svrpc.SlotInfo
@@ -146,7 +120,7 @@ func (u *UI) addSlot(vault string, then func()) {
 					u.fail(err)
 					return
 				}
-				u.say("Added %s slot %s", info.Type, info.ID)
+				u.say("%s", svops.SlotAdded(vault, info))
 				if then != nil {
 					then()
 				}
@@ -157,11 +131,11 @@ func (u *UI) addSlot(vault string, then func()) {
 		}
 		switch i {
 		case 0:
-			f := u.newForm("Add a passphrase to "+vault, "")
-			label := f.text("Label", "", "(optional)")
+			f := u.newForm("Add a passphrase to "+vault, "Another passphrase that opens the vault on its own, as the one it has does.")
+			label := f.text("Label", "", svops.SlotLabelPlaceholder)
 			pass := f.secret("Passphrase")
 			again := f.secret("Repeat it")
-			f.show("Add", func() string {
+			f.show(svops.SlotAddAction(svformat.SlotPassphrase), func() string {
 				if problem := newPassphraseProblem(pass, again); problem != "" {
 					return problem
 				}
@@ -169,11 +143,11 @@ func (u *UI) addSlot(vault string, then func()) {
 				return ""
 			})
 		case 1:
-			f := u.newForm("Add a recovery key to "+vault, "The key opens the vault on its own. Split, it is shown as shares instead, for several people or places: any threshold of them open the vault, fewer reveal nothing. It is shown only once.")
-			label := f.text("Label", "", "(optional)")
-			split := f.text("Shares", "", "how many to split it into (none: one key)")
-			threshold := f.text("Threshold", "", "how many open it (default: a majority)")
-			f.show("Add", func() string {
+			f := u.newForm("Add a recovery key to "+vault, svops.RecoveryKeyIntro+" "+svops.RecoverySplitIntro)
+			label := f.text("Label", "", svops.SlotLabelPlaceholder)
+			split := f.text("Shares", "", "how many to split it into (empty: one key, not split)")
+			threshold := f.text("Shares needed", "", "how many together open it (empty: a majority)")
+			f.show(svops.SlotAddAction(svformat.SlotRecovery), func() string {
 				n, k := 0, 0
 				var err error
 				if s := trimmed(split); s != "" {
@@ -183,7 +157,7 @@ func (u *UI) addSlot(vault string, then func()) {
 				}
 				if s := trimmed(threshold); s != "" {
 					if k, err = strconv.Atoi(s); err != nil {
-						return "The threshold is a number."
+						return "Shares needed is a number."
 					}
 				}
 				p := svrpc.SlotAddParams{Type: svformat.SlotRecovery, Label: trimmed(label)}
@@ -200,17 +174,17 @@ func (u *UI) addSlot(vault string, then func()) {
 					case info.RecoveryKey != "" && n > 0:
 						u.showShares(info.RecoveryKey, n, k)
 					case info.RecoveryKey != "":
-						u.showRecoveryKey("Recovery key of "+vault, info.RecoveryKey)
+						u.showRecoveryKey(vault, info.RecoveryKey)
 					}
 				})
 				return ""
 			})
 		case 2:
-			f := u.newForm("Add a keyfile to "+vault, "Any file can be a keyfile: its bytes open the vault. One made here is 64 random bytes, mode 0600.")
-			label := f.text("Label", "", "(optional)")
+			f := u.newForm("Add a keyfile to "+vault, svops.KeyfileIntro)
+			label := f.text("Label", "", svops.SlotLabelPlaceholder)
 			path := f.path("Keyfile", "", "")
-			create := f.check("Make it here (a new file)", false)
-			f.show("Add", func() string {
+			create := f.check("Make a new keyfile there", false)
+			f.show(svops.SlotAddAction(svformat.SlotKeyfile), func() string {
 				pth := filePath(path)
 				if pth == "" {
 					return "Give the keyfile's path."
@@ -230,10 +204,10 @@ func (u *UI) addSlot(vault string, then func()) {
 		case 3:
 			u.shareWith(vault, then)
 		case 4:
-			f := u.newForm("Add the security key plugged in to "+vault, "Touch it when it blinks. With its PIN, the PIN is asked for with every touch; a touch alone is enough otherwise.")
-			label := f.text("Label", "", "(optional)")
-			uv := f.choice("PIN", []string{"with every touch, if it has one", "always (it must have one)", "never: a touch alone opens the vault"}, 0)
-			f.show("Add", func() string {
+			f := u.newForm("Add the security key plugged in to "+vault, svops.FIDO2SlotIntro)
+			label := f.text("Label", "", svops.SlotLabelPlaceholder)
+			uv := f.choice(svops.FIDO2PINLabel, svops.FIDO2PINChoices, 0)
+			f.show(svops.SlotAddAction(svformat.SlotFIDO2), func() string {
 				p := svrpc.SlotAddParams{Type: svformat.SlotFIDO2, Label: trimmed(label)}
 				switch i, _ := uv.GetCurrentOption(); i {
 				case 1:
@@ -245,7 +219,7 @@ func (u *UI) addSlot(vault string, then func()) {
 				}
 				u.say("Touch your security key…")
 				add(p, func(info svrpc.SlotInfo) {
-					u.say("%s opens the vault with: %s", info.Label, info.Detail)
+					u.say("%s now opens vault %s (%s)", info.Label, vault, info.Detail)
 				})
 				return ""
 			})
@@ -262,7 +236,7 @@ func (u *UI) showShares(text string, n, k int) {
 		return
 	}
 	lines := []onceLine{
-		{text: fmt.Sprintf("The recovery key, as %d shares; any %d of them open the vault, fewer reveal nothing.", n, k)},
+		{text: fmt.Sprintf("The recovery key, as %d shares: any %d of them together open the vault, fewer reveal nothing.", n, k)},
 		{text: "Give each to a different person or place. They are shown only now."},
 	}
 	for i, s := range shares {
@@ -291,25 +265,24 @@ func (u *UI) proveThen(vault string, then func()) {
 // changePassphrase is 'secretvault passwd'.
 func (u *UI) changePassphrase(vault string) {
 	u.proveThen(vault, func() {
-		f := u.newForm("Change the passphrase of "+vault, "The new passphrase replaces the one that opened the vault.")
+		f := u.newForm(svops.ChangePassphraseTitle(vault), svops.ChangePassphraseIntro)
 		pass := f.secret("New passphrase")
 		again := f.secret("Repeat it")
-		f.show("Change", func() string {
+		f.show(svops.ChangePassphraseAction, func() string {
 			if problem := newPassphraseProblem(pass, again); problem != "" {
 				return problem
 			}
 			p := pass.value()
-			var info svrpc.SlotInfo
-			u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
+			u.call(func(ctx context.Context, c *secretvault.Client) error {
 				defer clear(p)
-				info, err = c.Passwd(ctx, vault, p)
+				_, err := c.Passwd(ctx, vault, p)
 				return err
 			}, func(err error) {
 				if err != nil {
 					u.fail(err)
 					return
 				}
-				u.say("Passphrase changed (slot %s)", info.ID)
+				u.say("%s", svops.PassphraseChanged(vault))
 				if pn := u.panels[pagePanel]; pn != nil && pn.vault == vault {
 					pn.refresh()
 				}
@@ -324,16 +297,11 @@ func (u *UI) changePassphrase(vault string) {
 // recovery key if asked, and every recipient slot but those dropped.
 func (u *UI) rotateKey(vault string, drop []string, then func()) {
 	u.proveThen(vault, func() {
-		intro := "The vault gets a new key. It opens with the passphrase given here (it may be the one it has), and with every person's keyslot"
-		if len(drop) > 0 {
-			intro += " but " + strings.Join(drop, ", ") + ", who are cut off"
-		}
-		intro += ". Keyfiles and security keys are added again afterwards."
-		f := u.newForm("Rotate the key of "+vault, intro)
+		f := u.newForm(svops.RotateTitle(vault, len(drop) > 0), svops.RotateIntro(len(drop)))
 		pass := f.secret("Passphrase")
 		again := f.secret("Repeat it")
-		recovery := f.check("A new recovery key (the old one stops working)", false)
-		f.show("Rotate", func() string {
+		recovery := f.check(svops.RotateRecoveryCheck, false)
+		f.show(svops.RotateAction(len(drop) > 0), func() string {
 			if problem := newPassphraseProblem(pass, again); problem != "" {
 				return problem
 			}
@@ -348,31 +316,18 @@ func (u *UI) rotateKey(vault string, drop []string, then func()) {
 					u.fail(err)
 					return
 				}
-				u.say("The key of %s was rotated (epoch %d)", vault, res.Epoch)
+				u.say("%s", svops.RotateStatus(vault))
 				if then != nil {
 					then()
 				}
-				lines := []onceLine{{text: fmt.Sprintf("The vault key was rotated (epoch %d). It opens with:", res.Epoch)}}
-				if len(drop) > 0 {
-					lines[0].text = fmt.Sprintf("The vault key was rotated (epoch %d), and %s cut off: what is written from now on is out of their reach. It opens with:", res.Epoch, strings.Join(drop, ", "))
-				}
-				for _, s := range res.Slots {
-					label := s.Label
-					if label == "" {
-						label = s.Type
-					}
-					lines = append(lines, onceLine{text: "  " + s.ID + "  " + label})
-				}
-				if len(res.Dropped) > 0 {
-					lines = append(lines, onceLine{}, onceLine{text: "No longer opening it (add them again in Keyslots, or with Emergency access › Grant):"})
-					for _, s := range res.Dropped {
-						lines = append(lines, onceLine{text: fmt.Sprintf("  %s  %s (%s)", s.ID, s.Label, s.Type)})
-					}
+				lines := []onceLine{{text: svops.RotateDone(vault, res, len(drop))}, {}}
+				for _, l := range svops.RotateDetails(res) {
+					lines = append(lines, onceLine{text: l})
 				}
 				if res.RecoveryKey != "" {
 					lines = append(lines, onceLine{}, onceLine{text: "The new recovery key (write it down; it is shown only now):"}, onceLine{secret: []byte(res.RecoveryKey)})
 				}
-				u.showOnce("Rotated "+vault, lines, nil)
+				u.showOnce("Vault "+vault+" has a new key", lines, nil)
 			})
 			return ""
 		})

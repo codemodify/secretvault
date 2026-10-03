@@ -9,6 +9,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -117,11 +118,11 @@ func (u *UI) showPrompt(q svrpc.PromptAsk, answer chan<- svrpc.PromptAnswer) int
 			list.AddItem(tview.Escape(c.Label), "", 0, func() { finish(svrpc.PromptAnswer{Choice: c.ID}) })
 		}
 		list.SetDoneFunc(cancel)
-		list.SetBorderPadding(1, 0, 1, 1)
+		list.SetBorderPadding(1, 0, 2, 2)
 		body, focus, height = list, list, len(q.Choices)+1
 	default:
 		form := tview.NewForm()
-		form.SetBorderPadding(1, 0, 1, 1)
+		form.SetBorderPadding(1, 0, 2, 2)
 		first := newSecretInput(promptLabel(q.Prompt, "Passphrase:"))
 		d.inputs = append(d.inputs, first)
 		form.AddFormItem(first)
@@ -162,14 +163,17 @@ func (u *UI) showPrompt(q svrpc.PromptAsk, answer chan<- svrpc.PromptAnswer) int
 			}
 			return ev
 		})
-		form.AddButton("OK", submit).AddButton("Cancel", cancel)
+		form.AddButton(svops.PromptAction(q), submit).AddButton("Cancel", cancel)
 		form.SetCancelFunc(cancel)
 		body, focus, height = form, form, 2*len(d.inputs)+2
 	}
 	frame := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(text, room, 0, false).
 		AddItem(body, height, 0, true)
-	frame.SetBorder(true).SetBorderPadding(0, 0, 1, 1).SetTitle(" " + tview.Escape(q.Title) + " ")
+	// The padding is the children's own: a Flex does not clear its own, and
+	// what is under the question would show through it.
+	text.SetBorderPadding(0, 0, 1, 1)
+	frame.SetBorder(true).SetTitle(" " + tview.Escape(q.Title) + " ")
 	u.asking = d
 	u.openPage(pagePrompt, centred(frame, width, room+height+2), focus)
 	return d.id

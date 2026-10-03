@@ -64,7 +64,7 @@ func TestRecoverySharesAreShownOnceAndOpenTheVault(t *testing.T) {
 	h.waitFor("Keyslots · personal")
 	h.waitFor("passphrase")
 	h.typeText("a")
-	h.waitFor("Add which keyslot to personal?")
+	h.waitFor("Add a way to open personal: which?")
 	h.key(tcell.KeyDown)
 	h.key(tcell.KeyEnter)
 	h.waitFor("Add a recovery key to personal")
@@ -74,7 +74,7 @@ func TestRecoverySharesAreShownOnceAndOpenTheVault(t *testing.T) {
 	h.typeText("2")
 	h.tabs(1)
 	h.key(tcell.KeyEnter)
-	h.waitFor("The recovery key, as 3 shares; any 2 of them open the vault")
+	h.waitFor("as 3 shares: any 2 of them")
 	shares := h.onceSecrets()
 	if len(shares) != 3 || !strings.HasPrefix(shares[0], "SVRS1-") {
 		t.Fatalf("shares %q", shares)
@@ -118,7 +118,7 @@ func TestKeyfilesPassphrasesAndRotation(t *testing.T) {
 	// A keyfile made here.
 	keyfile := filepath.Join(h.dir, "vault.key")
 	h.typeText("a")
-	h.waitFor("Add which keyslot")
+	h.waitFor("Add a way to open personal")
 	h.key(tcell.KeyDown)
 	h.key(tcell.KeyDown)
 	h.key(tcell.KeyEnter)
@@ -130,7 +130,7 @@ func TestKeyfilesPassphrasesAndRotation(t *testing.T) {
 	h.key(tcell.KeyEnter) // make it here
 	h.tabs(1)
 	h.key(tcell.KeyEnter)
-	h.waitFor("Added keyfile slot")
+	h.waitFor("now also opens with the keyfile")
 	h.waitFor("laptop key")
 	key, err := os.ReadFile(keyfile)
 	if err != nil || len(key) != 64 {
@@ -150,9 +150,9 @@ func TestKeyfilesPassphrasesAndRotation(t *testing.T) {
 		}
 	})
 	h.typeText("x")
-	h.waitFor("Remove keyslot")
+	h.waitFor("Remove this keyslot")
 	h.typeText("y")
-	h.waitFor("Removed slot")
+	h.waitFor("no longer opens with the keyfile")
 	if got := slotTypes(h.slots()); got != "passphrase" {
 		t.Fatalf("slots after removing: %s", got)
 	}
@@ -165,7 +165,7 @@ func TestKeyfilesPassphrasesAndRotation(t *testing.T) {
 	h.typeText(newPass)
 	h.tabs(1)
 	h.key(tcell.KeyEnter)
-	h.waitFor("Passphrase changed")
+	h.waitFor("Changed the passphrase of vault personal")
 	h.lockAll()
 	if _, err := h.admin.Unlock(h.ctx(), "", &svrpc.Key{Type: svformat.SlotPassphrase, Secret: []byte(newPass)}); err != nil {
 		t.Fatalf("the new passphrase: %v", err)
@@ -182,7 +182,7 @@ func TestRotatingTheKeyShowsTheNewRecoveryKeyOnce(t *testing.T) {
 	h.typeText("K")
 	h.waitFor("Keyslots · personal")
 	h.typeText("r")
-	h.waitFor("Rotate the key of personal")
+	h.waitFor("Give vault personal a new key")
 	h.typeText(pass)
 	h.tabs(1)
 	h.typeText(pass)
@@ -190,7 +190,7 @@ func TestRotatingTheKeyShowsTheNewRecoveryKeyOnce(t *testing.T) {
 	h.key(tcell.KeyEnter) // a new recovery key
 	h.tabs(1)
 	h.key(tcell.KeyEnter)
-	h.waitFor("The vault key was rotated (epoch")
+	h.waitFor("Key epoch:")
 	rk := h.onceSecrets()
 	if len(rk) != 1 {
 		t.Fatalf("recovery keys shown: %d", len(rk))
@@ -214,7 +214,7 @@ func TestSecurityKeysAreListedAndAdded(t *testing.T) {
 	h.typeText("K")
 	h.waitFor("Security keys plugged in")
 	h.waitFor("Test Key 5")
-	h.waitFor("can hold a keyslot")
+	h.waitFor("can open a vault")
 	h.do(func() {
 		p := h.u.panels[pagePanel]
 		for r := 1; r < p.t.GetRowCount(); r++ {
@@ -224,12 +224,12 @@ func TestSecurityKeysAreListedAndAdded(t *testing.T) {
 		}
 	})
 	h.typeText("i")
-	h.waitFor("hmac-secret: yes")
+	h.waitFor("Opens a vault:")
 	h.key(tcell.KeyEscape)
-	h.waitGone("hmac-secret")
+	h.waitGone("Opens a vault:")
 
 	h.typeText("a")
-	h.waitFor("Add which keyslot")
+	h.waitFor("Add a way to open personal")
 	for range 4 {
 		h.key(tcell.KeyDown)
 	}
@@ -237,7 +237,7 @@ func TestSecurityKeysAreListedAndAdded(t *testing.T) {
 	h.waitFor("Add the security key plugged in")
 	h.tabs(2)
 	h.key(tcell.KeyEnter)
-	h.waitFor("opens the vault with")
+	h.waitFor("now opens vault personal")
 	if got := slotTypes(h.slots()); got != "passphrase,fido2" {
 		t.Fatalf("slots %s", got)
 	}

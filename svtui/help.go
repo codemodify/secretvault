@@ -41,15 +41,16 @@ var helpKeys = strings.TrimSpace(`
   N                      a new vault
   K                      keyslots: the ways the vault opens; adding a
                          passphrase, recovery key (or shares), keyfile,
-                         recipient or security key; removing one; changing
-                         the passphrase; rotating the key; the security
-                         keys plugged in
+                         person's key or security key; removing one;
+                         changing the passphrase; giving the vault a new
+                         key; the security keys plugged in
   R                      the deleted items: bring one back
   I                      import from a browser or another password manager
   X                      export to KeePass (KDBX) or CXF
   V                      the vaults: paths, when each locks, the default,
-                         forgetting one, opening at login, verifying,
-                         unlocking with a keyfile, recovery key or security key
+                         forgetting one, opening at login, checking every
+                         file, unlocking with a keyfile, recovery key or
+                         security key
   E                      sharing: who the vault is shared with, cutting
                          someone off; emergency access given (granting,
                          denying, revoking) and held (accepting an invite,
@@ -79,7 +80,7 @@ var helpKeys = strings.TrimSpace(`
                          serves to units and local services, its vaults,
                          its log
   G                      grants: what programs may do; allowing or denying
-                         one ahead of time, revoking a decision
+                         one ahead of time, forgetting a decision
   A                      the audit log: who accessed what
 
   ?                      this help               q    quit

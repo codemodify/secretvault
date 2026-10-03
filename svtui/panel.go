@@ -199,7 +199,7 @@ func (p *panel) drawFoot() {
 	for _, a := range p.acts {
 		parts = append(parts, fmt.Sprintf("[yellow]%c[-] %s", a.key, tview.Escape(a.label)))
 	}
-	enter := "more"
+	enter := "actions"
 	if p.enter != nil {
 		enter = "open"
 	}
@@ -298,5 +298,5 @@ func (p *panel) pressEnter() {
 	if len(acts) == 0 {
 		return
 	}
-	p.u.choose("Do what?", labels, func(i int) { acts[i].do(ref) })
+	p.u.choose("What to do with it?", labels, func(i int) { acts[i].do(ref) })
 }

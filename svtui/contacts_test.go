@@ -153,7 +153,7 @@ func TestMyQRCodeAndAScannedOne(t *testing.T) {
 	h.typeText("v")
 	h.waitFor("Keep contacts in")
 	h.key(tcell.KeyEnter)
-	h.waitFor("Contacts now live in vault personal")
+	h.waitFor("Contacts are kept in vault personal now")
 	h.key(tcell.KeyEscape)
 
 	// Directories: added, listed, removed.
@@ -171,7 +171,7 @@ func TestMyQRCodeAndAScannedOne(t *testing.T) {
 	h.waitFor("Lookups of an address now ask corp first")
 	h.waitFor("anonymous")
 	h.typeText("x")
-	h.waitFor("Stop asking corp")
+	h.waitFor("Remove the directory corp?")
 	h.typeText("y")
 	h.waitFor("None (a adds one)")
 }

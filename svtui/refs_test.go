@@ -56,7 +56,7 @@ func TestReferencesAreCopiedResolvedAndChecked(t *testing.T) {
 	h.tabs(2)
 	h.key(tcell.KeyEnter)
 	h.waitFor("DB_PASS")
-	h.waitFor("1 of 2 do not resolve")
+	h.waitFor("1 of 2 references in it cannot be read")
 	if strings.Contains(h.text(), "gitlab-pass-42") {
 		t.Fatal("a value was shown")
 	}
@@ -72,7 +72,7 @@ func TestReferencesAreCopiedResolvedAndChecked(t *testing.T) {
 	h.typeText(out)
 	h.tabs(1)
 	h.key(tcell.KeyEnter)
-	h.waitFor("Every reference resolves (1)")
+	h.waitFor("The reference in it can be read")
 	h.waitFor("Filled into")
 	if b, _ := os.ReadFile(out); string(b) != "user: ada\npass: gitlab-pass-42\n" {
 		t.Fatalf("filled: %q", b)

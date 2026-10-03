@@ -2,13 +2,13 @@ package svtui
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
 	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -45,8 +45,15 @@ func (u *UI) confirmWith(title, text, cancel, action string, do func()) {
 	u.openDialog(m, m, nil)
 }
 
-// ask asks for one line of text.
+// ask asks for one line of text; its button says Continue. askTo names
+// what the button does.
 func (u *UI) ask(title, label, value string, done func(string)) {
+	u.askTo(title, label, value, "Continue", done)
+}
+
+// askTo asks for one line of text, with a button that says what it does
+// ("Rename").
+func (u *UI) askTo(title, label, value, action string, done func(string)) {
 	form := tview.NewForm()
 	field := tview.NewInputField().SetLabel(label).SetText(value)
 	form.AddFormItem(field)
@@ -64,7 +71,7 @@ func (u *UI) ask(title, label, value string, done func(string)) {
 		}
 		return ev
 	})
-	form.AddButton("OK", ok).AddButton("Cancel", func() { u.closePage(pageDialog) })
+	form.AddButton(action, ok).AddButton("Cancel", func() { u.closePage(pageDialog) })
 	form.SetCancelFunc(func() { u.closePage(pageDialog) })
 	form.SetBorder(true).SetTitle(" " + tview.Escape(title) + " ")
 	u.openDialog(centred(form, 64, 7), form, nil)
@@ -160,8 +167,10 @@ func (u *UI) showGrants() {
 				return
 			}
 			p.clear()
+			p.setHead("")
 			if len(grants) == 0 {
-				p.none("No decisions remembered.")
+				p.setHead(svops.GrantsEmpty)
+				p.none("None yet.")
 			}
 			for _, g := range grants {
 				item := g.Item
@@ -172,14 +181,14 @@ func (u *UI) showGrants() {
 				if strings.HasPrefix(g.Decision, "deny") {
 					colour = "red"
 				}
-				p.row(g, tagged("["+colour+"]"+tview.Escape(g.Decision)+"[-]"), g.Program, item, strings.Join(g.Ops, ","), g.Created.Local().Format("2006-01-02 15:04"))
+				p.row(g, tagged("["+colour+"]"+tview.Escape(svops.DecisionText(g.Decision))+"[-]"), g.Program, item, strings.Join(g.Ops, ","), g.Created.Local().Format("2006-01-02 15:04"))
 			}
 			p.done()
 		})
 	}
-	p.rowAct('x', "Revoke it…", is[svrpc.Grant], func(ref any) {
+	p.rowAct('x', "Forget the decision…", is[svrpc.Grant], func(ref any) {
 		g := ref.(svrpc.Grant)
-		u.confirm("Revoke?", fmt.Sprintf("Forget that %s is %s?\n\nIt will be asked about again.", g.Program, g.Decision), "Revoke", func() {
+		u.confirm(svops.RevokeGrantTitle, svops.RevokeGrantText(g), svops.RevokeGrantAction, func() {
 			u.call(func(ctx context.Context, c *secretvault.Client) error {
 				return c.Revoke(ctx, vault, g.ID)
 			}, func(err error) {
@@ -187,7 +196,7 @@ func (u *UI) showGrants() {
 					u.fail(err)
 					return
 				}
-				u.say("Revoked the decision about %s", g.Program)
+				u.say("Forgot the decision about %s", g.Program)
 				p.refresh()
 			})
 		})

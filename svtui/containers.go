@@ -23,9 +23,9 @@ func (u *UI) showContainers() {
 		return
 	}
 	vault := u.vault
-	p := u.newPanel("Containers · "+vault, "ITEM", "FILE", "STATE")
+	p := u.newPanel("Containers · "+vault, "KEY ITEM", "CONTAINER FILE", "STATE")
 	p.vault = vault
-	p.setHead("Encrypted containers: image files mounted as disks, whose keys are kept in the vault. Opening one asks, as reading an item does.")
+	p.setHead(tview.Escape(svops.ContainersAbout))
 	if err := svops.MountsHere(); err != nil {
 		p.setHead("[yellow]" + tview.Escape(sentence(err.Error())) + "[-] The list and header backups still work.")
 	}
@@ -42,13 +42,13 @@ func (u *UI) showContainers() {
 			}
 			p.clear()
 			if len(list) == 0 {
-				p.none("None (n makes one).")
+				p.none("None yet: n makes one.")
 			}
 			for _, ci := range list {
 				state := ci.State
 				switch ci.State {
 				case "mounted":
-					state = "mounted at " + ci.MountPoint
+					state = "open, in " + ci.MountPoint
 				case "unknown":
 					state = "-"
 				}
@@ -66,13 +66,13 @@ func (u *UI) showContainers() {
 		return ok && !isOpen(ci)
 	}
 	p.act('n', "New container…", func() { u.newContainer(vault, p.refresh) })
-	p.rowAct('o', "Open (mount) it…", isClosed, func(ref any) {
+	p.rowAct('o', "Open it…", isClosed, func(ref any) {
 		ci := ref.(svrpc.ContainerInfo)
 		u.openContainer(vault, ci.Path, ci.Item, p.refresh)
 	})
-	p.act('O', "Open an image…", func() { u.openContainer(vault, "", "", p.refresh) })
+	p.act('O', "Open a container file…", func() { u.openContainer(vault, "", "", p.refresh) })
 	p.rowAct('c', "Close it", isOpen, func(ref any) { u.closeContainer(ref.(svrpc.ContainerInfo).Path, p.refresh) })
-	p.act('C', "Close by file or mount point…", func() { u.closeContainerAsk(p.refresh) })
+	p.act('C', "Close one by its file or folder…", func() { u.closeContainerAsk(p.refresh) })
 	p.rowAct('b', "Back up its header…", is[svrpc.ContainerInfo], func(ref any) { u.backupHeader(ref.(svrpc.ContainerInfo).Path) })
 	p.rowAct('p', "Its own passphrase…", is[svrpc.ContainerInfo], func(ref any) {
 		ci := ref.(svrpc.ContainerInfo)
@@ -83,22 +83,22 @@ func (u *UI) showContainers() {
 
 // newContainer is 'secretvault container create FILE'.
 func (u *UI) newContainer(vault string, then func()) {
-	f := u.newForm("New container in "+vault, "A new image file, of the size given in all, with a filesystem inside, mounted; its key is kept in an item. A passphrase of its own, if given, opens it with cryptsetup alone.")
-	path := f.path("File", "", "a new image file")
+	f := u.newForm("New container in "+vault, svops.ContainerNewAbout+" A passphrase of its own, if you give one, opens it without secretvault too.")
+	path := f.path("Container file", "", "a new file, like ~/private.img")
 	size := f.text("Size", "", "like 512M or 1G")
 	fsType := f.choice("Filesystem", svcontainer.Filesystems, 0)
-	label := f.text("Label", "", "the filesystem's (optional)")
-	item := f.text("Item", "", "default: containers/ and the file's name")
+	label := f.text("Disk name", "", "for file managers (optional)")
+	item := f.text("Keep its key in", "", "default: named after the file")
 	pass := f.secret("Its own passphrase")
 	again := f.secret("Repeat it")
 	sector := f.choice("Sector size", []string{"4096", "512"}, 0)
-	opts := f.text("Mount options", "", "like noexec (optional)")
-	f.show("Create", func() string {
+	opts := f.text("Mount options", "", "for experts (optional)")
+	f.show("Make the container", func() string {
 		if err := svops.MountsHere(); err != nil {
 			return err.Error()
 		}
 		if filePath(path) == "" {
-			return "Give the new image's path."
+			return "Give the new container file's path."
 		}
 		n, err := svops.ParseSize(trimmed(size))
 		if err != nil {
@@ -129,11 +129,7 @@ func (u *UI) newContainer(vault string, then func()) {
 				u.fail(err)
 				return
 			}
-			also := ""
-			if p.Passphrase != nil {
-				also = "; the passphrase also opens it, with cryptsetup alone"
-			}
-			u.say("Created %s (%s, %s), mounted at %s; its key is the item %s%s", info.Path, svops.HumanSize(n), p.FS, info.MountPoint, info.Item, also)
+			u.say("%s", svops.ContainerCreated(info.Path, svops.HumanSize(n), p.FS, info.MountPoint, info.Item, p.Passphrase != nil))
 			if then != nil {
 				then()
 			}
@@ -144,11 +140,11 @@ func (u *UI) newContainer(vault string, then func()) {
 
 // openContainer is 'secretvault container open FILE'.
 func (u *UI) openContainer(vault, path, item string, then func()) {
-	f := u.newForm("Open a container", "It is mounted with the key kept in the vault.")
-	file := f.path("File", path, "the image file")
-	it := f.text("Item", item, "default: the one made for this image")
-	opts := f.text("Mount options", "", "like ro or noexec (optional)")
-	f.show("Open", func() string {
+	f := u.newForm("Open a container", svops.ContainerOpenAbout)
+	file := f.path("Container file", path, "")
+	it := f.text("Its key is in", item, "default: the one made with it")
+	opts := f.text("Mount options", "", "for experts, like ro (optional)")
+	f.show("Open it", func() string {
 		if err := svops.MountsHere(); err != nil {
 			return err.Error()
 		}
@@ -166,7 +162,7 @@ func (u *UI) openContainer(vault, path, item string, then func()) {
 				u.fail(err)
 				return
 			}
-			u.say("Opened %s at %s", info.Path, info.MountPoint)
+			u.say("%s", svops.ContainerOpened(info.Path, info.MountPoint))
 			if then != nil {
 				then()
 			}
@@ -195,7 +191,7 @@ func (u *UI) closeContainer(target string, then func()) {
 			u.fail(err)
 			return
 		}
-		u.say("Closed %s", info.Path)
+		u.say("%s", svops.ContainerClosed(info.Path))
 		if then != nil {
 			then()
 		}
@@ -203,12 +199,12 @@ func (u *UI) closeContainer(target string, then func()) {
 }
 
 func (u *UI) closeContainerAsk(then func()) {
-	f := u.newForm("Close a container", "")
-	target := f.path("File or mount point", "", "")
-	f.show("Close", func() string {
+	f := u.newForm("Close a container", svops.ContainerCloseAbout)
+	target := f.path("Container file or its folder", "", "")
+	f.show("Close it", func() string {
 		t := filePath(target)
 		if t == "" {
-			return "Give the image file, or where it is mounted."
+			return "Give the container file, or the folder its files are in."
 		}
 		u.closeContainer(t, then)
 		return ""
@@ -218,9 +214,9 @@ func (u *UI) closeContainerAsk(then func()) {
 // backupHeader is 'secretvault container header-backup FILE OUT'
 // (svcontainer.BackupHeader: it needs no key).
 func (u *UI) backupHeader(path string) {
-	f := u.newForm("Back up the header of "+filepath.Base(path), "Keep it as safe as the key: with it, any key or passphrase that opens the container today opens it later, even after that keyslot is gone.")
-	out := f.path("To the new file", "", "")
-	f.show("Back up", func() string {
+	f := u.newForm("Back up the header of "+filepath.Base(path), svops.HeaderBackupAbout+"\n\n[yellow]"+tview.Escape(svops.HeaderBackupWarning)+"[-]")
+	out := f.path("Copy it to", "", "a new file")
+	f.show("Copy the header", func() string {
 		dst := filePath(out)
 		if dst == "" {
 			return "Give the new file's path."
@@ -228,18 +224,18 @@ func (u *UI) backupHeader(path string) {
 		if err := svcontainer.BackupHeader(path, dst); err != nil {
 			return err.Error()
 		}
-		u.say("Wrote %s's header to %s", path, dst)
+		u.say("%s", svops.HeaderBackedUp(path, dst))
 		return ""
 	})
 }
 
 // containerPassphrase is 'secretvault container passwd FILE [--remove]'.
 func (u *UI) containerPassphrase(vault, path, item string) {
-	f := u.newForm("The passphrase of "+filepath.Base(path), "A passphrase of the container's own opens it with cryptsetup alone, without secretvault. Set or change it, or remove it.")
-	remove := f.check("Remove it: only the vault's key opens it", false)
+	f := u.newForm("A passphrase of its own for "+filepath.Base(path), svops.ContainerPassphraseAbout)
+	remove := f.check("Remove it instead: only the key in the vault opens it then", false)
 	pass := f.secret("New passphrase")
 	again := f.secret("Repeat it")
-	f.show("Change", func() string {
+	f.show("Set the passphrase", func() string {
 		p := svrpc.ContainerPasswdParams{Vault: vault, Item: item, Path: path, Remove: remove.IsChecked()}
 		if !p.Remove {
 			if problem := newPassphraseProblem(pass, again); problem != "" {
@@ -257,12 +253,16 @@ func (u *UI) containerPassphrase(vault, path, item string) {
 				u.fail(err)
 				return
 			}
-			if p.Remove {
-				u.say("Removed the passphrase keyslot of %s; only the vault's key opens it now", info.Path)
-			} else {
-				u.say("%s opens with the new passphrase (and cryptsetup alone)", info.Path)
-			}
+			u.say("%s", svops.ContainerPassphraseDone(info.Path, p.Remove))
 		})
 		return ""
+	})
+	// The button says which it does.
+	remove.SetChangedFunc(func(on bool) {
+		label := "Set the passphrase"
+		if on {
+			label = "Remove the passphrase"
+		}
+		f.form.GetButton(0).SetLabel(label)
 	})
 }

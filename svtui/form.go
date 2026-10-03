@@ -3,6 +3,7 @@ package svtui
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -354,7 +355,7 @@ func (ed *editor) item() (svrpc.Item, error) {
 	_, it.Kind = ed.kind.GetCurrentOption()
 	it.Name = strings.TrimSpace(ed.name.GetText())
 	if err := svcore.CheckName(it.Name); err != nil {
-		return it, fmt.Errorf("give the item a name made of path segments, like web/example.com")
+		return it, errors.New(svops.ItemNameNeeded)
 	}
 	it.Label = strings.TrimSpace(ed.label.GetText())
 	for _, t := range strings.Split(ed.tags.GetText(), ",") {
@@ -488,20 +489,20 @@ func (u *UI) showGenerator(use func([]byte)) {
 	form.AddFormItem(size).AddFormItem(sym).AddFormItem(preview)
 	preview.SetDisabled(true)
 	if use != nil {
-		form.AddButton("Use", func() {
+		form.AddButton("Use this password", func() {
 			use(pw)
 			done()
 		})
 	} else {
 		form.AddButton("Copy", func() { u.copyValue(pw) })
-		form.AddButton("New item", func() {
+		form.AddButton("New item with it", func() {
 			p := append([]byte(nil), pw...)
 			done()
 			u.newItem(p)
 			clear(p)
 		})
 	}
-	form.AddButton("Again", regenerate).AddButton("Close", done)
+	form.AddButton("Make another", regenerate).AddButton("Close", done)
 	form.SetCancelFunc(done)
 	form.SetBorder(true).SetTitle(" Password generator — 8 to 128 characters ")
 	regenerate()

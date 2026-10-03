@@ -148,7 +148,7 @@ func TestOpenPGPKeysAreMadeExportedImportedAndUsed(t *testing.T) {
 	h.typeText("pgp/me@example.org")
 	h.tabs(6)
 	h.key(tcell.KeyEnter)
-	h.waitSaid("Signed with pgp/me@example.org: wrote " + doc + ".asc")
+	h.waitSaid("Signed minutes.txt with pgp/me@example.org: the signature is in " + doc + ".asc")
 	h.menu("check a signature")
 	h.waitFor("Check a signature")
 	h.typeText(doc)
@@ -174,7 +174,7 @@ func TestOpenPGPKeysAreMadeExportedImportedAndUsed(t *testing.T) {
 	h.typeText(gpgFile)
 	h.tabs(6)
 	h.key(tcell.KeyEnter)
-	h.waitSaid("Wrote " + filepath.Join(h.dir, "secret.txt"))
+	h.waitSaid("Decrypted secret.txt.gpg into " + filepath.Join(h.dir, "secret.txt"))
 	if got, _ := os.ReadFile(filepath.Join(h.dir, "secret.txt")); string(got) != "for my eyes only\n" {
 		t.Fatalf("decrypted %q", got)
 	}
@@ -240,7 +240,7 @@ func TestAgeIdentitiesEncryptAndDecrypt(t *testing.T) {
 	h.typeText("sv://personal/age/test")
 	h.tabs(8)
 	h.key(tcell.KeyEnter)
-	h.waitSaid("Encrypted: wrote " + plain + ".age")
+	h.waitSaid("Encrypted notes.txt into " + plain + ".age")
 	os.Remove(plain)
 	h.menu("decrypt a file (age)")
 	h.waitFor("Decrypt a file (age)")
@@ -249,7 +249,7 @@ func TestAgeIdentitiesEncryptAndDecrypt(t *testing.T) {
 	h.typeText("sv://personal/age/test")
 	h.tabs(3)
 	h.key(tcell.KeyEnter)
-	h.waitSaid("Decrypted: wrote " + plain)
+	h.waitSaid("Decrypted notes.txt.age into " + plain)
 	if got, _ := os.ReadFile(plain); string(got) != "age notes\n" {
 		t.Fatalf("decrypted %q", got)
 	}
@@ -265,7 +265,7 @@ func TestAgeIdentitiesEncryptAndDecrypt(t *testing.T) {
 	h.typeText("age pass")
 	h.tabs(5)
 	h.key(tcell.KeyEnter)
-	h.waitSaid("Encrypted: wrote " + other + ".age")
+	h.waitSaid("Encrypted other.txt into " + other + ".age")
 	os.Remove(other)
 	h.menu("decrypt a file (age)")
 	h.waitFor("Decrypt a file (age)")
@@ -275,7 +275,7 @@ func TestAgeIdentitiesEncryptAndDecrypt(t *testing.T) {
 	h.waitFor("encrypted to a passphrase")
 	h.typeText("age pass")
 	h.key(tcell.KeyEnter)
-	h.waitSaid("Decrypted: wrote " + other)
+	h.waitSaid("Decrypted other.txt.age into " + other)
 	if got, _ := os.ReadFile(other); string(got) != "by passphrase\n" {
 		t.Fatalf("decrypted %q", got)
 	}
@@ -326,14 +326,14 @@ func TestSMIMEKeysAndIdentityFiles(t *testing.T) {
 	h.typeText(idFile)
 	h.tabs(2)
 	h.key(tcell.KeyEnter)
-	h.waitFor("Its recipient:")
+	h.waitFor("Only you can read the new file")
 	rcpt := h.onceSecrets()
 	h.key(tcell.KeyEscape)
 	h.typeText("p")
-	h.waitFor("The recipient of an identity file")
+	h.waitFor("Public key of an identity file")
 	h.typeText(idFile)
 	h.key(tcell.KeyEnter)
-	h.waitFor("Recipient")
+	h.waitFor("Public key (recipient)")
 	if got := h.onceSecrets(); len(rcpt) != 1 || len(got) != 1 || got[0] != rcpt[0] {
 		t.Fatalf("the recipient %q, then %q", rcpt, got)
 	}

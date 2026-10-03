@@ -788,14 +788,15 @@ func TestDeletingAsksFirst(t *testing.T) {
 	h.unlock()
 	h.open("web/gitlab.com")
 	h.typeText("d")
-	h.waitFor(`Delete "web/gitlab.com"`)
+	h.waitFor("Delete web/gitlab.com?")
+	h.waitForWords("web/gitlab.com goes from vault personal")
 	h.typeText("n")
-	h.waitGone("Delete \"web/gitlab.com\"")
+	h.waitGone("Delete web/gitlab.com?")
 	if _, err := h.get("web/gitlab.com"); err != nil {
 		t.Fatalf("declining deleted it: %v", err)
 	}
 	h.typeText("d")
-	h.waitFor(`Delete "web/gitlab.com"`)
+	h.waitFor("Delete web/gitlab.com?")
 	h.typeText("y")
 	h.waitFor("Deleted web/gitlab.com")
 	if _, err := h.get("web/gitlab.com"); !errors.Is(err, svrpc.ErrNotFound) {
@@ -911,12 +912,12 @@ func TestGrantsAndTheAuditLogAreShown(t *testing.T) {
 	h.unlock()
 	h.typeText("G")
 	h.waitFor("Grants · personal")
-	h.waitFor("allow-always")
+	h.waitFor("always allowed")
 	h.waitFor("web/gitlab.com")
 	h.typeText("x")
-	h.waitFor("Revoke")
+	h.waitFor("Forget this decision?")
 	h.typeText("y")
-	h.waitGone("allow-always")
+	h.waitGone("always allowed")
 	h.key(tcell.KeyEscape)
 	h.waitGone("Grants · personal")
 
@@ -945,7 +946,7 @@ func TestTheDaemonGoingAwayIsSaidPlainly(t *testing.T) {
 	h.unlock()
 	h.open("web/github.com")
 	h.u.client.Close()
-	h.waitFor("secretvaultd went away")
+	h.waitFor("background service stopped")
 	h.do(func() {
 		if h.u.cur != nil {
 			t.Error("an item is still held after the daemon went away")
@@ -960,9 +961,9 @@ func TestErrorsReadAsPlainWords(t *testing.T) {
 		svrpc.ErrWrongKey: "That passphrase does not open this vault.",
 		svrpc.Errorf(svrpc.CodeDenied, "access to vault %q was denied", "personal"): `Access to vault "personal" was denied.`,
 		svrpc.Errorf(svrpc.CodeLocked, "vault is locked"):                           "The vault is locked; U unlocks it.",
-		svrpc.Errorf(svrpc.CodeNoPrompter, "nobody"):                                "Nobody could be asked for permission: nobody",
+		svrpc.Errorf(svrpc.CodeNoPrompter, "nobody"):                                "Nobody could be asked for permission, so nothing was done: nobody",
 		svrpc.Errorf(svrpc.CodeNotFound, "no such item %q", "x"):                    `No such item "x".`,
-		context.DeadlineExceeded:                                                    "secretvaultd took too long to answer.",
+		context.DeadlineExceeded:                                                    "secretvault's background service took too long to answer.",
 	} {
 		if got := u.describe(err); got != want {
 			t.Errorf("describe(%v) = %q, want %q", err, got, want)

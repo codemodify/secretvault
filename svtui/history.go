@@ -107,13 +107,13 @@ func (u *UI) showHistory() {
 			u.showRevision(name, e)
 		}
 	}
-	p.rowAct('R', "Make this revision current…", func(ref any) bool {
+	p.rowAct('R', "Go back to this version…", func(ref any) bool {
 		e := entry(ref)
 		return e != nil && e.Rev != cur.Rev
 	}, func(ref any) {
 		e := entry(ref)
 		rev, when := e.Rev, e.Time.Local().Format("2006-01-02 15:04")
-		u.confirm("Restore?", fmt.Sprintf("Make the revision of %s from %s (%s) current again?\n\nThe current one stays in the history.", name, when, svops.Short(rev)), "Restore", func() {
+		u.confirm(svops.RestoreRevisionTitle, svops.RestoreRevisionText(name, when), svops.RestoreRevisionAction, func() {
 			u.restore(vault, name, rev, false, p.refresh)
 		})
 	})
@@ -133,7 +133,7 @@ func (u *UI) showHistory() {
 		return false
 	}, func(ref any) {
 		rev := entry(ref).Rev
-		u.confirm("Keep this version?", fmt.Sprintf("Keep version %s of %s, on every device?\n\nThe other versions stay in the history.", svops.Short(rev), name), "Keep it", func() {
+		u.confirm(svops.KeepVersionTitle, svops.KeepVersionText(name), svops.KeepVersionAction, func() {
 			u.restore(vault, name, rev, true, p.refresh)
 		})
 	})
@@ -156,7 +156,7 @@ func (u *UI) restore(vault, name, rev string, keep bool, then func()) {
 		if keep {
 			u.say("Kept that version of %s; the conflict is settled (revision %s)", e.Item.Name, svops.Short(e.Rev))
 		} else {
-			u.say("Restored %s (revision %s)", e.Item.Name, svops.Short(e.Rev))
+			u.say("Restored %s", e.Item.Name)
 		}
 		if then != nil {
 			then()
@@ -235,7 +235,7 @@ func (u *UI) showResolve() {
 	}
 	p.rowAct('k', "Keep this version on every device…", is[versionRef], func(ref any) {
 		rev := entry(ref).Rev
-		u.confirm("Keep this version?", fmt.Sprintf("Keep version %s of %s, on every device?", svops.Short(rev), name), "Keep it", func() {
+		u.confirm(svops.KeepVersionTitle, svops.KeepVersionText(name), svops.KeepVersionAction, func() {
 			u.restore(vault, name, rev, true, p.refresh)
 		})
 	})
@@ -265,7 +265,7 @@ func (u *UI) showDeleted() {
 			}
 			p.clear()
 			if len(del) == 0 {
-				p.none("Nothing deleted.")
+				p.none("Nothing deleted from it.")
 			}
 			for _, d := range del {
 				p.row(d, d.Name, d.Kind, d.Deleted.Local().Format("2006-01-02 15:04"))
@@ -275,12 +275,12 @@ func (u *UI) showDeleted() {
 	}
 	restore := func(ref any) {
 		d := ref.(svrpc.DeletedItem)
-		u.confirm("Restore?", fmt.Sprintf("Bring %s back, as it was before it was deleted?", d.Name), "Restore", func() {
+		u.confirm("Bring "+d.Name+" back?", svops.RestoreDeletedText(d.Name), svops.RestoreDeletedAction, func() {
 			u.restore(vault, d.Name, "", false, p.refresh)
 		})
 	}
 	p.enter = restore
-	p.rowAct('r', "Restore it…", is[svrpc.DeletedItem], restore)
+	p.rowAct('r', "Bring it back…", is[svrpc.DeletedItem], restore)
 	p.show()
 }
 
@@ -325,7 +325,7 @@ func (u *UI) showFiles() {
 	p.rowAct('s', "Save it to a file…", is[svrpc.FileInfo], func(ref any) { u.saveFile(vault, name, ref.(svrpc.FileInfo)) })
 	p.rowAct('x', "Remove it…", is[svrpc.FileInfo], func(ref any) {
 		f := ref.(svrpc.FileInfo)
-		u.confirm("Remove "+f.Name+"?", fmt.Sprintf("Remove %s from %s?\n\nIt stays in the item's history.", f.Name, name), "Remove", func() {
+		u.confirm("Remove "+f.Name+"?", svops.RemoveFileText(f.Name, name), svops.RemoveFileAction, func() {
 			u.call(func(ctx context.Context, c *secretvault.Client) error {
 				_, err := c.Detach(ctx, vault, name, f.Name)
 				return err

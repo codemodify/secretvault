@@ -49,7 +49,7 @@ func (u *UI) showContacts() {
 			p.frame.SetTitle(" " + tview.Escape(title) + " ")
 			p.clear()
 			if len(cs) == 0 {
-				p.none("No contacts.")
+				p.none("No contacts yet (a adds one).")
 			}
 			for _, ct := range cs {
 				var types []string
@@ -65,7 +65,7 @@ func (u *UI) showContacts() {
 			p.done()
 		})
 	}
-	p.setHead("Enter shows a contact's keys, and how each was verified; verify a key there, or remove one.")
+	p.setHead(svops.ContactsAbout + " Enter shows a contact's keys and how each was verified; v there verifies one, once you have compared its fingerprint with them.")
 	isContact := is[svrpc.Contact]
 	p.rowAct('o', "Its keys", isContact, func(ref any) { u.showContact(ref.(svrpc.Contact).ID, p.refresh) })
 	p.rowAct('x', "Remove the contact…", isContact, func(ref any) {
@@ -247,14 +247,14 @@ func splitList(s string) []string {
 
 // addContact is 'secretvault contact add FILE...'.
 func (u *UI) addContact(then func()) {
-	f := u.newForm("Add a contact", "Their keys, from files: OpenPGP keys, certificates, SSH keys, secretvault recipients. Compare the fingerprints with them afterwards, and verify.")
+	f := u.newForm("Add a contact", svops.AddContactLead+" Verify it afterwards, by comparing its fingerprint with them.")
 	files := f.area("Key files", "", 3)
 	files.SetPlaceholder("one path per line")
-	name := f.text("Name", "", "default: from the first key")
+	name := f.text("Name", "", "empty: take it from the key")
 	emails := f.text("Emails", "", "comma-separated (optional)")
-	notes := f.text("Notes", "", "(optional)")
-	org := f.check("An organisation: its CA certificates vouch for those they issue", false)
-	f.show("Add", func() string {
+	notes := f.text("Notes", "", "how you know them (optional)")
+	org := f.check("An organisation: certificates its CA issues count as vouched for by it", false)
+	f.show("Add the contact", func() string {
 		keys, names, err := readFiles(files.GetText())
 		if err != nil {
 			return err.Error()
@@ -284,7 +284,7 @@ func (u *UI) addContact(then func()) {
 				fmt.Fprintf(&b, "\n[yellow]warning:[-] %s", tview.Escape(w))
 			}
 			if len(ch.Contact.Keys) > 0 {
-				b.WriteString("\n\nCompare the fingerprints with them, then verify the key (Enter on the contact, then v).")
+				b.WriteString("\n\nIt is not verified yet: compare the fingerprint with them, then verify the key (Enter on the contact, then v).")
 			}
 			u.say("Added %s", ch.Contact.Name)
 			if then != nil {
@@ -298,12 +298,12 @@ func (u *UI) addContact(then func()) {
 
 // importContacts is 'secretvault contact import FILE|URI'.
 func (u *UI) importContacts(then func()) {
-	f := u.newForm("Import keys", "A file of keys, or the text of a QR code you scanned from the person's screen (secretvault-contact:, openpgp4fpr:), which verifies the keys it names, in person.")
+	f := u.newForm("Import keys", svops.ImportContactsLead+" A scanned code is pasted as its text, which starts secretvault-contact: or openpgp4fpr:.")
 	what := f.path("File or scanned code", "", "")
-	to := f.text("Into the contact", "", "(optional: new contacts)")
+	to := f.text("Into the contact", "", "(optional: else new contacts)")
 	name := f.text("Name new contacts", "", "(optional)")
-	fetch := f.check("Fetch the OpenPGP keys a code names that you do not have", false)
-	keyserver := f.text("Keyserver", "", "default: keys.openpgp.org")
+	fetch := f.check("Download the OpenPGP keys a code names that you do not have", false)
+	keyserver := f.text("Keyserver", "", "empty: keys.openpgp.org")
 	f.show("Import", func() string {
 		arg := trimmed(what)
 		if arg == "" {
@@ -358,7 +358,7 @@ func (u *UI) importContacts(then func()) {
 			if then != nil {
 				then()
 			}
-			u.showText("Import", b.String())
+			u.showText("Contacts imported", b.String())
 		})
 		return ""
 	})
@@ -366,11 +366,13 @@ func (u *UI) importContacts(then func()) {
 
 // removeContact is 'secretvault contact rm NAME [--fingerprint FPR]'.
 func (u *UI) removeContact(id, name, fp string, then func()) {
-	text := fmt.Sprintf("Remove %s, and every key of theirs?", name)
+	title, action := "Remove "+name+"?", "Remove the contact"
+	text := fmt.Sprintf("%s and all their keys leave your contacts, and how you verified them is forgotten. Vaults you share with them stay shared.", name)
 	if fp != "" {
-		text = fmt.Sprintf("Remove the key %s from %s?", svops.GroupFingerprint(fp), name)
+		title, action = "Remove a key of "+name+"?", "Remove the key"
+		text = fmt.Sprintf("The key %s leaves %s's contact, and how you verified it is forgotten.", svops.GroupFingerprint(fp), name)
 	}
-	u.confirm("Remove?", text, "Remove", func() {
+	u.confirm(title, text, action, func() {
 		var ct svrpc.Contact
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 			ct, err = c.RemoveContact(ctx, "", id, fp)
@@ -395,30 +397,21 @@ func (u *UI) removeContact(id, name, fp string, then func()) {
 	})
 }
 
-// verifyMethods are the ways a key is verified, as 'contact verify' takes
-// them.
-var verifyMethods = []struct{ method, label string }{
-	{svrpc.VerifyFingerprint, "I compared the fingerprint with them, face to face"},
-	{svrpc.VerifyQR, "I scanned their QR code, and it showed this fingerprint"},
-	{svrpc.VerifyOrgDirectory, "An organisation vouches for the key"},
-	{svrpc.VerifyTOFU, "Accept it as it is, without verifying it"},
-}
-
 // verifyContact is 'secretvault contact verify NAME --fingerprint FPR'.
 func (u *UI) verifyContact(id, fp string, then func()) {
-	f := u.newForm("Verify a key", "Give the fingerprint as you compared it, and how.")
+	f := u.newForm("Verify a key", svops.VerifyLead+" Give the fingerprint as you compared it, and how.")
 	fpr := f.text("Fingerprint", svops.GroupFingerprint(fp), "")
 	var labels []string
-	for _, m := range verifyMethods {
-		labels = append(labels, m.label)
+	for _, m := range svops.VerifyWays {
+		labels = append(labels, m.Text)
 	}
 	how := f.choice("How", labels, 0)
-	org := f.text("Organisation", "", "(for an organisation: which)")
+	org := f.text("Organisation", "", "(if an organisation vouches for it: which)")
 	emails := f.text("Only for", "", "addresses, comma-separated (default: the key's own)")
 	note := f.text("Note", "", "where or how, in your words (optional)")
-	f.show("Verify", func() string {
+	f.show("Mark as verified", func() string {
 		i, _ := how.GetCurrentOption()
-		p := svrpc.ContactVerifyParams{Ref: id, Fingerprint: strings.ReplaceAll(trimmed(fpr), " ", ""), Method: verifyMethods[i].method, Source: trimmed(note), Addresses: splitList(trimmed(emails))}
+		p := svrpc.ContactVerifyParams{Ref: id, Fingerprint: strings.ReplaceAll(trimmed(fpr), " ", ""), Method: svops.VerifyWays[i].Method, Source: trimmed(note), Addresses: splitList(trimmed(emails))}
 		if p.Fingerprint == "" {
 			return "Give the fingerprint you compared."
 		}
@@ -453,11 +446,11 @@ func (u *UI) verifyContact(id, fp string, then func()) {
 
 // lookupContact is 'secretvault contact lookup ADDRESS|FPR'.
 func (u *UI) lookupContact(then func()) {
-	f := u.newForm("Look up keys", "By an address's Web Key Directory, keyservers, and the organisations' directories; or ask one of them only.")
-	query := f.text("Address or fingerprint", "", "")
-	where := f.choice("Ask", []string{"everywhere", "the address's Web Key Directory only", "one keyserver only", "one directory only"}, 0)
-	keyserver := f.text("Keyserver or directory", "", "https://, hkps:// or hkp://; or a directory's name")
-	add := f.check("Keep what is found, as contacts", false)
+	f := u.newForm("Look up keys", svops.LookupLead)
+	query := f.text("Address or fingerprint", "", "ada@example.org")
+	where := f.choice("Ask", []string{"everywhere", "the email provider's key directory (WKD) only", "one keyserver only", "one directory only"}, 0)
+	keyserver := f.text("Keyserver or directory", "", "hkps://keys.example.org, or a directory's name")
+	add := f.check("Add what is found to the contacts, not verified", false)
 	name := f.text("Name new contacts", "", "(optional)")
 	f.show("Look up", func() string {
 		p := svrpc.ContactLookupParams{Query: trimmed(query), Add: add.IsChecked(), Name: trimmed(name)}
@@ -518,6 +511,8 @@ func (u *UI) lookupContact(then func()) {
 			}
 			if len(res.Found) == 0 {
 				b.WriteString("Nothing was found.")
+			} else {
+				b.WriteString("\nNone of it is verified until you compare its fingerprint with them.")
 			}
 			u.say("Looked %s up", p.Query)
 			if then != nil && len(res.Added) > 0 {
@@ -532,13 +527,13 @@ func (u *UI) lookupContact(then func()) {
 // showMyCard is 'secretvault contact qr': your keys as a QR code, for
 // someone to scan (svops.OwnCard, svtrust.Card.URI, svqr).
 func (u *UI) showMyCard() {
-	f := u.newForm("My QR code", "Your keys, for someone to scan: every OpenPGP key of the vault shown, unless you name key items; and any secretvault recipients you give.")
+	f := u.newForm("My QR code", svops.MyCodeLead+" Every OpenPGP key in the vault is shown, unless you name key items.")
 	items := f.text("Key items", "", "comma-separated (default: every OpenPGP key)")
-	recipients := f.text("Recipients", "", "recipients or identity files, comma-separated (optional)")
+	recipients := f.text("Recipients", "", "your public keys for sharing vaults, or identity files (optional)")
 	name := f.text("Your name", "", "default: from your first OpenPGP key")
 	emails := f.text("Your addresses", "", "comma-separated (default: your first OpenPGP key's)")
 	vault := u.vault
-	f.show("Show it", func() string {
+	f.show("Show the code", func() string {
 		its, rs := splitList(trimmed(items)), splitList(trimmed(recipients))
 		for i := range rs {
 			rs[i] = expandHome(rs[i])
@@ -566,7 +561,7 @@ func (u *UI) showMyCard() {
 				return
 			}
 			u.showCode("My QR code", []onceLine{
-				{text: "For them to scan, in person: it verifies your keys to them."},
+				{text: "For them to scan from your screen: it adds and verifies your keys for them, and holds no secret."},
 				{secret: []byte(uri)},
 			}, code)
 		})
@@ -595,7 +590,7 @@ func (u *UI) chooseContactsVault(then func()) {
 				u.fail(err)
 				return
 			}
-			u.say("Contacts now live in vault %s", name)
+			u.say("Contacts are kept in vault %s now", name)
 			if then != nil {
 				then()
 			}
@@ -605,16 +600,19 @@ func (u *UI) chooseContactsVault(then func()) {
 
 // checkSigner is 'secretvault trust check'.
 func (u *UI) checkSigner() {
-	f := u.newForm("Check a signer", "The verdict on who signed a message, as far as your contacts tell: the signer's key fingerprint (or ID), or their key or certificate from a file, and the address the message claims to be from.")
+	f := u.newForm("Check a signer", svops.CheckSignerLead)
 	fp := f.text("Fingerprint", "", "or a key file below")
 	keyFile := f.path("Key file", "", "")
 	from := f.text("From", "", "the message's sender (optional)")
-	levels := []string{"published (the default)", "tofu", "logged", "organisation", "in-person"}
-	minLevel := f.choice("Weakest that counts", levels, 0)
+	var levels []string
+	for _, l := range svops.TrustLevels {
+		levels = append(levels, l.Text)
+	}
+	minLevel := f.choice("Counts if at least", levels, 0)
 	f.show("Check", func() string {
 		p := svrpc.TrustCheckParams{Fingerprint: strings.ReplaceAll(trimmed(fp), " ", ""), From: trimmed(from)}
 		if i, _ := minLevel.GetCurrentOption(); i > 0 {
-			p.MinLevel = levels[i]
+			p.MinLevel = svops.TrustLevels[i].Level
 		}
 		kf := filePath(keyFile)
 		if (p.Fingerprint == "") == (kf == "") {
@@ -653,10 +651,10 @@ func (u *UI) checkSigner() {
 
 // keySeen is 'secretvault trust seen'.
 func (u *UI) keySeen(then func()) {
-	f := u.newForm("Record a key seen in mail", "A key or certificate that came with a message (an Autocrypt header's key, an S/MIME signer's certificate), from its sender's address.")
+	f := u.newForm("Record a key seen in mail", svops.KeySeenLead)
 	keyFile := f.path("Key file", "", "")
 	from := f.text("From", "", "the sender's address")
-	at := f.text("Received", "", "RFC 3339 or YYYY-MM-DD (default: now)")
+	at := f.text("Received", "", "YYYY-MM-DD (empty: now)")
 	source := f.text("What it was", "", "default: mail from ADDRESS on DATE")
 	name := f.text("Sender's name", "", "for a new contact (optional)")
 	f.show("Record", func() string {
@@ -673,7 +671,7 @@ func (u *UI) keySeen(then func()) {
 			t, err := time.Parse(time.RFC3339, s)
 			if err != nil {
 				if t, err = time.ParseInLocation("2006-01-02", s, time.Local); err != nil {
-					return fmt.Sprintf("%q is neither RFC 3339 nor YYYY-MM-DD.", s)
+					return fmt.Sprintf("%q is not a date: give it as YYYY-MM-DD, or leave it empty.", s)
 				}
 			}
 			p.Time = t
@@ -708,7 +706,7 @@ func (u *UI) keySeen(then func()) {
 func (u *UI) showDirectories() {
 	p := u.newPanel("Directories", "NAME", "URL", "BASE", "BIND")
 	p.page = pageSub
-	p.setHead("Organisations' LDAP directories, asked for an address's keys before anything else; what one says counts as the organisation vouching for the key.")
+	p.setHead(svops.DirectoriesAbout)
 	p.reload = func() {
 		var dirs []svrpc.DirectoryConfig
 		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
@@ -735,14 +733,14 @@ func (u *UI) showDirectories() {
 		})
 	}
 	p.act('a', "Add…", func() {
-		f := u.newForm("Add a directory", "The bind password is never typed here: give a reference to the vault item that holds it.")
-		name := f.text("Name", "", "")
+		f := u.newForm("Add a directory", svops.DirectoriesAbout+" "+svops.DirectoryPasswordNote)
+		name := f.text("Name", "", "what to call it: example")
 		url := f.text("URL", "", "ldaps://HOST or ldap://HOST (StartTLS)")
-		base := f.text("Base DN", "", "like dc=example,dc=com")
-		bind := f.text("Bind DN", "", "default: anonymously")
-		password := f.text("Password", "", "sv://VAULT/ITEM[#FIELD]")
+		base := f.text("Base DN", "", "where its people are: dc=example,dc=com")
+		bind := f.text("Bind DN", "", "the account to sign in as (default: anonymously)")
+		password := f.text("Password item", "", "the vault item that holds it: sv://VAULT/ITEM[#FIELD]")
 		ca := f.path("CA file", "", "PEM, for a private CA (optional)")
-		f.show("Add", func() string {
+		f.show("Add the directory", func() string {
 			d := svrpc.DirectoryConfig{Name: trimmed(name), URL: trimmed(url), BaseDN: trimmed(base), BindDN: trimmed(bind), Password: trimmed(password), CAFile: filePath(ca)}
 			if d.Name == "" || d.URL == "" {
 				return "Give the directory a name, and its URL."
@@ -762,7 +760,8 @@ func (u *UI) showDirectories() {
 	})
 	p.rowAct('x', "Remove it…", is[svrpc.DirectoryConfig], func(ref any) {
 		d := ref.(svrpc.DirectoryConfig)
-		u.confirm("Remove?", "Stop asking "+d.Name+" for keys?", "Remove", func() {
+		rm := svops.RemoveDirectoryPlain(d.Name)
+		u.confirm(rm.Title, rm.Summary, rm.Action, func() {
 			u.call(func(ctx context.Context, c *secretvault.Client) error {
 				return c.RemoveDirectory(ctx, d.Name)
 			}, func(err error) {
