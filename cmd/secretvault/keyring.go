@@ -147,6 +147,7 @@ func (c *cli) keyringTakeover(args []string) error {
 		return err
 	}
 	if *dryRun {
+		fmt.Fprintf(c.stdout, "%s\n\n", svops.TakeoverPlain(p, exe, !*noImport, c.vault).Text())
 		for _, l := range svops.TakeoverLines(p, exe, !*noImport) {
 			fmt.Fprintln(c.stdout, l)
 		}
@@ -197,6 +198,7 @@ func (c *cli) keyringRestore(args []string) error {
 		return err
 	}
 	if *dryRun {
+		fmt.Fprintf(c.stdout, "%s\n\n", svops.RestorePlain(s).Text())
 		for _, l := range svops.RestoreLines(s) {
 			fmt.Fprintln(c.stdout, l)
 		}

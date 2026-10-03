@@ -31,6 +31,8 @@ func (c *cli) browserInstall(args []string) error {
 	}
 	host := plan.Host
 	if *dryRun {
+		// What it means, as the managers say it, over the lines.
+		fmt.Fprintf(c.stdout, "%s\n\n", svops.BrowserInstallPlain(plan).Text())
 		fmt.Fprintf(c.stdout, "The browsers would start %s for %s:\n", host, native.Title)
 	}
 	for _, p := range plan.Hosts {
@@ -70,6 +72,9 @@ func (c *cli) browserUninstall(args []string) error {
 		return err
 	}
 	done, err := svops.UninstallBrowsers(nil, *dryRun)
+	if *dryRun && len(done) > 0 {
+		fmt.Fprintf(c.stdout, "%s\n\n", svops.BrowserUninstallPlain(done).Text())
+	}
 	for _, u := range done {
 		lines := svops.UninstalledLines(u)
 		if *dryRun && !u.Changed {

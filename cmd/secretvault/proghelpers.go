@@ -78,6 +78,7 @@ func (c *cli) helpersSetup(args []string) error {
 		return err
 	}
 	if *dryRun {
+		fmt.Fprintf(c.stdout, "%s\n\n", svops.HelpersSetupPlain(plan).Text())
 		fmt.Fprintln(c.stdout, svops.HelpersSetupIntro(plan.CLI))
 		c.printLines(plan.SetupLines())
 		fmt.Fprintln(c.stdout, "\nNothing was changed. Undo a setup with 'secretvault helpers undo'.")
@@ -112,6 +113,7 @@ func (c *cli) helpersUndo(args []string) error {
 		return nil
 	}
 	if *dryRun {
+		fmt.Fprintf(c.stdout, "%s\n\n", svops.HelpersUndoPlain(plan).Text())
 		fmt.Fprintln(c.stdout, svops.HelpersUndoIntro)
 		c.printLines(plan.UndoLines())
 		fmt.Fprintln(c.stdout, "\nNothing was changed.")

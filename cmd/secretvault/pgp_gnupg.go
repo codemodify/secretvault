@@ -58,6 +58,7 @@ func (c *cli) pgpGnuPGSetup(args []string) error {
 	}
 
 	if *dryRun {
+		fmt.Fprintf(c.stdout, "\n%s\n\n", svops.GnuPGSetupPlain(p, c.vault).Text())
 		for _, l := range svops.GnuPGPlanLines(p) {
 			fmt.Fprintln(c.stdout, l)
 		}
@@ -105,6 +106,7 @@ func (c *cli) gnupgRemove(cl *secretvault.Client, home string, dryRun bool) erro
 			fmt.Fprintf(c.stdout, "%s is not pointed at secretvault.\n", home)
 			return nil
 		}
+		fmt.Fprintf(c.stdout, "%s\n\n", svops.GnuPGRemovePlain(home).Text())
 		fmt.Fprintln(c.stdout, svops.GnuPGRemoveText(home))
 		fmt.Fprintln(c.stdout, "Nothing was changed.")
 		return nil
