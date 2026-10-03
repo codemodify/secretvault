@@ -224,7 +224,7 @@ async function chosenVault() {
 // --------------------------------------------------- content scripts' asks
 
 const fromContent = {
-  // A frame starts: may it be served, and is a save waiting to be offered?
+  // A frame starts: may it be served?
   async "frame:hello"(msg, sender) {
     const s = senderOrigins(sender);
     if (!s) return { active: false };
