@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/codemodify/secretvault/svd"
+	"github.com/codemodify/secretvault/svext"
 	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svrpc"
@@ -148,28 +149,53 @@ func TestBrowsersAreSetUpForTheCLIAndUndone(t *testing.T) {
 	cli := h.fakeCLI()
 	h.m.dpage.panes[tabBrowsers].refresh()
 	h.idle()
-	h.pressOn("Set up…")
-	h.tick("Firefox", true)
-	h.press("Next")
-	h.waitText("The browsers would start " + cli)
-	manifest := filepath.Join(home, ".mozilla", "native-messaging-hosts", "org.keepassxc.keepassxc_browser.json")
-	if !strings.Contains(h.text(), "firefox: write "+manifest) {
-		t.Fatalf("the plan:\n%s", h.text())
+	ext, old := strings.Index(h.text(), "SECRETVAULT'S OWN EXTENSION"), strings.Index(h.text(), "KEEPASSXC-BROWSER, THE LEGACY LINK")
+	if ext < 0 || old < ext {
+		t.Fatalf("the tab, the extension's host first:\n%s", h.text())
 	}
-	if _, err := os.Stat(manifest); err == nil {
-		t.Fatal("the plan wrote before it was said yes to")
+	dir := filepath.Join(home, ".mozilla", "native-messaging-hosts")
+	manifest := filepath.Join(dir, svext.HostName+".json")
+	legacy := filepath.Join(dir, "org.keepassxc.keepassxc_browser.json")
+	for _, c := range []struct{ button, manifest, name string }{
+		{"Set up…", manifest, svext.HostName},
+		{"Set up the legacy link…", legacy, "org.keepassxc.keepassxc_browser"},
+	} {
+		h.pressOn(c.button)
+		h.tick("Firefox", true)
+		h.press("Next")
+		h.waitText("The browsers would start " + cli)
+		if !strings.Contains(h.text(), "firefox: write "+c.manifest) {
+			t.Fatalf("the plan:\n%s", h.text())
+		}
+		if _, err := os.Stat(c.manifest); err == nil {
+			t.Fatal("the plan wrote before it was said yes to")
+		}
+		h.press("Set them up")
+		h.waitText("firefox: wrote " + c.manifest)
+		h.press("Close")
+		b, err := os.ReadFile(c.manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var mf svops.NativeManifest
+		exe, _ := os.Executable()
+		if json.Unmarshal(b, &mf) != nil || mf.Path != cli || mf.Path == exe || mf.Name != c.name {
+			t.Fatalf("the manifest names %q (the CLI is %s, this program %s): %s", mf.Path, cli, exe, b)
+		}
+		h.idle()
 	}
-	h.press("Set them up")
-	h.waitText("firefox: wrote " + manifest)
+
+	// The legacy link is undone alone.
+	h.pressOn("Undo the legacy link…")
+	h.waitText("Undoing would:")
+	h.press("Undo")
+	h.waitText("Browsers' setup undone")
 	h.press("Close")
-	b, err := os.ReadFile(manifest)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(legacy); err == nil {
+		t.Fatal("the legacy manifest is still there")
 	}
-	var mf svops.NativeManifest
-	exe, _ := os.Executable()
-	if json.Unmarshal(b, &mf) != nil || mf.Path != cli || mf.Path == exe {
-		t.Fatalf("the manifest names %q (the CLI is %s, this program %s)", mf.Path, cli, exe)
+	if _, err := os.Stat(manifest); err != nil {
+		t.Fatal("undoing the legacy link took the extension's host")
 	}
 	h.idle()
 	h.pressOn("Undo…")
@@ -178,6 +204,18 @@ func TestBrowsersAreSetUpForTheCLIAndUndone(t *testing.T) {
 	h.waitText("Browsers' setup undone")
 	if _, err := os.Stat(manifest); err == nil {
 		t.Fatal("the manifest is still there")
+	}
+	h.press("Close")
+
+	// The extension, saved to load.
+	h.idle()
+	zip := filepath.Join(h.dir, "ext.zip")
+	h.pressOn("Save the extension…")
+	h.fill("Save to", zip)
+	h.press("Save")
+	h.waitText("Load Temporary Add-on")
+	if st, err := os.Stat(zip); err != nil || st.Size() < 1000 {
+		t.Fatalf("the extension: %v", err)
 	}
 	h.press("Close")
 }

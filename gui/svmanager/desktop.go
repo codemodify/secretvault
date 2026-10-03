@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,7 +21,8 @@ import (
 )
 
 // The desktop's setup: secretvault as the system keyring (Linux), the
-// browsers starting secretvault for KeePassXC-Browser, gpg using the
+// browsers starting secretvault for its own extension (and for
+// KeePassXC-Browser, the legacy link, until it goes), gpg using the
 // vault's OpenPGP keys, the helper programs git, docker and age start,
 // and the host daemon on a server. Everything that changes the desktop is
 // shown first as the plan svops makes of it, as the CLI's --dry-run shows
@@ -414,34 +416,61 @@ func (m *Manager) fillBrowsers(p *desktopPage, pn *pane) {
 		return nil
 	}, func() widget.Component {
 		p.assoc = browsers
-		col := widgets.NewColumn(m.paragraph("Browsers with the KeePassXC-Browser extension fill logins from the vault, once they " +
-			"start secretvault in KeePassXC's place. Setting them up writes a manifest per browser that names it; undoing puts back " +
-			"exactly what was there.")).WithGap(gap).WithPad(gap)
+		col := widgets.NewColumn(m.paragraph("secretvault's own browser extension fills and saves logins, asking secretvault, which asks you. " +
+			"The browsers start secretvault for it once they are set up: setting them up writes a manifest per browser that names it, " +
+			"and undoing puts back exactly what was there. Then load the extension itself.")).WithGap(gap).WithPad(gap)
 		if state != nil {
 			col.Add(m.paragraph(fmt.Sprintf("Set up %s, starting %s.", state.When.Local().Format("2006-01-02 15:04"), state.Host)))
 		}
 		if statusErr != nil {
 			col.Add(toned(m.describe(statusErr), widgets.ToneWarning))
 		}
-		if len(states) > 0 {
-			t := table("Browsers", []widgets.TableColumn{{Title: "Browser", Width: 130}, {Title: "Starts"}}, len(states), func(r, c int) string {
-				b := states[r]
+		hostTable := func(h svops.NativeHost) {
+			ss := svops.StatesOf(states, h)
+			if len(ss) == 0 {
+				return
+			}
+			t := table(h.Title, []widgets.TableColumn{{Title: "Browser", Width: 130}, {Title: "Starts"}}, len(ss), func(r, c int) string {
 				if c == 0 {
-					return b.Spot.Title
+					return ss[r].Spot.Title
 				}
-				return browserLine(b, host)
+				return browserLine(ss[r], host)
 			})
-			col.Add(widgets.NewHeightBox(min(40+28*float32(len(states)), 220), t))
+			col.Add(widgets.NewHeightBox(min(40+28*float32(len(ss)), 220), t))
 		}
-		setup := widgets.NewButton("Set up…", func() { m.installBrowsers(p, states) })
-		undo := widgets.NewButton("Undo…", func() { m.uninstallBrowsers(p) })
+		recorded := func(h svops.NativeHost) bool {
+			if state == nil {
+				return false
+			}
+			for _, r := range state.Hosts {
+				if r.NativeHost().Name == h.Name {
+					return true
+				}
+			}
+			return false
+		}
+
+		col.Add(section(m, "secretvault's own extension"))
+		hostTable(svops.ExtensionHost)
+		setup := widgets.NewButton("Set up…", func() { m.installBrowsers(p, states, svops.ExtensionHost) })
+		undo := widgets.NewButton("Undo…", func() { m.uninstallBrowsers(p, &svops.ExtensionHost) })
+		save := widgets.NewButton("Save the extension…", func() { m.saveExtension() })
 		setup.SetEnabled(cli != "")
-		undo.SetEnabled(state != nil && len(state.Hosts) > 0)
+		undo.SetEnabled(recorded(svops.ExtensionHost))
 		pn.focus = setup
-		col.Add(buttons(setup, undo))
-		col.Add(section(m, "Extensions connected to vault "+vault))
+		col.Add(buttons(setup, undo, save))
+
+		col.Add(section(m, "KeePassXC-Browser, the legacy link"))
+		col.Add(m.paragraph("secretvault in KeePassXC's place behind KeePassXC-Browser. It stays until the extension has replaced it; then undo it here."))
+		hostTable(svops.KeePassXCHost)
+		legacySetup := widgets.NewButton("Set up the legacy link…", func() { m.installBrowsers(p, states, svops.KeePassXCHost) })
+		legacyUndo := widgets.NewButton("Undo the legacy link…", func() { m.uninstallBrowsers(p, &svops.KeePassXCHost) })
+		legacySetup.SetEnabled(cli != "")
+		legacyUndo.SetEnabled(recorded(svops.KeePassXCHost))
+		col.Add(buttons(legacySetup, legacyUndo))
+		col.Add(m.paragraph("KeePassXC-Browser extensions connected to vault " + vault + ":"))
 		if len(browsers) == 0 {
-			col.Add(m.paragraph("None. Connect one from KeePassXC-Browser's toolbar button, once its browser is set up and restarted."))
+			col.Add(m.paragraph("None. KeePassXC-Browser connects from its toolbar button, once its browser is set up and restarted."))
 		} else {
 			p.atable = table("Connected extensions", []widgets.TableColumn{
 				{Title: "Name", Width: 140}, {Title: "Browser"}, {Title: "Extension"}, {Title: "Since", Width: 130},
@@ -492,23 +521,29 @@ func browserLine(b svops.BrowserState, host string) string {
 	return line
 }
 
-// installBrowsers sets the browsers chosen up (the CLI's browser install):
-// the plan per browser first, then each carried out.
-func (m *Manager) installBrowsers(p *desktopPage, states []svops.BrowserState) {
+// installBrowsers sets the browsers chosen up for a native host (the
+// CLI's browser install, and with --keepassxc): the plan per browser
+// first, then each carried out.
+func (m *Manager) installBrowsers(p *desktopPage, states []svops.BrowserState, native svops.NativeHost) {
 	cli := m.cliProgram()
 	if cli == "" {
 		m.fail(svops.ErrNoCLI)
 		return
 	}
-	f := m.newForm("Set up browsers")
-	f.note("The browsers to start secretvault for KeePassXC-Browser:")
+	title := "Set up browsers"
+	if native.Legacy {
+		title = "Set up the legacy link"
+	}
+	f := m.newForm(title)
+	f.note("The browsers to start secretvault for " + native.Title + ":")
+	mine := svops.StatesOf(states, native)
 	boxes := map[string]*widgets.Checkbox{}
-	for _, b := range states {
+	for _, b := range mine {
 		boxes[b.Spot.Name] = f.check(b.Spot.Title, b.Spot.Used())
 	}
 	f.show("Next", func() {
 		var names []string
-		for _, b := range states {
+		for _, b := range mine {
 			if boxes[b.Spot.Name].Checked && !slices.Contains(names, b.Spot.Name) {
 				names = append(names, b.Spot.Name)
 			}
@@ -519,7 +554,7 @@ func (m *Manager) installBrowsers(p *desktopPage, states []svops.BrowserState) {
 		}
 		var plan *svops.BrowserInstallPlan
 		f.work(func() (err error) {
-			plan, err = svops.PlanBrowserInstall(svops.ExtensionHost, names, cli)
+			plan, err = svops.PlanBrowserInstall(native, names, cli)
 			return err
 		}, func() {
 			var lines []string
@@ -530,7 +565,7 @@ func (m *Manager) installBrowsers(p *desktopPage, states []svops.BrowserState) {
 				lines = append(lines, "", "KeePassXC writes its manifests back each time it starts with browser integration on:",
 					"turn that off in KeePassXC (Settings > Browser Integration), or its option to update the manifests at startup.")
 			}
-			m.showPlan("Set up browsers", "The browsers would start "+plan.Host+" for KeePassXC-Browser:", lines, "Set them up", func() {
+			m.showPlan(title, "The browsers would start "+plan.Host+" for "+native.Title+":", lines, "Set them up", func() {
 				var report []string
 				m.work(func() error {
 					for _, hp := range plan.Hosts {
@@ -548,9 +583,12 @@ func (m *Manager) installBrowsers(p *desktopPage, states []svops.BrowserState) {
 					}
 					return nil
 				}, func(err error) {
-					intro := "Restart the browsers, then connect KeePassXC-Browser from its toolbar button. Desktop › Browsers › Undo… undoes it."
+					intro := "Restart the browsers, then load the extension: Save the extension… writes it, and says how. Undo… undoes the setup."
+					if native.Legacy {
+						intro = "Restart the browsers, then connect KeePassXC-Browser from its toolbar button. Undo the legacy link… undoes it."
+					}
 					if err != nil {
-						intro = m.describe(err) + " Undo… undoes what was done."
+						intro = m.describe(err) + " Undoing undoes what was done."
 					}
 					m.showText("Browsers set up", intro, strings.Join(report, "\n"))
 					m.refreshDesktop(p, tabBrowsers)
@@ -588,16 +626,21 @@ func hostPlanLines(p *svops.HostPlan, host string) []string {
 	return lines
 }
 
-// uninstallBrowsers undoes the setup exactly (the CLI's browser
-// uninstall): what it would do shown first.
-func (m *Manager) uninstallBrowsers(p *desktopPage) {
+// uninstallBrowsers undoes the setup of one native host exactly (the
+// CLI's browser uninstall --extension or --keepassxc): what it would do
+// shown first.
+func (m *Manager) uninstallBrowsers(p *desktopPage, only *svops.NativeHost) {
+	title := "Undo the browsers' setup"
+	if only.Legacy {
+		title = "Undo the legacy link"
+	}
 	var would []svops.Uninstalled
 	m.work(func() (err error) {
-		would, err = svops.UninstallBrowsers(nil, true)
+		would, err = svops.UninstallBrowsers(only, true)
 		return err
 	}, func(err error) {
 		if errors.Is(err, svops.ErrNoBrowserInstall) {
-			m.say("secretvault is not set up in any browser.")
+			m.say("secretvault is not set up in any browser for %s.", only.Title)
 			return
 		}
 		if err != nil {
@@ -608,10 +651,10 @@ func (m *Manager) uninstallBrowsers(p *desktopPage) {
 		for _, u := range would {
 			lines = append(lines, undoLines(u)...)
 		}
-		m.showPlan("Undo the browsers' setup", "Undoing would:", lines, "Undo", func() {
+		m.showPlan(title, "Undoing would:", lines, "Undo", func() {
 			var done []svops.Uninstalled
 			m.work(func() (err error) {
-				done, err = svops.UninstallBrowsers(nil, false)
+				done, err = svops.UninstallBrowsers(only, false)
 				return err
 			}, func(err error) {
 				var report []string
@@ -626,6 +669,42 @@ func (m *Manager) uninstallBrowsers(p *desktopPage) {
 				m.refreshDesktop(p, tabBrowsers)
 			})
 		}, nil)
+	})
+}
+
+// saveExtension writes secretvault's extension out (the CLI's browser
+// extension): a .zip for Firefox, or a folder for Chromium's family, then
+// says how to load it.
+func (m *Manager) saveExtension() {
+	f := m.newForm("Save the extension")
+	f.note("A .zip loads in Firefox: about:debugging, This Firefox, Load Temporary Add-on…. A folder loads in Chrome, Chromium, Brave, Edge or Vivaldi: chrome://extensions, Developer mode, Load unpacked.")
+	out := f.path("Save to", PickSave, svops.ExtensionFileName())
+	if wd, err := os.Getwd(); err == nil {
+		out.field.SetText(filepath.Join(wd, svops.ExtensionFileName()))
+	}
+	asDir := f.check("As a folder, for Chromium's Load unpacked", false)
+	f.show("Save", func() {
+		path, dir := out.Path(), asDir.Checked
+		if path == "" {
+			f.fail("Say where to save it.")
+			return
+		}
+		write := func() {
+			f.work(func() error {
+				if dir {
+					return svops.WriteExtensionDir(path)
+				}
+				return svops.WriteExtension(path, true)
+			}, func() {
+				m.say("Saved the extension to %s.", path)
+				m.showText("The secretvault extension", "", strings.Join(svops.ExtensionWrittenLines(path, dir), "\n"))
+			})
+		}
+		if dir {
+			write()
+			return
+		}
+		m.replacing(path, write)
 	})
 }
 
