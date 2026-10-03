@@ -17,7 +17,10 @@ import (
 // would mean reading the passphrase to do it. The window tells it of every
 // change (it is a widget.LockKeysWatcher), and a window coming back into
 // focus is not one; it asks the window once, the first time it is laid
-// out, which on X11 and Windows says so before the first key.
+// out, which on X11, Windows and (since uitoolkit v0.23.3) macOS says so
+// before the first key. On Wayland that is before the compositor has said
+// (uitoolkit-gaps.md, 51), so a new prompt there says so at the first key
+// or pointer event.
 type CapsLock struct {
 	*widgets.Label
 	on, known bool

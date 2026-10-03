@@ -26,10 +26,13 @@ type dialog struct {
 //
 // A dialog taller than the window scrolls its body and keeps its buttons
 // at its foot, in view (uitoolkit-gaps.md, 40). It is widgets.DialogContent's
-// arrangement, built here: DialogContent's body takes all the height the
-// window offers, however little it holds, and its foot gives a ButtonBox
-// only its natural width, so the platform's left-hand group (a
-// destructive button, under Mac and GNOME looks) is no longer apart (46).
+// arrangement, built here. Since v0.23.3 DialogContent's body is as tall
+// as what it holds, and a ButtonBox handed to it alone keeps the
+// platform's layout (46); but a foot that holds one beside something else,
+// as every passphrase question's does ("Caps Lock is on" beside the
+// buttons), it still squeezes to its natural width, and the platform's
+// left-hand group (Back, and a destructive button under Mac and GNOME
+// looks) is no longer apart in it (54).
 func (m *Manager) showDialog(title string, body, buttons, focus widget.Component, onClose func()) *dialog {
 	d := &dialog{}
 	scroll := widgets.NewScrollView(body)

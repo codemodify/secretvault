@@ -19,19 +19,24 @@ import (
 // program, run as `secretvault __clip SECONDS` with the secret on its
 // stdin, takes the clipboard in a process of its own (svclip, Wayland's
 // data control or X11), serves it, and clears it when its time is up if
-// it is still its own. uitoolkit's secret clipboard falls short there in
-// two ways svclip does not (uitoolkit-gaps.md, 47 and 48): on Wayland it
-// answers x-kde-passwordManagerHint with the secret itself, so Klipper
-// keeps the passphrase in its history; and it clears at the timeout
-// whatever the clipboard holds by then, and pastes its old secret into a
-// SecretField after something else was copied. A copy taken back (its
-// vault locked, the program quitting) is the helper ended: its selection
-// goes with it, and only if it still has it.
+// it is still its own. Since v0.23.3 uitoolkit's secret clipboard answers
+// the password-manager hint "secret" and clears only its own copy
+// (uitoolkit-gaps.md, 47 and 48), but it still falls short there where
+// svclip does not: on X11 another program's copy leaves its secret held,
+// so a SecretField pastes the old one and the passphrase stays in this
+// program's heap until the timeout (52); and on Wayland a copy can be
+// ended without being cleared (with XWayland beside the compositor,
+// likely every copy, which takes X11's clipboard too), and its clear
+// takes the primary selection from whoever has it (55).
+// A copy taken back (its vault locked, the program quitting) is the
+// helper ended: its selection goes with it, and only if it still has it.
 //
 // Where there is no CLI beside this program, or it cannot reach a
 // clipboard, the copy goes to uitoolkit's. On Windows a helper ended
 // leaves its copy on the clipboard, and macOS has no svclip yet: both
-// copy through uitoolkit (clip_other.go).
+// copy through uitoolkit (clip_other.go), which since v0.23.3 clears only
+// its own copy there too, though another program's copy still leaves its
+// secret held (52).
 
 // helperMax is the most the helper reads (cmd/secretvault's clipHelper);
 // a larger copy goes to the fallback, whole, rather than to a helper
