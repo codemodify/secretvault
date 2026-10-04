@@ -31,11 +31,8 @@ extension is published, if they are to change.
 | Chromium extension ID (fixed by the manifest's `key`) | `bfikbjjlppgnacljfdjhfoiccclkpkde` |
 | Protocol, as the host names it to the daemon | `secretvault-extension/1` |
 
-The Chromium ID comes from the public key in `manifest.json`'s `key`. Its
-private key was not kept: it is needed only to publish in the Chrome Web
-Store under that ID. To publish there, make a key pair of your own, put
-its public half in `key`, and change `svext.ChromeID` to the ID it gives
-(the test says which).
+The Chromium ID comes from the public key in `manifest.json`'s `key`
+(see [The ID and its key](#the-id-and-its-key)).
 
 ## What it does
 
@@ -114,9 +111,10 @@ its public half in `key`, and change `svext.ChromeID` to the ID it gives
   - it writes each decision to the audit log.
 - **The package**, `.zip` or folder, is made from the copy every
   secretvault program carries (package [`browser`](../browser) embeds
-  it). The CLI makes it with `secretvault browser extension`, the GUI
-  with Desktop › Browsers › Save the extension…, and the TUI with `B`
-  then `e`.
+  it), for Firefox or for Chromium, each with its own manifest
+  ([Chromium](#chromium)). The CLI makes it with `secretvault browser
+  extension`, the GUI with Desktop › Browsers › Save the extension…,
+  and the TUI with `B` then `e`.
 
 ## The protocol
 
@@ -413,7 +411,9 @@ section covers what the extension adds. It is enforced in the files named.
   It loads nothing from the network, has no `eval`, no inline script, and
   no `innerHTML`; the panel puts text into the page with `textContent`.
   Its permissions are `nativeMessaging` and `storage` (the chosen vault's
-  name), and host access to http and https pages for its content script.
+  name; and, in `storage.session`, the panels' state, which holds no
+  secret), and host access to http and https pages for its content
+  script.
 
 ### What is not stopped
 
@@ -443,10 +443,18 @@ section covers what the extension adds. It is enforced in the files named.
 - **The panel moving with the page.** It closes when its field moves.
   It does not follow scrolling, so scrolling the page closes it: click
   the mark again.
-- **Fingerprinting on Chromium.** The panel is web-accessible, and the
-  Chromium ID is fixed, so a page can tell the extension is installed
-  (`use_dynamic_url` is not used: see [Chromium](#chromium)). Firefox
-  gives each installation its own internal UUID.
+- **Telling that the extension is installed.** The panel is loaded by a
+  URL that changes every session in Chromium (`use_dynamic_url`), and by
+  a per-installation UUID in Firefox, so a page cannot probe for it. But
+  the marks are elements in the page's DOM, which a page can see once
+  they are put next to its login fields.
+- **An unpacked extension claiming our ID.** In Chromium the ID is the
+  hash of a public key, which anyone can copy into a manifest of their
+  own: whoever can load an unpacked extension into the profile (in
+  Developer mode) can load one with our ID, which the host's manifest
+  then lets start secretvault. That takes the power to change the
+  person's browser profile, which a program running as the person has
+  anyway; the broker still asks and logs, naming the browser.
 - **What other software on the machine can do**, as for every face:
   [security.md](security.md#what-a-prompt-can-and-cannot-stop).
 
@@ -465,13 +473,21 @@ section covers what the extension adds. It is enforced in the files named.
    in the terminal manager, do the same. `secretvault browser uninstall`
    undoes it exactly.
 
-2. **Write the extension out:**
+2. **Write the extension out**, for one family of browsers (`--target`;
+   each gets its own manifest, see [Chromium](#chromium)):
 
    ```console
-   $ secretvault browser extension                       # secretvault-extension-0.1.0.zip, here
+   $ secretvault browser extension                       # Firefox: secretvault-extension-0.1.0.zip, here
    $ secretvault browser extension --out /tmp/sv.zip
-   $ secretvault browser extension --dir /tmp/sv-ext     # a folder, for Chromium
+   $ secretvault browser extension --dir /tmp/sv-ext     # Chromium: a folder for Load unpacked
+   $ secretvault browser extension --target chromium     # Chromium: secretvault-extension-0.1.0-chromium.zip, for the Chrome Web Store
+   $ secretvault browser extension --target firefox --dir /tmp/sv-ff
    ```
+
+   Without `--target`, a folder is for Chromium and a zip for Firefox.
+   The desktop manager (Desktop › Browsers › Save the extension…) and the
+   terminal manager (`B` then `e`) offer the same three: a .zip for
+   Firefox, a folder for Chromium, a .zip for the Chrome Web Store.
 
 3. **Load it in Firefox, for testing:**
    - open `about:debugging`;
@@ -515,35 +531,183 @@ section covers what the extension adds. It is enforced in the files named.
 
 ## Chromium
 
-The extension is the same, and works in Chrome, Chromium, Brave, Edge and
-Vivaldi, with these gaps:
+The extension is one source tree, and works in Chrome, Chromium, Brave,
+Edge and Vivaldi (version 121 and later) as in Firefox (128 and later).
 
-- **Loading.** Use **Load unpacked** on a folder:
-  - `secretvault browser extension --dir DIR`;
-  - open `chrome://extensions` and turn on Developer mode;
-  - choose **Load unpacked**, then the folder.
+### Loading it in Chrome, Chromium or Brave
 
-  The `key` in the manifest gives it the ID the host's manifest allows.
-  Publishing in the Chrome Web Store needs its own key ([Names](#names)).
-- **The manifest.**
-  - It has `background.scripts` for Firefox and `background.service_worker`
-    for Chromium. Chromium 121 and later take both; older ones refuse it.
-  - Chromium warns about `browser_specific_settings`, and Firefox about
-    `key` and `minimum_chrome_version`; both ignore them.
-- **The service worker** may be stopped while idle. A save offer waiting
-  in it is then lost, which errs on the side of keeping nothing. The open
-  native-messaging port keeps it running while the host is.
-- **`use_dynamic_url`** is left out of `web_accessible_resources`. With
-  it, the panel's URL changes per session, and pages cannot detect the
-  extension. But the extension would have to load the panel by that
-  dynamic URL, and the background tells its pages from content scripts
-  by `runtime.getURL`.
+1. Set the browser up, once: `secretvault browser install --browser
+   chromium` (or `chrome`, `brave`, `edge`, `vivaldi`; with no
+   `--browser`, every browser used here). Restart the browser if it was
+   running.
+2. Write the extension as a folder:
+   `secretvault browser extension --target chromium --dir ~/secretvault-extension`.
+3. Open `chrome://extensions` (`brave://extensions` in Brave,
+   `edge://extensions` in Edge), turn on **Developer mode**, choose
+   **Load unpacked**, and choose that folder.
+4. Pin the toolbar button from the extensions menu (the puzzle piece) if
+   you want it in sight. Ctrl+Shift+L opens it; `chrome://extensions/shortcuts`
+   changes that.
+
+The extension's ID is `bfikbjjlppgnacljfdjhfoiccclkpkde` in every
+Chromium browser: the manifest's `key` fixes it, and the host's manifest
+lets only that ID start secretvault. A newer secretvault writes a newer
+extension: write the folder again and choose the reload button on its
+card in `chrome://extensions`.
+
+### What differs from Firefox, and how it is handled
+
+- **The manifest.** `manifest.json` in the source holds what both
+  families need. `secretvault browser extension` writes each family's
+  own (`svops.ExtensionManifest`), so neither warns about what it does
+  not read:
+  - for Chromium, without `browser_specific_settings` (Firefox's ID) and
+    `background.scripts`;
+  - for Firefox, without `key`, `minimum_chrome_version`,
+    `background.service_worker` and `use_dynamic_url`.
+- **The background is a service worker.** Chromium stops it after 30
+  seconds without events (and Firefox suspends its event page the same
+  way). Its listeners are registered when it starts, it imports its
+  modules itself (`importScripts`), and what a panel or a frame relies on
+  (which frames are served, the panels' tokens, what each panel was shown)
+  is kept in `storage.session`: in memory only, for this browser session,
+  readable only by the extension's own pages and its background, and
+  read back before any message is answered. A save offer's password is
+  not kept there: if the background stops, the offer is lost and its
+  badge cleared, which errs on the side of keeping nothing. While a
+  request waits on secretvault (a prompt the person answers), the open
+  native-messaging port keeps the worker running; once it stops, the
+  host exits, and the next request starts it again.
+- **`browser.*` and `chrome.*`.** The scripts use `browser` where there
+  is one (Firefox) and `chrome` otherwise; everything they call returns a
+  promise in both (Chromium's `chrome.*` do in Manifest V3). A native host
+  that is not set up is seen the same way in both: the port disconnects,
+  with `chrome.runtime.lastError` in Chromium and the port's `error` in
+  Firefox.
+- **Content scripts** are declared in the manifest; the extension does
+  not use the `scripting` permission.
+- **The panel's URL.** `web_accessible_resources` has
+  `use_dynamic_url`: in Chromium, a page can load the panel only by a URL
+  that changes every browser session, which the extension's content
+  script gets from `runtime.getURL` and a page cannot guess. So a page
+  cannot load the panel itself, or tell from its static URL that the
+  extension is installed. Inside, the panel still has the extension's own
+  URL, which is how the background tells it from a content script.
+  Firefox gives each installation its own random UUID instead.
+- **The toolbar popup and the shortcut** are the manifest's `action` and
+  `_execute_action`, the same in both.
+- **The marks and the panel** are in closed shadow roots in the top layer
+  (popovers), as in Firefox. Closed shadow roots of the page's are seen
+  through `chrome.dom.openOrClosedShadowRoot` in Chromium and
+  `openOrClosedShadowRoot` in Firefox.
 - **IntersectionObserver v2** (whether anything covers the panel) is
   Chromium's alone. In Firefox, a login chosen in an in-page panel is
   confirmed by secretvault's prompt instead.
-- **Windows and macOS.** The host's manifest is written in the browsers'
-  per-user places on macOS, and named by registry keys under
-  HKEY_CURRENT_USER on Windows. Both are tested in temporary homes only.
+
+### The host's manifest
+
+`secretvault browser install` writes `io.github.codemodify.secretvault.json`
+for each Chromium browser with `allowed_origins` naming
+`chrome-extension://bfikbjjlppgnacljfdjhfoiccclkpkde/` alone (and Firefox's
+with `allowed_extensions` naming the Firefox ID alone). On Linux:
+
+| Browser | Folder |
+| --- | --- |
+| Chrome | `~/.config/google-chrome/NativeMessagingHosts` |
+| Chromium | `~/.config/chromium/NativeMessagingHosts` |
+| Brave | `~/.config/BraveSoftware/Brave-Browser/NativeMessagingHosts` |
+| Edge | `~/.config/microsoft-edge/NativeMessagingHosts` |
+| Vivaldi | `~/.config/vivaldi/NativeMessagingHosts` |
+
+(`$XDG_CONFIG_HOME` in place of `~/.config` where it is set.) On macOS
+they are under `~/Library/Application Support`, and on Windows a
+registry key under HKEY_CURRENT_USER names the manifest; Brave and
+Vivaldi read Chrome's key there. Those two are tested in temporary homes
+only.
+
+Limits:
+
+- **A profile elsewhere.** Chromium started with `--user-data-dir` reads
+  `NativeMessagingHosts` in that folder, not in `~/.config/chromium`;
+  Brave reads its usual folder whatever the profile.
+- **Flatpak and Snap browsers are not supported.** A Flatpak Chrome or
+  Chromium (`com.google.Chrome`, `org.chromium.Chromium`) reads host
+  manifests from `~/.var/app/ID/config/...` and starts the host inside its
+  sandbox, where neither the secretvault program nor the daemon's socket
+  can be reached; the Snap Chromium (`~/snap/chromium/...`) is confined the
+  same way. Making them work would mean opening the sandbox
+  (`flatpak-spawn --host`), which is the person's call, not secretvault's.
+  `secretvault browser install` writes nothing for them.
+
+### Publishing in the Chrome Web Store
+
+Publishing needs a Chrome Web Store developer account (a one-time
+registration fee), so it is the person's to do. Nothing here uploads
+anything.
+
+1. Register at <https://chrome.google.com/webstore/devconsole>.
+2. Write the package: `secretvault browser extension --target chromium`
+   (`secretvault-extension-0.1.0-chromium.zip`). Its manifest is
+   Chromium's without the `key`, which the store does not take in a
+   manifest (`svops.ExtensionStoreManifest`); a folder for Load unpacked
+   keeps it.
+3. To publish under the ID the host's manifest allows, the store has to
+   be given the ID's private key with the first upload (see below): add
+   it at the root of a copy of the zip as `key.pem` (`zip -j copy.zip
+   key.pem`), and upload that copy as a new item (**Add new item**). The
+   store keeps the ID and drops the key. Delete that copy once it is
+   uploaded, and never leave `key.pem` in the extension's folder or in any
+   other package. If the dashboard will not take
+   it, the store gives the item an ID of its own: then put the public key
+   the dashboard shows (Package › View public key) in `key`, the new ID in
+   `svext.ChromeID` (`svext/ids_test.go` checks the two agree), and build
+   secretvault again, so the host's manifest allows the store's ID.
+4. Fill in the listing and the privacy form. It asks why each permission
+   is needed: `nativeMessaging`, to reach secretvault on the same
+   computer; `storage`, for the chosen vault's name and the panels'
+   short-lived state; host access to http and https pages, to mark and
+   fill login fields there. The extension collects no data and loads no
+   remote code.
+5. Submit it for review. For a new version, raise `version` in
+   `manifest.json`, write the package again, and upload it to the same
+   item (the key is not needed again).
+
+### The ID and its key
+
+The Chromium ID `bfikbjjlppgnacljfdjhfoiccclkpkde` is derived from the
+public key in `manifest.json`'s `key`. Its private key is **not** in this
+repository, and must never be committed. Whoever holds it can:
+
+- publish an extension under this ID in the Chrome Web Store, if nobody
+  has yet (the first upload claims the ID for that account);
+- sign `.crx` packages that Chromium installs under this ID.
+
+So keep it offline, with the project's release keys, until the first
+store upload; after that the store holds the ID, and the key is needed
+only to sign packages outside the store. Losing it means a store item
+gets an ID of its own (step 3 above says what to change). Note that the
+ID is not a secret and proves nothing to a browser in developer mode:
+anyone who can load an unpacked extension into the profile can give it
+this public key, and so this ID (see [What is not stopped](#what-is-not-stopped)).
+
+### Testing it in a real browser
+
+`TestTheExtensionFillsInChromium` (`cmd/secretvault/browser_e2e_test.go`)
+runs the extension in a headless Chromium (`--headless=new`), in a home
+and profile of its own under the test's temporary directory, kept off
+the session bus and the system keyring. It writes the extension as
+`--target chromium --dir` does, and the host's manifest as `browser
+install` does, in that home; the host the browser starts is the test
+binary, speaking to a daemon in the test, whose prompts the test
+answers. It drives the browser over the DevTools protocol on a pipe
+(`--remote-debugging-pipe`, `internal/cdptest`), clicking as a mouse
+would, and checks that the marks come, that a login chosen in the panel
+is filled after secretvault is asked, that this still works after the
+service worker was stopped (with the panel's token still bound to its own
+frame), and that a frame of another origin gets
+neither marks nor a fill. It runs when `chromium` is installed (or
+`SECRETVAULT_TEST_CHROMIUM` names a browser: Brave passes too), and not
+with `-short`.
 
 ## The Public Suffix List
 

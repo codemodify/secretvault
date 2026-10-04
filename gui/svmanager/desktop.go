@@ -539,36 +539,51 @@ func (m *Manager) uninstallBrowsers(p *desktopPage, only *svops.NativeHost) {
 }
 
 // saveExtension writes secretvault's extension out (the CLI's browser
-// extension): a .zip for Firefox, or a folder for Chromium's family, then
-// says how to load it.
+// extension, with its --target): a .zip for Firefox, a folder for
+// Chromium's family, or a .zip for the Chrome Web Store; then says how
+// to load it.
 func (m *Manager) saveExtension() {
 	f := m.newForm("Save the extension")
 	f.intro(svops.ExtensionSaveAbout)
-	out := f.path("Save to", PickSave, svops.ExtensionFileName())
-	if wd, err := os.Getwd(); err == nil {
-		out.field.SetText(filepath.Join(wd, svops.ExtensionFileName()))
+	var labels []string
+	for _, c := range svops.ExtensionChoices {
+		labels = append(labels, c.Label)
 	}
-	asDir := f.check("Save it as a folder, for Chrome, Chromium, Brave, Edge or Vivaldi", false)
-	f.show("Save", func() {
-		path, dir := out.Path(), asDir.Checked
+	as := f.choice("Save it as", labels, 0)
+	suggest := func(c svops.ExtensionChoice) string {
+		if wd, err := os.Getwd(); err == nil {
+			return filepath.Join(wd, c.DefaultName())
+		}
+		return c.DefaultName()
+	}
+	out := f.path("Save to", PickSave, svops.ExtensionChoices[0].DefaultName())
+	out.field.SetText(suggest(svops.ExtensionChoices[0]))
+	as.OnChange = func(i int) {
+		if i >= 0 && i < len(svops.ExtensionChoices) {
+			out.field.SetText(suggest(svops.ExtensionChoices[i]))
+		}
+	}
+	f.show("Save the extension", func() {
+		c := svops.ExtensionChoices[min(max(0, as.Selected), len(svops.ExtensionChoices)-1)]
+		path := out.Path()
 		if path == "" {
 			f.fail("Choose where to save it.")
 			return
 		}
 		write := func() {
 			f.work(func() error {
-				if dir {
-					return svops.WriteExtensionDir(path)
+				if c.Dir {
+					return svops.WriteExtensionDir(path, c.Target)
 				}
-				return svops.WriteExtension(path, true)
+				return svops.WriteExtension(path, c.Target, true)
 			}, func() {
 				m.say("Saved the extension to %s.", path)
-				lines := svops.ExtensionAddedLines(path, dir)
+				lines := svops.ExtensionAddedLines(path, c.Target, c.Dir)
 				m.showText("Add the extension to your browser",
 					"The browser also needs your permission to start secretvault: Let browsers use secretvault… on this tab gives it.", strings.Join(lines, "\n"))
 			})
 		}
-		if dir {
+		if c.Dir {
 			write()
 			return
 		}

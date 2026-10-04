@@ -534,10 +534,6 @@
 
   // --------------------------------------------------------------- panel
 
-  function isPanelURL(url) {
-    return typeof url === "string" && url.startsWith(ext.runtime.getURL("panel.html#"));
-  }
-
   async function openPanel(handle) {
     closePanel();
     let r;
@@ -546,7 +542,11 @@
     } catch {
       return;
     }
-    if (!r || !r.ok || !isPanelURL(r.url)) return;
+    if (!r || !r.ok || typeof r.token !== "string" || !/^[0-9a-f]{32}$/.test(r.token)) return;
+    // The panel's URL as this frame may load it: in Chromium, the
+    // extension's dynamic URL for this session (use_dynamic_url), which
+    // pages cannot guess.
+    const url = ext.runtime.getURL("panel.html") + "#" + r.token;
     const { host, root } = shadowHost({ width: PANEL_W + "px", height: PANEL_H + "px", left: "-10000px", top: "0" });
     const f = document.createElement("iframe");
     for (const [k, v] of Object.entries({
@@ -556,7 +556,7 @@
       f.style.setProperty(k, v, "important");
     }
     f.setAttribute("referrerpolicy", "no-referrer");
-    f.src = r.url;
+    f.src = url;
     root.append(f);
     panel = { host, handle, rect: null };
     placePanel(panel);

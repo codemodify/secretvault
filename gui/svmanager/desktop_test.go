@@ -210,10 +210,24 @@ func TestBrowsersAreSetUpForTheCLIAndUndone(t *testing.T) {
 	zip := filepath.Join(h.dir, "ext.zip")
 	h.pressOn("Save the extension…")
 	h.fill("Save to", zip)
-	h.press("Save")
+	h.press("Save the extension")
 	h.waitText("Load Temporary Add-on")
 	if st, err := os.Stat(zip); err != nil || st.Size() < 1000 {
 		t.Fatalf("the extension: %v", err)
+	}
+	h.press("Close")
+
+	// And as a folder, for Chromium: its manifest is Chromium's.
+	h.idle()
+	folder := filepath.Join(h.dir, "ext-chromium")
+	h.pressOn("Save the extension…")
+	h.choose("Save it as", 1)
+	h.fill("Save to", folder)
+	h.press("Save the extension")
+	h.waitText("Load unpacked")
+	m, err := os.ReadFile(filepath.Join(folder, "manifest.json"))
+	if err != nil || !strings.Contains(string(m), `"service_worker"`) || strings.Contains(string(m), "browser_specific_settings") {
+		t.Fatalf("the folder's manifest (%v):\n%s", err, m)
 	}
 	h.press("Close")
 }

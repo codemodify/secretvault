@@ -427,45 +427,47 @@ func (u *UI) browserUninstall(only *svops.NativeHost, then func()) {
 }
 
 // browserExtension is 'secretvault browser extension': the extension
-// written out, as a zip for Firefox (--out) or a folder for Chromium
-// (--dir), then how to load it.
+// written out for a family of browsers (--target): a zip for Firefox, a
+// folder for Chromium's Load unpacked, or a zip for the Chrome Web Store;
+// then how to load it.
 func (u *UI) browserExtension() {
-	u.choose("Save the extension, to add to your browser", []string{"as a .zip, for Firefox (until it restarts)", "as a folder, for Chrome, Chromium, Brave, Edge or Vivaldi"}, func(i int) {
-		dir := i == 1
-		value := svops.ExtensionFileName()
-		if dir {
-			value = strings.TrimSuffix(value, ".zip")
-		}
+	var labels []string
+	for _, c := range svops.ExtensionChoices {
+		labels = append(labels, c.Label)
+	}
+	u.choose("Save the extension, to add to your browser", labels, func(i int) {
+		c := svops.ExtensionChoices[i]
+		value := c.DefaultName()
 		if wd, err := os.Getwd(); err == nil {
 			value = filepath.Join(wd, value)
 		}
 		u.askTo("Save the extension", "Path: ", value, "Save the extension", func(path string) {
-			if dir {
-				u.extensionWritten(path, true, svops.WriteExtensionDir(path))
+			if c.Dir {
+				u.extensionWritten(path, c, svops.WriteExtensionDir(path, c.Target))
 				return
 			}
-			err := svops.WriteExtension(path, false)
+			err := svops.WriteExtension(path, c.Target, false)
 			if errors.Is(err, svops.ErrExtensionExists) {
 				u.confirm("Replace it?", tview.Escape(path)+" is there already. Replace it?", "Replace", func() {
-					u.extensionWritten(path, false, svops.WriteExtension(path, true))
+					u.extensionWritten(path, c, svops.WriteExtension(path, c.Target, true))
 				})
 				return
 			}
-			u.extensionWritten(path, false, err)
+			u.extensionWritten(path, c, err)
 		})
 	})
 }
 
 // extensionWritten says how writing the extension to path went, and how
 // to load it.
-func (u *UI) extensionWritten(path string, dir bool, err error) {
+func (u *UI) extensionWritten(path string, c svops.ExtensionChoice, err error) {
 	if err != nil {
 		u.fail(err)
 		return
 	}
 	u.say("Saved the extension to %s", path)
 	u.showText("Add the extension to your browser", "The browser also needs your permission to start secretvault: i on this panel gives it.\n\n"+
-		lines(svops.ExtensionAddedLines(path, dir)))
+		lines(svops.ExtensionAddedLines(path, c.Target, c.Dir)))
 }
 
 // gpgSetup is 'secretvault pgp gpg-setup' (and with --remove): a GnuPG

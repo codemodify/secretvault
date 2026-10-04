@@ -56,7 +56,8 @@
   "web_accessible_resources": [
     {
       "resources": ["panel.html"],
-      "matches": ["http://*/*", "https://*/*"]
+      "matches": ["http://*/*", "https://*/*"],
+      "use_dynamic_url": true
     }
   ],
   "content_security_policy": {

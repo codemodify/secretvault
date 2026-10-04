@@ -195,7 +195,7 @@ func TestBrowsersAreSetUpAndUndone(t *testing.T) {
 	// The extension, written out to load.
 	zip := filepath.Join(h.dir, "ext.zip")
 	h.typeText("e")
-	h.waitFor("as a .zip, for Firefox")
+	h.waitFor("A .zip file, for Firefox")
 	h.key(tcell.KeyEnter)
 	h.waitFor("Path:")
 	h.ctrl(tcell.KeyCtrlU)
@@ -204,6 +204,23 @@ func TestBrowsersAreSetUpAndUndone(t *testing.T) {
 	h.waitFor("Load Temporary Add-on")
 	if st, err := os.Stat(zip); err != nil || st.Size() < 1000 {
 		t.Fatalf("the extension: %v", err)
+	}
+	h.key(tcell.KeyEscape)
+
+	// And as a folder, for Chromium, with Chromium's manifest.
+	folder := filepath.Join(h.dir, "ext-chromium")
+	h.typeText("e")
+	h.waitFor("A folder, for Chrome")
+	h.key(tcell.KeyDown)
+	h.key(tcell.KeyEnter)
+	h.waitFor("Path:")
+	h.ctrl(tcell.KeyCtrlU)
+	h.typeText(folder)
+	h.key(tcell.KeyEnter)
+	h.waitFor("Load unpacked")
+	written, err := os.ReadFile(filepath.Join(folder, "manifest.json"))
+	if err != nil || !strings.Contains(string(written), `"service_worker"`) || strings.Contains(string(written), "browser_specific_settings") {
+		t.Fatalf("the folder's manifest (%v):\n%s", err, written)
 	}
 }
 

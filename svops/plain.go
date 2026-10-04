@@ -145,17 +145,45 @@ func BrowserSetUpWhen(state *BrowserInstall) string {
 // ExtensionSaveAbout says, over the managers' saving of the extension,
 // what it is for and what to expect.
 const ExtensionSaveAbout = "This saves the secretvault extension for you to add to your browser: Firefox takes the .zip file; " +
-	"Chrome, Chromium, Brave, Edge and Vivaldi take a folder. In Firefox it lasts until Firefox restarts, and has to be added again after that."
+	"Chrome, Chromium, Brave, Edge and Vivaldi take a folder. In Firefox it lasts until Firefox restarts, and has to be added again after that. " +
+	"A .zip for Chrome is only for publishing the extension in the Chrome Web Store."
+
+// ExtensionChoice is one way the managers offer to save the extension.
+type ExtensionChoice struct {
+	Label  string
+	Target ExtensionTarget
+	Dir    bool
+}
+
+// ExtensionChoices are the ways to save the extension, as the managers
+// offer them.
+var ExtensionChoices = []ExtensionChoice{
+	{"A .zip file, for Firefox", TargetFirefox, false},
+	{"A folder, for Chrome, Chromium, Brave, Edge or Vivaldi", TargetChromium, true},
+	{"A .zip file, to publish in the Chrome Web Store", TargetChromium, false},
+}
+
+// DefaultName is the usual name of what a choice saves.
+func (c ExtensionChoice) DefaultName() string {
+	if c.Dir {
+		return ExtensionDirName(c.Target)
+	}
+	return ExtensionFileName(c.Target)
+}
 
 // ExtensionAddedLines are the steps to add the extension written to
-// file (a folder when dir), as the managers say them: the CLI's
-// ExtensionWrittenLines, but for its commands and its pointer to the
-// docs, which a manager's own button replaces.
-func ExtensionAddedLines(file string, dir bool) []string {
+// file for t (a folder when dir), as the managers say them: the CLI's
+// ExtensionWrittenLines, but for its commands and its pointers to the
+// docs and to --dir, which a manager's own buttons replace.
+func ExtensionAddedLines(file string, t ExtensionTarget, dir bool) []string {
 	var out []string
-	for _, l := range ExtensionWrittenLines(file, dir) {
+	for _, l := range ExtensionWrittenLines(file, t, dir) {
 		switch {
 		case strings.Contains(l, "secretvault browser install"):
+		case strings.Contains(l, "Chrome Web Store (docs/browser.md"):
+			out = append(out, "This file is for publishing in the Chrome Web Store, which needs a developer account and the extension's signing key.")
+		case strings.Contains(l, "(--dir)"):
+			out = append(out, "To add it to a browser yourself, save it as a folder instead and choose Load unpacked.")
 		case strings.Contains(l, "docs/browser.md"):
 			out = append(out, "Firefox keeps only extensions Mozilla has signed: this one has to be added again after each restart.")
 		default:

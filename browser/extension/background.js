@@ -21,6 +21,17 @@
 // Saving is offered on the toolbar button (its badge, then the popup),
 // never in the page: whether secretvault already holds what a page sent
 // must not be something the page can see.
+//
+// The background may be stopped whenever it is idle: Chromium stops its
+// service worker after 30 seconds without events, and Firefox suspends
+// its event page. What a panel or a frame relies on (which frames are
+// served, the panels' tokens, what each panel was shown) is kept in
+// storage.session, in memory for this browser session only, which only
+// the extension's own pages and this script can read; it is read back
+// before any message is answered. Nothing secret is kept there: a save
+// offer's password stays in this script's memory, and is lost, as it
+// should be, if the background stops. The connection to the host is
+// opened again on the next request.
 "use strict";
 
 if (typeof importScripts === "function") {
@@ -37,6 +48,7 @@ const PATIENT = 5 * 60 * 1000; // anything the daemon may ask the person about
 const OFFER_LIFE = 2 * 60 * 1000;
 const PANEL_IDLE = 60 * 1000; // a panel in a page unused this long is let go
 const PANEL_LIFE = 10 * 60 * 1000; // and any after this long
+const MAX_FRAMES = 64; // frames remembered per tab
 
 // ---------------------------------------------------------------- the host
 
@@ -146,9 +158,74 @@ async function suffixes() {
 
 const tabs = new Map(); // tabId -> {origin, frames: Map<frameId, {origin, forms: Set}>}
 const panels = new Map(); // token -> {tabId, frameId, origin, handle, until, ends, panelFrame, panelDoc}
-const offers = new Map(); // tabId -> {origin, vault, username, password, login, status, expires, timer}
+const offers = new Map(); // tabId -> {origin, vault, username, password, login, status, expires, timer}: memory only
 const listed = new Map(); // tabId -> {origin, logins: Map<id, login>}: what a panel was shown
-const sent = new Map(); // tabId -> [times]: forms reported sent, to limit them
+const sent = new Map(); // tabId -> [times]: forms reported sent, to limit them: memory only
+const badged = new Set(); // tabIds whose toolbar button shows an offer
+
+// ------------------------------------------------- outliving the background
+
+let restored = null;
+
+// restore reads back what the last run of this script kept, once; every
+// message waits for it.
+function restore() {
+  if (!restored) {
+    restored = (async () => {
+      let s = null;
+      try {
+        s = (await ext.storage.session.get("state")).state || null;
+      } catch {
+        // No session storage: nothing outlives the background.
+      }
+      if (!s || typeof s !== "object") return;
+      for (const [id, t] of s.tabs || []) {
+        tabs.set(id, { origin: t.origin, frames: new Map((t.frames || []).map(([fid, f]) => [fid, { origin: f.origin, forms: new Set(f.forms) }])) });
+      }
+      for (const [token, p] of s.panels || []) panels.set(token, p);
+      for (const [id, l] of s.listed || []) listed.set(id, { origin: l.origin, vault: l.vault, logins: new Map(l.logins) });
+      // An offer does not outlive the background (its password was only
+      // in memory): the badge that showed it goes.
+      for (const id of s.badged || []) {
+        ext.action.setBadgeText({ tabId: id, text: "" }).catch(() => {});
+        ext.action.setTitle({ tabId: id, title: "secretvault" }).catch(() => {});
+      }
+      persist();
+    })();
+  }
+  return restored;
+}
+
+let persisting = false;
+
+// persist keeps the state, soon: after whatever changed it is done.
+function persist() {
+  if (persisting) return;
+  persisting = true;
+  setTimeout(() => {
+    persisting = false;
+    const s = {
+      tabs: [...tabs].map(([id, t]) => [id, { origin: t.origin, frames: [...t.frames].map(([fid, f]) => [fid, { origin: f.origin, forms: [...f.forms] }]) }]),
+      panels: [...panels],
+      listed: [...listed].map(([id, l]) => [id, { origin: l.origin, vault: l.vault, logins: [...l.logins] }]),
+      badged: [...badged],
+    };
+    // A state that could not be kept must not come back older: what was
+    // dropped since (a panel closed, a page left) would return with it.
+    const forget = () => {
+      try {
+        ext.storage.session.remove("state").catch(() => {});
+      } catch {
+        // No session storage.
+      }
+    };
+    try {
+      ext.storage.session.set({ state: s }).catch(forget);
+    } catch {
+      forget();
+    }
+  }, 0);
+}
 
 function senderOrigins(sender) {
   const tab = sender.tab;
@@ -192,10 +269,6 @@ function newToken() {
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
-function panelURL(token) {
-  return ext.runtime.getURL("panel.html") + "#" + token;
-}
-
 // ------------------------------------------------------------------- offers
 
 function dropOffer(tabId) {
@@ -204,6 +277,8 @@ function dropOffer(tabId) {
   clearTimeout(o.timer);
   o.password = null;
   offers.delete(tabId);
+  badged.delete(tabId);
+  persist();
   ext.action.setBadgeText({ tabId, text: "" }).catch(() => {});
   ext.action.setTitle({ tabId, title: "secretvault" }).catch(() => {});
 }
@@ -237,6 +312,14 @@ const fromContent = {
       for (const [token, p] of panels) if (p.tabId === s.tabId) panels.delete(token);
     }
     if (s.frameOrigin !== s.topOrigin) return { active: false };
+    // A page that makes frame after frame does not grow this without end:
+    // the oldest are forgotten (and are only ever a fallback for filling
+    // from the toolbar).
+    t.frames.delete(s.frameId);
+    for (const id of t.frames.keys()) {
+      if (t.frames.size < MAX_FRAMES) break;
+      if (id !== 0) t.frames.delete(id); // the top frame stays
+    }
     t.frames.set(s.frameId, { origin: s.frameOrigin, forms: new Set() });
     return { active: true };
   },
@@ -257,7 +340,7 @@ const fromContent = {
     const s = served(sender);
     if (!s) throw fail("denied", "this frame is not served");
     if (!Number.isInteger(msg.handle) || msg.handle < 0) throw fail("bad-request", "no field");
-    return { url: panelFor(s, msg.handle) };
+    return { token: panelFor(s, msg.handle) };
   },
 
   // A form with a password was sent, by the person.
@@ -283,6 +366,8 @@ const fromContent = {
     const o = { origin: s.topOrigin, vault, username, password, login: checked.status === "changed" ? checked.login : "", status: checked.status };
     o.timer = setTimeout(() => dropOffer(s.tabId), OFFER_LIFE);
     offers.set(s.tabId, o);
+    badged.add(s.tabId);
+    persist();
     ext.action.setBadgeBackgroundColor({ tabId: s.tabId, color: "#2f6f4f" }).catch(() => {});
     ext.action.setBadgeText({ tabId: s.tabId, text: "1" }).catch(() => {});
     ext.action.setTitle({ tabId: s.tabId, title: "secretvault: save the login you just used?" }).catch(() => {});
@@ -292,16 +377,22 @@ const fromContent = {
 
 // panelFor makes the token a panel in the page is opened with, for the
 // field handle of the frame s. The panel's own frame is bound to it when
-// the panel first uses it; any other frame is refused.
+// the panel first uses it; any other frame is refused. The content script
+// makes the panel's URL itself: in Chromium, the URL a page may load the
+// panel from changes every session (use_dynamic_url), and only scripts
+// in the page's frame get it.
 function panelFor(s, handle) {
   for (const [token, p] of panels) if (p.tabId === s.tabId) panels.delete(token);
   const token = newToken();
   const now = Date.now();
   panels.set(token, { tabId: s.tabId, frameId: s.frameId, origin: s.topOrigin, handle, until: now + PANEL_IDLE, ends: now + PANEL_LIFE, panelFrame: null, panelDoc: null });
-  return panelURL(token);
+  return token;
 }
 
 // ----------------------------------------------------- the extension's pages
+
+// accepted are the messages of panels where() let through.
+const accepted = new WeakSet();
 
 // where is what a page of ours acts on: a panel in a page, by its token,
 // or the toolbar popup, on the active tab.
@@ -319,6 +410,7 @@ async function where(msg, sender) {
       throw fail("denied", "this panel is another's");
     }
     p.until = now + PANEL_IDLE;
+    accepted.add(msg); // its idle time counts again from when it is answered
     return { tabId: p.tabId, frameId: p.frameId, origin: p.origin, handle: p.handle, mode: "fill", token: msg.token };
   }
   const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
@@ -500,6 +592,10 @@ function formsOf(w) {
   return [...out];
 }
 
+// isOurPage tells the extension's own pages from content scripts: a
+// content script's sender URL is its page's (http or https), never the
+// extension's. (A panel a page loaded by Chromium's dynamic URL still
+// has the extension's own URL.)
 function isOurPage(sender) {
   return typeof sender.url === "string" && sender.url.startsWith(ext.runtime.getURL(""));
 }
@@ -512,19 +608,33 @@ ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // its idle time counts from when the answer came.
   const touch = () => {
     const p = typeof msg.token === "string" ? panels.get(msg.token) : null;
-    if (p) p.until = Date.now() + PANEL_IDLE;
+    // Only for a message where() let through: not one the token was
+    // refused to (another frame's, or a panel that had lapsed).
+    if (p && accepted.has(msg)) p.until = Date.now() + PANEL_IDLE;
+    persist();
   };
-  table[msg.type](msg, sender).then(
-    (r) => {
-      touch();
-      sendResponse({ ok: true, ...r });
-    },
-    (e) => {
-      touch();
-      sendResponse({ ok: false, error: (e && e.code) || "failed", message: (e && e.message) || "" });
-    },
-  );
+  restore()
+    .then(() => {
+      const r = table[msg.type](msg, sender);
+      persist(); // what it changed before it waited
+      return r;
+    })
+    .then(
+      (r) => {
+        touch();
+        sendResponse({ ok: true, ...r });
+      },
+      (e) => {
+        touch();
+        sendResponse({ ok: false, error: (e && e.code) || "failed", message: (e && e.message) || "" });
+      },
+    );
   return true;
 });
 
-ext.tabs.onRemoved.addListener((tabId) => forgetTab(tabId));
+ext.tabs.onRemoved.addListener((tabId) => {
+  restore().then(() => {
+    forgetTab(tabId);
+    persist();
+  });
+});

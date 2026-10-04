@@ -16,6 +16,11 @@ func TestMain(m *testing.M) {
 		fmt.Println("error: no clipboard in this test")
 		os.Exit(1)
 	}
+	if sock := os.Getenv(e2eHostEnv); sock != "" {
+		// Started by a headless Chromium as its native-messaging host
+		// (browser_e2e_test.go).
+		os.Exit(e2eHost(sock))
+	}
 	os.Exit(m.Run())
 }
 

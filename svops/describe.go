@@ -97,14 +97,31 @@ func StatesOf(states []BrowserState, h NativeHost) []BrowserState {
 }
 
 // ExtensionWrittenLines say what to do with the extension once written
-// (to file, the package; a folder for Chromium when dir).
-func ExtensionWrittenLines(file string, dir bool) []string {
-	if dir {
+// for target t (to file, the package; a folder when dir).
+func ExtensionWrittenLines(file string, t ExtensionTarget, dir bool) []string {
+	const install = "The browsers must start secretvault for it too: secretvault browser install."
+	switch {
+	case t == TargetChromium && dir:
 		return []string{
-			fmt.Sprintf("Wrote the secretvault extension %s into %s (%d files).", ExtensionVersion(), file, ExtensionFileCount()),
-			"To try it in Chrome, Chromium, Brave, Edge or Vivaldi: open chrome://extensions, turn on Developer mode,",
+			fmt.Sprintf("Wrote the secretvault extension %s for %s into %s (%d files).", ExtensionVersion(), t.Browsers(), file, ExtensionFileCount()),
+			"To add it: open chrome://extensions (brave://extensions in Brave), turn on Developer mode,",
 			"choose Load unpacked, and choose that folder.",
-			"The browsers must start secretvault for it too: secretvault browser install.",
+			install,
+		}
+	case t == TargetChromium:
+		return []string{
+			fmt.Sprintf("Wrote the secretvault extension %s for %s to %s.", ExtensionVersion(), t.Browsers(), file),
+			"This file is for publishing in the Chrome Web Store (docs/browser.md says how): its manifest has no key, so it has no fixed ID.",
+			"To add it to a browser yourself, write it as a folder instead (--dir) and choose Load unpacked.",
+			install,
+		}
+	case dir:
+		return []string{
+			fmt.Sprintf("Wrote the secretvault extension %s for Firefox into %s (%d files).", ExtensionVersion(), file, ExtensionFileCount()),
+			"To try it in Firefox: open about:debugging, choose This Firefox, then Load Temporary Add-on…,",
+			"and choose manifest.json in that folder. Firefox forgets it when it restarts.",
+			"To keep it, Mozilla must sign it (docs/browser.md says how).",
+			install,
 		}
 	}
 	return []string{
@@ -112,7 +129,7 @@ func ExtensionWrittenLines(file string, dir bool) []string {
 		"To try it in Firefox: open about:debugging, choose This Firefox, then Load Temporary Add-on…,",
 		"and choose that file. Firefox forgets it when it restarts.",
 		"To keep it, Mozilla must sign it (docs/browser.md says how).",
-		"The browsers must start secretvault for it too: secretvault browser install.",
+		install,
 	}
 }
 

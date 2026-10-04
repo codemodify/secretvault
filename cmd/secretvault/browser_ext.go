@@ -124,14 +124,29 @@ func (c *cli) extensionAnswer(ctx context.Context, cl *secretvault.Client, r *sv
 }
 
 // browserExtension is `secretvault browser extension`: the extension
-// written out, as a zip to load in Firefox, or a folder for Chromium.
+// written out for a family of browsers (--target): for Firefox, a zip to
+// load (or a folder); for Chromium's family, a folder for Load unpacked,
+// or a zip for the Chrome Web Store. With no --target, a folder is for
+// Chromium and a zip for Firefox, as before there were targets.
 func (c *cli) browserExtension(args []string) error {
 	fs := c.flags("browser extension")
-	out := fs.String("out", "", "write the zip to `FILE` (default: "+svops.ExtensionFileName()+" here)")
-	dir := fs.String("dir", "", "write the files into `DIR` instead, for Chromium's Load unpacked")
+	target := fs.String("target", "", "the browsers it is for: `firefox` or chromium (Chrome, Chromium, Brave, Edge, Vivaldi)")
+	out := fs.String("out", "", "write the zip to `FILE` (default: "+svops.ExtensionFileName(svops.TargetFirefox)+" here, or "+
+		svops.ExtensionFileName(svops.TargetChromium)+" for chromium)")
+	dir := fs.String("dir", "", "write the files into `DIR` instead (for Chromium's Load unpacked)")
 	force := fs.Bool("force", false, "replace a file already there")
-	if _, err := parse(fs, args, 0, 0, "[--out FILE | --dir DIR] [--force]"); err != nil {
+	if _, err := parse(fs, args, 0, 0, "[--target firefox|chromium] [--out FILE | --dir DIR] [--force]"); err != nil {
 		return err
+	}
+	t := svops.TargetFirefox
+	if *dir != "" {
+		t = svops.TargetChromium
+	}
+	if *target != "" {
+		var err error
+		if t, err = svops.ParseExtensionTarget(*target); err != nil {
+			return err
+		}
 	}
 	var err error
 	var lines []string
@@ -139,18 +154,18 @@ func (c *cli) browserExtension(args []string) error {
 	case *out != "" && *dir != "":
 		return errors.New("--out or --dir, not both")
 	case *dir != "":
-		err = svops.WriteExtensionDir(*dir)
-		lines = svops.ExtensionWrittenLines(*dir, true)
+		err = svops.WriteExtensionDir(*dir, t)
+		lines = svops.ExtensionWrittenLines(*dir, t, true)
 	default:
 		file := *out
 		if file == "" {
-			file = svops.ExtensionFileName()
+			file = svops.ExtensionFileName(t)
 		}
-		err = svops.WriteExtension(file, *force)
+		err = svops.WriteExtension(file, t, *force)
 		if errors.Is(err, svops.ErrExtensionExists) {
 			return fmt.Errorf("%w; --force replaces it", err)
 		}
-		lines = svops.ExtensionWrittenLines(file, false)
+		lines = svops.ExtensionWrittenLines(file, t, false)
 	}
 	if err != nil {
 		return err

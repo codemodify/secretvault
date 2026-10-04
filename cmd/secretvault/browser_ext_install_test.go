@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,5 +53,38 @@ func TestTheExtensionIsWrittenOutToLoad(t *testing.T) {
 	}
 	if _, errs, code := h.run("", "browser", "extension", "--dir", unpacked); code != 1 || !strings.Contains(errs, "not empty") {
 		t.Errorf("into a full folder: %d %s", code, errs)
+	}
+	// Each family gets its own manifest.
+	chromium, _ := os.ReadFile(filepath.Join(unpacked, "manifest.json"))
+	if !strings.Contains(string(chromium), `"key"`) || strings.Contains(string(chromium), "browser_specific_settings") {
+		t.Errorf("the Chromium folder's manifest:\n%s", chromium)
+	}
+	f, _ := z.Open("manifest.json")
+	firefox, _ := io.ReadAll(f)
+	f.Close()
+	if strings.Contains(string(firefox), `"key"`) || !strings.Contains(string(firefox), "browser_specific_settings") {
+		t.Errorf("the Firefox zip's manifest:\n%s", firefox)
+	}
+	// A zip for the Chrome Web Store, and a folder for Firefox.
+	store := filepath.Join(dir, "store.zip")
+	if out := h.ok("", "browser", "extension", "--target", "chromium", "--out", store); !strings.Contains(out, "Chrome Web Store") {
+		t.Errorf("it said:\n%s", out)
+	}
+	if sz, err := zip.OpenReader(store); err != nil {
+		t.Error(err)
+	} else {
+		f, _ := sz.Open("manifest.json")
+		m, _ := io.ReadAll(f)
+		f.Close()
+		sz.Close()
+		if strings.Contains(string(m), `"key"`) || !strings.Contains(string(m), `"service_worker"`) {
+			t.Errorf("the Chrome Web Store's manifest:\n%s", m)
+		}
+	}
+	if out := h.ok("", "browser", "extension", "--target", "firefox", "--dir", filepath.Join(dir, "ff")); !strings.Contains(out, "manifest.json in that folder") {
+		t.Errorf("it said:\n%s", out)
+	}
+	if _, errs, code := h.run("", "browser", "extension", "--target", "safari"); code == 0 || !strings.Contains(errs, "firefox or chromium") {
+		t.Errorf("an unknown target: %d %s", code, errs)
 	}
 }
