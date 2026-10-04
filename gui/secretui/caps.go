@@ -14,13 +14,14 @@ import (
 //
 // It learns the lock from the keyboard, through the window it is in, and
 // never from what was typed: telling it from the case of the letters
-// would mean reading the passphrase to do it. The window tells it of every
-// change (it is a widget.LockKeysWatcher), and a window coming back into
-// focus is not one; it asks the window once, the first time it is laid
-// out, which on X11, Windows and (since uitoolkit v0.23.3) macOS says so
-// before the first key. On Wayland that is before the compositor has said
-// (uitoolkit-gaps.md, 51), so a new prompt there says so at the first key
-// or pointer event.
+// would mean reading the passphrase to do it. It asks the window once, the
+// first time it is laid out, which on X11, Windows and macOS says so
+// before the first key; and the window tells it of every change (it is a
+// widget.LockKeysWatcher): a key, the keyboard asked again as the window
+// comes back into focus, and on Wayland the compositor's word as the
+// keyboard enters the window, which comes after that first layout
+// (uitoolkit-gaps.md, 51). So a prompt opened with Caps Lock on says so
+// before the first key on all four.
 type CapsLock struct {
 	*widgets.Label
 	on, known bool

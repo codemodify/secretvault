@@ -185,6 +185,36 @@ func TestTheCapsLockLine(t *testing.T) {
 	if !caps.On() || !other.On() || !field.CapsLockOn() {
 		t.Fatal("hidden when the window came back into focus, with Caps Lock still on")
 	}
+	// Turned off in another program meanwhile: said at once as the focus
+	// comes back, where the keyboard can be asked (X11, Windows, macOS).
+	w.Inject(platform.Event{Kind: platform.EventFocusOut})
+	o.SetLockKeys(false, false)
+	w.Inject(platform.Event{Kind: platform.EventFocusIn})
+	a.PumpOnce()
+	if caps.On() || other.On() || field.CapsLockOn() {
+		t.Fatal("still shown when the window came back into focus with Caps Lock turned off elsewhere")
+	}
+	w.Close()
+
+	// On Wayland a new window is laid out before the compositor has said
+	// anything, and is answered off; the compositor's modifiers, right
+	// after the keyboard enters the window, then say it is on
+	// (uitoolkit-gaps.md, 51), before any key.
+	late := NewCapsLock()
+	w, err = Open(a, "test", 460, NewFrame("Unlock vault Personal", widgets.NewColumn(widgets.NewSecretField(""), late).WithPad(16)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.PumpOnce()
+	if late.On() {
+		t.Fatal("shown with Caps Lock off")
+	}
+	w.Surface().(*platform.Offscreen).SetLockKeys(true, false)
+	w.Inject(platform.Event{Kind: platform.EventLockKeys, Mods: platform.ModCapsLock})
+	a.PumpOnce()
+	if !late.On() || late.Bounds().Empty() {
+		t.Fatal("not shown when the window system said Caps Lock is on, before the first key")
+	}
 }
 
 // The icon is the header's padlock on the header's colour.

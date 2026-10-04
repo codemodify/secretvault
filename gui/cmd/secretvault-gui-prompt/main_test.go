@@ -386,6 +386,25 @@ func TestAPassphraseDialogSaysCapsLockIsOn(t *testing.T) {
 	d.win.Press(platform.KeyEscape)
 	h.expect(errCanceledLine)
 
+	// On Wayland the dialog is laid out before the compositor has said
+	// anything of the keyboard, and is answered off; the compositor's
+	// modifiers, as the keyboard enters the window, say Caps Lock is on,
+	// and the dialog says so before the first key (uitoolkit-gaps.md, 51).
+	h.do("RESET", "SETDESC mail wants a secret.%0A%0AEnter the passphrase.")
+	h.send("GETPIN")
+	d = h.dialog()
+	if d.caps.On() {
+		t.Fatal("a Caps Lock line is showing with Caps Lock off")
+	}
+	surface(t, d).SetLockKeys(true, false)
+	d.win.Inject(platform.Event{Kind: platform.EventLockKeys, Mods: platform.ModCapsLock})
+	h.app.PumpOnce()
+	if !d.caps.On() || d.caps.Bounds().Empty() {
+		t.Fatal("the window system said Caps Lock is on, before the first key, and the dialog does not say so")
+	}
+	d.win.Press(platform.KeyEscape)
+	h.expect(errCanceledLine)
+
 	h.do("RESET", "SETDESC Do you really want to delete the key?")
 	h.send("CONFIRM")
 	d = h.dialog()
