@@ -213,6 +213,23 @@ func (f *fakeCompositor) paste(mime string) string {
 	return string(b)
 }
 
+// pasteUnread asks the current source for mime, as a pasting client that
+// never reads what it asked for: the pipe's read end is kept open, unread,
+// until the test ends.
+func (f *fakeCompositor) pasteUnread(mime string) {
+	f.mu.Lock()
+	src := f.selection
+	var p [2]int
+	syscall.Pipe(p[:])
+	var e encoder
+	e.string(mime)
+	e.fd(p[1])
+	f.event(src, 0, &e) // send(mime, fd)
+	f.mu.Unlock()
+	syscall.Close(p[1])
+	f.t.Cleanup(func() { syscall.Close(p[0]) })
+}
+
 func (f *fakeCompositor) otherClientCopies() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -275,6 +292,32 @@ func TestACopyIsPastedThenClearedAtTheDeadline(t *testing.T) {
 	}
 	if sets := f.setsSeen(); len(sets) != 2 || sets[1] != 0 {
 		t.Fatalf("set_selection calls %v, want the source then null", sets)
+	}
+}
+
+// A client that asks for a copy larger than a pipe holds and never reads
+// it does not keep the copy past its deadline.
+func TestAnUnreadPasteDoesNotHoldTheClear(t *testing.T) {
+	f := newFake(t, true)
+	cb := open(t, f)
+	big := []Offer{{MIME: "text/plain;charset=utf-8", Data: make([]byte, 1<<20)}}
+	done := make(chan bool, 1)
+	go func() {
+		cleared, err := cb.Serve(big, 400*time.Millisecond, nil)
+		if err != nil {
+			t.Error(err)
+		}
+		done <- cleared
+	}()
+	time.Sleep(100 * time.Millisecond)
+	f.pasteUnread("text/plain;charset=utf-8")
+	select {
+	case cleared := <-done:
+		if !cleared {
+			t.Fatal("the clipboard was not cleared at the deadline")
+		}
+	case <-time.After(pasteTimeout + 3*time.Second):
+		t.Fatal("a paste nobody reads held the copy past its deadline")
 	}
 }
 

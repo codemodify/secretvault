@@ -134,6 +134,9 @@ type Offer struct {
 	Data []byte
 }
 
+// pasteTimeout is how long one paste may take to be read.
+const pasteTimeout = time.Second
+
 // Serve makes offers the clipboard's contents and answers paste requests
 // until someone else takes the clipboard or ttl passes. At the deadline,
 // if the contents are still ours, it clears the clipboard. It returns
@@ -150,7 +153,12 @@ func (cb *Clipboard) Serve(offers []Offer, ttl time.Duration, ready func()) (cle
 			if d.err != nil {
 				return d.err
 			}
+			// Non-blocking, with a deadline: a reader that asks and never
+			// reads must not hold up this loop, and with it the clear at
+			// the deadline, once an offer is more than a pipe holds.
+			syscall.SetNonblock(fd, true)
 			f := os.NewFile(uintptr(fd), "paste")
+			f.SetWriteDeadline(time.Now().Add(pasteTimeout))
 			for _, o := range offers {
 				if o.MIME == mime {
 					f.Write(o.Data)
