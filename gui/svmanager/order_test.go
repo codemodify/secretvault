@@ -620,6 +620,24 @@ func TestADialogOverAnotherLeavesItAsItWas(t *testing.T) {
 	if h.overlay() != nv || pass.Len() != 17 {
 		t.Fatal("taking the chooser down took the dialog under it too")
 	}
+
+	// In a window too small to hold it the chooser has a window of its own
+	// (uitoolkit v0.23.4), and taking it down closes that window, answers
+	// nothing, and leaves this window's dialog alone.
+	h.win().SetMinSize(1, 1)
+	h.win().SetSize(420, 300)
+	h.pump()
+	answer := "none"
+	cancel = h.m.pickFile(PickOpen, "", func(p string) { answer = p })
+	h.pump()
+	if n, w := len(h.win().Overlays()), len(h.m.app.Windows()); n != 1 || w != 2 {
+		t.Fatalf("in a small window the chooser left %d dialogs up and %d windows open", n, w)
+	}
+	cancel()
+	h.pump()
+	if w := len(h.m.app.Windows()); w != 1 || answer != "" || h.overlay() != nv || pass.Len() != 17 {
+		t.Fatalf("taking the chooser in its own window down left %d windows, answered %q, or took the dialog under it", w, answer)
+	}
 	h.win().Press(platform.KeyEscape)
 	if h.overlay() != nil || !pass.Empty() {
 		t.Fatal("the new vault's dialog did not close, or kept what was typed")

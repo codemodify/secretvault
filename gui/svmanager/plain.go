@@ -96,9 +96,10 @@ func detailsExpander(lines []string) *widgets.Expander {
 // word too long for the line (a path), after a path separator, never in
 // the middle of a name unless the name alone is wider than the line; its
 // continuations are indented. It is as tall as its lines: a dialog that
-// holds it scrolls as a whole, so there is no small box to scroll inside
-// (uitoolkit-gaps.md, 50). uitoolkit's labels and text views break a long
-// word anywhere.
+// holds it scrolls as a whole, so there is no small box to scroll inside.
+// (uitoolkit's short text views are fit for that since v0.23.4, and break
+// a long word after a separator too, uitoolkit-gaps.md 50; this reads
+// better in a dialog all the same.)
 type detailText struct {
 	widget.Base
 	lines []string

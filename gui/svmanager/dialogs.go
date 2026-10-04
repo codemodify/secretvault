@@ -24,25 +24,18 @@ type dialog struct {
 // showDialog shows a dialog of title over whatever is up. buttons is the
 // row at its foot: a ButtonBox, or a row that holds one.
 //
-// A dialog taller than the window scrolls its body and keeps its buttons
-// at its foot, in view (uitoolkit-gaps.md, 40). It is widgets.DialogContent's
-// arrangement, built here. Since v0.23.3 DialogContent's body is as tall
-// as what it holds, and a ButtonBox handed to it alone keeps the
-// platform's layout (46); but a foot that holds one beside something else,
-// as every passphrase question's does ("Caps Lock is on" beside the
-// buttons), it still squeezes to its natural width, and the platform's
+// It is widgets.DialogContentFoot (uitoolkit-gaps.md, 54): the body as
+// tall as what it holds, scrolled when the dialog is taller than the
+// window, with the foot below it in view (40, 46), at the dialog's whole
+// width, so that a foot holding a ButtonBox beside something else (every
+// passphrase question says "Caps Lock is on" there) keeps the platform's
 // left-hand group (Back, and a destructive button under Mac and GNOME
-// looks) is no longer apart in it (54).
+// looks) apart.
 func (m *Manager) showDialog(title string, body, buttons, focus widget.Component, onClose func()) *dialog {
 	d := &dialog{}
-	scroll := widgets.NewScrollView(body)
-	scroll.ShrinkToContent = true
-	// The width is held outside the scroll view, which takes all the
-	// width it is offered.
-	sized := newFixedWidth(scroll, dialogWidth)
-	col := widgets.NewColumn(sized, buttons).WithGap(16).WithPad(6)
-	col.AddFlex(sized, 1)
-	card := widgets.NewPanel(title, col)
+	// The width is held outside it: a scroll view takes all the width it
+	// is offered.
+	card := widgets.NewPanel(title, newFixedWidth(widgets.DialogContentFoot(body, buttons), dialogWidth))
 	card.Window = true
 	card.Raised = true
 	card.OnClose = d.Close
@@ -62,7 +55,7 @@ func (m *Manager) showDialog(title string, body, buttons, focus widget.Component
 	return d
 }
 
-// dialogWidth is how wide a dialog's body is, in the look's 1x pixels.
+// dialogWidth is how wide a dialog's content is, in the look's 1x pixels.
 const dialogWidth = 500
 
 // fixedWidth gives its child one width, whatever it is offered (up to

@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 
-	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
@@ -41,12 +40,15 @@ func (m *Manager) pickFile(mode PickMode, suggested string, done func(string)) (
 		opts.Mode = widgets.FileOpen
 		opts.Title = "Choose a file"
 	}
-	widgets.ShowFileDialog(m.root(), opts)
-	shown := m.win.Overlay()
+	fd := widgets.ShowFileDialog(m.root(), opts)
 	return func() {
-		// That dialog, wherever it is in the stack, and nothing else.
-		if shown != nil {
-			widget.DismissOverlay(shown)
+		// That chooser, wherever it is in the stack, and nothing else; or
+		// the window of its own it is in, where this window is too small to
+		// hold it (uitoolkit v0.23.4), and no dialog of this window's. The
+		// desktop's own chooser (fd is nil) cannot be taken back: it
+		// answers when the person does.
+		if fd != nil {
+			fd.Cancel()
 		}
 	}
 }
