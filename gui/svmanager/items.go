@@ -567,22 +567,9 @@ func (m *Manager) copyValue(v []byte, what, vault string) bool {
 	return true
 }
 
-// secretField is the item's primary secret, as svcore.Item.Secret picks it.
-func secretField(it *svrpc.Item) (svrpc.Field, bool) {
-	for _, n := range []string{"password", "secret"} {
-		for _, f := range it.Fields {
-			if f.Name == n {
-				return f, true
-			}
-		}
-	}
-	for _, f := range it.Fields {
-		if f.Type == svcore.FieldConcealed || f.Type == svcore.FieldKey {
-			return f, true
-		}
-	}
-	return svrpc.Field{}, false
-}
+// secretField is the item's primary secret, as svcore.Item.Secret picks
+// it (a passkey has none to hand out).
+func secretField(it *svrpc.Item) (svrpc.Field, bool) { return svops.SecretField(it) }
 
 // usernameField is the field that holds the item's username: one named
 // so, else the first email field.

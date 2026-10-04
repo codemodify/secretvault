@@ -105,7 +105,13 @@ func (u *UI) newItem(generated []byte) {
 
 // editItem opens the editor on the target item.
 func (u *UI) editItem() {
-	u.withItem(func(e *svrpc.Entry) { u.openEditor(e) })
+	u.withItem(func(e *svrpc.Entry) {
+		if svops.IsPasskey(&e.Item) {
+			u.say("%s", svops.PasskeyEditNote)
+			return
+		}
+		u.openEditor(e)
+	})
 }
 
 // openEditor shows the editor, on a copy of e (nil for a new item).

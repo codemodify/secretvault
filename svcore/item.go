@@ -89,9 +89,18 @@ var Kinds = []string{
 	"generic",
 }
 
+// KindPasskey is a passkey's kind (svext/passkeyitem.go): its private key
+// signs inside the daemon, and is no secret to hand out.
+const KindPasskey = "passkey"
+
 // Secret returns the item's primary secret: the field named "password" or
-// "secret", else the first concealed or key field.
+// "secret", else the first concealed or key field. A passkey has none: its
+// key is used in place, for the browser extension, and is not what a
+// reference, the Secret Service or a delivery hands over.
 func (it *Item) Secret() (Field, bool) {
+	if it.Kind == KindPasskey {
+		return Field{}, false
+	}
 	for _, n := range []string{"password", "secret"} {
 		if f, ok := it.Field(n); ok {
 			return f, true

@@ -220,6 +220,8 @@ func (c *cli) cmdGet(args []string) error {
 		if f, ok = svops.Field(&e.Item, *fieldName); !ok {
 			return fmt.Errorf("%s has no field %q", pos[0], *fieldName)
 		}
+	} else if svops.IsPasskey(&e.Item) {
+		return fmt.Errorf("%s is a passkey: its key signs you in inside secretvault, for the browser extension, and is not printed; --field rp_id and --field username give its site and account", pos[0])
 	} else if f, ok = svops.SecretField(&e.Item); !ok {
 		return fmt.Errorf("%s has no secret field; use --field or --json", pos[0])
 	}

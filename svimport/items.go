@@ -221,7 +221,7 @@ func (b *builder) add(d *draft) {
 		b.warn("%s: %s not imported (the export does not hold their contents)", it.Name, plural(d.attachments, "attachment"))
 	}
 	if d.passkeys > 0 {
-		b.warn("%s: %s not imported (passkeys cannot be moved between managers yet)", it.Name, plural(d.passkeys, "passkey"))
+		b.warn("%s: %s not imported (secretvault takes passkeys from CXF exports only)", it.Name, plural(d.passkeys, "passkey"))
 	}
 	for _, l := range d.lost {
 		b.warn("%s: %s", it.Name, l)

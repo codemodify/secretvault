@@ -127,7 +127,13 @@ func (m *Manager) editItem() {
 		m.say("Save or cancel the edit first.")
 		return
 	}
-	m.withItem(func(_ string, e *svrpc.Entry) { m.openEditor(e) })
+	m.withItem(func(_ string, e *svrpc.Entry) {
+		if svops.IsPasskey(&e.Item) {
+			m.say("%s", svops.PasskeyEditNote)
+			return
+		}
+		m.openEditor(e)
+	})
 }
 
 // openEditor puts the editor up, on a copy of e (nil for a new item), in

@@ -1,15 +1,16 @@
 # secretvault's browser extension
 
 secretvault has a browser extension of its own
-([`browser/extension`](../browser/extension)). It fills and saves logins
-in Firefox, and in Chrome, Chromium, Brave, Edge and Vivaldi, and every
-login it reads goes through secretvault's consent broker, as any
-program's request does.
+([`browser/extension`](../browser/extension)). It fills and saves logins,
+and makes and uses passkeys, in Firefox, and in Chrome, Chromium, Brave,
+Edge and Vivaldi. Every login it reads and every passkey it signs with
+goes through secretvault's consent broker, as any program's request does.
 
 - [Names](#names)
 - [What it does](#what-it-does)
 - [How it is built](#how-it-is-built)
 - [The protocol](#the-protocol)
+- [Passkeys](#passkeys)
 - [Threat model](#threat-model)
 - [Trying it, and using it](#trying-it-and-using-it)
 - [Chromium](#chromium)
@@ -64,6 +65,16 @@ The Chromium ID comes from the public key in `manifest.json`'s `key`
   password, or already known. For a new or changed one, the toolbar button
   shows a badge, and its popup offers Save or Update. Nothing about this
   shows in the page.
+- **Signs in with passkeys.** When a page asks the browser for a passkey
+  (WebAuthn's `navigator.credentials.get`), and secretvault holds one for
+  the site, secretvault's own window comes up: the person chooses one, or
+  "Use another device or security key", which leaves it to the browser
+  as if secretvault were not there. When a page makes a passkey
+  (`navigator.credentials.create`), the window offers to save it in
+  secretvault. The key is made, kept and used inside secretvault, which
+  signs; it never reaches the browser. A page that offers passkeys in
+  autofill gets secretvault's in the panel, when the person opens it.
+  See [Passkeys](#passkeys).
 - **Shows secretvault's state.** The panel says when secretvault is not
   running or its host is not set up, and when the vault is locked. Its
   Unlock button makes the daemon ask for the passphrase in a window of
@@ -74,8 +85,11 @@ The Chromium ID comes from the public key in `manifest.json`'s `key`
 
 ```
  page ─ content.js (marks, fills)          panel.html (popup, or iframe in the page)
-           │ runtime messages                    │ runtime messages
-           └──────────────► background.js ◄──────┘
+   │       │ runtime messages                    │ runtime messages
+   │       └──────────────► background.js ◄──────┘── passkey.html (a window of its own)
+   │                              ▲
+ passkey-page.js ── MessageChannel ── passkey-bridge.js
+ (the page's world)                  (the extension's world)
                                  │ native messaging (JSON frames)
                                  ▼
                  secretvault browser-host  (the CLI, started by the browser)
@@ -90,9 +104,15 @@ The Chromium ID comes from the public key in `manifest.json`'s `key`
     that talks to secretvault, and decides what each sender may ask.
   - `content.js` runs in pages: marks, filling, forms sent.
   - `panel.html` and `panel.js` are the panel.
+  - `passkey-page.js` runs in the page's own world and wraps
+    `navigator.credentials.create` and `get`; `passkey-bridge.js`, in the
+    extension's world, carries what they ask to the background; and
+    `passkey.html` and `passkey.js` are secretvault's passkey window.
   - The pure parts are in `lib/` and tested under `node --test`
     ([`browser/test`](../browser/test)):
     - `origin.js` and `psl.js` match logins to origins;
+    - `webauthn.js` checks a passkey request's rpId against the page's
+      origin, builds clientDataJSON, and reads what a page asked;
     - `protocol.js` builds and checks messages;
     - `forms.js` tells what a form's fields are for;
     - `style.js` tells whether CSS hides something.
@@ -153,6 +173,17 @@ event     {"v":1, "event":"vault", "vault":"personal", "locked":true}
 | `check` | **`origin`**, **`password`**, `username`, `vault` | `status`: `new`, `changed` (with `login`, a login of the page's very host with that user name and another password) or `known` (with `login`) |
 | `save` | **`origin`**, **`password`**, `username`, `login` (to change that login), `title`, `vault` | `login`, `created` |
 | `generate` | `length` (8 to 128, default 24), `symbols` (default true) | `password` (answered by the host) |
+| `passkeys` | **`origin`**, **`rpId`**, `allow`, `vault` | `rpId`, `passkeys`: `[{id, credentialId, title, userName, userDisplayName}]`, best first, at most 200. No keys. |
+| `passkey-create` | **`origin`**, **`rpId`**, **`user`**, **`userName`**, **`clientData`**, `rpName`, `userDisplayName`, `algorithms`, `exclude`, `uv`, `title`, `vault` | `login`, `credentialId`, `authenticatorData`, `attestationObject`, `publicKey` (SubjectPublicKeyInfo), `algorithm` |
+| `passkey-get` | **`origin`**, **`rpId`**, **`login`**, **`clientData`**, `allow`, `uv`, `confirm`, `vault` | `credentialId`, `authenticatorData`, `signature`, `userHandle` |
+
+The passkey members: `rpId` is a host name in ASCII and lower case;
+`user` (the user handle, 1 to 64 bytes), `clientData` (clientDataJSON,
+at most 8 KiB) and the credential IDs of `allow` and `exclude` (at most
+64, of 1 to 1,023 bytes) are base64url; `algorithms` are COSE numbers,
+the site's preference first; `uv` is `required`, `preferred` (the
+default) or `discouraged`; `rpName`, `userName` and `userDisplayName`
+are text of at most 256 bytes. Binary answers are base64url.
 
 **Events**, sent unasked:
 
@@ -174,6 +205,8 @@ event     {"v":1, "event":"vault", "vault":"personal", "locked":true}
 | `locked` | the vault is locked |
 | `not-found` | no such login, or one that does not fit the origin |
 | `denied` | the person said no, or nobody could be asked |
+| `excluded` | `passkey-create`: the vault already holds a credential the page excluded |
+| `unsupported` | a passkey secretvault cannot make or use: no algorithm in common, or no passphrase to verify the person with |
 | `failed` | anything else |
 
 **Limits.** A request is checked whole before anything acts on it:
@@ -221,6 +254,145 @@ and `*_url` attributes.
 Go ([`svext/origin.go`](../svext/origin.go)) and JavaScript
 (`lib/origin.js`) have the same rules and the same test cases.
 
+## Passkeys
+
+secretvault is a passkey provider (a WebAuthn authenticator) through the
+extension, in Firefox and in Chromium's family alike.
+
+### How a sign-in goes
+
+1. The page calls `navigator.credentials.get({publicKey})`.
+   `passkey-page.js`, which the extension put in the page's own world
+   before any script of the page's ran, hands the request to
+   `passkey-bridge.js` in the extension's world, over a MessageChannel the
+   two set up then.
+2. The bridge adds what only it can tell truly: whether the person is
+   acting on the page (user activation), whether the frame's permissions
+   policy allows WebAuthn, and whether the frame is same-origin with all
+   its ancestors. The background takes the frame's origin from the
+   browser (the sender's URL), never from the page.
+3. The background leaves the request to the browser (below) unless: the
+   page is a secure context (https, or http on localhost); the rpId fits
+   its origin; the person is acting on the page; a frame of another
+   origin than its page's is one its permissions policy lets use WebAuthn
+   (known only in Chromium; Firefox's frames of another origin are left
+   to Firefox); secretvault is running; and, unless the vault is locked,
+   it holds a passkey for that rpId (listing them is listing the vault,
+   asked about as for logins; the window shows only those in
+   `allowCredentials`, when the page names any).
+4. secretvault's window comes up: "Sign in to example.com", with the
+   passkeys by account name, "Use another device or security key", and
+   Cancel. A locked vault is unlocked from it.
+5. The person chooses. The background builds clientDataJSON from the
+   browser's origin (and, in a frame of another origin, its page's as
+   `topOrigin`), and asks secretvault to sign. secretvault checks the rpId
+   and clientDataJSON again, decides with the broker (the `sign`
+   operation on that item, remembered or asked), signs inside the
+   daemon, and answers with the authenticator data and the signature.
+6. The page gets a `PublicKeyCredential` (the browser's own prototypes,
+   with `toJSON`), as from any authenticator.
+
+Making a passkey (`navigator.credentials.create`) goes the same way: the
+window offers "Save the passkey in secretvault", which is a write to the
+vault (asked about as any), and secretvault makes the key pair, keeps it,
+and answers with the attestation object.
+
+### Falling back to the browser
+
+The person can always leave a request to the browser: its own
+authenticator, a security key, or a phone. "Use another device or
+security key" closes secretvault's window, and the page's own call is
+made again, unchanged, with the browser's `create` or `get`, which shows
+the browser's own dialog. The same happens, without secretvault's window
+ever showing, for anything secretvault does not take: a page that is not
+a secure context, an rpId that does not fit, a frame whose policy is not
+known to allow WebAuthn, a request the person did not make (no user
+activation), no passkey for the site in the vault, an algorithm
+secretvault does not make (it makes ES256 and Ed25519, in the site's order
+of preference; a site that takes neither goes to the browser), a site
+that asks for a security key or a phone (`authenticatorAttachment:
+"cross-platform"`), secretvault not running, and anything malformed.
+Cancel, or closing the window, refuses the request (`NotAllowedError`).
+
+### Autofill (conditional mediation)
+
+A page may ask for a passkey with `mediation: "conditional"` as it loads,
+to offer passkeys in its user name field's autofill. The browser's own
+offer is made as usual, and secretvault's waits beside it: nothing shows
+and secretvault is not asked anything until the person opens the
+extension's panel (the mark on the field, or the toolbar button). The
+panel then lists secretvault's passkeys for the page above its logins;
+choosing one signs in, and calls the browser's offer off. A passkey taken
+from the browser's own autofill calls secretvault's off. As with a login,
+one chosen in a panel inside the page that the browser could not vouch
+for (Firefox) is confirmed in secretvault's own prompt.
+
+### What is kept
+
+A passkey is an item of kind `passkey`
+([`svext/passkeyitem.go`](../svext/passkeyitem.go)), named
+`passkeys/SITE` (with the account's name, or a number, when taken):
+
+| Field | What it is |
+| --- | --- |
+| `rp_id` | the site (the relying party's ID) |
+| `url` | `https://` and the site, for people and for exports |
+| `username`, `display_name` | the account, as the site named it |
+| `credential_id` | the credential's ID: 16 random bytes, base64url |
+| `user_handle` | the site's ID of the account, base64url |
+| `algorithm` | `ES256` (P-256) or `EdDSA` (Ed25519) |
+| `private_key` | the private key, PKCS #8 in base64url (a key field) |
+| `created` | when it was made |
+
+Every passkey is discoverable (it holds its user handle). It is listed,
+renamed, deleted, synced and exported like any item. The faces show its
+site, its account and when it was made, never its key, and do not edit
+it. `secretvault get` prints no secret for it (its key is for signing);
+`--field` or `--json` show its fields as for any item. CXF
+(`secretvault export cxf`, `import cxf`) carries passkeys both ways, as
+CXF's `passkey` credential with the key in PKCS #8, so they move to and
+from other managers; an item from another manager that holds a login and
+a passkey becomes a login and a passkey.
+
+### What the authenticator data says
+
+- **AAGUID** `147e5391-634b-4919-8f0a-d0c353e3a97f`: secretvault, as an
+  authenticator model, the same everywhere. It was made once at random and
+  must not change (`svext.AAGUID`).
+- **Attestation** is `none`, whatever the site asks for. secretvault has no
+  attestation key, and an attestation would only say "secretvault".
+- **UP** (user present) is always set: the person chose the passkey in
+  secretvault's window or the panel.
+- **UV** (user verified) is set only when secretvault verified the person
+  for this very request: the site asked for it (`userVerification:
+  "required"`), and the person typed the vault's passphrase into
+  secretvault's own prompt, which is then also the consent (a remembered
+  "no" still refuses). For "preferred" and "discouraged", nobody is
+  verified, and UV is not set; an unlocked vault and a consent prompt are
+  not verification. A vault with no passphrase cannot verify anyone, so
+  a site that requires it goes to the browser (`unsupported`).
+- **BE and BS** (backup eligible, backed up) are set: the passkey is in a
+  vault, which may be synced to other devices.
+- **The signature count** is always 0, as for every synced passkey: no one
+  device can keep a counter that only grows.
+- **Extensions**: `credProps` says the credential is discoverable; others
+  (PRF, large blobs) are not supported and get no result.
+
+### Limits
+
+- **Tested in Chromium and Brave, not yet in a real Firefox.** The
+  end-to-end test drives Chromium (and Brave); Firefox's paths (its
+  world-MAIN content script, the handshake between the two worlds, the
+  popup window, its event page) are covered by the unit tests and by
+  reading only. Try them by hand in Firefox before relying on them there.
+- **One request at a time per tab**, as in the browsers themselves: a
+  second one while secretvault's window is up is refused
+  (`NotAllowedError`).
+- **The keyboard.** A person who, while typing into a page, presses Tab
+  and then, 800 ms or more later, Space or Enter, presses the window's
+  first button. The window's own focus (it comes to the front) usually
+  makes that plain.
+
 ## Threat model
 
 secretvault's own threat model is in [security.md](security.md). This
@@ -229,6 +401,7 @@ section covers what the extension adds. It is enforced in the files named.
 ### What is protected
 
 - the logins in the vaults: their passwords and one-time codes most;
+- the passkeys' private keys, and the power to sign in with them;
 - what the vault holds for which sites (titles and user names);
 - the person's decisions: what a site gets, and when.
 
@@ -405,6 +578,74 @@ section covers what the extension adds. It is enforced in the files named.
 - **Never logged.** No part logs a request's contents: the extension
   logs nothing, and the host and the daemon log only errors and session
   starts.
+- **Passkeys** (see [Passkeys](#passkeys)):
+  - **The origin is the browser's.** The background takes the frame's
+    origin from `sender.url` and its page's from `sender.tab`, and builds
+    clientDataJSON from them; nothing the page says is used for either.
+    The daemon checks that clientDataJSON names the origin, the type and
+    a challenge of at least 16 bytes the request says
+    (`svext.CheckClientData`).
+  - **The rpId must fit the origin**, by WebAuthn's rules: the origin's
+    host itself, or a suffix of it at a label that is not a public suffix
+    by the Public Suffix List (both sections), and not a suffix of the
+    host's public suffix; on a secure page only (https, or http on
+    localhost); never an address. The extension checks
+    (`lib/webauthn.js`), and the daemon again (`svext.CheckRPID`), with
+    the same cases (`browser/test/webauthn-vectors.json`). A passkey is
+    used only for the rpId it was made for (`svd/passkeys.go`).
+  - **Frames of another origin** are served only where the bridge saw
+    that the frame's permissions policy allows WebAuthn
+    (`publickey-credentials-get` or `-create`, Chromium's
+    `document.featurePolicy`, read from the extension's world, which the
+    page cannot redefine). Where that is not known (Firefox), they are
+    left to the browser, which applies the policy itself. clientDataJSON
+    then says `crossOrigin` and the page's `topOrigin`.
+  - **No signature without the person's action in secretvault's UI.** A
+    page can only start a request, and only while the person acts on it
+    (user activation); a request without it is the browser's. The choice
+    is made in secretvault's window, an extension page in a browser
+    window no page can draw on, script or click in. A click or a key meant
+    for the page must not land there: its buttons take no click for 600
+    ms after it shows, gets the focus or changes; nothing in it takes the
+    focus by itself; and a button pressed from the keyboard counts only
+    once it has held the focus for 800 ms (the person tabbed to it), not
+    when typing runs on into the window.
+    In autofill, the choice is made in the panel, with the panel's
+    defences, and confirmed by secretvault's own prompt where the browser
+    could not vouch for it. Then the broker decides, as for any program:
+    the `sign` operation on that passkey, remembered or asked; saving is
+    a write. Every decision is in the audit log.
+  - **The key never leaves the daemon** for a sign-in: the daemon reads it
+    only to sign, and the extension, the host and the browser see the
+    public key and signatures only. A passkey has no secret to hand out
+    (`svcore.Item.Secret`): references (`sv://`), the Secret Service and
+    deliveries do not give its key, a reference to its key field is
+    refused, the Secret Service cannot overwrite it, and the faces neither
+    show nor copy it. It leaves secretvault only when the person reads the
+    whole item on purpose: an export (CXF, to move it to another manager),
+    or `secretvault get --field private_key` or `--json`, each a read the
+    broker decides.
+  - **excludeCredentials and allowCredentials** are honoured by the
+    daemon: an excluded credential the vault holds refuses the creation
+    (`InvalidStateError`, after the person chose to save, as an
+    authenticator does); a credential not in `allowCredentials` is not
+    offered or used. **userVerification "required"** gets the passphrase
+    prompt, or refuses.
+  - **The document's own origin.** A document whose origin is not its
+    URL's (a sandboxed one, whose origin is opaque) is left to the
+    browser: the background compares the browser's `sender.origin` (in
+    Chromium) and the origin and secure context the bridge sees in its own
+    world with the URL's. So is a secure frame in an insecure page.
+  - **The page's world.** `passkey-page.js` runs in the page's world,
+    which the page controls; it holds nothing the page could not have,
+    and decides nothing. It keeps the browser's own functions (and those
+    it relies on) as they were before the page ran. A page that tampers
+    with it, or talks to its channel directly, only changes what it asks
+    for itself: what it can ask, and what it gets, are what it could ask
+    of `navigator.credentials` anyway. Until the extension's world has
+    taken its end of the channel, and for any request it has not heard
+    within a second, the page's world leaves the request to the browser,
+    so a missing or stopped extension never leaves a page waiting.
 - **No remote code.** The extension pages' Content Security Policy is
   `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self';
   connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'`.
@@ -416,6 +657,21 @@ section covers what the extension adds. It is enforced in the files named.
   script.
 
 ### What is not stopped
+
+- **A compromised browser or extension can sign for any site it names.**
+  The daemon checks that an rpId fits the origin it is told, but the
+  origin is the extension's word (the browser's). The broker still asks
+  ("always" for a passkey means "always, for this browser"), and logs.
+- **A page can tell, by timing, whether its request went to secretvault's
+  window or to the browser's dialog**, and so whether secretvault holds a
+  passkey for its site, but only while the person acts on the page, and
+  after the person allowed the browser to list the vault. Whether it holds
+  one of the credentials the page named (`allowCredentials`) shows only
+  inside the window.
+- **User verification is the vault's passphrase**, typed into
+  secretvault's prompt; a security key that unlocks the vault does not
+  count for it. Sites that require verification ask for the passphrase
+  every time.
 
 - **A compromised browser, extension or profile** can name any origin
   and ask for anything the person allows the browser. The broker still
@@ -708,6 +964,16 @@ frame), and that a frame of another origin gets
 neither marks nor a fill. It runs when `chromium` is installed (or
 `SECRETVAULT_TEST_CHROMIUM` names a browser: Brave passes too), and not
 with `-short`.
+
+`TestPasskeysInChromium` (`cmd/secretvault/passkey_e2e_test.go`) does the
+same for passkeys, against a relying party made with Go's standard
+library (`internal/webauthntest`) on `http://localhost`, which checks
+each registration and assertion as a server does: a passkey saved through
+secretvault's window and the consent stand-in, a sign-in with it, a
+sign-in from autofill through the panel, "Use another device" leading to
+the browser's own authenticator (the DevTools protocol's virtual one), and
+a frame of another site that the page does not let use WebAuthn, which
+secretvault stays out of.
 
 ## The Public Suffix List
 

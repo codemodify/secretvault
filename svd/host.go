@@ -297,6 +297,9 @@ func (d *Daemon) hostRead(r svrpc.Ref) (mv *managedVault, value []byte, err erro
 	f, ok := e.Item.Secret()
 	if r.Field != "" {
 		f, ok = e.Item.Field(r.Field)
+		if ok && e.Item.Kind == svcore.KindPasskey && f.Type == svcore.FieldKey {
+			return mv, nil, svrpc.Errorf(svrpc.CodeDenied, "%s: a passkey's key is used inside secretvault, not handed out", r)
+		}
 	}
 	if !ok {
 		if r.Field == "" {

@@ -278,6 +278,10 @@ func (s *Server) handleSecret(c *call) {
 			s.fail(c, &apiError{status: http.StatusNotFound, msg: "that item has no field " + quote(field)})
 			return
 		}
+		if passkeyKey(&e.Item, f) {
+			s.fail(c, &apiError{status: http.StatusForbidden, msg: "a passkey's key is used inside secretvault, not delivered"})
+			return
+		}
 		if raw(c.r) {
 			s.ok(c, http.StatusOK, rawValue(f.Value))
 			return
@@ -304,6 +308,9 @@ func (s *Server) handleSecret(c *call) {
 			out.SecretField = sf.Name
 		}
 		for _, f := range e.Item.Fields {
+			if passkeyKey(&e.Item, f) {
+				continue
+			}
 			if utf8.Valid(f.Value) {
 				if out.Fields == nil {
 					out.Fields = map[string]string{}
@@ -406,4 +413,10 @@ func recipientFor(ids map[svcrypto.Suite]*svcrypto.Identity, s svcrypto.Suite) s
 		return ""
 	}
 	return svformat.EncodeRecipient(s, id.Recipient())
+}
+
+// passkeyKey reports whether f is a passkey's key, which the daemon signs
+// with for the browser extension and never delivers.
+func passkeyKey(it *svcore.Item, f svcore.Field) bool {
+	return it.Kind == svcore.KindPasskey && f.Type == svcore.FieldKey
 }

@@ -39,6 +39,13 @@
     check: { vault: false, origin: true, username: false, password: true },
     save: { vault: false, origin: true, username: false, password: true, login: false, title: false },
     generate: { length: false, symbols: false },
+    // Passkeys (lib/webauthn.js builds their members).
+    passkeys: { vault: false, origin: true, rpId: true, allow: false },
+    "passkey-create": {
+      vault: false, origin: true, rpId: true, rpName: false, user: true, userName: true, userDisplayName: false,
+      algorithms: false, exclude: false, clientData: true, uv: false, title: false,
+    },
+    "passkey-get": { vault: false, origin: true, rpId: true, login: true, allow: false, clientData: true, uv: false, confirm: false },
   });
 
   const encoder = new TextEncoder();
@@ -66,7 +73,26 @@
     length: (v) => Number.isInteger(v) && v >= LIMITS.generateMin && v <= LIMITS.generateMax,
     symbols: (v) => typeof v === "boolean",
     confirm: (v) => typeof v === "boolean",
+    rpId: (v) => typeof v === "string" && v.length <= 253 && root.SVWebAuthn.normalRPID(v) === v,
+    rpName: (v) => text(v, 256),
+    userName: (v) => text(v, 256),
+    userDisplayName: (v) => text(v, 256),
+    user: (v) => b64Of(v, 1, 64),
+    clientData: (v) => b64Of(v, 1, 8192),
+    allow: (v) => ids(v),
+    exclude: (v) => ids(v),
+    algorithms: (v) => Array.isArray(v) && v.length <= 16 && v.every(Number.isInteger),
+    uv: (v) => v === "required" || v === "preferred" || v === "discouraged",
   };
+
+  function b64Of(v, min, max) {
+    const b = root.SVWebAuthn.unb64(v);
+    return b !== null && b.length >= min && b.length <= max;
+  }
+
+  function ids(v) {
+    return Array.isArray(v) && v.length <= 64 && v.every((x) => b64Of(x, 1, 1023));
+  }
 
   class ProtocolError extends Error {
     constructor(code, message) {
@@ -140,5 +166,14 @@
       .map((v) => ({ name: v.name, locked: v.locked, default: v.default === true }));
   }
 
-  root.SVProtocol = Object.freeze({ VERSION, HOST, LIMITS, OPS, ProtocolError, request, reply, logins, vaults });
+  // passkeys checks the passkeys of an answer.
+  function passkeys(list) {
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((p) => p && CHECKS.login(p.id) && typeof p.title === "string" && typeof p.userName === "string" && b64Of(p.credentialId, 1, 1023))
+      .map((p) => ({ id: p.id, credentialId: p.credentialId, title: p.title, userName: p.userName,
+        userDisplayName: typeof p.userDisplayName === "string" ? p.userDisplayName : "" }));
+  }
+
+  root.SVProtocol = Object.freeze({ VERSION, HOST, LIMITS, OPS, ProtocolError, request, reply, logins, vaults, passkeys });
 })(globalThis);

@@ -11,6 +11,7 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svotp"
 	"github.com/codemodify/secretvault/svrpc"
 )
@@ -240,10 +241,28 @@ func itemRows(e *svrpc.Entry, reveal bool, keys map[int]*svotp.Key, now time.Tim
 			add(k, e.Item.Attrs[k])
 		}
 	}
+	if svops.IsPasskey(&e.Item) {
+		rows = append(rows, detailRow{field: -1}, detailRow{label: "Passkey", heading: true, field: -1})
+		for _, r := range svops.PasskeySummary(&e.Item) {
+			add(strings.ToLower(r.Label), r.Value)
+		}
+		line := ""
+		for _, w := range strings.Fields(svops.PasskeyKeyNote) {
+			if line != "" && len(line)+1+len(w) > 56 {
+				rows = append(rows, detailRow{text: line, style: plain.Foreground(tcell.ColorGray), field: -1})
+				line = ""
+			}
+			line = strings.TrimSpace(line + " " + w)
+		}
+		rows = append(rows, detailRow{text: line, style: plain.Foreground(tcell.ColorGray), field: -1})
+	}
 	if len(e.Item.Fields) > 0 {
 		rows = append(rows, detailRow{field: -1}, detailRow{label: "Fields", heading: true, field: -1})
 	}
 	for i, f := range e.Item.Fields {
+		if svops.PasskeyHidden(&e.Item, f) {
+			continue // a passkey's key is never shown
+		}
 		row := detailRow{label: f.Name, style: plain, field: i}
 		switch f.Type {
 		case svcore.FieldConcealed, svcore.FieldKey:

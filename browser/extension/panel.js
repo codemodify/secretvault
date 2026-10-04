@@ -11,7 +11,7 @@ const inPage = token !== undefined;
 
 const $ = (id) => document.getElementById(id);
 
-let view = { origin: null, state: null, offer: null, mode: "popup", forms: [] };
+let view = { origin: null, state: null, offer: null, mode: "popup", forms: [], passkeys: null };
 let busy = false;
 
 // A panel in a page sits among the page's own elements, which can be
@@ -186,6 +186,48 @@ function renderOffer() {
   $("offer-save").textContent = o.status === "changed" ? "Update" : "Save";
 }
 
+// renderPasskeys offers secretvault's passkeys to a page that waits for
+// one from autofill (conditional mediation).
+async function renderPasskeys() {
+  $("pk").hidden = true;
+  if (!view.passkeys) return;
+  let r;
+  try {
+    r = await ask("panel:passkeys", {});
+  } catch {
+    return; // as if the page had not asked
+  }
+  if (!r.passkeys || r.passkeys.length === 0) return;
+  $("pk-title").textContent = "Passkeys for " + r.rpId;
+  const ul = $("pk-list");
+  ul.replaceChildren();
+  for (const k of r.passkeys) {
+    const li = el("li");
+    const b = el("button", "login");
+    b.type = "button";
+    b.append(el("span", "title", k.userName || k.userDisplayName || k.title));
+    b.append(el("span", "user", "Sign in with a passkey · " + k.title));
+    b.addEventListener("click", act(() => usePasskey(k)));
+    li.append(b);
+    ul.append(li);
+  }
+  $("pk").hidden = false;
+}
+
+async function usePasskey(k) {
+  if (busy) return;
+  busy = true;
+  status("Asking secretvault to sign in with " + (k.userName || k.title) + "…");
+  try {
+    await ask("panel:passkey", { vault: vault(), login: k.id, seen: inPage && watched && unobscured });
+    return close();
+  } catch (e) {
+    warn(words(e));
+  } finally {
+    busy = false;
+  }
+}
+
 async function renderList() {
   $("list").hidden = false;
   $("actions").hidden = false;
@@ -246,6 +288,7 @@ async function render() {
     return;
   }
   if (v.locked) return renderLocked(v);
+  await renderPasskeys();
   await renderList();
 }
 

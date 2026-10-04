@@ -36,12 +36,13 @@
 
 if (typeof importScripts === "function") {
   // Chromium's service worker; Firefox lists these in the manifest.
-  importScripts("lib/psl.js", "lib/origin.js", "lib/protocol.js");
+  importScripts("lib/psl.js", "lib/origin.js", "lib/webauthn.js", "lib/protocol.js");
 }
 
 const ext = globalThis.browser ?? globalThis.chrome;
 const O = globalThis.SVOrigin;
 const P = globalThis.SVProtocol;
+const W = globalThis.SVWebAuthn;
 
 const QUICK = 15 * 1000; // hello, state, generate
 const PATIENT = 5 * 60 * 1000; // anything the daemon may ask the person about
@@ -233,6 +234,10 @@ function senderOrigins(sender) {
   const frameOrigin = O.originOf(sender.url);
   const topOrigin = O.originOf(tab.url);
   if (!frameOrigin || !topOrigin) return null;
+  // Where the browser says the document's own origin (Chromium), it must
+  // be its URL's: a sandboxed document's is opaque ("null"), whatever its
+  // URL says, and gets nothing.
+  if (typeof sender.origin === "string" && sender.origin !== frameOrigin) return null;
   return { tabId: tab.id, frameId: sender.frameId || 0, frameOrigin, topOrigin, incognito: tab.incognito === true };
 }
 
@@ -256,6 +261,7 @@ function tabState(tabId) {
 }
 
 function forgetTab(tabId) {
+  passkeysGone(tabId);
   tabs.delete(tabId);
   listed.delete(tabId);
   sent.delete(tabId);
@@ -310,6 +316,7 @@ const fromContent = {
       t.frames.clear();
       listed.delete(s.tabId);
       for (const [token, p] of panels) if (p.tabId === s.tabId) panels.delete(token);
+      passkeysGone(s.tabId, typeof msg.doc === "string" ? msg.doc : "");
     }
     if (s.frameOrigin !== s.topOrigin) return { active: false };
     // A page that makes frame after frame does not grow this without end:
@@ -473,6 +480,9 @@ const fromPages = {
       // The offer is the toolbar popup's alone.
       offer: w.mode === "popup" ? offerView(offers.get(w.tabId)) : null,
       forms: w.frameId === null ? formsOf(w) : [],
+      // A page waiting for a passkey from autofill (conditional mediation):
+      // its rpId, for the panel to offer secretvault's.
+      passkeys: conditionalFor(w) ? conditionalFor(w).r.rpId : null,
     };
   },
 
@@ -575,6 +585,365 @@ const fromPages = {
     return {};
   },
 };
+
+// ----------------------------------------------------------------- passkeys
+//
+// A page's navigator.credentials.create or get, for a public key
+// credential, comes here from passkey-bridge.js. It is decided here, from
+// what the browser says of the sender (its frame's URL, its tab's), never
+// from what the page says:
+//
+//   - The origin is the frame's, as the browser gives it; clientDataJSON
+//     is built here from it (and, for a frame of another origin than its
+//     tab's page, that page's origin as topOrigin).
+//   - The page must be a secure context, its rpId must fit its origin
+//     (lib/webauthn.js; secretvault checks again), and a frame of another
+//     origin is served only when the bridge saw that its permissions
+//     policy allows WebAuthn there.
+//   - Only while the person is acting on the page (user activation): a
+//     page cannot make secretvault's window come up by itself.
+//   - The person chooses in secretvault's own window (passkey.html), a
+//     window of the browser's that no page can draw over or click in, or,
+//     for autofill (conditional mediation), in the extension's panel. The
+//     daemon then decides as for any program, and signs.
+//
+// Whatever secretvault does not take (another device, an algorithm it
+// does not make, a vault without such a passkey, anything unusual) goes
+// back to the page's world as "fallback": the browser's own create or get
+// is called, as if secretvault were not there.
+
+const passkeyRequests = new Map(); // token -> a request waiting on secretvault's window
+const conditionals = new Map(); // tabId -> a get waiting for autofill
+const PASSKEY_WINDOW = { width: 420, height: 540 };
+
+const FALLBACK = { kind: "fallback" };
+
+function utf8b64(s) {
+  return W.b64(new TextEncoder().encode(s));
+}
+
+// passkeysGone ends a tab's passkey requests: the tab closed, or a new
+// page is in it (but those of that page, keep: the id its content
+// scripts share, which the page cannot see).
+function passkeysGone(tabId, keep) {
+  const gone = (p) => p.tabId === tabId && !(keep && p.frameId === 0 && p.doc === keep);
+  for (const p of [...passkeyRequests.values()]) if (gone(p)) finish(p, { kind: "aborted" });
+  const c = conditionals.get(tabId);
+  if (c && gone(c)) finish(c, { kind: "aborted" });
+}
+
+// finish answers a request, once, and closes its window.
+function finish(p, result) {
+  if (p.done) return;
+  p.done = true;
+  clearTimeout(p.timer);
+  passkeyRequests.delete(p.token);
+  if (conditionals.get(p.tabId) === p) conditionals.delete(p.tabId);
+  if (p.windowId !== undefined && p.windowId !== null) ext.windows.remove(p.windowId).catch(() => {});
+  p.respond(result);
+}
+
+// credentialOf is a daemon's answer as the page's world takes it.
+function credentialOf(p, r) {
+  const out = { kind: "credential", type: p.kind, credentialId: String(r.credentialId || ""), clientDataJSON: utf8b64(p.clientData) };
+  if (p.kind === "create") {
+    Object.assign(out, { attestationObject: String(r.attestationObject || ""), authenticatorData: String(r.authenticatorData || ""),
+      publicKey: String(r.publicKey || ""), algorithm: Number.isInteger(r.algorithm) ? r.algorithm : W.ES256, credProps: p.r.credProps === true });
+  } else {
+    Object.assign(out, { authenticatorData: String(r.authenticatorData || ""), signature: String(r.signature || ""), userHandle: String(r.userHandle || "") });
+  }
+  return out;
+}
+
+// passkeyRequest reads a request from the bridge, or says to fall back.
+async function passkeyRequest(msg, sender, kind) {
+  const s = senderOrigins(sender);
+  if (!s || typeof msg.id !== "string" || !W.secureOrigin(s.frameOrigin)) return null;
+  // The document's own origin and secure context, as the bridge sees them
+  // in its world: an opaque origin (a sandboxed document), or a secure
+  // page inside an insecure one, is the browser's to refuse.
+  if (msg.origin !== s.frameOrigin || msg.secure !== true) return null;
+  // A frame of another origin than its page's, or under one, is crossOrigin;
+  // it is served only where its permissions policy is known to allow it.
+  const cross = s.frameOrigin !== s.topOrigin || msg.sameOrigin !== true;
+  if (msg.policy === false || (cross && msg.policy !== true)) return null;
+  const list = await suffixes();
+  let r;
+  try {
+    r = kind === "create" ? W.createRequest(list, msg.publicKey, s.frameOrigin) : W.getRequest(list, msg.publicKey, s.frameOrigin);
+  } catch {
+    return null;
+  }
+  const clientData = W.clientData(kind === "create" ? "webauthn.create" : "webauthn.get", r.challenge, s.frameOrigin, cross ? s.topOrigin : undefined);
+  return {
+    token: newToken(), kind, id: msg.id, doc: typeof msg.doc === "string" ? msg.doc : "", tabId: s.tabId, frameId: s.frameId, documentId: typeof sender.documentId === "string" ? sender.documentId : null,
+    origin: s.frameOrigin, topOrigin: s.topOrigin, cross, r, clientData, list: null, done: false, busy: false, windowId: null, windowTabId: null,
+  };
+}
+
+// vaultFor is the vault a request uses: the one chosen, or the default.
+async function vaultFor() {
+  const st = await state();
+  if (!st.running) return null;
+  return st.vaults.find((v) => v.name === st.vault) || null;
+}
+
+// listPasskeys asks secretvault for its passkeys for p's site, in vault
+// v, and keeps those p may use (the page's allowCredentials, when it
+// names any) for the window; it returns them all.
+async function listPasskeys(p, v) {
+  const l = await call("passkeys", { vault: v.name || undefined, origin: p.origin, rpId: p.r.rpId });
+  if (l.rpId !== p.r.rpId) throw fail("failed", "secretvault answered for another site");
+  const all = P.passkeys(l.passkeys);
+  const allow = p.r.allow;
+  p.list = allow ? all.filter((k) => allow.includes(k.credentialId)) : all;
+  return all;
+}
+
+// busyTabs are the tabs a request is being taken for, from its first
+// moment: one at a time.
+const busyTabs = new Set();
+
+async function passkeyAsk(msg, sender, kind) {
+  if (msg.conditional === true) return passkeyTake(msg, sender, kind);
+  const tabId = sender.tab && sender.tab.id;
+  if (typeof tabId !== "number") return { result: FALLBACK };
+  if (busyTabs.has(tabId)) return { result: { kind: "error", name: "NotAllowedError", message: "Another passkey request is waiting on this page." } };
+  busyTabs.add(tabId);
+  try {
+    return await passkeyTake(msg, sender, kind);
+  } finally {
+    busyTabs.delete(tabId);
+  }
+}
+
+async function passkeyTake(msg, sender, kind) {
+  const p = await passkeyRequest(msg, sender, kind);
+  if (!p) return { result: FALLBACK };
+  if (msg.conditional === true) {
+    // Autofill: nothing shows, and nothing is asked of secretvault, until
+    // the person opens the panel on this page.
+    if (kind !== "get" || p.cross) return { result: FALLBACK };
+    return new Promise((resolve) => {
+      p.respond = (result) => resolve({ result });
+      const old = conditionals.get(p.tabId);
+      if (old) finish(old, FALLBACK);
+      conditionals.set(p.tabId, p);
+    });
+  }
+  if (msg.activation !== true) return { result: FALLBACK }; // not the person's doing: the browser's to handle
+  const v = await vaultFor();
+  if (!v) return { result: FALLBACK }; // secretvault is not running, or has no vault
+  if (kind === "get" && !v.locked) {
+    // Only when secretvault holds a passkey for the site does its window
+    // come up; else the browser's own does, at once. Whether it holds one
+    // the page named (allowCredentials) shows only in the window, so a
+    // page cannot probe for its credentials by whose dialog comes up.
+    try {
+      if ((await listPasskeys(p, v)).length === 0) return { result: FALLBACK };
+    } catch {
+      return { result: FALLBACK };
+    }
+  }
+  return new Promise((resolve) => {
+    p.respond = (result) => resolve({ result });
+    passkeyRequests.set(p.token, p);
+    p.timer = setTimeout(() => finish(p, { kind: "error", name: "NotAllowedError", message: "The passkey request timed out." }), p.r.timeout);
+    ext.windows.create({ url: ext.runtime.getURL("passkey.html") + "#" + p.token, type: "popup", focused: true, ...PASSKEY_WINDOW }).then(
+      (w) => {
+        p.windowId = w.id;
+        const tab = w.tabs && w.tabs[0] ? w.tabs[0].id : null;
+        if (p.windowTabId !== null && p.windowTabId !== tab) {
+          finish(p, { kind: "error", name: "NotAllowedError", message: "The passkey request was taken by another page." });
+          return;
+        }
+        p.windowTabId = tab;
+        if (p.done) ext.windows.remove(w.id).catch(() => {});
+      },
+      () => finish(p, FALLBACK),
+    );
+  });
+}
+
+Object.assign(fromContent, {
+  "passkey:create": (msg, sender) => passkeyAsk(msg, sender, "create"),
+  "passkey:get": (msg, sender) => passkeyAsk(msg, sender, "get"),
+
+  // The page called a request off (its AbortSignal), or the browser's own
+  // autofill answered first.
+  async "passkey:abort"(msg, sender) {
+    const tabId = sender.tab && sender.tab.id;
+    for (const p of [...passkeyRequests.values(), ...conditionals.values()]) {
+      if (p.tabId === tabId && p.frameId === (sender.frameId || 0) && p.id === msg.id) finish(p, { kind: "aborted" });
+    }
+    return {};
+  },
+});
+
+ext.windows.onRemoved.addListener((windowId) => {
+  // The person closed secretvault's window: as Cancel.
+  for (const p of [...passkeyRequests.values()]) {
+    if (p.windowId === windowId) finish(p, { kind: "error", name: "NotAllowedError", message: "The passkey request was cancelled." });
+  }
+});
+
+// windowRequest is the request a passkey window is for: by its token, and
+// only in the window made for it.
+function windowRequest(msg, sender) {
+  const p = typeof msg.token === "string" ? passkeyRequests.get(msg.token) : null;
+  if (!p || p.done || !sender.tab || typeof sender.tab.id !== "number") throw fail("denied", "this request is over");
+  // The window may speak before the browser says which it is: the first
+  // to use the token (which only that window was given) is bound to it,
+  // and must be the window made for it.
+  if (p.windowTabId === null) p.windowTabId = sender.tab.id;
+  if (sender.tab.id !== p.windowTabId) throw fail("denied", "this request is over");
+  return p;
+}
+
+async function windowView(p) {
+  const st = await state();
+  const req = p.r.req || {};
+  return {
+    kind: p.kind,
+    rpId: p.r.rpId,
+    site: O.hostOf(p.origin),
+    top: p.cross ? O.hostOf(p.topOrigin) : "",
+    userName: req.userName || "",
+    userDisplayName: req.userDisplayName || "",
+    rpName: req.rpName || "",
+    verify: (p.kind === "create" ? req.uv : p.r.uv) === "required",
+    passkeys: p.list || [],
+    state: st,
+  };
+}
+
+// guarded runs one action of a window at a time.
+async function guarded(p, fn) {
+  if (p.busy) throw fail("busy", "secretvault is already on it");
+  p.busy = true;
+  try {
+    return await fn();
+  } finally {
+    p.busy = false;
+  }
+}
+
+Object.assign(fromPages, {
+  async "passkey:init"(msg, sender) {
+    return windowView(windowRequest(msg, sender));
+  },
+
+  async "passkey:alive"(msg, sender) {
+    windowRequest(msg, sender); // a window waiting on the person keeps the background running
+    return {};
+  },
+
+  async "passkey:vault"(msg, sender) {
+    const p = windowRequest(msg, sender);
+    if (typeof msg.vault !== "string" || msg.vault.length > P.LIMITS.vault) throw fail("bad-request", "a bad vault");
+    await ext.storage.local.set({ vault: msg.vault });
+    p.list = null;
+    const v = await vaultFor();
+    if (p.kind === "get" && v && !v.locked) await listPasskeys(p, v);
+    return windowView(p);
+  },
+
+  async "passkey:unlock"(msg, sender) {
+    const p = windowRequest(msg, sender);
+    return guarded(p, async () => {
+      await call("unlock", { vault: msg.vault || undefined });
+      const v = await vaultFor();
+      if (p.kind === "get" && v && !v.locked) await listPasskeys(p, v);
+      return windowView(p);
+    });
+  },
+
+  // The person chose one of secretvault's passkeys.
+  async "passkey:use"(msg, sender) {
+    const p = windowRequest(msg, sender);
+    if (p.kind !== "get" || !p.list || !p.list.some((k) => k.id === msg.login)) throw fail("not-found", "that passkey was not offered for this page");
+    return guarded(p, async () => {
+      const v = await vaultFor();
+      const r = await call("passkey-get", { vault: (v && v.name) || undefined, origin: p.origin, rpId: p.r.rpId, login: msg.login, allow: p.r.allow,
+        clientData: utf8b64(p.clientData), uv: p.r.uv });
+      finish(p, credentialOf(p, r));
+      return {};
+    });
+  },
+
+  // The person chose to save the new passkey in secretvault.
+  async "passkey:save"(msg, sender) {
+    const p = windowRequest(msg, sender);
+    if (p.kind !== "create") throw fail("bad-request", "nothing to save");
+    const title = typeof msg.title === "string" && msg.title.trim() !== "" ? msg.title.trim().slice(0, 200) : undefined;
+    return guarded(p, async () => {
+      const v = await vaultFor();
+      let r;
+      try {
+        r = await call("passkey-create", Object.assign({}, p.r.req, { vault: (v && v.name) || undefined, origin: p.origin, clientData: utf8b64(p.clientData), title }));
+      } catch (e) {
+        if (e.code === "excluded") {
+          finish(p, { kind: "error", name: "InvalidStateError", message: "A passkey for this account is already saved." });
+          return { excluded: true };
+        }
+        if (e.code === "unsupported") {
+          finish(p, FALLBACK);
+          return {};
+        }
+        throw e;
+      }
+      finish(p, credentialOf(p, r));
+      return {};
+    });
+  },
+
+  // Another device, a security key, the computer's own: the browser's.
+  async "passkey:other"(msg, sender) {
+    finish(windowRequest(msg, sender), FALLBACK);
+    return {};
+  },
+
+  async "passkey:cancel"(msg, sender) {
+    finish(windowRequest(msg, sender), { kind: "error", name: "NotAllowedError", message: "The passkey request was cancelled." });
+    return {};
+  },
+
+  // Autofill, from the panel: the passkeys for the page waiting on it.
+  async "panel:passkeys"(msg, sender) {
+    const w = await where(msg, sender);
+    const c = conditionalFor(w);
+    if (!c) throw fail("not-found", "this page is not asking for a passkey");
+    const v = await vaultFor();
+    if (!v) throw fail("not-running", "secretvault is not running");
+    if (v.locked) throw fail("locked", "the vault is locked");
+    await listPasskeys(c, v);
+    return { rpId: c.r.rpId, passkeys: c.list };
+  },
+
+  async "panel:passkey"(msg, sender) {
+    const w = await where(msg, sender);
+    const c = conditionalFor(w);
+    if (!c || !c.list || !c.list.some((k) => k.id === msg.login)) throw fail("not-found", "that passkey was not offered for this page");
+    await verified(w);
+    await stillThere(w);
+    // As for a login: chosen in a panel inside the page where the browser
+    // could not vouch for it, secretvault asks every time.
+    const confirm = w.token && msg.seen !== true ? true : undefined;
+    const v = await vaultFor();
+    const r = await call("passkey-get", { vault: (v && v.name) || undefined, origin: c.origin, rpId: c.r.rpId, login: msg.login, allow: c.r.allow,
+      clientData: utf8b64(c.clientData), uv: c.r.uv, confirm });
+    if (c.done || conditionals.get(c.tabId) !== c) throw fail("navigated", "the page stopped waiting for a passkey");
+    finish(c, credentialOf(c, r));
+    return { used: true };
+  },
+});
+
+// conditionalFor is the autofill request a panel may answer: its tab's,
+// for the panel's origin.
+function conditionalFor(w) {
+  const c = conditionals.get(w.tabId);
+  return c && !c.done && c.origin === w.origin ? c : null;
+}
 
 // shown is a login the panel was shown for this tab and origin.
 function shown(w, id) {

@@ -34,7 +34,11 @@ func Field(it *svrpc.Item, name string) (svrpc.Field, bool) {
 
 // SecretField is the item's primary secret, as svcore.Item.Secret picks
 // it: its password or secret field, else its first concealed or key one.
+// A passkey has none to hand out: its key signs inside secretvault.
 func SecretField(it *svrpc.Item) (svrpc.Field, bool) {
+	if IsPasskey(it) {
+		return svrpc.Field{}, false
+	}
 	for _, n := range []string{"password", "secret"} {
 		if f, ok := Field(it, n); ok {
 			return f, true

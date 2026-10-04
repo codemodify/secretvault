@@ -28,6 +28,10 @@ func (u *UI) copyReference() {
 		u.say("Choose an item first.")
 		return
 	}
+	if u.cur != nil && u.cur.Item.Name == name && svops.IsPasskey(&u.cur.Item) {
+		u.say("A passkey signs you in through the browser extension; there is no secret to refer to.")
+		return
+	}
 	r := svrpc.Ref{Vault: u.vault, Item: name}
 	if u.app.GetFocus() == u.detail && u.cur != nil && u.cur.Item.Name == name {
 		if i := u.detail.selectedField(); i >= 0 && i < len(u.cur.Item.Fields) {

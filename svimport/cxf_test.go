@@ -26,7 +26,13 @@ func TestACXFDocumentImportsWithCollectionsAsFolders(t *testing.T) {
 	has(t, login, "recovery email", svcore.FieldEmail, "backup@example.org")
 	has(t, login, "Security", svcore.FieldText, "42") // an unlabelled field takes its section's label
 	has(t, login, "notes", svcore.FieldText, "created for the demo")
-	warned(t, res, "Work/Example Login", "passkey")
+	// Its passkey is an item of its own.
+	pk := item(t, res, "Work/Example Login passkey")
+	if pk.Kind != "passkey" {
+		t.Errorf("the passkey's kind %q", pk.Kind)
+	}
+	has(t, pk, "rp_id", svcore.FieldText, "example.com")
+	has(t, pk, "username", svcore.FieldText, "ada")
 
 	card := item(t, res, "Corporate card")
 	if card.Kind != "card" {

@@ -44,14 +44,15 @@ func TestTheExtensionsModulesPassTheirTestsUnderNode(t *testing.T) {
 func TestTheExtensionIsEmbeddedWhole(t *testing.T) {
 	ext := Extension()
 	for _, f := range []string{"manifest.json", "background.js", "content.js", "panel.html", "panel.js", "panel.css",
-		"lib/psl.js", "lib/origin.js", "lib/protocol.js", "lib/forms.js", "lib/style.js", PSLPath, "icons/128.png"} {
+		"lib/psl.js", "lib/origin.js", "lib/protocol.js", "lib/forms.js", "lib/style.js", "lib/webauthn.js", PSLPath, "icons/128.png",
+		"passkey-page.js", "passkey-bridge.js", "passkey.html", "passkey.js", "passkey.css"} {
 		if _, err := fs.Stat(ext, f); err != nil {
 			t.Errorf("%s is not embedded: %v", f, err)
 		}
 	}
 	// Nothing but the extension: its tests stay out of the package.
 	fs.WalkDir(ext, ".", func(p string, d fs.DirEntry, err error) error {
-		if strings.HasSuffix(p, ".mjs") || strings.HasSuffix(p, ".go") || strings.HasPrefix(d.Name(), ".") && p != "." {
+		if strings.HasSuffix(p, ".mjs") || strings.HasSuffix(p, ".json") && p != "manifest.json" || strings.HasSuffix(p, ".go") || strings.HasPrefix(d.Name(), ".") && p != "." {
 			t.Errorf("%s is in the extension", p)
 		}
 		return nil

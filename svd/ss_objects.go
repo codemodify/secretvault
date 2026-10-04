@@ -227,7 +227,7 @@ func (ss *secretService) createItem(ctx context.Context, call *svdbus.Call, mv *
 		if replace {
 			entries, _ := mv.v.List("")
 			for i := range entries {
-				if existing == nil && len(entries[i].Item.Attrs) == len(attrs) && matches(&entries[i].Item, attrs) {
+				if existing == nil && entries[i].Item.Kind != svcore.KindPasskey && len(entries[i].Item.Attrs) == len(attrs) && matches(&entries[i].Item, attrs) {
 					existing = &entries[i]
 				} else {
 					entries[i].Item.Wipe()
@@ -399,6 +399,9 @@ func (ss *secretService) itemInterface(mv *managedVault, id svformat.ID) *svdbus
 				}
 				it := e.Item
 				defer it.Wipe()
+				if it.Kind == svcore.KindPasskey {
+					return nil, svdbus.NewError(errNotSupported, "a passkey has no secret to set: it is made and used by the browser extension")
+				}
 				it.SetField(svcore.Field{Name: secretFieldName(&it), Type: svcore.FieldConcealed, Value: append([]byte(nil), value...)})
 				if sec.ContentType != "" && sec.ContentType != "text/plain" {
 					it.SetField(svcore.Field{Name: "content_type", Type: svcore.FieldText, Value: []byte(sec.ContentType)})

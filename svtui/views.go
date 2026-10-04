@@ -128,7 +128,7 @@ func (u *UI) showRevision(name string, e *svrpc.Entry) {
 			rv.reveal = !rv.reveal
 			draw()
 		case ev.Rune() == 'c':
-			if i := rv.view.selectedField(); i >= 0 && i < len(e.Item.Fields) {
+			if i := rv.view.selectedField(); i >= 0 && i < len(e.Item.Fields) && !svops.PasskeyHidden(&e.Item, e.Item.Fields[i]) {
 				u.copyValue(e.Item.Fields[i].Value)
 			} else if f, ok := secretField(&e.Item); ok {
 				u.copyValue(f.Value)

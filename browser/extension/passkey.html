@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>secretvault: passkey</title>
+<link rel="stylesheet" href="panel.css">
+<link rel="stylesheet" href="passkey.css">
+</head>
+<body class="window">
+<header>
+  <img src="icons/32.png" alt="" width="20" height="20">
+  <h1 id="title">secretvault</h1>
+</header>
+<main>
+  <p id="about"></p>
+  <section id="status" aria-live="polite"></section>
+  <section id="vaults" hidden>
+    <label for="vault">Vault</label>
+    <select id="vault"></select>
+  </section>
+  <section id="choose" hidden>
+    <ul id="passkeys"></ul>
+  </section>
+  <section id="save" hidden>
+    <label for="name">Name</label>
+    <input id="name" type="text" maxlength="200" autocomplete="off" spellcheck="false">
+    <div class="buttons">
+      <button id="save-button" type="button" class="primary">Save the passkey in secretvault</button>
+    </div>
+  </section>
+  <p id="verify" class="note" hidden>This site asks secretvault to check that it is you: secretvault will ask for the vault's passphrase.</p>
+</main>
+<footer>
+  <button id="other" type="button">Use another device or security key</button>
+  <button id="cancel" type="button" class="quiet">Cancel</button>
+</footer>
+<script src="lib/origin.js"></script>
+<script src="passkey.js"></script>
+</body>
+</html>

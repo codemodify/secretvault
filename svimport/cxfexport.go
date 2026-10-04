@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svext"
 	"github.com/codemodify/secretvault/svotp"
 	"github.com/codemodify/secretvault/svrpc"
 )
@@ -111,6 +112,12 @@ func cxfExportItem(it *svrpc.Item) cxfItem {
 		}
 	}
 
+	if it.Kind == svext.PasskeyKind {
+		if cred, created := cxfExportPasskey(it, used); cred != nil {
+			add(cred)
+			ci.CreationAt = created
+		}
+	}
 	add(map[string]any{"type": "basic-auth", "username": take(fUsername, "string"), "password": take(fPassword, "concealed-string")})
 	for _, f := range it.Fields {
 		if f.Type == svcore.FieldOTP && !used[f.Name] {
@@ -255,6 +262,38 @@ func cxfExportSSHKey(it *svrpc.Item, used map[string]bool) map[string]any {
 		}
 	}
 	return cred
+}
+
+// cxfExportPasskey is a passkey item as CXF's passkey credential (its key
+// as PKCS #8 DER, base64url, as CXF requires), and when it was made; nil
+// when the item is not a passkey secretvault can read, which then stays in
+// custom fields as it is.
+func cxfExportPasskey(it *svrpc.Item, used map[string]bool) (map[string]any, int64) {
+	field := func(n string) ([]byte, bool) {
+		for _, f := range it.Fields {
+			if f.Name == n {
+				return f.Value, true
+			}
+		}
+		return nil, false
+	}
+	r, err := svext.ReadPasskey(field, true)
+	if err != nil {
+		return nil, 0
+	}
+	defer r.Wipe()
+	for _, n := range []string{svext.PasskeyRPID, svext.PasskeyUserName, svext.PasskeyDisplayName, svext.PasskeyCredentialID,
+		svext.PasskeyUserHandle, svext.PasskeyAlgorithm, svext.PasskeyPrivateKey, svext.PasskeyCreatedField} {
+		used[n] = true
+	}
+	cred := map[string]any{"type": "passkey", "credentialId": svext.B64.EncodeToString(r.CredentialID), "rpId": r.RPID,
+		"username": r.UserName, "userDisplayName": r.DisplayName, "userHandle": svext.B64.EncodeToString(r.UserHandle),
+		"key": svext.B64.EncodeToString(r.PrivateKey)}
+	var created int64
+	if !r.Created.IsZero() {
+		created = r.Created.Unix()
+	}
+	return cred, created
 }
 
 func typeToCXF(t string) string {

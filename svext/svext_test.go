@@ -277,6 +277,7 @@ type backend struct {
 	asked   []string
 	refuse  bool
 	vaultOf string
+	keys    []*PasskeyRecord // passkeys made (webauthn_test.go)
 }
 
 func (b *backend) Hello(context.Context) (Hello, error) {

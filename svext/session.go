@@ -114,6 +114,60 @@ type CheckResult struct {
 	Login  string
 }
 
+// PasskeyEntry is a passkey offered for a page: nothing secret.
+type PasskeyEntry struct {
+	ID           string `json:"id"`           // the item's
+	CredentialID string `json:"credentialId"` // base64url: the site knows it, and names it in allowCredentials
+	Title        string `json:"title"`
+	UserName     string `json:"userName"`
+	DisplayName  string `json:"userDisplayName"`
+}
+
+// PasskeyCreate is a passkey to make (navigator.credentials.create),
+// checked: the rpId fits the origin, and ClientDataHash is the hash of
+// clientDataJSON as checked.
+type PasskeyCreate struct {
+	RPID            string
+	RPName          string
+	UserHandle      []byte
+	UserName        string
+	UserDisplayName string
+	Algorithms      []int
+	Exclude         [][]byte
+	UV              string
+	Title           string
+	ClientDataHash  [32]byte
+}
+
+// PasskeyCreated is the new credential.
+type PasskeyCreated struct {
+	Login             string // the item's ID
+	CredentialID      []byte
+	AuthenticatorData []byte
+	AttestationObject []byte
+	PublicKey         []byte // SubjectPublicKeyInfo
+	Algorithm         int
+}
+
+// PasskeyGet is an assertion to make (navigator.credentials.get) with the
+// passkey Login, checked as PasskeyCreate is.
+type PasskeyGet struct {
+	RPID           string
+	Login          string
+	Allow          [][]byte
+	UV             string
+	Confirm        bool // chosen in a panel inside the page: asked every time
+	ClientDataHash [32]byte
+}
+
+// PasskeyAssertion is a passkey's signature.
+type PasskeyAssertion struct {
+	CredentialID      []byte
+	AuthenticatorData []byte
+	Signature         []byte
+	UserHandle        []byte
+}
+
 // Hello is what the daemon says of itself and of the browser.
 type Hello struct {
 	Browser string // the browser, as prompts and the audit log name it
@@ -144,6 +198,14 @@ type Backend interface {
 	Check(ctx context.Context, vault string, o Origin, username string, password []byte) (CheckResult, error)
 	// Save stores a login for origin, if the person allows.
 	Save(ctx context.Context, vault string, o Origin, s SaveLogin) (string, bool, error)
+
+	// Passkeys lists the passkeys for rpID (only those in allow, when it
+	// is not empty), if the person allows the browser to list the vault.
+	Passkeys(ctx context.Context, vault string, o Origin, rpID string, allow [][]byte) ([]PasskeyEntry, error)
+	// CreatePasskey makes and stores a passkey, if the person allows.
+	CreatePasskey(ctx context.Context, vault string, o Origin, c PasskeyCreate) (PasskeyCreated, error)
+	// GetPasskey signs with a passkey, if the person allows.
+	GetPasskey(ctx context.Context, vault string, o Origin, g PasskeyGet) (PasskeyAssertion, error)
 }
 
 // Session answers one extension's requests from a Backend. It is safe
@@ -251,6 +313,61 @@ func (s *Session) serve(ctx context.Context, r *Request) ([]byte, error) {
 		}
 		out.set("login", id)
 		out.set("created", created)
+
+	case OpPasskeys:
+		if err := CheckRPID(Suffixes(), r.RPID, r.Origin); err != nil {
+			return nil, Errorf(CodeBadRequest, "%v", err)
+		}
+		ps, err := s.b.Passkeys(ctx, r.Vault, r.Origin, r.RPID, r.Allow)
+		if err != nil {
+			return nil, err
+		}
+		if len(ps) > MaxLogins {
+			ps = ps[:MaxLogins]
+		}
+		if ps == nil {
+			ps = []PasskeyEntry{}
+		}
+		out.set("rpId", r.RPID)
+		out.set("passkeys", ps)
+
+	case OpPasskeyCreate:
+		if err := CheckRPID(Suffixes(), r.RPID, r.Origin); err != nil {
+			return nil, Errorf(CodeBadRequest, "%v", err)
+		}
+		h, err := CheckClientData(r.ClientData, ClientCreate, r.Origin)
+		if err != nil {
+			return nil, err
+		}
+		c, err := s.b.CreatePasskey(ctx, r.Vault, r.Origin, PasskeyCreate{RPID: r.RPID, RPName: r.RPName, UserHandle: r.UserHandle,
+			UserName: r.UserName, UserDisplayName: r.UserDisplayName, Algorithms: r.Algorithms, Exclude: r.Exclude, UV: r.UV,
+			Title: r.Title, ClientDataHash: h})
+		if err != nil {
+			return nil, err
+		}
+		out.set("login", c.Login)
+		out.set("credentialId", B64.EncodeToString(c.CredentialID))
+		out.set("authenticatorData", B64.EncodeToString(c.AuthenticatorData))
+		out.set("attestationObject", B64.EncodeToString(c.AttestationObject))
+		out.set("publicKey", B64.EncodeToString(c.PublicKey))
+		out.set("algorithm", c.Algorithm)
+
+	case OpPasskeyGet:
+		if err := CheckRPID(Suffixes(), r.RPID, r.Origin); err != nil {
+			return nil, Errorf(CodeBadRequest, "%v", err)
+		}
+		h, err := CheckClientData(r.ClientData, ClientGet, r.Origin)
+		if err != nil {
+			return nil, err
+		}
+		a, err := s.b.GetPasskey(ctx, r.Vault, r.Origin, PasskeyGet{RPID: r.RPID, Login: r.Login, Allow: r.Allow, UV: r.UV, Confirm: r.Confirm, ClientDataHash: h})
+		if err != nil {
+			return nil, err
+		}
+		out.set("credentialId", B64.EncodeToString(a.CredentialID))
+		out.set("authenticatorData", B64.EncodeToString(a.AuthenticatorData))
+		out.set("signature", B64.EncodeToString(a.Signature))
+		out.set("userHandle", B64.EncodeToString(a.UserHandle))
 
 	case OpGenerate:
 		return nil, Errorf(CodeUnknownOp, "generate is the host's to answer")

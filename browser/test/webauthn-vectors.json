@@ -1,0 +1,48 @@
+{
+  "comment": "Which rpId a page's origin may use (WebAuthn §5.1.3/§5.1.4, the HTML standard's 'is a registrable domain suffix of or is equal to', with the bundled Public Suffix List), read by svext/webauthn_test.go and browser/test/webauthn.test.mjs alike.",
+  "rpId": [
+    {"origin": "https://example.com", "rpId": "example.com", "ok": true},
+    {"origin": "https://login.example.com", "rpId": "example.com", "ok": true},
+    {"origin": "https://a.b.example.com:8443", "rpId": "b.example.com", "ok": true},
+    {"origin": "https://example.com", "rpId": "login.example.com", "ok": false, "why": "not a suffix of the host"},
+    {"origin": "https://notexample.com", "rpId": "example.com", "ok": false, "why": "a suffix, but not at a label"},
+    {"origin": "https://example.com", "rpId": "com", "ok": false, "why": "a public suffix"},
+    {"origin": "https://www.example.co.uk", "rpId": "example.co.uk", "ok": true},
+    {"origin": "https://www.example.co.uk", "rpId": "co.uk", "ok": false, "why": "a public suffix (ICANN section)"},
+    {"origin": "https://www.example.co.uk", "rpId": "uk", "ok": false, "why": "a suffix of the host's public suffix"},
+    {"origin": "https://alice.github.io", "rpId": "alice.github.io", "ok": true},
+    {"origin": "https://a.b.alice.github.io", "rpId": "alice.github.io", "ok": true},
+    {"origin": "https://alice.github.io", "rpId": "github.io", "ok": false, "why": "a public suffix (private section)"},
+    {"origin": "https://github.io", "rpId": "github.io", "ok": true, "why": "equal to the host"},
+    {"origin": "https://a.www.ck", "rpId": "www.ck", "ok": true, "why": "an exception rule makes www.ck registrable"},
+    {"origin": "https://a.foo.ck", "rpId": "foo.ck", "ok": false, "why": "a wildcard rule makes foo.ck public"},
+    {"origin": "https://xn--bcher-kva.example", "rpId": "xn--bcher-kva.example", "ok": true},
+    {"origin": "https://example.com", "rpId": "Example.com", "ok": false, "why": "not as browsers write hosts"},
+    {"origin": "https://example.com", "rpId": "example.com.", "ok": false},
+    {"origin": "https://sub.example.com", "rpId": ".example.com", "ok": false},
+    {"origin": "https://example.com", "rpId": "", "ok": false},
+    {"origin": "https://example.com", "rpId": "evil.com", "ok": false},
+    {"origin": "http://example.com", "rpId": "example.com", "ok": false, "why": "not a secure context"},
+    {"origin": "http://localhost:8080", "rpId": "localhost", "ok": true, "why": "http on localhost is a secure context"},
+    {"origin": "http://app.localhost", "rpId": "app.localhost", "ok": true},
+    {"origin": "http://app.localhost", "rpId": "localhost", "ok": false, "why": "localhost is its own public suffix"},
+    {"origin": "https://127.0.0.1", "rpId": "127.0.0.1", "ok": false, "why": "an address is not a domain"},
+    {"origin": "http://127.0.0.1:8080", "rpId": "localhost", "ok": false},
+    {"origin": "https://[::1]", "rpId": "::1", "ok": false}
+  ],
+  "clientData": [
+    {
+      "type": "webauthn.get",
+      "challenge": "000102030405060708090a0b0c0d0e0f",
+      "origin": "https://example.com",
+      "json": "{\"type\":\"webauthn.get\",\"challenge\":\"AAECAwQFBgcICQoLDA0ODw\",\"origin\":\"https://example.com\",\"crossOrigin\":false}"
+    },
+    {
+      "type": "webauthn.create",
+      "challenge": "000102030405060708090a0b0c0d0e0f1011",
+      "origin": "https://login.example.com",
+      "topOrigin": "https://shop.example",
+      "json": "{\"type\":\"webauthn.create\",\"challenge\":\"AAECAwQFBgcICQoLDA0ODxAR\",\"origin\":\"https://login.example.com\",\"crossOrigin\":true,\"topOrigin\":\"https://shop.example\"}"
+    }
+  ]
+}

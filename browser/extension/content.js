@@ -752,7 +752,7 @@
     return false;
   });
 
-  ext.runtime.sendMessage({ type: "frame:hello" }).then((r) => {
+  ext.runtime.sendMessage({ type: "frame:hello", doc: typeof globalThis.SVDocument === "string" ? globalThis.SVDocument : "" }).then((r) => {
     if (!r || !r.ok || !r.active) return;
     active = true;
     listen();

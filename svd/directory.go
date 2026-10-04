@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/codemodify/secretvault/svbroker"
+	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svldap"
 	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/secretvault/svtrust"
@@ -137,6 +138,9 @@ func (d *Daemon) readRef(ctx context.Context, cl *client, s string) ([]byte, err
 	defer e.Item.Wipe()
 	if ref.Field != "" {
 		if f, ok := e.Item.Field(ref.Field); ok {
+			if e.Item.Kind == svcore.KindPasskey && f.Type == svcore.FieldKey {
+				return nil, fmt.Errorf("%s: a passkey's key is used inside secretvault, not handed out", ref.Item)
+			}
 			return append([]byte(nil), f.Value...), nil
 		}
 		return nil, fmt.Errorf("%s has no field %q", ref.Item, ref.Field)

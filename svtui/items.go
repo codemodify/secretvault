@@ -386,6 +386,10 @@ func (u *UI) copySecret() {
 	}
 	u.withItem(func(e *svrpc.Entry) {
 		if selected >= 0 && selected < len(e.Item.Fields) && e == u.cur {
+			if svops.PasskeyHidden(&e.Item, e.Item.Fields[selected]) {
+				u.say("A passkey's key is not copied.")
+				return
+			}
 			u.copyValue(e.Item.Fields[selected].Value)
 			return
 		}

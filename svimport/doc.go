@@ -77,7 +77,8 @@
 // Items in the trash or recycle bin are skipped. What cannot be brought
 // across is left behind with a warning in Result.Warnings that names the
 // item but never holds a secret: attachments from other formats, whose
-// exports do not hold them, and documents, passkeys,
+// exports do not hold them, and documents, passkeys (but from CXF, which
+// carries their keys: they become items of kind passkey),
 // history (older versions), OTP keys of kinds with no otpauth form (MOTP,
 // Yandex, MD5), and credential types a format added after this reader.
 //

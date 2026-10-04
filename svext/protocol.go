@@ -39,6 +39,13 @@ const (
 	OpCheck    = "check"    // vault, origin, username, password -> status, login
 	OpSave     = "save"     // vault, origin, username, password, [login], [title] -> login, created
 	OpGenerate = "generate" // [length], [symbols] -> password (answered by the host)
+
+	// Passkeys (webauthn.go): the extension names the page's origin and the
+	// rpId; the daemon checks the one fits the other, keeps the keys, and
+	// signs.
+	OpPasskeys      = "passkeys"       // vault, origin, rpId, [allow] -> passkeys (no secrets)
+	OpPasskeyCreate = "passkey-create" // vault, origin, rpId, rpName, user, userName, userDisplayName, algorithms, exclude, clientData, uv, [title] -> credential
+	OpPasskeyGet    = "passkey-get"    // vault, origin, rpId, login, [allow], clientData, uv, [confirm] -> assertion
 )
 
 // Limits. A request is at most MaxRequest bytes; the browser's own limit
@@ -72,6 +79,10 @@ var members = map[string]map[string]bool{
 	OpCheck:    {"vault": false, "origin": true, "username": false, "password": true},
 	OpSave:     {"vault": false, "origin": true, "username": false, "password": true, "login": false, "title": false},
 	OpGenerate: {"length": false, "symbols": false},
+	OpPasskeys: {"vault": false, "origin": true, "rpId": true, "allow": false},
+	OpPasskeyCreate: {"vault": false, "origin": true, "rpId": true, "rpName": false, "user": true, "userName": true,
+		"userDisplayName": false, "algorithms": false, "exclude": false, "clientData": true, "uv": false, "title": false},
+	OpPasskeyGet: {"vault": false, "origin": true, "rpId": true, "login": true, "allow": false, "clientData": true, "uv": false, "confirm": false},
 }
 
 // Error codes.
@@ -86,6 +97,10 @@ const (
 	CodeNotFound   = "not-found" // no such login, or it does not fit the origin
 	CodeDenied     = "denied"    // the person said no, or nobody could be asked
 	CodeFailed     = "failed"
+
+	// Passkeys.
+	CodeExcluded    = "excluded"    // the vault holds a credential the page excluded
+	CodeUnsupported = "unsupported" // not a passkey secretvault can make or use (no algorithm in common; no way to verify the person)
 )
 
 // Error is a refusal, in the protocol's terms.
@@ -114,7 +129,19 @@ type Request struct {
 	Title     string
 	Length    int
 	Symbols   bool
-	Confirm   bool // fill, totp: the person is asked every time (chosen where the extension cannot vouch for the choice)
+	Confirm   bool // fill, totp, passkey-get: the person is asked every time (chosen where the extension cannot vouch for the choice)
+
+	// Passkeys.
+	RPID            string
+	RPName          string
+	UserHandle      []byte
+	UserName        string
+	UserDisplayName string
+	Algorithms      []int
+	Exclude         [][]byte // credential IDs
+	Allow           [][]byte
+	ClientData      []byte // clientDataJSON, as the extension built it
+	UV              string // userVerification: required, preferred (the default) or discouraged
 }
 
 // Wipe zeroes the request's password.
@@ -237,6 +264,9 @@ func (r *Request) read(m map[string]json.RawMessage) error {
 		if s := string(raw); s != "true" && s != "false" || json.Unmarshal(raw, &r.Confirm) != nil {
 			return Errorf(CodeBadRequest, "confirm: true or false")
 		}
+	}
+	if err := r.readPasskey(m); err != nil {
+		return err
 	}
 	if r.Op == OpGenerate {
 		r.Length, r.Symbols = DefaultGenerate, true

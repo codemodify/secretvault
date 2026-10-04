@@ -90,6 +90,10 @@ func (m *Manager) copyReference() {
 		m.say("Choose an item first.")
 		return
 	}
+	if e := m.entry(name); e != nil && svops.IsPasskey(&e.Item) {
+		m.say("A passkey signs you in through the browser extension; there is no secret to refer to.")
+		return
+	}
 	vault := m.vault
 	fields := []string{"its secret (the password)"}
 	var names []string

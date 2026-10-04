@@ -320,23 +320,28 @@ $ bin/secretvault helpers status            # the links, git's helpers, docker's
 $ bin/secretvault helpers undo              # only what is secretvault's; docker's old store goes back
 ```
 
-For browsers, secretvault has an extension of its own (Firefox first;
-Chrome, Chromium, Brave, Edge and Vivaldi too). The browser starts
-secretvault for it, once it is set up:
+For browsers, secretvault has an extension of its own, for Firefox and
+for Chrome, Chromium, Brave, Edge and Vivaldi. It fills and saves logins,
+and saves and signs in with passkeys, which secretvault keeps and signs
+with itself. The browser starts secretvault for it, once it is set up:
 
 ```console
 $ ln -s secretvault bin/secretvault-browser   # optional: the host's name in process lists
 $ bin/secretvault browser install --dry-run   # what would change
 $ bin/secretvault browser install             # then restart the browser
-$ bin/secretvault browser extension           # writes secretvault-extension-0.1.0.zip
+$ bin/secretvault browser extension           # writes secretvault-extension-0.1.0.zip, for Firefox
+$ bin/secretvault browser extension --target chromium --dir ~/sv-ext   # a folder, for Load unpacked
 $ bin/secretvault browser status              # which host each browser starts
 $ bin/secretvault browser uninstall           # undo the setup, exactly
 ```
 
 To try it in Firefox, open `about:debugging`, choose This Firefox, then
 Load Temporary Add-on…, and choose the `.zip`. Firefox forgets it on
-restart. For every day, Mozilla must sign it; [docs/browser.md](docs/browser.md)
-says how, and has the protocol and the threat model.
+restart. For every day, Mozilla must sign it. In Chrome or Brave, open
+`chrome://extensions` (or `brave://extensions`), turn on Developer mode,
+choose Load unpacked, and choose the folder. [docs/browser.md](docs/browser.md)
+says how to publish it, and has the protocol, passkeys and the threat
+model.
 
 - **Filling.** Login fields get a small secretvault mark. Its panel, or
   the toolbar button (Ctrl+Shift+L), lists the page's logins; choosing
@@ -539,6 +544,16 @@ The tests include:
   List's own test vectors, saving, codes, unlocking, other extensions'
   IDs, and messages too large or malformed; the extension's own modules
   under `node --test` when node is installed;
+- passkeys: authenticator data, attestation and COSE keys byte for byte
+  as WebAuthn lays them out, an Ed25519 assertion against one OpenSSL
+  signed, rpIds by WebAuthn's rules and the Public Suffix List (the same
+  cases in Go and JavaScript), and registrations and assertions checked
+  by a relying party written apart; CXF passkeys both ways;
+- the extension in a real headless Chromium (or Brave), in a home of the
+  test's own: marks, a fill after consent, the service worker stopped,
+  frames of another origin; passkeys saved and used through
+  secretvault's window and the panel's autofill, against a local relying
+  party, and left to the browser's own authenticator when asked;
 - browser installs in a home of the test's own;
 - QR codes module for module against qrencode at every version and
   level, and read back by zbar;

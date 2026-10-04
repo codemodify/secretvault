@@ -9,11 +9,15 @@ import (
 	"encoding/pem"
 	"fmt"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/ssh"
 
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svext"
 	"github.com/codemodify/secretvault/svotp"
+	"github.com/codemodify/secretvault/svrpc"
 )
 
 // The FIDO Alliance's Credential Exchange Format, version 1.0
@@ -22,7 +26,9 @@ import (
 // each item a title, a scope (URLs), tags and a list of typed credentials.
 // Reading maps an item's credentials onto one secretvault item, choosing
 // the kind from what it holds; ExportCXF writes the same shapes back.
-// Passkeys and files are left behind with a warning.
+// A passkey credential becomes a passkey item of its own (svext's layout),
+// beside the item's other credentials; files are left behind with a
+// warning.
 
 type cxfHeader struct {
 	Version struct {
@@ -64,6 +70,7 @@ type cxfItem struct {
 	Credentials []json.RawMessage `json:"credentials"`
 	Tags        []string          `json:"tags,omitempty"`
 	Extensions  []json.RawMessage `json:"extensions,omitempty"`
+	CreationAt  int64             `json:"creationAt,omitempty"`
 }
 
 type cxfScope struct {
@@ -148,21 +155,72 @@ func readCXF(b *builder, data []byte) error {
 		}
 		for i := range acct.Items {
 			it := &acct.Items[i]
-			b.add(cxfDraft(it, append(append([]string(nil), top...), folders[it.ID]...)))
+			for _, d := range cxfDrafts(b, it, append(append([]string(nil), top...), folders[it.ID]...)) {
+				b.add(d)
+			}
 		}
 	}
 	return nil
 }
 
-func cxfDraft(it *cxfItem, folder []string) *draft {
+// cxfDrafts are the items one CXF item becomes: one for its credentials,
+// and one for each passkey it holds. An item that is a passkey and no
+// more is that passkey alone.
+func cxfDrafts(b *builder, it *cxfItem, folder []string) []*draft {
+	d, passkeys, seen := cxfDraft(it, folder)
+	if seen == 0 {
+		return []*draft{d}
+	}
+	var out []*draft
+	onlyURLs := true
+	for _, f := range d.fields {
+		onlyURLs = onlyURLs && f.Type == svcore.FieldURL
+	}
+	if !onlyURLs {
+		out = append(out, d)
+	} else if len(passkeys) == 0 {
+		// Nothing but passkeys, none of them usable: no item, only why.
+		for _, l := range d.lost {
+			b.warn("%s: %s", strings.Join(append(append([]string(nil), folder...), it.Title), "/"), l)
+		}
+		return nil
+	}
+	for i, p := range passkeys {
+		p.folder, p.title, p.tags = folder, it.Title, it.Tags
+		if !onlyURLs {
+			p.title = it.Title + " passkey"
+		}
+		if len(passkeys) == 1 && onlyURLs {
+			p.attrs = d.attrs // its own secretvault/item extension
+		}
+		if onlyURLs && i == 0 {
+			p.lost = append(p.lost, d.lost...) // the item is not imported but for its passkeys
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func cxfDraft(it *cxfItem, folder []string) (*draft, []*draft, int) {
 	d := &draft{folder: folder, title: it.Title, tags: it.Tags}
 	has := map[string]bool{}
+	var passkeys []*draft
+	seen := 0
 	for _, raw := range it.Credentials {
 		var c cxfCred
 		if json.Unmarshal(raw, &c) != nil {
 			continue
 		}
 		t := c.str("type")
+		if t == "passkey" {
+			seen++
+			if p, why := cxfPasskey(c, it.CreationAt); p != nil {
+				passkeys = append(passkeys, p)
+			} else {
+				d.lost = append(d.lost, why)
+			}
+			continue
+		}
 		has[t] = true
 		cxfCredential(d, t, c)
 	}
@@ -202,7 +260,62 @@ func cxfDraft(it *cxfItem, folder []string) *draft {
 			d.attrs = x.Attrs
 		}
 	}
-	return d
+	if d.kind == svext.PasskeyKind {
+		d.kind = "" // what its credentials make it, now its passkey is apart
+	}
+	return d, passkeys, seen
+}
+
+// passkeyText is a passkey's account name as the extension would take it:
+// no control characters, at most 256 bytes, cut at a character.
+func passkeyText(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, strings.ToValidUTF8(s, ""))
+	for len(s) > svext.MaxUserName {
+		_, n := utf8.DecodeLastRuneInString(s)
+		s = s[:len(s)-n]
+	}
+	return s
+}
+
+// cxfPasskey is a passkey credential as a passkey item, or nil and why
+// not: a key secretvault cannot sign with, or a credential it cannot read.
+func cxfPasskey(c cxfCred, created int64) (*draft, string) {
+	const unreadable = "a passkey that could not be read (its site, credential ID or user handle)"
+	r := &svext.PasskeyRecord{RPID: strings.ToLower(strings.TrimSpace(c.str("rpId"))), UserName: passkeyText(c.str("username")),
+		DisplayName: passkeyText(c.str("userDisplayName"))}
+	var err error
+	if r.CredentialID, err = svext.UnB64(c.str("credentialId")); err != nil || len(r.CredentialID) == 0 || len(r.CredentialID) > svext.MaxCredentialID {
+		return nil, unreadable
+	}
+	if r.UserHandle, err = svext.UnB64(c.str("userHandle")); err != nil || len(r.UserHandle) > svext.MaxUserHandle {
+		return nil, unreadable
+	}
+	if !svext.ValidRPID(r.RPID) {
+		return nil, unreadable
+	}
+	const badKey = "a passkey whose key secretvault cannot use (it makes and uses P-256 and Ed25519 keys)"
+	if r.PrivateKey, err = svext.UnB64(c.str("key")); err != nil {
+		return nil, badKey
+	}
+	defer clear(r.PrivateKey)
+	kp, err := svext.PublicOf(r.PrivateKey)
+	if err != nil {
+		return nil, badKey
+	}
+	r.Alg = kp.Alg
+	if created > 0 {
+		r.Created = time.Unix(created, 0).UTC()
+	}
+	p := &draft{kind: svext.PasskeyKind}
+	for _, f := range r.Fields() {
+		p.fields = append(p.fields, svrpc.Field{Name: f.Name, Type: f.Type, Value: f.Value})
+	}
+	return p, ""
 }
 
 // onlyOTPAndNotes reports a draft holding an OTP key and at most notes: an
@@ -329,8 +442,6 @@ func cxfCredential(d *draft, t string, c cxfCred) {
 			}
 			d.set(name, typ, f.Value)
 		}
-	case "passkey":
-		d.passkeys++
 	case "file":
 		d.attachments++
 	case "item-reference":

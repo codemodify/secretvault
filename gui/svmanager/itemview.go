@@ -101,12 +101,31 @@ func (m *Manager) newItemView(e *svrpc.Entry, mode viewMode, keys map[int]*svotp
 			o.Tip = "Enter"
 			actions.Add(o)
 		}
-		actions.Add(tip(widgets.NewButton("Edit", m.editItem), "Ctrl+E"))
+		if !svops.IsPasskey(&e.Item) {
+			actions.Add(tip(widgets.NewButton("Edit", m.editItem), "Ctrl+E"))
+		}
 		actions.Add(tip(widgets.NewButton("History", m.showHistory), "Ctrl+H"))
-		actions.Add(tip(widgets.NewButton("Copy reference…", m.copyReference), "Names this secret for scripts and settings files, without holding it"))
+		if !svops.IsPasskey(&e.Item) {
+			actions.Add(tip(widgets.NewButton("Copy reference…", m.copyReference), "Names this secret for scripts and settings files, without holding it"))
+		}
 		actions.Add(tip(widgets.NewButton("Rename…", m.renameItem), "F2"))
 		actions.Add(tip(widgets.NewButton("Delete…", m.deleteItem), "Delete"))
 		col.Add(actions)
+	}
+
+	if svops.IsPasskey(&e.Item) && mode != viewPreview {
+		col.Add(section(m, "Passkey"))
+		g := widgets.NewGrid()
+		g.Cols = []widgets.Track{widgets.Auto(), widgets.Flex(1)}
+		g.ColGap = 16
+		for i, r := range svops.PasskeySummary(&e.Item) {
+			g.Place(m.muted(r.Label), i, 0)
+			g.Place(widgets.NewLabel(r.Value), i, 1)
+		}
+		col.Add(g)
+		n := m.muted(svops.PasskeyKeyNote)
+		n.Wrap = true
+		col.Add(n)
 	}
 
 	if mode == viewPreview {
@@ -175,6 +194,9 @@ func (v *itemView) fieldGrid() widget.Component {
 	g.ColGap, g.RowGap = 16, 6
 	row := 0
 	for i, f := range v.e.Item.Fields {
+		if svops.PasskeyHidden(&v.e.Item, f) {
+			continue // a passkey's key is never shown
+		}
 		g.Place(widgets.NewLabel(f.Name), row, 0)
 		buttons := widgets.NewRow().WithGap(4)
 		switch f.Type {

@@ -1,0 +1,8 @@
+/* secretvault's passkey window: the panel's look, in a window of its own. */
+body.window { max-width: none; min-height: 100vh; display: flex; flex-direction: column; }
+body.window main { flex: 1; }
+body.window h1 { font-size: 15px; }
+#about { color: var(--fg); }
+.note { color: var(--muted); font-size: 12px; }
+#passkeys .login { cursor: pointer; }
+footer { flex-wrap: wrap; }
