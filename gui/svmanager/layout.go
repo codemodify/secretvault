@@ -46,8 +46,9 @@ type ui struct {
 	status    *widgets.StatusBar
 	message   string
 
-	vaultMenu map[string]*widgets.MenuItem // menu rows that depend on the vault shown
-	itemMenu  map[string]*widgets.MenuItem // and on there being an item
+	vaultMenu  map[string]*widgets.MenuItem // menu rows that depend on the vault shown
+	itemMenu   map[string]*widgets.MenuItem // and on there being an item
+	folderMenu []*widgets.MenuItem          // and on a folder being chosen
 
 	view *itemView // the item page, when it is up
 }
@@ -150,6 +151,11 @@ func (m *Manager) buildMenu() *widgets.MenuBar {
 	vault := func(text string, tab int) *widgets.MenuItem {
 		return item(u.vaultMenu, text, "", func() { m.showVaultPage(tab) })
 	}
+	folder := func(text string, on func()) *widgets.MenuItem {
+		it := item(nil, text, "", on)
+		u.folderMenu = append(u.folderMenu, it)
+		return it
+	}
 	return widgets.NewMenuBar(
 		widgets.NewMenu("&File",
 			item(u.vaultMenu, "New item", "Ctrl+N", func() { m.newItem(nil) }),
@@ -184,8 +190,13 @@ func (m *Manager) buildMenu() *widgets.MenuBar {
 			item(u.itemMenu, "Edit item", "Ctrl+E", m.editItem),
 			item(u.itemMenu, "Show or hide concealed values", "Ctrl+R", m.toggleRevealAll),
 			item(u.itemMenu, "Rename…", "F2", m.renameItem),
+			item(u.itemMenu, "Move to vault…", "", func() { m.moveItem(false) }),
+			item(u.itemMenu, "Copy to vault…", "", func() { m.moveItem(true) }),
 			item(u.itemMenu, "Delete…", "Delete", m.deleteItem),
 			item(u.itemMenu, "History", "Ctrl+H", m.showHistory),
+			widgets.Sep(),
+			folder("Move folder to vault…", func() { m.moveFolder(false) }),
+			folder("Copy folder to vault…", func() { m.moveFolder(true) }),
 			widgets.Sep(),
 			item(u.vaultMenu, "Deleted items", "", m.showDeleted),
 		),
@@ -274,6 +285,10 @@ func (m *Manager) enableMenus() {
 	none := m.gone || m.targetName() == "" || page
 	for _, it := range m.ui.itemMenu {
 		it.Disabled = none
+	}
+	// A folder's: the one chosen in the tree ("All items" is none).
+	for _, it := range m.ui.folderMenu {
+		it.Disabled = m.gone || v == nil || page || !m.listed || m.folder == ""
 	}
 	m.ui.menu.Invalidate()
 }

@@ -290,11 +290,18 @@ func (c *cli) cmdList(args []string) error {
 	return tw.Flush()
 }
 
+// cmdMove renames an item (mv FROM TO), or with --to moves items to
+// another vault (cmdTransfer).
 func (c *cli) cmdMove(args []string) error {
+	if slices.ContainsFunc(args, func(a string) bool {
+		return a == "--to" || a == "-to" || strings.HasPrefix(a, "--to=") || strings.HasPrefix(a, "-to=")
+	}) {
+		return c.cmdTransfer("mv", args, false)
+	}
 	fs := c.flags("mv")
 	var u unlockFlags
 	u.register(fs)
-	pos, err := parse(fs, args, 2, 2, "FROM TO")
+	pos, err := parse(fs, args, 2, 2, "FROM TO, or --to VAULT NAME... | --to VAULT --prefix PREFIX")
 	if err != nil {
 		return err
 	}
@@ -306,6 +313,93 @@ func (c *cli) cmdMove(args []string) error {
 	defer cancel()
 	_, err = cl.Rename(ctx, c.vault, pos[0], pos[1])
 	return err
+}
+
+// cmdCopy copies items to another vault.
+func (c *cli) cmdCopy(args []string) error { return c.cmdTransfer("cp", args, true) }
+
+// cmdTransfer moves (or copies) items to another vault, inside the
+// daemon:
+//
+//	secretvault [--vault FROM] mv --to VAULT NAME...
+//	secretvault [--vault FROM] mv --to VAULT --prefix PREFIX   ("" is every item)
+//	secretvault [--vault FROM] cp --to VAULT NAME... | --prefix PREFIX
+//
+// --dry-run says what would go, and who else reads VAULT. Into a vault
+// others read too (people's keys, emergency access, other devices, a
+// sync server), the items go only with --yes: that shows them to every
+// one of them.
+func (c *cli) cmdTransfer(name string, args []string, copy bool) error {
+	fs := c.flags(name)
+	var u unlockFlags
+	u.register(fs)
+	to := fs.String("to", "", "the vault the items go to")
+	var prefix *string
+	fs.Func("prefix", `every item whose name starts with this ("" for every item), in place of names`, func(s string) error {
+		prefix = &s
+		return nil
+	})
+	dryRun := fs.Bool("dry-run", false, "say what would go, and who else reads the vault it goes to; change nothing")
+	yes := fs.Bool("yes", false, "go ahead even when others read the vault the items go to")
+	pos, err := parse(fs, args, 0, -1, "--to VAULT NAME... | --to VAULT --prefix PREFIX [--dry-run] [--yes]")
+	if err != nil {
+		return err
+	}
+	if *to == "" || (prefix == nil) == (len(pos) == 0) {
+		fmt.Fprintf(c.stderr, "usage: secretvault %s --to VAULT NAME... | --to VAULT --prefix PREFIX [--dry-run] [--yes]\n", name)
+		return errUsage
+	}
+	cl, err := c.open(&u)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := c.ctx()
+	defer cancel()
+	p := svrpc.MoveParams{Vault: c.vault, To: *to, Names: pos, Prefix: prefix}
+	do := cl.MoveItems
+	if copy {
+		do = cl.CopyItems
+	}
+
+	// What would go, and who else reads the vault: shown with --dry-run,
+	// and the reason for --yes. Without a terminal there is no plan: the
+	// daemon asks the person on the desktop, naming both.
+	plan := p
+	plan.Plan = true
+	pl, err := do(ctx, plan)
+	switch {
+	case errors.Is(err, svrpc.ErrDenied) && !c.canAsk:
+		if *dryRun {
+			return fmt.Errorf("--dry-run needs a terminal to ask on: %w", err)
+		}
+	case err != nil:
+		return err
+	case *dryRun:
+		pp := svops.MovePlain(pl, copy)
+		fmt.Fprintln(c.stdout, pp.Text())
+		fmt.Fprintln(c.stdout)
+		for _, n := range pp.Details {
+			fmt.Fprintln(c.stdout, "  "+n)
+		}
+		return nil
+	case pl.Readers.Anyone() && !*yes:
+		return fmt.Errorf("%s Run it again with --yes to %s them there (--dry-run lists them)",
+			svops.ReadersText(pl.To, pl.Readers), map[bool]string{false: "move", true: "copy"}[copy])
+	default:
+		// What goes is what the plan found, not whatever a prefix finds
+		// a moment later.
+		p.Names, p.Prefix = pl.Items, nil
+	}
+
+	res, err := do(ctx, p)
+	if err != nil {
+		if len(res.Done)+len(res.Both)+len(res.NotDone) > 0 {
+			fmt.Fprintln(c.stderr, svops.MovedText(res, copy))
+		}
+		return err
+	}
+	fmt.Fprintln(c.stdout, svops.MovedText(res, copy))
+	return nil
 }
 
 func (c *cli) cmdRemove(args []string) error {

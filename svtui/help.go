@@ -27,6 +27,7 @@ var helpKeys = strings.TrimSpace(`
   r                      reveal or hide its concealed values
   e                      edit it                 n    make a new item
   d                      delete it (asks first)  m    rename it
+  >                      move to another vault   +    copy to another vault
   h                      its history: every revision, who signed it, each
                          viewable; R makes one current, k keeps a
                          conflicting version on every device

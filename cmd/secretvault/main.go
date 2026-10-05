@@ -20,6 +20,8 @@
 //	get NAME                   print an item's secret, a field, or the whole item
 //	ls [PREFIX]                list items
 //	mv FROM TO                 rename an item
+//	mv --to VAULT NAME...      move items to another vault (--prefix P: those whose names start with P)
+//	cp --to VAULT NAME...      copy items to another vault (--prefix P, as for mv)
 //	rm NAME                    delete an item
 //	history NAME               list an item's revisions, and who signed each
 //	device ls|label|rm|vouch   the devices registered in a vault, whose keys sign what they write
@@ -212,7 +214,8 @@ func init() {
 		{"set", "store or update an item", (*cli).cmdSet},
 		{"get", "print an item's secret, a field, or the whole item", (*cli).cmdGet},
 		{"ls", "list items", (*cli).cmdList},
-		{"mv", "rename an item", (*cli).cmdMove},
+		{"mv", "rename an item, or move items to another vault (--to VAULT NAME..., --prefix P)", (*cli).cmdMove},
+		{"cp", "copy items to another vault (--to VAULT NAME..., --prefix P)", (*cli).cmdCopy},
 		{"rm", "delete an item", (*cli).cmdRemove},
 		{"history", "list an item's revisions, and who signed each", (*cli).cmdHistory},
 		{"restore", "make an earlier revision, or a deleted item, current again", (*cli).cmdRestore},

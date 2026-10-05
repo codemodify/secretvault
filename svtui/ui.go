@@ -457,6 +457,10 @@ func (u *UI) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.deleteItem()
 	case 'm':
 		u.renameItem()
+	case '>':
+		u.moveItem(false)
+	case '+':
+		u.moveItem(true)
 	case 'h':
 		u.showHistory()
 	case 'g':

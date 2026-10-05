@@ -109,6 +109,8 @@ func (m *Manager) newItemView(e *svrpc.Entry, mode viewMode, keys map[int]*svotp
 			actions.Add(tip(widgets.NewButton("Copy reference…", m.copyReference), "Names this secret for scripts and settings files, without holding it"))
 		}
 		actions.Add(tip(widgets.NewButton("Rename…", m.renameItem), "F2"))
+		actions.Add(tip(widgets.NewButton("Move to vault…", func() { m.moveItem(false) }), "Shows what would go before anything moves"))
+		actions.Add(tip(widgets.NewButton("Copy to vault…", func() { m.moveItem(true) }), "Shows what would go before anything is copied"))
 		actions.Add(tip(widgets.NewButton("Delete…", m.deleteItem), "Delete"))
 		col.Add(actions)
 	}

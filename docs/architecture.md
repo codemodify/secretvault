@@ -261,7 +261,26 @@ passphrase, twice, and the recovery key, shown once (prompt kind
 `show-secret`). The vault goes in the data folder with the default suite,
 never becomes the default, and nothing is granted to the program. Only
 the vault's name goes back ([clients.md](clients.md#a-vault-of-its-own),
-[security.md](security.md#programs-running-as-you)). A plain pinentry gets three buttons:
+[security.md](security.md#programs-running-as-you)).
+
+**A program moving items to another vault.** `item.move` and `item.copy`
+([`svd/moving.go`](../svd/moving.go)) do it inside the daemon: both
+vaults are unlocked through the daemon's own unlock prompt if need be,
+then one question names both vaults, the items, and who else reads the
+vault they go to (`svrpc.VaultReaders`: keyslots of other people's keys,
+emergency trustees, other registered devices, the sync server, programs
+allowed to read all of it), with "Don't move them", "Move 3 items" or
+"Cancel", and nothing remembered. Each item is
+written to the other vault as a new item ([`svcore.CopyTo`](../svcore/move.go):
+its attached files sealed again under that vault's keys into its blob
+store and read back), and only when all are written is each taken out of
+the first vault, if it is still the version copied (`svcore.DeleteRev`),
+into its deleted items. History stays behind; an item with competing
+versions is refused until one is kept. secretvault's own programs ask
+with `plan: true` first, and confirm it in their own words
+([clients.md](clients.md#moving-items-to-another-vault)).
+
+A plain pinentry gets three buttons:
 allow once, allow until locked, and deny. A question asked every time
 (an item confirmed on every use; a login the browser extension could not
 vouch for) offers Deny, Allow and Cancel, Deny first: a plain

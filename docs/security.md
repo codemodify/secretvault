@@ -128,6 +128,38 @@ This is the hard case, and it is worth being plain about it.
   person lets a new agent in through them first. Where nobody does (a
   session with no desktop), the first agent is taken, as before: there,
   a program running as you that starts one first answers for you.
+- **Moving items to another vault discloses them to its readers.**
+  `item.move` and `item.copy` move items inside the daemon, so a program
+  never holds their contents or private keys. Putting an item in a vault
+  shows it to everyone who reads that vault: other people's and devices'
+  keyslots, emergency trustees, other devices registered in it, and every
+  device that joins it through its sync server. So a program is asked
+  every time, in one question that names both vaults, the items and,
+  plainly, who else reads the vault they go to; nothing remembered allows
+  it (a grant to read an item was about the program reading it, not about
+  placing it where others read), a remembered "deny" refuses it, and no
+  "always" is offered. Copying is asked the same way. secretvault's own
+  programs confirm it in their own words, and the CLI moves into a vault
+  others read only with `--yes`. Every check that refuses the request
+  (a name the other vault has, a missing name, competing versions) comes
+  before anything is asked or written; that a name exists in a vault is
+  what any request about it already says once the vault is unlocked.
+  Items are written to the other vault first, files sealed again under
+  its keys and read back; only then are they taken out, each only if it
+  is still the version copied, as ordinary deletions that can be undone.
+  A crash or failure leaves duplicates, never a loss. Both vaults' audit
+  logs record the request and each item; nothing secret is in the reply,
+  the logs or the errors. The question also names the programs allowed
+  to read all of the other vault, and tells the person when the program
+  asking is one of them: it will then read what it moved, private keys
+  included. A program's prefix finds items it did not name, so what is
+  wrong with them (a name taken, competing versions) it hears only after
+  the person's yes, and it has one such request waiting at a time. What
+  the daemon cannot see is not named: whoever holds another passphrase,
+  keyfile or security key of the vault, a key removed without rotating
+  the vault's key, a folder another program syncs (Syncthing, Dropbox)
+  to devices that never used the vault; when it cannot read what it can
+  see (the vault locked meanwhile), it says others may read it.
 
 **What does help:**
 - Short auto-lock times, so the vault is unlocked less of the time.

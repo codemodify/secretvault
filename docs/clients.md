@@ -141,6 +141,89 @@ What the program gets, and does not:
 Over the wire: `{"method":"vault.request","params":{"name":"mail"}}`,
 answered `{"vault":"mail"}`.
 
+### Moving items to another vault
+
+A program moves (or copies) items from one vault to another without
+reading them: the daemon does it, and the items' contents, attached
+files and private keys (passkeys, OpenPGP, S/MIME and age keys) never
+reach the program. Name the items, or say what their names start with:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+defer cancel()
+res, err := c.MoveItems(ctx, svrpc.MoveParams{Vault: "", To: "mail", Prefix: svrpc.PrefixOf("comms-mail/pgp/")})
+// or svrpc.MoveParams{To: "mail", Names: []string{"comms-mail/key", "comms-mail/pgp/alice"}}
+switch {
+case err == nil:                           // res.Done: every item is in "mail", and gone from the first vault
+case errors.Is(err, svrpc.ErrExists):      // res.Clashes: "mail" has those names already; nothing was written
+case errors.Is(err, svrpc.ErrNotFound):    // res.Missing: no such items (or nothing starts with the prefix)
+case errors.Is(err, svrpc.ErrNoVault):     // either vault is not there
+case errors.Is(err, svrpc.ErrDenied):      // the person said no (or a remembered "deny" did)
+case errors.Is(err, svrpc.ErrCanceled):    // they closed the question, or did not unlock a vault
+case errors.Is(err, svrpc.ErrNoPrompter):  // there was no way to ask them
+case len(res.Conflicts) > 0:               // changed on two devices at once: to be settled first (-32000)
+case len(res.Both)+len(res.NotDone) > 0:   // stopped midway (-32000): res says which items are where; nothing is lost
+case err != nil:                           // bad parameters (-32602), or anything else
+}
+```
+
+`c.CopyItems` takes the same parameters; the first vault keeps the
+items as they are.
+
+- **Which items:** `Names`, or `Prefix` (`svrpc.PrefixOf("pgp/")`;
+  `PrefixOf("")` is every item of the vault), not both. At most
+  `svrpc.MaxMoveItems` (500) in one request: more names, or a prefix
+  more items start with, is refused (-32602) before anything is asked
+  or written; move them in several requests, by narrower prefixes.
+  `To` must be named and be another vault (-32602 otherwise); `Vault`
+  `""` is the default vault. The items keep their names.
+- **What the person sees:** both vaults are unlocked first if they are
+  locked, each through secretvault's own unlock prompt. Then one
+  question, every time: "comms-mail wants to move 3 items to vault
+  mail", naming both vaults and the items (the first five, "and N
+  more"), that they leave the first vault and can be brought back from
+  its deleted items, and that comms-mail does not see what is in them,
+  or, when the person let comms-mail read everything in the other vault,
+  that it will be able to read them there, private keys included.
+  If others read the vault they go to, it says who, plainly: "Vault mail
+  is not yours alone: "alice" opens it with a key of their own, "Bob" can
+  get it through emergency access, the device "laptop" has used it, it
+  syncs through sync.example.org with every device that joins it, and
+  the program "backup" may read everything in it. All of them will be
+  able to read the items there." The answers are **Don't move them**,
+  **Move 3 items** and **Cancel** (the default); there is no "always",
+  and nothing remembered stands in for the question (a remembered "deny"
+  for the program refuses it without asking). Copying is asked the same
+  way. A program has one such request waiting at a time (-32000 for a
+  second).
+- **The order:** every check that refuses the whole request comes first:
+  missing names, a vault that takes only what its registered devices
+  sign, competing versions, names the other vault has. For a prefix, a
+  program hears of competing versions or names taken only after the
+  person's yes (it did not name those items); nothing is written then
+  either. Then
+  every item is written to the other vault, its attached files sealed
+  again under that vault's keys and read back; only when all are written
+  are they taken out of the first vault, as deletions, into its deleted
+  items. A failure midway leaves an item in both vaults, never in
+  neither: the error's `res` says which are done (`Done`), in both
+  (`Both`) and not moved (`NotDone`). An item changed after it was
+  copied is not taken out: it stays in both.
+- **What goes:** the item's current contents, fields, kind, label,
+  attributes, tags and attached files. Its history stays behind, in the
+  first vault, with the deleted item; the moved item starts its own. An
+  item changed on two devices at once is refused until one version is
+  kept (`secretvault resolve NAME`).
+- The reply is `{"vault":"personal","to":"mail","done":["comms-mail/key", ...]}`
+  (and `both`, `not_done` when some did not go); an error that is about
+  particular items carries the same object as its `data`, with
+  `clashes`, `missing` or `conflicts`. Nothing secret is in either, or
+  in the audit logs of the two vaults, which both record the request,
+  the program and each item.
+
+Over the wire: `{"method":"item.move","params":{"to":"mail","names":["comms-mail/key"]}}`,
+or `"prefix":"comms-mail/"` in place of `names`; `item.copy` likewise.
+
 ### Mail clients: who signed this?
 
 A mail client tells secretvault about the keys that come with messages,
@@ -234,6 +317,10 @@ The full list of methods and shapes is in
   there with `vault.list`, or ask for one with `vault.request`.
 - **`vault.request` is new**: a program asks for a vault of its own by
   name (above).
+- **`item.move` and `item.copy` are new**: items go to another vault
+  inside the daemon (above). `item.rename` still renames within one
+  vault. -32006 from them means a name the other vault has already, and
+  their errors carry `data` naming the items.
 
 Faces that speak other protocols keep their own terms: the Secret
 Service answers `NoSuchObject` for a collection that is not there, as for
