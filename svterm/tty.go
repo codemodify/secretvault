@@ -63,6 +63,15 @@ func (t *Terminal) Close() {
 // Printf writes to the terminal.
 func (t *Terminal) Printf(format string, args ...any) { fmt.Fprintf(t.out, format, args...) }
 
+// ShowSecret writes secret on a line of its own, indented and set apart by
+// blank lines, for the person to write down (a new recovery key). It goes
+// straight from its bytes to the terminal.
+func (t *Terminal) ShowSecret(secret []byte) {
+	t.out.Write([]byte("\n    "))
+	t.out.Write(secret)
+	t.out.Write([]byte("\n\n"))
+}
+
 // ReadSecret reads a line without echo. The caller zeroes the result.
 func (t *Terminal) ReadSecret(prompt string) ([]byte, error) {
 	fmt.Fprint(t.out, prompt)

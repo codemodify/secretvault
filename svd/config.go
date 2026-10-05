@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"time"
 
 	"github.com/codemodify/secretvault/svformat"
 	"github.com/codemodify/secretvault/svrpc"
@@ -54,6 +55,20 @@ type Config struct {
 	// Emergency is the emergency access this device holds to other
 	// people's vaults (`secretvault emergency accept`; emergency.go).
 	Emergency []EmergencyAccess `json:"emergency,omitempty"`
+
+	// NoVaultRequests are the programs the person told not to ask for
+	// new vaults again ("Don't ask again for this program"):
+	// vault.request refuses them without asking (vaultrequest.go). Only
+	// refusals are kept, so a program that edits this file gains nothing
+	// by it but being asked again.
+	NoVaultRequests []ProgramDecision `json:"no_vault_requests,omitempty"`
+}
+
+// ProgramDecision is a decision about a program that no vault holds.
+type ProgramDecision struct {
+	Identity string    `json:"identity"` // svpeer.Process.Identity
+	Program  string    `json:"program"`  // as shown to people
+	Created  time.Time `json:"created"`
 }
 
 // VaultConfig registers one vault.
@@ -73,6 +88,11 @@ type VaultConfig struct {
 	// (Config.Emergency): it is someone else's, read-only here, and its
 	// copy only ever pulls from the server.
 	Emergency string `json:"emergency,omitempty"`
+
+	// RequestedBy is the program that asked for the vault (vault.request),
+	// as shown to people. Such a vault is never made the default by
+	// itself: only the person makes it so.
+	RequestedBy string `json:"requested_by,omitempty"`
 }
 
 // GnuPGHome is a GnuPG home pointed at the daemon: where gpg looks for its
@@ -143,15 +163,29 @@ func loadConfig(home string, autoLock svrpc.AutoLock) (*Config, error) {
 	for _, name := range found {
 		cfg.Vaults = append(cfg.Vaults, VaultConfig{Name: name, Path: filepath.Join(home, "vaults", name), AutoLock: autoLock})
 	}
-	if cfg.Default == "" && len(cfg.Vaults) > 0 {
-		cfg.Default = cfg.Vaults[0].Name
-		for _, v := range cfg.Vaults {
-			if v.Name == "default" {
-				cfg.Default = "default"
-			}
-		}
+	if cfg.Default == "" {
+		cfg.Default = cfg.firstDefault()
 	}
 	return cfg, nil
+}
+
+// firstDefault is the vault to make the default when there is none: the
+// one called "default", else the first. A vault a program asked for is
+// never made the default by itself.
+func (c *Config) firstDefault() string {
+	first := ""
+	for _, v := range c.Vaults {
+		if v.RequestedBy != "" {
+			continue
+		}
+		if v.Name == "default" {
+			return v.Name
+		}
+		if first == "" {
+			first = v.Name
+		}
+	}
+	return first
 }
 
 // save writes the config atomically.

@@ -173,10 +173,7 @@ func (u *UI) showGrants() {
 				p.none("None yet.")
 			}
 			for _, g := range grants {
-				item := g.Item
-				if item == "" {
-					item = "(the whole vault)"
-				}
+				item := svops.GrantScope(g, "(the whole vault)")
 				colour := "green"
 				if strings.HasPrefix(g.Decision, "deny") {
 					colour = "red"

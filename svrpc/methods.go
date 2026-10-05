@@ -20,6 +20,10 @@ const (
 	MVaultPasswd  = "vault.passwd"  // PasswdParams -> SlotInfo
 	MVaultRotate  = "vault.rotate"  // RotateParams -> RotateResult
 
+	// MVaultRequest is a program asking for a new vault: the daemon asks
+	// the person, who chooses its passphrase in secretvault's own prompt.
+	MVaultRequest = "vault.request" // VaultRequestParams -> VaultRequestResult
+
 	MSlotList   = "slot.list"   // VaultRef -> []SlotInfo
 	MSlotAdd    = "slot.add"    // SlotAddParams -> SlotInfo
 	MSlotRemove = "slot.remove" // SlotRemoveParams -> nil
@@ -186,6 +190,23 @@ type VaultCreateParams struct {
 type VaultCreateResult struct {
 	Vault       VaultInfo `json:"vault"`
 	RecoveryKey string    `json:"recovery_key,omitempty"`
+}
+
+// VaultRequestParams are a program's request for a new vault: only the
+// name it proposes. Where the vault is kept (secretvault's own data
+// folder), its cipher suite (the default), its passphrase and its
+// recovery key are not the program's to choose or see: the daemon asks
+// the person, through its own prompt, and the vault is never made the
+// default. A request that names any of them is refused.
+type VaultRequestParams struct {
+	Name string `json:"name"`
+}
+
+// VaultRequestResult is the vault made: its name. It is unlocked, and
+// locks itself as any vault does; the program still asks before it reads
+// or stores anything in it, as for any vault.
+type VaultRequestResult struct {
+	Vault string `json:"vault"`
 }
 
 // VaultAddParams register an existing vault folder under a name.
@@ -355,6 +376,13 @@ type Grant struct {
 	Decision string    `json:"decision"` // allow-until-lock, allow-always, deny-always, ...
 	Created  time.Time `json:"created"`
 	Scope    string    `json:"scope"` // "session" (until lock) or "stored"
+
+	// NewVaults marks a decision about the program asking for new vaults
+	// (vault.request), not about this vault: the person's "Don't ask
+	// again for this program". It is kept by the daemon, not in a vault,
+	// so it holds on this device whatever vault's grants list it, and
+	// grant.revoke with its ID, given any vault, forgets it.
+	NewVaults bool `json:"new_vaults,omitempty"`
 }
 
 // GrantAddParams decide about a program ahead of time: Program is its path
@@ -407,6 +435,7 @@ const (
 	PromptChoose        = "choose"         // pick one of Choices
 	PromptPIN           = "pin"            // ask for a security key's PIN; answered like a passphrase
 	PromptNotice        = "notice"         // say something that needs no answer ("touch your security key"); answered at once
+	PromptShowSecret    = "show-secret"    // show Show once, set apart, to be written down (a new recovery key); answered like choose
 )
 
 // Consent choices offered for a program's request.
@@ -415,6 +444,15 @@ const (
 	ChoiceLock   = "until-lock"
 	ChoiceAlways = "always"
 	ChoiceDeny   = "deny"
+)
+
+// Choices offered when a program asks for a new vault (vault.request),
+// and over the new vault's recovery key.
+const (
+	ChoiceCreate     = "create"      // create the vault
+	ChoiceNever      = "never"       // no, and do not ask again for this program
+	ChoiceWritten    = "written"     // the recovery key is written down: keep it
+	ChoiceNoRecovery = "no-recovery" // do not keep a recovery key
 )
 
 // PromptAsk is a question the daemon wants put to the person.
@@ -428,8 +466,15 @@ type PromptAsk struct {
 
 	// OK labels a notice's one button ("" for Cancel, which calls off
 	// what the daemon waits for; a notice that waits for nothing says
-	// what pressing it does instead).
+	// what pressing it does instead), or a passphrase's.
 	OK string `json:"ok,omitempty"`
+
+	// Show is what a PromptShowSecret shows, apart from the description
+	// and in full, for the person to write down: a new recovery key. It
+	// is only ever sent to secretvault's own prompters (the terminal
+	// agent, the desktop prompt), never to the program a request is for.
+	// The last of Choices is the one Enter picks.
+	Show string `json:"show,omitempty"`
 }
 
 // Choice is one answer to a PromptChoose.

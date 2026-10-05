@@ -133,10 +133,7 @@ func (m *Manager) drawGrants(p *vaultPage, pn *pane) widget.Component {
 		case 1:
 			return g.Program
 		case 2:
-			if g.Item == "" {
-				return "the whole vault"
-			}
-			return g.Item
+			return svops.GrantScope(g, "the whole vault")
 		case 3:
 			return strings.Join(g.Ops, ", ")
 		}

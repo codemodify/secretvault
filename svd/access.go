@@ -8,6 +8,7 @@ import (
 
 	"github.com/codemodify/secretvault/svbroker"
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -80,6 +81,41 @@ func (d *Daemon) consentPrompter(cl *client) Prompter {
 		return rpcPrompter{c: agent, desc: "terminal agent"}
 	}
 	return d.desktopNow()
+}
+
+// letAgentIn lets cl become the terminal agent, which answers the
+// daemon's questions from then on: whether programs may use the vaults,
+// and new vaults' passphrases. The person lets it in through whoever
+// answers now (the agent there is, or the desktop prompt), when anybody
+// does: any program can start the real secretvault-tui-prompt on a
+// terminal of its own, and would then answer its own questions. With
+// nobody to ask (a session with no desktop), the first agent is taken,
+// as it always was.
+func (d *Daemon) letAgentIn(ctx context.Context, cl *client) error {
+	p := d.consentPrompter(cl)
+	if p == nil {
+		return nil
+	}
+	where := "a terminal"
+	if cl.proc.TTY != "" {
+		where = "terminal " + svpeer.Printable(cl.proc.TTY)
+	}
+	choice, err := p.Choose(ctx, svrpc.PromptAsk{
+		Kind:  svrpc.PromptChoose,
+		Title: "Let " + where + " answer for secretvault?",
+		Description: fmt.Sprintf("secretvault-tui-prompt in %s asks to answer secretvault's questions from now on, in place of this prompt: "+
+			"whether programs may use your vaults, and passphrases. Let it only if you started it yourself, in a terminal you are using.\n\n"+
+			"Program: %s\nProcess: %d", where, svpeer.Printable(cl.proc.Exe), cl.proc.PID),
+		Choices: []svrpc.Choice{{ID: svrpc.ChoiceOnce, Label: "Let it answer"}, {ID: svrpc.ChoiceDeny, Label: "Don't let it"}},
+	})
+	switch {
+	case err == nil && choice == svrpc.ChoiceOnce:
+		d.opts.Log("the person let " + cl.display() + " in " + where + " answer the daemon's questions")
+		return nil
+	case err == nil || errors.Is(err, svrpc.ErrCanceled):
+		return svrpc.Errorf(svrpc.CodeDenied, "the person did not let %s answer secretvault's questions", where)
+	}
+	return err
 }
 
 // ensureUnlocked unlocks mv, asking for its passphrase if needed. prompted
@@ -371,7 +407,7 @@ func (d *Daemon) ask(ctx context.Context, cl *client, mv *managedVault, item, it
 	choice, err := p.Choose(ctx, svrpc.PromptAsk{
 		Kind:        svrpc.PromptChoose,
 		Title:       "Allow access to vault " + mv.cfg.Name + "?",
-		Description: fmt.Sprintf("%s\n\nProgram: %s\nProcess: %d", why, cl.proc.Exe, cl.proc.PID),
+		Description: fmt.Sprintf("%s\n\nProgram: %s\nProcess: %d", why, svpeer.Printable(cl.proc.Exe), cl.proc.PID),
 		Choices:     choices,
 	})
 	if err != nil {

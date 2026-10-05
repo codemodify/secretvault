@@ -827,6 +827,7 @@ var personOnly = map[string]string{
 	svrpc.MBrowserOpen:    "serves no browser",
 	svrpc.MVaultLogin:     "opens its vaults with the host identity, not at a login",
 	svrpc.MGnuPGLink:      "is no gpg-agent",
+	svrpc.MVaultRequest:   "asks nobody, so it makes no vault a program asks for",
 }
 
 // errNotHost answers a host method on a person's own daemon.

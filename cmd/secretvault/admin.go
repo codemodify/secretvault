@@ -311,10 +311,7 @@ func (c *cli) cmdGrant(args []string) error {
 		tw := tabwriter.NewWriter(c.stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(tw, "ID\tDECISION\tPROGRAM\tITEM\tOPS\tSINCE")
 		for _, g := range grants {
-			item := g.Item
-			if item == "" {
-				item = "(whole vault)"
-			}
+			item := svops.GrantScope(g, "(whole vault)")
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", g.ID, g.Decision, g.Program, item, strings.Join(g.Ops, ","), g.Created.Local().Format("2006-01-02 15:04"))
 		}
 		return tw.Flush()

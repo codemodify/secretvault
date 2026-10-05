@@ -179,9 +179,9 @@ place, or a state.
 
 | CLI | Operation | GUI | GUI state | TUI | TUI state |
 | --- | --- | --- | --- | --- | --- |
-| `secretvault grant list`, `secretvault grant ls` UNLOCK | `grant.list` | Vault › Grants and audit log (Ctrl+Shift+G) › Grants tab | done | `G` | done |
+| `secretvault grant list`, `secretvault grant ls` UNLOCK | `grant.list`; the item column by `svops.GrantScope` (a program told not to ask for new vaults again: "asking for new vaults") | Vault › Grants and audit log (Ctrl+Shift+G) › Grants tab | done | `G` | done |
 | `secretvault grant allow PROGRAM`, `secretvault grant deny PROGRAM` --item --contacts --ops --until-lock UNLOCK | `grant.add` | Grants tab: Allow a program… / Deny a program… (the program chosen or typed as flatpak:APP or snap:NAME; the whole vault, an item or the contacts; the operations; allow until the vault locks) | done | `G` panel `a` and `n`, `:` Vault › Allow / Deny a program ahead of time…: the program, an item or the contacts, the operations, until the vault locks | done |
-| `secretvault grant revoke ID`, `secretvault grant rm ID` UNLOCK | `grant.revoke` | Grants tab: Revoke… (Delete) | done | `G` panel: `x` or Delete (asks first) | done |
+| `secretvault grant revoke ID`, `secretvault grant rm ID` UNLOCK | `grant.revoke` (a decision about asking for new vaults: only from secretvault's own programs) | Grants tab: Revoke… (Delete) | done | `G` panel: `x` or Delete (asks first) | done |
 | `secretvault audit` --limit UNLOCK | `audit.list` | Vault page › Audit log tab (the newest 500) | done | `A` | done |
 
 ## Keys and identities
@@ -290,6 +290,18 @@ as the CLI's `host init` does).
 | `secretvault browser-host` | `svext.ParseRequest`, `svext.GenerateReply` (with `svops.GeneratePassword`), `browser.open` (Protocol `svext.Protocol`), `browser.message` (`svext.Session` in the daemon, `svd/browser_ext.go`; passkeys: `svext.CheckRPID`, `svext.CheckClientData`, the broker's sign in `svd/passkeys.go`) | **for programs**: Desktop › Browsers (the manifests that start it, and the extension to load) | done | **for programs**: `B` browsers panel (the manifests that start it, and the extension to write out) | done |
 | `secretvault __clip SECONDS` | `svclip.Copy` | **for programs**: copying from an item; the GUI copies through uitoolkit's secret clipboard, cleared after 30 seconds | done | **for programs**: copying from an item (`c`, `u`, `o`), through this helper | done |
 | `secretvault ci fetch REF...`, `secretvault ci run` --server --fingerprint --ca --role --audience --token-file --cert --key --id-token-file --id-token-env --timeout --github-env --env-file --env -- COMMAND | `svops.DeliveryClient`, `svops.IDToken`, `svops.DeliveryRef`, `svops.Environ`, `svdeliver.Client` | **for programs**: a pipeline's side; a person's is sharing the vault with the delivery server's recipient (Vault page › Sharing tab: Share with…) | done | **for programs**: `E` sharing panel `s`: sharing the vault with the delivery server's recipient | done |
+
+A program may also ask the daemon for a vault of its own
+(`vault.request`, [clients.md](clients.md#a-vault-of-its-own)), which no
+interface calls: it has no command, and its person's side is the same in
+every face. The question, the new passphrase and the recovery key are put
+by the daemon's prompter: the desktop prompt (`secretvault-gui-prompt`,
+the recovery key drawn from its bytes by `secretui.Shown`) or the
+terminal agent (`secretvault-tui-prompt --agent`, `svterm`), never the
+program asking and never a manager. "Don't ask again for this program"
+shows in every vault's grants, in all three (`svops.GrantScope`,
+`svops.GrantDecided`), and is forgotten there; each request is in the
+default vault's audit log, in all three.
 
 gpg also starts the CLI as its agent-program
 (`secretvault --homedir HOME --use-standard-socket --secretvault-gpg-agent --daemon`,

@@ -44,6 +44,12 @@ const (
 	OpMount   Op = "mount"   // open a container with its key, without seeing the key
 )
 
+// OpCreateVault is a program asking for a new vault (vault.request). It
+// is no vault's to grant: it appears in audit logs, and in the daemon's
+// own decisions about programs asking for vaults, never in a grant, and
+// AllOps leaves it out.
+const OpCreateVault Op = "create-vault"
+
 // AllOps is every operation, for grants that cover a whole vault.
 var AllOps = []Op{OpRead, OpList, OpWrite, OpDelete, OpManage, OpSign, OpDecrypt, OpMount}
 

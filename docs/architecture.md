@@ -225,7 +225,11 @@ The daemon chooses a prompter in this order:
 1. The terminal of the CLI (or `secretvault-tui`) that made the request,
    for its own requests only. The TUI asks in a dialog drawn inside it;
    `secretvault-gui` asks in a dialog window of its own.
-2. A registered `secretvault-tui-prompt --agent`.
+2. A registered `secretvault-tui-prompt --agent`. It answers for the
+   person, so where somebody answers already (an agent, or the desktop
+   prompt), the person lets a new one in there first: any program could
+   start the real one on a terminal of its own. It is asked one thing at
+   a time, so that what is typed for one question never answers another.
 3. The desktop prompt, when there is a desktop (a Wayland or X11 display on
    Linux; always on Windows and macOS). The daemon starts a fresh one for
    each question:
@@ -243,7 +247,21 @@ ahead of time.
 Prompters speak the **pinentry protocol** (Assuan, [`svprompt`](../svprompt)),
 so they double as `pinentry` for gpg-agent and as askpass helpers.
 secretvault's own prompters understand an extension (`ADDCHOICE`, `CHOOSE`)
-for the four-way consent question. A plain pinentry gets three buttons:
+for the four-way consent question, and `SETSECRET`, a secret to write
+down (a new vault's recovery key) shown apart from the description and
+drawn from its bytes; a plain pinentry has it at the end of the
+description instead.
+
+**A program asking for a vault.** A program never creates a vault itself
+(`vault.create` takes the passphrase, so it is secretvault's own
+programs'); it asks for one by name (`vault.request`). The daemon puts
+the question to the person through its prompter, never the program: create
+it, don't, or don't and don't ask again for this program. Then the new
+passphrase, twice, and the recovery key, shown once (prompt kind
+`show-secret`). The vault goes in the data folder with the default suite,
+never becomes the default, and nothing is granted to the program. Only
+the vault's name goes back ([clients.md](clients.md#a-vault-of-its-own),
+[security.md](security.md#programs-running-as-you)). A plain pinentry gets three buttons:
 allow once, allow until locked, and deny. A question asked every time
 (an item confirmed on every use; a login the browser extension could not
 vouch for) offers Deny, Allow and Cancel, Deny first: a plain

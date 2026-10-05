@@ -421,9 +421,28 @@ func RevokeGrantText(g svrpc.Grant) string {
 	return GrantDecided(g) + " Once the decision is forgotten, you are asked again the next time it wants to."
 }
 
+// NewVaultsScope is what a decision about a program asking for new
+// vaults is about, where a grant's item is shown (svrpc.Grant.NewVaults).
+const NewVaultsScope = "asking for new vaults"
+
+// GrantScope is what the decision g is about, as a grants list shows it:
+// an item, the whole vault (whole), or asking for new vaults.
+func GrantScope(g svrpc.Grant, whole string) string {
+	switch {
+	case g.NewVaults:
+		return NewVaultsScope
+	case g.Item == "":
+		return whole
+	}
+	return g.Item
+}
+
 // GrantDecided says the decision g in a sentence: "/usr/bin/foo may read
 // and list the whole vault, always."
 func GrantDecided(g svrpc.Grant) string {
+	if g.NewVaults {
+		return fmt.Sprintf("%s may not ask for new vaults: you chose not to be asked again.", g.Program)
+	}
 	what := "the whole vault"
 	if g.Item != "" {
 		what = "item " + g.Item

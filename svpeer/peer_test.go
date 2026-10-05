@@ -124,3 +124,24 @@ func TestInterpretersAndTheirScripts(t *testing.T) {
 		}
 	}
 }
+
+// A file's name can hold anything but a slash: shown to a person, what
+// would not show as itself is spelled out.
+func TestNamesAreShownAsTheyAre(t *testing.T) {
+	for in, want := range map[string]string{
+		"/usr/bin/comms-mail":                      "/usr/bin/comms-mail",
+		"/tmp/q/\n\nProgram: /usr/bin/thunderbird": `/tmp/q/\n\nProgram: /usr/bin/thunderbird`,
+		"/tmp/\u202egnp.exe":                       `/tmp/\u202egnp.exe`,
+		"/tmp/\x1b[2Kmail":                         `/tmp/\x1b[2Kmail`,
+		"/tmp/caf\xe9":                             `/tmp/caf\xe9`,
+		"/home/ada/bin/ünïcode":                    "/home/ada/bin/ünïcode",
+	} {
+		if got := Printable(in); got != want {
+			t.Errorf("Printable(%q) = %q, want %q", in, got, want)
+		}
+	}
+	p := &Process{PID: 1, Exe: "/tmp/q/\n\nProgram: /usr/bin/thunderbird"}
+	if d := p.Display(); strings.ContainsAny(d, "\n\r") {
+		t.Fatalf("Display = %q", d)
+	}
+}

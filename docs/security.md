@@ -86,6 +86,48 @@ This is the hard case, and it is worth being plain about it.
   joining sync are refused to every program but secretvault's own. A
   program that could register a folder of its own as the default would
   have the next secrets saved where it can read them.
+- **A program may ask for a vault, not make one.** `vault.request` takes
+  a name and nothing else. The daemon asks the person through its own
+  prompter (the terminal agent or the desktop prompt, never the program,
+  not even secretvault's CLI), they choose the passphrase there, and the
+  recovery key is shown there once; the program sees neither. The vault
+  goes in the data folder, only where nothing is yet (no folder, no link),
+  with the default suite, and is never made the default, then or after a
+  restart. Nothing is granted: the program asks before it uses the vault,
+  as for any other. A program has one request waiting at a time and one
+  such question is on screen at a time, so it cannot stack prompts;
+  "Don't ask again for this program" is kept in the daemon's config (only
+  refusals are kept there, so editing the file gains a program nothing
+  but being asked again), listed with every vault's grants, and forgotten
+  only from secretvault's own programs. An existing name is refused before
+  anyone is asked; that says only what `vault.list`, open to every
+  program, says already, or what a look in the person's data folder does.
+  Every request and its outcome goes to the default vault's audit log (and
+  a vault made to its own); a refusal that asked nobody (a name taken, a
+  remembered "don't ask again") is written once a minute at most per
+  program and name, so a program asking in a loop cannot bury the log.
+  Nor does the Secret Service make such a vault its default alias. The
+  prompt names the program by its file and, for an interpreter, the
+  script, with anything in those names that would not show as itself (a
+  line break, a control or bidirectional character) spelled out, so a
+  program cannot name itself into a line of the prompt. The recovery key
+  is a string in the daemon (as every recovery key is) and travels to the
+  desktop prompt on its pipe; secretvault's own prompts draw it from
+  bytes and wipe them, and the terminal agent prints it, where it stays
+  in the terminal's scrollback. A system pinentry, where secretvault's
+  prompt is not installed, is never sent it as a command it does not
+  know: it shows the key as ordinary text in its description, and
+  pinentry-gnome3 hands that to the desktop's prompter over D-Bus. "Don't
+  keep a recovery key", answered after the vault locked, takes the
+  keyslot off at the next unlock (until a daemon restart, which forgets
+  it: the daemon's log says so).
+- **The terminal agent answers for the person.** `prompt.register` takes
+  only the real `secretvault-tui-prompt`, but any program can start that
+  on a terminal of its own and answer the daemon's questions with it. So
+  where somebody answers already (an agent, or the desktop prompt), the
+  person lets a new agent in through them first. Where nobody does (a
+  session with no desktop), the first agent is taken, as before: there,
+  a program running as you that starts one first answers for you.
 
 **What does help:**
 - Short auto-lock times, so the vault is unlocked less of the time.

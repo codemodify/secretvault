@@ -86,6 +86,61 @@ keyringKey = func() ([]byte, bool) {
 }
 ```
 
+### A vault of its own
+
+A program that wants its secrets apart from the person's asks for a
+vault by name. It never chooses or sees the passphrase: secretvault asks
+the person, in its own prompt, whether to create it, and they choose its
+passphrase there. The answer is the new vault's name, or why not:
+
+```go
+// Wait as long as a person may take to answer.
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+defer cancel()
+name, err := c.RequestVault(ctx, "mail")
+switch {
+case err == nil:                           // made: use name in every call
+case errors.Is(err, svrpc.ErrExists):      // there is one called "mail" already (nobody was asked)
+case errors.Is(err, svrpc.ErrDenied):      // the person said no, now or for good
+case errors.Is(err, svrpc.ErrCanceled):    // they closed the question, or chose no passphrase
+case errors.Is(err, svrpc.ErrNoPrompter):  // there was no way to ask them
+case err != nil:                           // anything else
+}
+```
+
+What the person sees:
+
+1. "comms-mail wants a new vault called "mail"": that it is a new, empty
+   vault kept with their others, that comms-mail never sees its
+   passphrase, and that comms-mail still has to ask before it reads or
+   stores anything in it. **Create the vault**, **Don't ask again for
+   this program**, or **Don't create it** (the default).
+2. The new passphrase, typed twice (at least 8 characters).
+3. The vault's recovery key, shown once to write down, as the managers'
+   New vault shows one: **I have written it down** (the default) or
+   **Don't keep a recovery key**. Neither the key nor the passphrase
+   reaches the program.
+
+What the program gets, and does not:
+
+- Only the name goes in: `vault.request` refuses a path, a suite, a
+  passphrase or anything else (-32602), so no program believes it chose
+  them. The vault goes in secretvault's own data folder with the default
+  cipher suite, and is never made the default: name it in every call.
+- The vault is unlocked once made, and locks itself as any vault does.
+  Nothing is granted: the first `item.put` into it is asked about like
+  any other (the person may say "always").
+- One request at a time: a second one while the first waits fails at once
+  (-32000). After "Don't ask again", requests are denied without asking,
+  until the person forgets that decision in the vault's Grants.
+- A name that is taken is refused before anyone is asked (-32006):
+  `vault.list` names every vault anyway.
+- The request and how it ended go to the default vault's audit log (and
+  the new vault's own).
+
+Over the wire: `{"method":"vault.request","params":{"name":"mail"}}`,
+answered `{"vault":"mail"}`.
+
 ### Mail clients: who signed this?
 
 A mail client tells secretvault about the keys that come with messages,
@@ -176,7 +231,9 @@ The full list of methods and shapes is in
   (`svrpc.ErrNoVault`) for one that is not there; -32003 means only an
   item, slot, grant or key missing from a vault that is. A program that
   matched -32003 for both must handle -32008 too: see the vault is
-  there with `vault.list`.
+  there with `vault.list`, or ask for one with `vault.request`.
+- **`vault.request` is new**: a program asks for a vault of its own by
+  name (above).
 
 Faces that speak other protocols keep their own terms: the Secret
 Service answers `NoSuchObject` for a collection that is not there, as for

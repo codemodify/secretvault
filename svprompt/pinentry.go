@@ -23,6 +23,12 @@ type Request struct {
 	RepeatError string // shown when the two entries differ; "" for the program's own
 	Timeout     time.Duration
 	TTY         string // for terminal pinentries: which terminal to use
+
+	// Secret is shown apart from the description, in full, for the
+	// person to write down: a new recovery key (ShowSecret; SETSECRET,
+	// secretvault's extension). A prompt program shows it from these
+	// bytes and Serve wipes them when the session moves on.
+	Secret []byte
 }
 
 // Choice is one answer offered by Choose.
@@ -332,6 +338,128 @@ func (p *Pinentry) Choose(ctx context.Context, r Request, choices []Choice) (str
 		return last.ID, nil
 	}
 	return "", mapErr(err)
+}
+
+// ShowSecret shows secret once, set apart from r's description, for the
+// person to write down (a new recovery key), and asks them to pick one of
+// choices; the last is the default, the one Enter picks. A dismissed
+// prompt is ErrCanceled, which says nothing about whether it was read.
+//
+// secretvault's own prompts take the secret on SETSECRET (an extension,
+// as ADDCHOICE is), show it in a box of its own drawn from its bytes, and
+// wipe it as they close. Any other pinentry has no such thing: there the
+// secret ends its description, as ordinary text, and CONFIRM's buttons
+// carry the default (OK) and the first choice (the "not OK" button).
+// Which kind it is, ADDCHOICE says first: a pinentry that is not ours is
+// never sent SETSECRET, which it would refuse as an unknown command with
+// the secret on its line (and maybe in its debug log). The lines are
+// built and wiped here, never a string on this side.
+func (p *Pinentry) ShowSecret(ctx context.Context, r Request, secret []byte, choices []Choice) (string, error) {
+	if len(choices) == 0 {
+		return "", errors.New("svprompt: nothing to choose from")
+	}
+	s, err := p.start(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer s.close()
+	if err := s.setup(r); err != nil {
+		return "", err
+	}
+	extended := true
+	for _, c := range choices {
+		if _, _, err := s.command("ADDCHOICE %s %s", escape(c.ID), escape(c.Label)); err != nil {
+			var ae *AssuanError
+			if errors.As(err, &ae) && ae.kind() == errUnknownCmd {
+				extended = false
+				break
+			}
+			return "", err
+		}
+	}
+	if extended {
+		if err := s.sendSecret(secret); err != nil {
+			var ae *AssuanError
+			if !errors.As(err, &ae) || ae.kind() != errUnknownCmd {
+				return "", err
+			}
+			// One of ours from before SETSECRET: the description.
+			if err := s.secretInDescription(r, secret); err != nil {
+				return "", err
+			}
+		}
+		data, _, err := s.command("CHOOSE")
+		if err != nil {
+			return "", mapErr(err)
+		}
+		id := string(data)
+		for _, c := range choices {
+			if c.ID == id {
+				return id, nil
+			}
+		}
+		return "", fmt.Errorf("svprompt: the prompt chose %q, which was not offered", id)
+	}
+
+	// A plain pinentry: the secret at the end of the description.
+	if err := s.secretInDescription(r, secret); err != nil {
+		return "", err
+	}
+	def, other := choices[len(choices)-1], choices[0]
+	s.command("SETOK %s", escape(label(def.Label)))
+	if len(choices) > 1 {
+		s.command("SETNOTOK %s", escape(label(other.Label)))
+	}
+	_, _, err = s.command("CONFIRM")
+	var ae *AssuanError
+	switch {
+	case err == nil:
+		return def.ID, nil
+	case errors.As(err, &ae) && ae.kind() == errNotConfirmed && len(choices) > 1:
+		return other.ID, nil
+	}
+	return "", mapErr(err)
+}
+
+// secretInDescription sets the description to r's, then secret on a
+// paragraph of its own.
+func (s *session) secretInDescription(r Request, secret []byte) error {
+	desc := make([]byte, 0, len("SETDESC ")+3*(len(r.Description)+len(secret))+16)
+	defer func() { clear(desc[:cap(desc)]) }()
+	desc = append(desc, "SETDESC "...)
+	desc = appendData(desc, []byte(r.Description))
+	if r.Description != "" {
+		desc = append(desc, "%0A%0A"...)
+	}
+	desc = appendData(desc, secret)
+	_, _, err := s.raw(desc)
+	return err
+}
+
+// sendSecret sends SETSECRET with secret, escaped on bytes in an array
+// that is wiped once it is written.
+func (s *session) sendSecret(secret []byte) error {
+	line := make([]byte, 0, len("SETSECRET ")+3*len(secret))
+	defer func() { clear(line[:cap(line)]) }()
+	line = append(line, "SETSECRET "...)
+	line = appendData(line, secret)
+	_, _, err := s.raw(line)
+	return err
+}
+
+// raw sends one command already built as bytes (one that carries a
+// secret), and reads its response.
+func (s *session) raw(line []byte) ([]byte, []string, error) {
+	if len(line) > maxLine {
+		return nil, nil, fmt.Errorf("svprompt: command longer than %d bytes", maxLine)
+	}
+	if _, err := s.in.Write(line); err != nil {
+		return nil, nil, err
+	}
+	if _, err := io.WriteString(s.in, "\n"); err != nil {
+		return nil, nil, err
+	}
+	return s.response(nil)
 }
 
 // Notice shows r with one button (r.OK, "Cancel" when empty) until ctx

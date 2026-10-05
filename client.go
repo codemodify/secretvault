@@ -234,6 +234,25 @@ func (c *Client) CreateVault(ctx context.Context, p svrpc.VaultCreateParams) (ou
 	return
 }
 
+// RequestVault asks for a new vault called name, for this program. The
+// daemon asks the person, in secretvault's own prompt, whether to create
+// it, and has them choose its passphrase (and shows them its recovery
+// key); this program sees neither. It returns the new vault's name. The
+// vault is unlocked and locks itself as any vault does, and this program
+// still asks before it reads or stores anything in it.
+//
+// The errors, by errors.Is: svrpc.ErrExists, a vault of that name is
+// there already (nothing was asked); svrpc.ErrDenied, the person said no,
+// now or for good ("Don't ask again for this program"); svrpc.ErrCanceled,
+// they dismissed the question or chose no passphrase; svrpc.ErrNoPrompter,
+// nobody could be asked. A second request while one waits fails at once.
+// Wait as long as a person may take: a minute or more.
+func (c *Client) RequestVault(ctx context.Context, name string) (string, error) {
+	var out svrpc.VaultRequestResult
+	err := c.conn.Call(ctx, svrpc.MVaultRequest, svrpc.VaultRequestParams{Name: name}, &out)
+	return out.Vault, err
+}
+
 func (c *Client) AddVault(ctx context.Context, name, path string) (out svrpc.VaultInfo, err error) {
 	err = c.conn.Call(ctx, svrpc.MVaultAdd, svrpc.VaultAddParams{Name: name, Path: path}, &out)
 	return

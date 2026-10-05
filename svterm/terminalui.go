@@ -29,6 +29,11 @@ func (u TerminalUI) open(r svprompt.Request) (*Terminal, error) {
 	if r.Description != "" {
 		t.Printf("%s\n", r.Description)
 	}
+	if len(r.Secret) > 0 {
+		// Set apart, straight from its bytes (fmt would keep a copy in
+		// a buffer of its own).
+		t.ShowSecret(r.Secret)
+	}
 	if r.Error != "" {
 		t.Printf("! %s\n", r.Error)
 	}

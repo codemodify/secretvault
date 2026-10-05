@@ -60,7 +60,7 @@ var unsafeToCall = map[string]bool{
 	svrpc.MSyncJoin: true, svrpc.MSyncSetup: true, svrpc.MSyncInvite: true, svrpc.MContactLookup: true,
 	svrpc.MDirectoryAdd: true, svrpc.MDirectoryList: true, svrpc.MDirectoryRemove: true,
 	svrpc.MEmergencyRequest: true, svrpc.MEmergencyAccept: true, svrpc.MEmergencyOpen: true,
-	svrpc.MVaultCreate: true, svrpc.MVaultAdd: true, svrpc.MHello: true, svrpc.MFIDO2List: true,
+	svrpc.MVaultCreate: true, svrpc.MVaultAdd: true, svrpc.MVaultRequest: true, svrpc.MHello: true, svrpc.MFIDO2List: true,
 }
 
 func TestAMissingVaultIsNotAMissingItem(t *testing.T) {

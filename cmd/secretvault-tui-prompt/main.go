@@ -71,10 +71,39 @@ func agent() int {
 		return 1
 	}
 	defer t.Close()
-	answer := func(_ context.Context, q svrpc.PromptAsk) (svrpc.PromptAnswer, error) {
+	c, err := secretvault.Connect(secretvault.Options{Name: "secretvault-tui-prompt", Prompter: answerOn(t)})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "secretvault-tui-prompt:", err)
+		return 1
+	}
+	defer c.Close()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := c.RegisterPrompter(ctx, os.Getenv("TTY")); err != nil {
+		fmt.Fprintln(os.Stderr, "secretvault-tui-prompt:", err)
+		return 1
+	}
+	t.Printf("Answering secretvault's prompts in this terminal. Ctrl+C to stop.\n")
+	select {
+	case <-ctx.Done():
+	case <-c.Done():
+		t.Printf("secretvaultd went away.\n")
+	}
+	return 0
+}
+
+// answerOn answers the daemon's questions on t.
+func answerOn(t *svterm.Terminal) func(context.Context, svrpc.PromptAsk) (svrpc.PromptAnswer, error) {
+	return func(_ context.Context, q svrpc.PromptAsk) (svrpc.PromptAnswer, error) {
 		t.Printf("\n\a%s\n%s\n", q.Title, strings.Repeat("─", min(len([]rune(q.Title)), 60)))
 		if q.Description != "" {
 			t.Printf("%s\n", q.Description)
+		}
+		if q.Kind == svrpc.PromptShowSecret && q.Show != "" {
+			// A new recovery key, set apart under what it is.
+			show := []byte(q.Show)
+			t.ShowSecret(show)
+			clear(show)
 		}
 		if q.Error != "" {
 			t.Printf("! %s\n", q.Error)
@@ -82,7 +111,7 @@ func agent() int {
 		switch q.Kind {
 		case svrpc.PromptNotice:
 			return svrpc.PromptAnswer{}, nil // "touch your security key": said above
-		case svrpc.PromptChoose:
+		case svrpc.PromptChoose, svrpc.PromptShowSecret:
 			var choices []svprompt.Choice
 			for _, c := range q.Choices {
 				choices = append(choices, svprompt.Choice{ID: c.ID, Label: c.Label})
@@ -110,23 +139,4 @@ func agent() int {
 			return svrpc.PromptAnswer{Secret: p}, nil
 		}
 	}
-	c, err := secretvault.Connect(secretvault.Options{Name: "secretvault-tui-prompt", Prompter: answer})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "secretvault-tui-prompt:", err)
-		return 1
-	}
-	defer c.Close()
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	if err := c.RegisterPrompter(ctx, os.Getenv("TTY")); err != nil {
-		fmt.Fprintln(os.Stderr, "secretvault-tui-prompt:", err)
-		return 1
-	}
-	t.Printf("Answering secretvault's prompts in this terminal. Ctrl+C to stop.\n")
-	select {
-	case <-ctx.Done():
-	case <-c.Done():
-		t.Printf("secretvaultd went away.\n")
-	}
-	return 0
 }

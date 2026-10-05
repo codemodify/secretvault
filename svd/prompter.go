@@ -20,7 +20,8 @@ type Prompter interface {
 	// one twice; for PromptPIN, a security key's PIN). The caller zeroes
 	// the result.
 	Passphrase(ctx context.Context, q svrpc.PromptAsk) ([]byte, error)
-	// Choose asks the person to pick one of q.Choices.
+	// Choose asks the person to pick one of q.Choices; for a
+	// PromptShowSecret, while it shows q.Show.
 	Choose(ctx context.Context, q svrpc.PromptAsk) (string, error)
 	// Describe names the prompter, for status output.
 	Describe() string
@@ -48,6 +49,11 @@ type rpcPrompter struct {
 func (p rpcPrompter) Notice(ctx context.Context, q svrpc.PromptAsk, _ func()) func() {
 	c, done := context.WithTimeout(ctx, 5*time.Second)
 	defer done()
+	end, err := p.c.turn(c)
+	if err != nil {
+		return func() {}
+	}
+	defer end()
 	var ans svrpc.PromptAnswer
 	p.c.conn.Call(c, svrpc.MPromptAsk, q, &ans)
 	clear(ans.Secret)
@@ -56,6 +62,11 @@ func (p rpcPrompter) Notice(ctx context.Context, q svrpc.PromptAsk, _ func()) fu
 
 func (p rpcPrompter) ask(ctx context.Context, q svrpc.PromptAsk) (svrpc.PromptAnswer, error) {
 	var ans svrpc.PromptAnswer
+	end, err := p.c.turn(ctx)
+	if err != nil {
+		return ans, err
+	}
+	defer end()
 	if err := p.c.conn.Call(ctx, svrpc.MPromptAsk, q, &ans); err != nil {
 		return ans, err
 	}
@@ -115,6 +126,14 @@ func (p pinentryPrompter) Choose(ctx context.Context, q svrpc.PromptAsk) (string
 	var choices []svprompt.Choice
 	for _, c := range q.Choices {
 		choices = append(choices, svprompt.Choice{ID: c.ID, Label: c.Label})
+	}
+	if q.Kind == svrpc.PromptShowSecret {
+		// A new recovery key: secretvault's own prompts show it apart
+		// (SETSECRET); a system pinentry, at the end of the description.
+		show := []byte(q.Show)
+		defer clear(show)
+		id, err := p.p.ShowSecret(ctx, request(q), show, choices)
+		return id, mapPromptErr(err)
 	}
 	id, err := p.p.Choose(ctx, request(q), choices)
 	return id, mapPromptErr(err)

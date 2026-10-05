@@ -3,6 +3,7 @@ package svd
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,6 +31,11 @@ type managedVault struct {
 	idle      *time.Timer
 	sync      *vaultSync // when the vault syncs with a server
 	refreshed time.Time  // when fresh last read the folder
+
+	// dropSlot is a keyslot to take off when the vault is next unlocked:
+	// a new vault's recovery key the person chose not to keep, after the
+	// vault locked before it could be (vaultrequest.go).
+	dropSlot svformat.ID
 }
 
 func (d *Daemon) openVault(vc VaultConfig) (*managedVault, error) {
@@ -109,6 +115,17 @@ func (d *Daemon) unlockWith(mv *managedVault, k svcore.Key) error {
 	if err := mv.v.Unlock(k); err != nil {
 		return err
 	}
+	mv.mu.Lock()
+	drop := mv.dropSlot
+	mv.dropSlot = svformat.ID{}
+	mv.mu.Unlock()
+	if !drop.IsZero() {
+		if err := mv.v.RemoveSlot(drop); err != nil {
+			d.opts.Log(fmt.Sprintf("taking vault %s's recovery key off: %v", mv.cfg.Name, err))
+		} else {
+			d.opts.Log(fmt.Sprintf("took vault %s's recovery key off, as the person chose", mv.cfg.Name))
+		}
+	}
 	d.registerDevice(mv)
 	if err := d.audit.Unlocked(mv.v); err != nil {
 		d.opts.Log(fmt.Sprintf("audit log for %s: %v", mv.cfg.Name, err))
@@ -183,8 +200,14 @@ func (d *Daemon) locked(mv *managedVault, why string) {
 	d.notify(svrpc.EVaultLocked, svrpc.VaultEvent{Vault: mv.cfg.Name})
 }
 
-// createVault makes a new vault and registers it.
-func (d *Daemon) createVault(p svrpc.VaultCreateParams) (*managedVault, string, error) {
+// createVault makes a new vault and registers it. requestedBy names the
+// program that asked for it (vault.request), "" for secretvault's own:
+// such a vault goes in the data folder with the default suite, whatever
+// p says, only where nothing is yet, and is never made the default.
+func (d *Daemon) createVault(p svrpc.VaultCreateParams, requestedBy string) (_ *managedVault, _ string, err error) {
+	if requestedBy != "" {
+		p.Path, p.Suite = "", ""
+	}
 	if p.Name == "" {
 		p.Name = "default"
 	}
@@ -212,14 +235,36 @@ func (d *Daemon) createVault(p svrpc.VaultCreateParams) (*managedVault, string, 
 		return nil, "", svrpc.Errorf(svrpc.CodeExists, "there is already a vault named %q", p.Name)
 	}
 	d.mu.Unlock()
-	if _, err := os.Stat(filepath.Join(path, svformat.DescriptorName)); err == nil {
+	if _, err := os.Stat(filepath.Join(path, svformat.DescriptorName)); err == nil && requestedBy == "" {
 		return nil, "", svrpc.Errorf(svrpc.CodeExists, "a vault already exists at %s (register it with 'secretvault vault add')", path)
+	}
+	if requestedBy != "" {
+		// Never into a folder that is there already (a forgotten vault's,
+		// or a link someone made to elsewhere): the folder is made here,
+		// and making it fails if anything is there, link or not. If the
+		// vault is not made after all, it goes again: a vault folder
+		// nobody registered would be taken up, as the default, when the
+		// daemon next starts.
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return nil, "", err
+		}
+		if err := os.Mkdir(path, 0o700); err != nil {
+			if errors.Is(err, fs.ErrExist) {
+				return nil, "", errVaultExists(p.Name)
+			}
+			return nil, "", err
+		}
+		defer func() {
+			if err != nil {
+				os.RemoveAll(path)
+			}
+		}()
 	}
 	store, err := svstore.OpenDir(path)
 	if err != nil {
 		return nil, "", err
 	}
-	mv := &managedVault{cfg: VaultConfig{Name: p.Name, Path: path, AutoLock: d.defaultAutoLock()}}
+	mv := &managedVault{cfg: VaultConfig{Name: p.Name, Path: path, AutoLock: d.defaultAutoLock(), RequestedBy: requestedBy}}
 	v, _, err := svcore.Create(d.hook(mv, store), suite, svcore.NewSlot{Type: svformat.SlotPassphrase, Label: "passphrase", Passphrase: p.Passphrase}, d.svOpts)
 	if err != nil {
 		return nil, "", err
@@ -256,11 +301,13 @@ func (d *Daemon) register(mv *managedVault) error {
 		return svrpc.Errorf(svrpc.CodeExists, "there is already a vault named %q", mv.cfg.Name)
 	}
 	d.cfg.Vaults = append(d.cfg.Vaults, mv.cfg)
-	if d.cfg.Default == "" {
+	def := d.cfg.Default
+	if d.cfg.Default == "" && mv.cfg.RequestedBy == "" {
 		d.cfg.Default = mv.cfg.Name
 	}
 	if err := d.cfg.save(d.home); err != nil {
 		d.cfg.Vaults = d.cfg.Vaults[:len(d.cfg.Vaults)-1]
+		d.cfg.Default = def
 		return err
 	}
 	d.vaults[mv.cfg.Name] = mv
@@ -304,10 +351,7 @@ func (d *Daemon) forgetVault(name string) error {
 		}
 	}
 	if d.cfg.Default == mv.cfg.Name {
-		d.cfg.Default = ""
-		if len(d.cfg.Vaults) > 0 {
-			d.cfg.Default = d.cfg.Vaults[0].Name
-		}
+		d.cfg.Default = d.cfg.firstDefault()
 	}
 	return d.cfg.save(d.home)
 }

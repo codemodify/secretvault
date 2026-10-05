@@ -20,8 +20,11 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Process is what is known about a peer.
@@ -198,23 +201,61 @@ func (p *Process) Identity() string {
 	return id
 }
 
-// Display is how the program is named to a person.
+// Display is how the program is named to a person. What the program
+// could choose (its file's path and name) is made Printable: a prompt
+// shows it as it is, and cannot be redrawn by it.
 func (p *Process) Display() string {
 	switch {
 	case p.Flatpak != "":
-		return p.Flatpak + " (Flatpak)"
+		return Printable(p.Flatpak) + " (Flatpak)"
 	case p.Snap != "":
-		return p.Snap + " (Snap)"
+		return Printable(p.Snap) + " (Snap)"
 	case p.Exe == "" && p.Comm != "":
 		return fmt.Sprintf("an unidentified program calling itself %q (process %d)", p.Comm, p.PID)
 	case p.Exe == "":
 		return fmt.Sprintf("an unidentified program (process %d)", p.PID)
 	}
-	name := filepath.Base(p.Exe)
+	exe := Printable(p.Exe)
+	name := filepath.Base(exe)
 	if p.Script != "" {
-		return fmt.Sprintf("%s (%s %s)", filepath.Base(p.Script), name, p.Script)
+		script := Printable(p.Script)
+		return fmt.Sprintf("%s (%s %s)", filepath.Base(script), name, script)
 	}
-	return fmt.Sprintf("%s (%s)", name, p.Exe)
+	return fmt.Sprintf("%s (%s)", name, exe)
+}
+
+// Printable is s with what would not show as itself spelled out: line
+// breaks and other control characters, the marks that reorder text
+// (bidirectional controls), and bytes that are not UTF-8, as Go escapes
+// them (\n, \u202e, \xff). A file's name may hold any of them, and a
+// prompt that showed them raw could be made to say something else (a
+// line of its own naming another program, or text drawn backwards).
+func Printable(s string) string {
+	clean := true
+	for _, r := range s {
+		if r == utf8.RuneError || unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r) || unicode.Is(unicode.Join_Control, r) {
+			clean = false
+			break
+		}
+	}
+	if clean {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		switch {
+		case r == utf8.RuneError && n <= 1:
+			fmt.Fprintf(&b, "\\x%02x", s[i])
+		case unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r) || unicode.Is(unicode.Join_Control, r):
+			q := strconv.QuoteRune(r)
+			b.WriteString(q[1 : len(q)-1])
+		default:
+			b.WriteString(s[i : i+n])
+		}
+		i += n
+	}
+	return b.String()
 }
 
 // interpreters run scripts: their identity includes the script.

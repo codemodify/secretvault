@@ -217,8 +217,11 @@ func (h *harness) connectAs(p *svpeer.Process, term *scripted) *secretvault.Clie
 				term.Notice(ctx, q, nil)
 				return svrpc.PromptAnswer{}, nil
 			}
-			if q.Kind == svrpc.PromptChoose {
+			if q.Kind == svrpc.PromptChoose || q.Kind == svrpc.PromptShowSecret {
 				c, err := term.Choose(ctx, q)
+				if errors.Is(err, svrpc.ErrCanceled) {
+					return svrpc.PromptAnswer{Canceled: true}, nil
+				}
 				return svrpc.PromptAnswer{Choice: c}, err
 			}
 			p, err := term.Passphrase(ctx, q)

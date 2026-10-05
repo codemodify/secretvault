@@ -109,7 +109,7 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 			clear(p.Passphrase)
 			return nil, errOwnPrograms
 		}
-		mv, recovery, err := d.createVault(p)
+		mv, recovery, err := d.createVault(p, "")
 		clear(p.Passphrase)
 		if err != nil {
 			return nil, err
@@ -602,6 +602,12 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 			out = append(out, svrpc.Grant{ID: v.ID, Vault: mv.cfg.Name, Program: v.Grant.Program, Identity: v.Grant.Identity,
 				Item: v.Grant.ItemName, Ops: ops, Decision: string(v.Grant.Decision), Created: v.Grant.Created, Scope: v.Scope})
 		}
+		// And the programs not to be asked about for new vaults, which
+		// no vault holds (vaultrequest.go): about every program on this
+		// device, so for secretvault's own programs only.
+		if cl.cli {
+			out = append(out, d.vaultRequestGrants(mv.cfg.Name)...)
+		}
 		return out, nil
 
 	case svrpc.MGrantRevoke:
@@ -612,6 +618,14 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		mv, err := d.managed(ctx, cl, p.Vault, "", "", svbroker.OpManage)
 		if err != nil {
 			return nil, err
+		}
+		if strings.HasPrefix(p.ID, noVaultRequestsPrefix) {
+			// About no vault: managing one does not reach it, so only
+			// the person, in secretvault's own programs, forgets it.
+			if !cl.cli {
+				return nil, svrpc.Errorf(svrpc.CodeDenied, "only secretvault's own programs may forget a decision about asking for new vaults")
+			}
+			return nil, d.forgetVaultRequests(p.ID)
 		}
 		return nil, d.broker.Revoke(mv.v, p.ID)
 
@@ -691,6 +705,9 @@ func (d *Daemon) dispatch(ctx context.Context, cl *client, method string, decode
 		// secretvault's own programs may be it.
 		if !cl.cli && !d.opts.IsPromptAgent(cl.proc) {
 			return nil, svrpc.Errorf(svrpc.CodeDenied, "only secretvault-tui-prompt may register as the prompter")
+		}
+		if err := d.letAgentIn(ctx, cl); err != nil {
+			return nil, err
 		}
 		d.mu.Lock()
 		d.agent = cl

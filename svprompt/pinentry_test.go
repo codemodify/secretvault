@@ -27,6 +27,10 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// sawSecretCommand is a plain pinentry having been sent SETSECRET, which
+// it must never be: the secret would be on a command it does not know.
+var sawSecretCommand bool
+
 // hideExtension makes the server answer ADDCHOICE like a plain pinentry.
 func hideExtension(r io.Reader) io.Reader {
 	pr, pw := io.Pipe()
@@ -34,7 +38,8 @@ func hideExtension(r io.Reader) io.Reader {
 		s := bufio.NewScanner(r)
 		for s.Scan() {
 			line := s.Text()
-			if strings.HasPrefix(line, "ADDCHOICE") || line == "CHOOSE" {
+			sawSecretCommand = sawSecretCommand || strings.HasPrefix(line, "SETSECRET")
+			if strings.HasPrefix(line, "ADDCHOICE") || line == "CHOOSE" || strings.HasPrefix(line, "SETSECRET") {
 				line = "X" + line
 			}
 			io.WriteString(pw, line+"\n")
@@ -62,6 +67,14 @@ func (m scriptedUI) GetPin(r Request) ([]byte, error) {
 }
 
 func (m scriptedUI) Confirm(r Request, notOK string) (string, error) {
+	if s, ok := strings.CutPrefix(string(m), "plain-secret-"); ok {
+		// A plain pinentry has the secret at the end of the description,
+		// the default on OK and the other answer on "not OK".
+		if !strings.HasSuffix(r.Description, "\n\n"+testSecret) || r.OK != "I have written it down" || notOK != "Don't keep it" || len(r.Secret) != 0 || sawSecretCommand {
+			return "", errors.New("the secret was not shown as a plain pinentry shows it")
+		}
+		return s, nil
+	}
 	if s, ok := strings.CutPrefix(string(m), "plain-"); ok {
 		return s, nil
 	}
@@ -69,6 +82,13 @@ func (m scriptedUI) Confirm(r Request, notOK string) (string, error) {
 }
 
 func (m scriptedUI) Choose(r Request, choices []Choice) (string, error) {
+	if m == "secret" {
+		// Ours: the secret apart from the description, intact.
+		if string(r.Secret) != testSecret || strings.Contains(r.Description, testSecret) {
+			return "", errors.New("the secret did not arrive apart and intact")
+		}
+		return choices[len(choices)-1].ID, nil
+	}
 	if s, ok := strings.CutPrefix(string(m), "choose:"); ok {
 		return s, nil
 	}
@@ -141,6 +161,91 @@ func TestANoticeStaysUntilWithdrawnOrCalledOff(t *testing.T) {
 	if err := fake(t, "ok").Notice(tctx(t), Request{Description: "Touch your security key."}); !errors.Is(err, ErrCanceled) {
 		t.Fatalf("called off: %v", err)
 	}
+}
+
+// testSecret is a recovery key's stand-in, with what needs escaping.
+const testSecret = "SVRK1-ABCD-%25-100%\\-EFGH"
+
+var showing = []Choice{{"no-recovery", "Don't keep it"}, {"written", "I have written it down"}}
+
+// A secret to write down goes apart from the description to our own
+// prompts, and at the end of it to any other pinentry.
+func TestASecretIsShownApartOrAtTheEnd(t *testing.T) {
+	r := Request{Title: "Recovery key for vault mail", Description: "Write this down."}
+	got, err := fake(t, "secret").ShowSecret(tctx(t), r, []byte(testSecret), showing)
+	if err != nil || got != "written" {
+		t.Fatalf("ours: %q, %v", got, err)
+	}
+	for mode, want := range map[string]string{"plain-secret-ok": "written", "plain-secret-notok": "no-recovery"} {
+		got, err := fake(t, mode).ShowSecret(tctx(t), r, []byte(testSecret), showing)
+		if err != nil || got != want {
+			t.Errorf("%s: %q, %v; want %q", mode, got, err, want)
+		}
+	}
+	if _, err := fake(t, "plain-cancel").ShowSecret(tctx(t), r, []byte(testSecret), showing); !errors.Is(err, ErrCanceled) {
+		t.Errorf("dismissed: %v", err)
+	}
+	if _, err := fake(t, "cancel").ShowSecret(tctx(t), r, []byte(testSecret), showing); !errors.Is(err, ErrCanceled) {
+		t.Errorf("dismissed: %v", err)
+	}
+}
+
+// keepUI is a UI that keeps the secret it was shown, to see it wiped.
+type keepUI struct {
+	scriptedUI
+	shown chan []byte
+}
+
+func (u keepUI) Choose(r Request, choices []Choice) (string, error) {
+	u.shown <- r.Secret
+	return choices[0].ID, nil
+}
+
+// The server reads SETSECRET's secret from the line's bytes, and wipes it
+// when the session moves on.
+func TestTheServerWipesASecretShown(t *testing.T) {
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	ui := keepUI{shown: make(chan []byte, 1)}
+	go func() { Serve(inR, outW, ui, "test"); outW.Close() }()
+	lines := bufio.NewScanner(outR)
+	read := func() string {
+		if !lines.Scan() {
+			t.Fatal("the server went away")
+		}
+		return lines.Text()
+	}
+	read() // the greeting
+	// Written from a goroutine: the server answers each command before
+	// it reads the next, and its answers wait for this side to read them.
+	send := func(cmds ...string) {
+		go func() {
+			for _, c := range cmds {
+				io.WriteString(inW, c+"\n")
+			}
+		}()
+	}
+	send("SETSECRET "+escape(testSecret), "ADDCHOICE a A", "CHOOSE")
+	if l := read(); l != "OK" {
+		t.Fatal(l)
+	}
+	read()
+	shown := <-ui.shown
+	if string(shown) != testSecret {
+		t.Fatalf("the secret arrived as %q", shown)
+	}
+	read()
+	read()
+	send("RESET")
+	read()
+	if strings.Trim(string(shown), "\x00") != "" {
+		t.Fatalf("the secret was left as %q", shown)
+	}
+	send("SETSECRET " + strings.Repeat("x", 1200))
+	if l := read(); !strings.HasPrefix(l, "ERR") {
+		t.Fatalf("a line past the limit: %q", l)
+	}
+	inW.Close()
 }
 
 var consent = []Choice{{"once", "Allow once"}, {"until-lock", "Allow until locked"}, {"always", "Always allow"}, {"deny", "Deny"}}

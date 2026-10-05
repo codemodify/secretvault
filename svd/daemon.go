@@ -157,6 +157,13 @@ type Daemon struct {
 	// The sockets the SSH agent and gpg-agent faces serve, under mu; ""
 	// until they do. GnuPG homes are linked to them (gpgagent_link.go).
 	sshSock, gpgSock string
+
+	// Programs' requests for new vaults (vaultrequest.go): the programs
+	// with one waiting for an answer, under mu, and the turn to ask, one
+	// such question on screen at a time.
+	requesting map[string]bool
+	asking     chan struct{}
+	refused    map[string]time.Time // refusals written to the audit log, when (firstInAWhile)
 }
 
 // New prepares a daemon: it reads the config and opens (locked) every
@@ -237,6 +244,10 @@ func New(opts Options) (*Daemon, error) {
 		cfg:     cfg,
 		vaults:  map[string]*managedVault{},
 		clients: map[*client]bool{},
+
+		requesting: map[string]bool{},
+		asking:     make(chan struct{}, 1),
+		refused:    map[string]time.Time{},
 	}
 	for _, vc := range cfg.Vaults {
 		mv, err := d.openVault(vc)
@@ -346,6 +357,12 @@ type client struct {
 	name      string
 	canPrompt bool
 
+	// asking is the client's turn to be asked something (rpcPrompter):
+	// one question at a time on its terminal, so that what is typed for
+	// one is never taken as the answer to another.
+	askOnce sync.Once
+	asking  chan struct{}
+
 	// A face that takes a connection over (the browser's host, browser_ext.go)
 	// sets these, under Daemon.mu: face is its state, events receives the
 	// daemon's notifications in the connection's place, and closed runs
@@ -353,6 +370,18 @@ type client struct {
 	face   any
 	events func(method string, ev svrpc.VaultEvent)
 	closed func()
+}
+
+// turn waits for the client's turn to be asked something, and returns
+// the function that ends it.
+func (c *client) turn(ctx context.Context) (func(), error) {
+	c.askOnce.Do(func() { c.asking = make(chan struct{}, 1) })
+	select {
+	case c.asking <- struct{}{}:
+		return func() { <-c.asking }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // onTerminal reports whether the client is secretvault's CLI (or TUI) on

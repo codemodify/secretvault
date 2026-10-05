@@ -331,6 +331,12 @@ func (ss *secretService) setAlias(ctx context.Context, call *svdbus.Call) ([]any
 	if !ok || mv.cfg.Name == ssMemoryName {
 		return nil, svdbus.NewError(errNoSuchObject, "no such collection")
 	}
+	if mv.cfg.RequestedBy != "" {
+		// A vault a program asked for becomes the default only when the
+		// person makes it so, in secretvault: as the default, it would
+		// get every other program's new secrets.
+		return nil, svdbus.NewError(svdbus.ErrorAccessDenied, "a vault a program asked for is made the default only in secretvault")
+	}
 	if !ss.permitted(c, mv, "", svbroker.OpManage) {
 		return nil, errDenied
 	}

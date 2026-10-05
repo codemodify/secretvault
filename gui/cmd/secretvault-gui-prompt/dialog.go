@@ -17,7 +17,9 @@ import (
 // it to keep it that way: the passphrase is typed into a SecretField,
 // whose contents are a []byte, and leaves as a copy of that []byte, which
 // svprompt.Serve escapes on bytes into a D line and wipes. The fields are
-// wiped as the dialog closes, whichever way it closes.
+// wiped as the dialog closes, whichever way it closes. A secret shown to
+// be written down (SETSECRET) is drawn from Serve's bytes the same way,
+// and let go of as the dialog closes.
 
 // kind is what a dialog asks.
 type kind int
@@ -68,6 +70,7 @@ type dialog struct {
 	repeat     *widgets.SecretField
 	problem    *widgets.Label     // SETERROR, and later a repeat that did not match
 	caps       *secretui.CapsLock // "Caps Lock is on", beside a passphrase's buttons
+	shown      *secretui.Shown    // SETSECRET's secret, to be written down
 	factValues []*widgets.Label   // "/usr/bin/mail", beside "Program:"
 	stop       func()             // the timeout's timer
 	done       bool
@@ -145,6 +148,13 @@ func (d *dialog) build(a *uitoolkit.Application) (body, actions, first widget.Co
 			para.Add(l)
 		}
 		col.Add(para)
+	}
+	// A secret to write down (a new recovery key), set apart under what
+	// it is, drawn from the bytes Serve holds; Serve wipes them.
+	if len(d.req.Secret) > 0 {
+		d.shown = secretui.NewShown(d.req.Secret)
+		d.shown.SetAccessibleName("Secret to write down")
+		col.Add(widgets.NewColumn(d.shown).WithPadding(16, 6, 16, 6))
 	}
 	if d.asker != "" {
 		facts = append(facts, fact{"Asked by", d.asker})
@@ -321,6 +331,9 @@ func (d *dialog) finish(a answer) {
 		if f != nil {
 			f.Wipe()
 		}
+	}
+	if d.shown != nil {
+		d.shown.Forget()
 	}
 	if d.win != nil {
 		d.win.Close()

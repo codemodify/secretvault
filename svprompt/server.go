@@ -2,6 +2,7 @@ package svprompt
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -40,22 +41,34 @@ func Serve(r io.Reader, w io.Writer, ui UI, flavor string) error {
 	var req Request
 	var notOK string
 	var choices []Choice
+	// SETSECRET's secret, read from the line's bytes and never made a
+	// string; wiped when replaced, on RESET, and when the session ends.
+	var secret []byte
+	defer func() { clear(secret) }()
 	if err := send("OK Pleased to meet you, process %d", os.Getpid()); err != nil {
 		return err
 	}
 	for {
-		line, err := in.ReadString('\n')
+		raw, err := readCommand(in)
+		if errors.Is(err, errLineTooLong) {
+			errLine(errUnknownCmd, "line too long")
+			continue
+		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return err
 		}
-		line = strings.TrimRight(line, "\r\n")
-		if len(line) > maxLine {
-			errLine(errUnknownCmd, "line too long")
+		if c, rest, _ := bytes.Cut(raw, []byte(" ")); string(bytes.ToUpper(c)) == "SETSECRET" {
+			clear(secret)
+			secret = appendUnescaped(nil, rest)
+			clear(raw) // the line's bytes, still in in's buffer
+			req.Secret = secret
+			okLine()
 			continue
 		}
+		line := string(raw)
 		cmd, arg, _ := strings.Cut(line, " ")
 		arg = unescape(arg)
 		switch strings.ToUpper(cmd) {
@@ -65,7 +78,8 @@ func Serve(r io.Reader, w io.Writer, ui UI, flavor string) error {
 			okLine()
 			return nil
 		case "RESET":
-			req, notOK, choices = Request{}, "", nil
+			clear(secret)
+			req, notOK, choices, secret = Request{}, "", nil, nil
 			okLine()
 		case "OPTION":
 			name, value, _ := strings.Cut(arg, "=")
@@ -187,6 +201,33 @@ func Serve(r io.Reader, w io.Writer, ui UI, flavor string) error {
 			errLine(errUnknownCmd, "Unknown IPC command")
 		}
 	}
+}
+
+// errLineTooLong is a command past Assuan's line limit, read and dropped.
+var errLineTooLong = errors.New("svprompt: line too long")
+
+// readCommand reads one line, without its line ending, as a view of in's
+// buffer that the next read replaces. A line past the limit is read to
+// its end and dropped (errLineTooLong).
+func readCommand(in *bufio.Reader) ([]byte, error) {
+	line, err := in.ReadSlice('\n')
+	if errors.Is(err, bufio.ErrBufferFull) {
+		for errors.Is(err, bufio.ErrBufferFull) {
+			_, err = in.ReadSlice('\n')
+		}
+		if err != nil {
+			return nil, err
+		}
+		return nil, errLineTooLong
+	}
+	if err != nil && !(errors.Is(err, io.EOF) && len(line) > 0) {
+		return nil, err
+	}
+	line = bytes.TrimRight(line, "\r\n")
+	if len(line) > maxLine {
+		return nil, errLineTooLong
+	}
+	return line, nil
 }
 
 func reportErr(err error, errLine func(int, string) error) {
