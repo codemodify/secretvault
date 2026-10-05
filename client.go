@@ -25,6 +25,10 @@ import (
 //	c, err := secretvault.Connect(secretvault.Options{Name: "comms-mail"})
 //	...
 //	e, err := c.Get(ctx, "", "comms-mail/vault-key")
+//
+// Errors are *svrpc.Error, matched by code with errors.Is: a vault that
+// is not there (named, or no default) is svrpc.ErrNoVault, and an item
+// (key, slot, grant) that is not there in a vault that is, ErrNotFound.
 type Client struct {
 	conn *svrpc.Conn
 	opts Options

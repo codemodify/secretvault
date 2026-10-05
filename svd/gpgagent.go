@@ -318,7 +318,9 @@ func gpgError(err error) error {
 		code = svgpgagent.CodeCanceled
 	case errors.Is(err, svrpc.ErrNoPrompter):
 		code = svgpgagent.CodeNoPinentry
-	case errors.Is(err, svrpc.ErrLocked), errors.Is(err, svrpc.ErrNotFound):
+	case errors.Is(err, svrpc.ErrLocked), errors.Is(err, svrpc.ErrNotFound), errors.Is(err, svrpc.ErrNoVault):
+		// GnuPG has no word for a missing vault: to gpg, the key is not
+		// there. The message says which.
 		code = svgpgagent.CodeNoSecretKey
 	case errors.Is(err, svrpc.ErrWrongKey):
 		code = svgpgagent.CodeBadPassphrase

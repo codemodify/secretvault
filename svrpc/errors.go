@@ -33,11 +33,12 @@ const (
 	CodeFailed     = -32000 // anything without a more specific code
 	CodeLocked     = -32001 // the vault is locked and could not be unlocked
 	CodeDenied     = -32002 // the person (or a remembered decision) said no
-	CodeNotFound   = -32003 // no such vault, item, slot or grant
+	CodeNotFound   = -32003 // no such item, slot, grant, key, ... (a vault has its own code)
 	CodeWrongKey   = -32004 // no keyslot accepts the key
 	CodeCanceled   = -32005 // the person dismissed a prompt
 	CodeExists     = -32006 // it already exists
 	CodeNoPrompter = -32007 // a person had to be asked, and there was no way to ask
+	CodeNoVault    = -32008 // the vault named (or the default) does not exist, or its folder is missing
 )
 
 // Sentinels for errors.Is. Only the code is compared.
@@ -49,6 +50,7 @@ var (
 	ErrCanceled   = &Error{Code: CodeCanceled, Message: "canceled"}
 	ErrExists     = &Error{Code: CodeExists, Message: "already exists"}
 	ErrNoPrompter = &Error{Code: CodeNoPrompter, Message: "there is no way to ask you"}
+	ErrNoVault    = &Error{Code: CodeNoVault, Message: "there is no such vault"}
 )
 
 // Errorf makes an *Error with a code and a formatted message.

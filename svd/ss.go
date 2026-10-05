@@ -15,6 +15,7 @@ import (
 	"github.com/codemodify/secretvault/svdbus"
 	"github.com/codemodify/secretvault/svformat"
 	"github.com/codemodify/secretvault/svpeer"
+	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/secretvault/svstore"
 )
 
@@ -407,6 +408,10 @@ func asDBusError(err error) error {
 		return svdbus.NewError(errIsLocked, "the vault is locked")
 	case errors.Is(err, svcore.ErrNotFound):
 		return svdbus.NewError(errNoSuchObject, "no such item")
+	case errors.Is(err, svrpc.ErrNoVault):
+		// The Secret Service has one error for any object that is not
+		// there; the message says it is the collection.
+		return svdbus.NewError(errNoSuchObject, "no such collection: "+err.Error())
 	}
 	return svdbus.NewError(svdbus.ErrorFailed, err.Error())
 }

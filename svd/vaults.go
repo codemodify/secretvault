@@ -61,15 +61,18 @@ func (d *Daemon) vault(name string) (*managedVault, error) {
 	if name == "" {
 		name = d.cfg.Default
 		if name == "" {
-			return nil, svrpc.Errorf(svrpc.CodeNotFound, "there is no vault yet (create one with 'secretvault init')")
+			if len(d.vaults) > 0 {
+				return nil, svrpc.Errorf(svrpc.CodeNoVault, "there is no default vault; name one, or choose one with 'secretvault vault default NAME'")
+			}
+			return nil, svrpc.Errorf(svrpc.CodeNoVault, "there is no vault yet (create one with 'secretvault init')")
 		}
 	}
 	mv, ok := d.vaults[name]
 	if !ok {
-		return nil, svrpc.Errorf(svrpc.CodeNotFound, "there is no vault named %q", name)
+		return nil, svrpc.Errorf(svrpc.CodeNoVault, "there is no vault named %q", name)
 	}
 	if mv.v == nil {
-		return nil, svrpc.Errorf(svrpc.CodeNotFound, "vault %q is registered but its folder %s is missing", name, mv.cfg.Path)
+		return nil, svrpc.Errorf(svrpc.CodeNoVault, "vault %q is registered but its folder %s is missing", name, mv.cfg.Path)
 	}
 	return mv, nil
 }
@@ -275,7 +278,7 @@ func (d *Daemon) addVault(p svrpc.VaultAddParams) (*managedVault, error) {
 	}
 	mv, err := d.openVault(VaultConfig{Name: p.Name, Path: path, AutoLock: d.defaultAutoLock()})
 	if err != nil {
-		return nil, svrpc.Errorf(svrpc.CodeNotFound, "%s: %v", path, err)
+		return nil, svrpc.Errorf(svrpc.CodeNoVault, "%s: %v", path, err)
 	}
 	if err := d.register(mv); err != nil {
 		return nil, err

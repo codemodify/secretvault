@@ -298,7 +298,14 @@ func (c *cli) cmdDockerCredential(args []string) error {
 		name := svops.DockerItemName(strings.TrimSpace(string(server)))
 		e, err := cl.Get(ctx, c.vault, name)
 		if err != nil {
-			if errors.Is(err, svrpc.ErrNotFound) {
+			// Docker's protocol has one answer for "nothing stored",
+			// which lets it go on without a login; a missing vault gets
+			// it too, as it did before secretvault told the two apart,
+			// with what is missing said on stderr.
+			if errors.Is(err, svrpc.ErrNoVault) {
+				fmt.Fprintln(c.stderr, "secretvault:", describe(err))
+			}
+			if errors.Is(err, svrpc.ErrNotFound) || errors.Is(err, svrpc.ErrNoVault) {
 				fmt.Fprintln(c.stdout, "credentials not found in native keychain")
 				return exitCode(1)
 			}

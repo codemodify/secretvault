@@ -680,6 +680,13 @@ func (u *UI) reopen() {
 			u.say("%s was deleted.", name)
 			return
 		}
+		if errors.Is(err, svrpc.ErrNoVault) {
+			// The vault went (forgotten, or its folder moved), not the
+			// item: say so, in the daemon's words.
+			u.closeItem()
+			u.fail(err)
+			return
+		}
 		if err != nil {
 			wipeItem(&e.Item)
 			return

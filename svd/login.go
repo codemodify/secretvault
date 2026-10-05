@@ -205,7 +205,7 @@ func (d *Daemon) setLogin(mv *managedVault, on bool) error {
 			return nil
 		}
 	}
-	return svrpc.Errorf(svrpc.CodeNotFound, "there is no vault named %q", mv.cfg.Name)
+	return svrpc.Errorf(svrpc.CodeNoVault, "there is no vault named %q", mv.cfg.Name)
 }
 
 // writeFileAtomic writes a private file whole or not at all.

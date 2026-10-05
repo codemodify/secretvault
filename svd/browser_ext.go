@@ -141,6 +141,8 @@ func (b *extSession) fail(err error) error {
 		return &svext.Error{Code: svext.CodeLocked, Message: err.Error()}
 	case errors.Is(err, svrpc.ErrDenied), errors.Is(err, svrpc.ErrCanceled), errors.Is(err, svrpc.ErrNoPrompter), errors.Is(err, svrpc.ErrWrongKey):
 		return &svext.Error{Code: svext.CodeDenied, Message: err.Error()}
+	case errors.Is(err, svrpc.ErrNoVault):
+		return &svext.Error{Code: svext.CodeNoVault, Message: err.Error()}
 	case errors.Is(err, svcore.ErrNotFound):
 		return &svext.Error{Code: svext.CodeNotFound, Message: "no such login"}
 	}

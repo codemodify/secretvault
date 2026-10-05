@@ -24,6 +24,7 @@ e, err := c.Get(ctx, "", "comms-mail/vault-key")
 switch {
 case errors.Is(err, svrpc.ErrDenied):   // the person said no
 case errors.Is(err, svrpc.ErrNotFound): // no such item yet
+case errors.Is(err, svrpc.ErrNoVault):  // no such vault (or no default one)
 case errors.Is(err, svrpc.ErrLocked):   // locked, and nobody could be asked
 case err != nil:                        // anything else
 }
@@ -146,9 +147,44 @@ JSON-RPC 2.0, one object per line. Say hello first, then call:
 ← {"jsonrpc":"2.0","id":2,"result":{"id":"…","rev":"…","item":{"kind":"api-key","name":"my-tool/token","fields":[{"name":"secret","type":"concealed","value":"aHVudGVyMg=="}]}}}
 ```
 
-Field values are base64. Errors carry codes: -32001 locked, -32002 denied,
--32003 not found, -32005 canceled, -32007 nobody could be asked. The full
-list of methods and shapes is in [`svrpc/methods.go`](../svrpc/methods.go).
+Field values are base64. Errors carry codes ([`svrpc/errors.go`](../svrpc/errors.go)):
+
+| Code | Go | Meaning |
+| --- | --- | --- |
+| -32000 | | failed, for any other reason (the message says) |
+| -32001 | `svrpc.ErrLocked` | the vault is locked, and could not be unlocked |
+| -32002 | `svrpc.ErrDenied` | the person (or a remembered decision) said no |
+| -32003 | `svrpc.ErrNotFound` | no such item (or slot, grant, key, ...) in a vault that is there |
+| -32004 | `svrpc.ErrWrongKey` | that key does not open the vault |
+| -32005 | `svrpc.ErrCanceled` | the person dismissed the question |
+| -32006 | `svrpc.ErrExists` | it is there already |
+| -32007 | `svrpc.ErrNoPrompter` | the person had to be asked, and there was no way to ask |
+| -32008 | `svrpc.ErrNoVault` | no such vault: the vault named, or the default when none is named and there is none, or one whose folder is gone |
+| -32602 | | bad parameters |
+
+The full list of methods and shapes is in
+[`svrpc/methods.go`](../svrpc/methods.go).
+
+### Changes for app authors
+
+- **A missing vault is -32008, not -32003.** Until now, an item call that
+  named a vault that is not there answered -32003, as a missing item does,
+  and a program that took -32003 to mean "nothing saved yet" would store
+  a fresh secret, or tell the person they had none, when the vault was
+  the thing missing. Every method that names a vault (item.*, vault.*,
+  slot.*, grant.*, audit.list, file.*, ...) now answers -32008
+  (`svrpc.ErrNoVault`) for one that is not there; -32003 means only an
+  item, slot, grant or key missing from a vault that is. A program that
+  matched -32003 for both must handle -32008 too: see the vault is
+  there with `vault.list`.
+
+Faces that speak other protocols keep their own terms: the Secret
+Service answers `NoSuchObject` for a collection that is not there, as for
+any object (the message says it is the collection); gpg hears "no secret
+key"; an SSH client hears the agent's one failure; docker's credential
+helper says "credentials not found" (and names the missing vault on
+stderr), so that docker goes on without a login; the browser extension
+has its own `no-vault`.
 
 ## Programs that run where nobody can be asked
 

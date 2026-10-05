@@ -527,7 +527,7 @@ func (d *Daemon) setSyncConfig(mv *managedVault, r *svsync.Remote) error {
 			return nil
 		}
 	}
-	return svrpc.Errorf(svrpc.CodeNotFound, "there is no vault named %q", mv.cfg.Name)
+	return svrpc.Errorf(svrpc.CodeNoVault, "there is no vault named %q", mv.cfg.Name)
 }
 
 // syncSetup makes a vault on a server from this device's copy, and keeps
