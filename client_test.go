@@ -88,3 +88,45 @@ func TestAMissingVaultIsNotAMissingItem(t *testing.T) {
 		t.Fatalf("CodeNoVault is %d: the number is part of the protocol", svrpc.CodeNoVault)
 	}
 }
+
+func TestMoveAndCopySendTheirParamsAndReadWhatBecameOfTheItems(t *testing.T) {
+	var methods, got []string
+	c := fakeDaemon(t, func(method string, params json.RawMessage) (any, error) {
+		methods = append(methods, method)
+		got = append(got, string(params))
+		var p svrpc.MoveParams
+		json.Unmarshal(params, &p)
+		var e *svrpc.Error
+		switch p.To {
+		case "full":
+			e = svrpc.Errorf(svrpc.CodeExists, "vault %q has \"pgp/b\" already", p.To)
+			e.Data, _ = json.Marshal(svrpc.MoveResult{Vault: "personal", To: p.To, Done: []string{}, Clashes: []string{"pgp/b"}})
+		case "flaky":
+			e = svrpc.Errorf(svrpc.CodeFailed, "stopped")
+			e.Data, _ = json.Marshal(svrpc.MoveResult{Vault: "personal", To: p.To, Done: []string{}, Both: []string{"pgp/a"}, NotDone: []string{"pgp/b"}})
+		default:
+			return svrpc.MoveResult{Vault: "personal", To: p.To, Done: p.Names}, nil
+		}
+		return nil, e
+	})
+	res, err := c.MoveItems(tctx(t), svrpc.MoveParams{To: "mail", Names: []string{"pgp/a"}})
+	if err != nil || res.To != "mail" || len(res.Done) != 1 {
+		t.Fatalf("MoveItems = %+v, %v", res, err)
+	}
+	if _, err := c.CopyItems(tctx(t), svrpc.MoveParams{To: "mail", Prefix: svrpc.PrefixOf("")}); err != nil {
+		t.Fatal(err)
+	}
+	if methods[0] != svrpc.MItemMove || methods[1] != svrpc.MItemCopy ||
+		got[0] != `{"to":"mail","names":["pgp/a"]}` || got[1] != `{"to":"mail","prefix":""}` {
+		t.Fatalf("sent %v %v", methods, got)
+	}
+	res, err = c.MoveItems(tctx(t), svrpc.MoveParams{To: "full", Prefix: svrpc.PrefixOf("pgp/")})
+	if !errors.Is(err, svrpc.ErrExists) || len(res.Clashes) != 1 || res.Clashes[0] != "pgp/b" {
+		t.Fatalf("a clash: %+v, %v", res, err)
+	}
+	res, err = c.MoveItems(tctx(t), svrpc.MoveParams{To: "flaky", Prefix: svrpc.PrefixOf("pgp/")})
+	var e *svrpc.Error
+	if !errors.As(err, &e) || e.Code != svrpc.CodeFailed || len(res.Both) != 1 || len(res.NotDone) != 1 {
+		t.Fatalf("midway: %+v, %v", res, err)
+	}
+}

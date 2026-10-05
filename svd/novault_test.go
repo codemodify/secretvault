@@ -36,6 +36,8 @@ var namesAVault = map[string]map[string]any{
 	svrpc.MItemDelete:   {"name": "x"},
 	svrpc.MItemRename:   {"from": "x", "to": "y"},
 	svrpc.MItemHistory:  {"name": "x"},
+	svrpc.MItemMove:     {"to": "personal", "names": []string{"x"}},
+	svrpc.MItemCopy:     {"to": "personal", "prefix": ""},
 	svrpc.MItemDeleted:  {},
 	svrpc.MItemRestore:  {"name": "x"},
 	svrpc.MGrantList:    {},

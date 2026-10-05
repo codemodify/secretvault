@@ -35,6 +35,11 @@ const (
 	MItemRename  = "item.rename"  // RenameParams -> Entry (fields omitted)
 	MItemHistory = "item.history" // ItemRef -> []Entry
 
+	// Items going to another vault, inside the daemon: their contents
+	// never reach the program that asks (moving.go).
+	MItemMove = "item.move" // MoveParams -> MoveResult
+	MItemCopy = "item.copy" // MoveParams -> MoveResult
+
 	MGrantList   = "grant.list"   // VaultRef -> []Grant
 	MGrantRevoke = "grant.revoke" // GrantRef -> nil
 	MGrantAdd    = "grant.add"    // GrantAddParams -> Grant

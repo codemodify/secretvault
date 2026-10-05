@@ -333,6 +333,39 @@ func (c *Client) Rename(ctx context.Context, vault, from, to string) (out svrpc.
 	return
 }
 
+// MoveItems moves items to another vault, inside the daemon: p names them
+// (Names), or says what their names start with (Prefix, svrpc.PrefixOf;
+// "" is every item), and p.To the vault they go to. Their contents,
+// attached files and private keys never reach this program. The person
+// is asked once, in secretvault's own prompt, which names both vaults
+// and the items, and unlocks either vault if need be. Every item is
+// written to p.To before any is taken out of p.Vault, where they stay
+// in the deleted items, to be brought back.
+//
+// The result says which items are where. So does an error that has
+// something to say about the items: CodeExists (Clashes: p.To has those
+// names already; nothing was written), CodeNotFound (Missing),
+// CodeFailed (Conflicts, to settle first; or a failure midway: Both are
+// in both vaults, NotDone only in p.Vault, and nothing is lost).
+func (c *Client) MoveItems(ctx context.Context, p svrpc.MoveParams) (svrpc.MoveResult, error) {
+	return c.moveItems(ctx, svrpc.MItemMove, p)
+}
+
+// CopyItems is MoveItems, but p.Vault keeps the items as they are.
+func (c *Client) CopyItems(ctx context.Context, p svrpc.MoveParams) (svrpc.MoveResult, error) {
+	return c.moveItems(ctx, svrpc.MItemCopy, p)
+}
+
+func (c *Client) moveItems(ctx context.Context, method string, p svrpc.MoveParams) (svrpc.MoveResult, error) {
+	var out svrpc.MoveResult
+	err := c.conn.Call(ctx, method, p, &out)
+	var e *svrpc.Error
+	if errors.As(err, &e) && len(e.Data) > 0 {
+		json.Unmarshal(e.Data, &out)
+	}
+	return out, err
+}
+
 func (c *Client) History(ctx context.Context, vault, name string) (out []svrpc.Entry, err error) {
 	err = c.conn.Call(ctx, svrpc.MItemHistory, svrpc.ItemRef{Vault: vault, Name: name}, &out)
 	return

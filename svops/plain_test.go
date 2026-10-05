@@ -49,6 +49,9 @@ func TestEveryPlanHasATitleAndASummary(t *testing.T) {
 		"host identity":              HostInitPlain(),
 		"host allow, a unit":         HostRulePlain(svrpc.HostRule{Unit: "app.service", Credential: "db", Ref: "sv://ops/db#password"}, true),
 		"host deny, a local service": HostRulePlain(svrpc.HostRule{User: "www", Program: "/usr/bin/app"}, false),
+		"move items": MovePlain(svrpc.MoveResult{Vault: "personal", To: "team", Items: []string{"pgp/a", "pgp/b"},
+			Readers: &svrpc.VaultReaders{People: []string{"alice"}, Sync: "sync.example.org"}}, false),
+		"copy an item": MovePlain(svrpc.MoveResult{Vault: "personal", To: "team", Items: []string{"pgp/a"}}, true),
 	}
 	for name, p := range plans {
 		if strings.TrimSpace(p.Title) == "" || strings.TrimSpace(p.Summary) == "" {
