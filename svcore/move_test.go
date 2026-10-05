@@ -131,6 +131,33 @@ func TestAConflictIsSettledBeforeAnItemMoves(t *testing.T) {
 	}
 }
 
+func TestWritableSaysWhetherWhatIsWrittenWouldCount(t *testing.T) {
+	cheapKDF(t)
+	store := svstore.NewMem()
+	a, _, err := Create(store, svcrypto.Modern, NewSlot{Type: svformat.SlotPassphrase, Passphrase: pass},
+		Options{Device: svformat.NewID(), Signer: NewDeviceKey()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.RegisterDevice("a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetPolicy(Policy{RequireSignatures: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Writable(); err != nil {
+		t.Fatalf("a registered device: %v", err)
+	}
+	u, _ := Open(store, Options{Device: svformat.NewID()})
+	if err := u.Writable(); !errors.Is(err, ErrLocked) {
+		t.Fatalf("locked: %v", err)
+	}
+	u.Unlock(Passphrase(pass))
+	if err := u.Writable(); !errors.Is(err, ErrSignatureRequired) {
+		t.Fatalf("an unregistered handle: %v", err)
+	}
+}
+
 func TestDeleteRevIsADeletionThatCanBeUndone(t *testing.T) {
 	v := newVault(t, svstore.NewMem(), svcrypto.Modern)
 	v.Put(login("a", "1"))

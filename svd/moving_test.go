@@ -86,8 +86,8 @@ func TestAProgramMovesItemsWithOneQuestionAndTheyCanBeBroughtBack(t *testing.T) 
 		t.Fatalf("%d questions", len(qs))
 	}
 	q := qs[0]
-	if q.Kind != svrpc.PromptChoose || q.Title != "comms-mail wants to move 2 items to vault mail" || ids(q.Choices) != "once,deny" ||
-		q.Choices[0].Label != "Move 2 items" || q.Choices[1].Label != "Don't move them" {
+	if q.Kind != svrpc.PromptChoose || q.Title != "comms-mail wants to move 2 items to vault mail" || ids(q.Choices) != "deny,once,deny" ||
+		q.Choices[1].Label != "Move 2 items" || q.Choices[0].Label != "Don't move them" || q.Choices[2].Label != "Cancel" {
 		t.Fatalf("the question: %+v", q)
 	}
 	for _, want := range []string{`from vault "personal" to vault "mail"`, `"pgp/a" and "pgp/b"`, "can be brought back from its deleted items",
@@ -184,8 +184,8 @@ func TestCopyByPrefixKeepsTheItemsAndEverythingIsAPrefixToo(t *testing.T) {
 		t.Fatalf("copy: %+v, %v", res, err)
 	}
 	q := h.desk.questions()[0]
-	if q.Title != "comms-mail wants to copy 3 items to vault mail" || q.Choices[0].Label != "Copy 3 items" || q.Choices[1].Label != "Don't copy them" ||
-		!strings.Contains(q.Description, `Vault "personal" keeps them as they are`) || len(q.Choices) != 2 {
+	if q.Title != "comms-mail wants to copy 3 items to vault mail" || q.Choices[1].Label != "Copy 3 items" || q.Choices[0].Label != "Don't copy them" ||
+		!strings.Contains(q.Description, `Vault "personal" keeps them as they are`) || len(q.Choices) != 3 {
 		t.Fatalf("the question: %+v", q)
 	}
 	if left, _ := cli.List(ctx(t), "personal", ""); len(left) != 4 {
@@ -201,10 +201,21 @@ func TestCopyByPrefixKeepsTheItemsAndEverythingIsAPrefixToo(t *testing.T) {
 		t.Fatalf("a copy said no to: %v", err)
 	}
 
-	// "" is every item; mail now has pgp/* already: a clash.
+	// "" is every item; mail now has pgp/* already: a clash. A program
+	// did not name what a prefix found, so it hears which names clash
+	// only once the person lets it move them; nothing is written.
+	h.desk.script("choose:" + svrpc.ChoiceDeny)
+	res, err = mail.MoveItems(ctx(t), svrpc.MoveParams{To: "mail", Prefix: svrpc.PrefixOf("")})
+	if !errors.Is(err, svrpc.ErrDenied) || len(res.Clashes) != 0 || strings.Contains(err.Error(), "pgp/") {
+		t.Fatalf("everything, with a clash, refused: %+v, %v", res, err)
+	}
+	h.desk.script("choose:" + svrpc.ChoiceOnce)
 	res, err = mail.MoveItems(ctx(t), svrpc.MoveParams{To: "mail", Prefix: svrpc.PrefixOf("")})
 	if !errors.Is(err, svrpc.ErrExists) || !slices.Equal(res.Clashes, []string{"pgp/a", "pgp/b", "pgp/c"}) {
 		t.Fatalf("everything, with a clash: %+v, %v", res, err)
+	}
+	if left, _ := cli.List(ctx(t), "personal", ""); len(left) != 4 {
+		t.Fatalf("personal has %v", names(left))
 	}
 	// And in a vault of its own, everything goes.
 	if _, err := cli.CreateVault(ctx(t), svrpc.VaultCreateParams{Name: "empty", Passphrase: pass}); err != nil {
@@ -471,7 +482,7 @@ func TestMovingIntoASharedOrSyncedVaultSaysWhoElseReadsIt(t *testing.T) {
 	h.desk.script("choose:" + svrpc.ChoiceDeny)
 	mail.MoveItems(ctx(t), svrpc.MoveParams{To: "mail", Names: []string{"pgp/a"}})
 	q := h.desk.questions()[0].Description
-	for _, want := range []string{`Vault mail is not yours alone`, `"alice" open it with keys of their own`, `"the laptop" have used it`,
+	for _, want := range []string{`Vault mail is not yours alone`, `"alice" opens it with a key of their own`, `the device "the laptop" has used it`,
 		"syncs through sync.example.org", "All of them will be able to read the items there."} {
 		if !strings.Contains(q, want) {
 			t.Errorf("the question does not say %q:\n%s", want, q)
@@ -486,6 +497,28 @@ func TestMovingIntoASharedOrSyncedVaultSaysWhoElseReadsIt(t *testing.T) {
 	}
 	if left, _ := cli.List(ctx(t), "personal", ""); len(left) != 4 {
 		t.Fatal("a plan moved something")
+	}
+}
+
+func TestAProgramThatReadsTheVaultIsToldItWillReadTheItems(t *testing.T) {
+	h, _, _ := moveSetup(t)
+	prog := &svpeer.Process{PID: 4242, Exe: "/usr/bin/comms-mail", SystemOwned: true}
+	other := &svpeer.Process{Exe: "/usr/bin/backup", SystemOwned: true}
+	mv := h.d.vaults["mail"].v
+	h.d.broker.Remember(mv, svbroker.Grant{Identity: prog.Identity(), Program: prog.Display(), Ops: []svbroker.Op{svbroker.OpRead}, Decision: svbroker.AllowAlways})
+	h.d.broker.Remember(mv, svbroker.Grant{Identity: other.Identity(), Program: other.Display(), Ops: []svbroker.Op{svbroker.OpDecrypt}, Decision: svbroker.AllowUntilLock})
+	mail := h.connect("/usr/bin/comms-mail", nil)
+	h.desk.script("choose:" + svrpc.ChoiceDeny)
+	mail.MoveItems(ctx(t), svrpc.MoveParams{To: "mail", Names: []string{"pgp/a"}})
+	q := h.desk.questions()[0].Description
+	for _, want := range []string{`You let comms-mail read everything in vault "mail", so it will be able to read them there, private keys included.`,
+		`the program "` + other.Display() + `" may read everything in it`} {
+		if !strings.Contains(q, want) {
+			t.Errorf("the question does not say %q:\n%s", want, q)
+		}
+	}
+	if strings.Contains(q, "does not see what is in them") || strings.Contains(q, `"comms-mail (`) {
+		t.Errorf("the question:\n%s", q)
 	}
 }
 

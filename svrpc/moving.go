@@ -47,11 +47,22 @@ type VaultReaders struct {
 	// Sync is the server it syncs through (its host), with every device
 	// that joins it; "" when it does not.
 	Sync string `json:"sync,omitempty"`
+
+	// Programs are the programs the person allowed to read (or sign or
+	// decrypt with) everything in it, for good or until it locks: they
+	// can read what is put there too.
+	Programs []string `json:"programs,omitempty"`
+
+	// Unknown is set when secretvault could not tell (the vault locked
+	// meanwhile, say): others may read it.
+	Unknown bool `json:"unknown,omitempty"`
 }
 
-// Anyone reports whether anyone besides the person reads the vault.
+// Anyone reports whether anyone besides the person reads the vault, or
+// may.
 func (r *VaultReaders) Anyone() bool {
-	return r != nil && (len(r.People) > 0 || len(r.Trustees) > 0 || len(r.Devices) > 0 || r.Sync != "")
+	return r != nil && (len(r.People) > 0 || len(r.Trustees) > 0 || len(r.Devices) > 0 || r.Sync != "" ||
+		len(r.Programs) > 0 || r.Unknown)
 }
 
 // PrefixOf is a MoveParams.Prefix: PrefixOf("") is every item.

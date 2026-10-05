@@ -26,12 +26,26 @@ func ItemsPhrase(names []string) string {
 	}
 	quoted := make([]string, 0, len(shown)+1)
 	for _, n := range shown {
-		quoted = append(quoted, fmt.Sprintf("%q", n))
+		quoted = append(quoted, fmt.Sprintf("%q", clipName(n)))
 	}
 	if more := len(names) - len(shown); more > 0 {
 		quoted = append(quoted, fmt.Sprintf("%d more", more))
 	}
 	return andList(quoted)
+}
+
+// NameShown is the most characters of an item's name a sentence shows:
+// a name can be a kilobyte long, and would push what follows it out of
+// a prompt's window.
+const NameShown = 60
+
+// clipName is name, cut to NameShown characters with "…".
+func clipName(name string) string {
+	r := []rune(name)
+	if len(r) <= NameShown {
+		return name
+	}
+	return string(r[:NameShown-1]) + "…"
 }
 
 // namesOf names some of who in a sentence, those without a name as one of
@@ -68,20 +82,41 @@ func ReadersText(vault string, r *svrpc.VaultReaders) string {
 		return ""
 	}
 	var who []string
-	if len(r.People) > 0 {
-		who = append(who, namesOf(r.People, "a person or device without a name", "people or devices without a name")+
-			" open it with keys of their own")
+	switch people := namesOf(r.People, "a person or device without a name", "people or devices without a name"); len(r.People) {
+	case 0:
+	case 1:
+		who = append(who, people+" opens it with a key of their own")
+	default:
+		who = append(who, people+" open it with keys of their own")
 	}
 	if len(r.Trustees) > 0 {
 		who = append(who, namesOf(r.Trustees, "someone", "others")+" can get it through emergency access")
 	}
-	if len(r.Devices) > 0 {
-		who = append(who, "the devices "+namesOf(r.Devices, "one without a name", "without a name")+" have used it")
+	switch devices := namesOf(r.Devices, "one without a name", "others without a name"); len(r.Devices) {
+	case 0:
+	case 1:
+		who = append(who, "the device "+devices+" has used it")
+	default:
+		who = append(who, "the devices "+devices+" have used it")
 	}
 	if r.Sync != "" {
 		who = append(who, "it syncs through "+r.Sync+" with every device that joins it")
 	}
-	return fmt.Sprintf("Vault %s is not yours alone: %s. All of them will be able to read the items there.", vault, andList(who))
+	switch programs := namesOf(r.Programs, "a program", "other programs"); len(r.Programs) {
+	case 0:
+	case 1:
+		who = append(who, "the program "+programs+" may read everything in it")
+	default:
+		who = append(who, "the programs "+programs+" may read everything in it")
+	}
+	if len(who) == 0 {
+		return fmt.Sprintf("secretvault could not tell who else reads vault %s: others may be able to read the items there.", vault)
+	}
+	s := fmt.Sprintf("Vault %s is not yours alone: %s. All of them will be able to read the items there.", vault, andList(who))
+	if r.Unknown {
+		s += " There may be others: secretvault could not tell."
+	}
+	return s
 }
 
 // MovePlain asks before the items of plan (a MoveParams.Plan reply) go to

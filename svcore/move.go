@@ -189,6 +189,21 @@ func (v *Vault) dropBlobsLocked(ids []svformat.ID) {
 	}
 }
 
+// Writable says whether what this handle writes to items would count:
+// not in a vault that requires signed revisions, where this device is not
+// registered (ErrSignatureRequired), nor in a locked one.
+func (v *Vault) Writable() error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.masters == nil {
+		return ErrLocked
+	}
+	if v.idx.policy.RequireSignatures && !v.canSign(svformat.NewID(), payload{Type: payloadItem}) {
+		return fmt.Errorf("%w, and this device is not registered in it", ErrSignatureRequired)
+	}
+	return nil
+}
+
 // DeleteRev deletes the live item id, as Delete does, if its current
 // revision is still rev and it has no competing versions; else it fails
 // with ErrChanged (or ErrConflict), and nothing is written. It is how an
