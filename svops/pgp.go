@@ -39,7 +39,7 @@ func PGPKeyEntries(entries []svrpc.Entry) []svrpc.Entry {
 }
 
 // PGPImportItem reads one secret key (data, from source) into the item to
-// store it as: item, or pgp/ADDRESS by default. A key protected by a
+// store it as: item, or one named for its address by default. A key protected by a
 // passphrase is unlocked with what passphrase gives, which the item keeps
 // beside it. It returns the key's fingerprint too. The caller wipes the
 // item.
@@ -85,7 +85,7 @@ func PGPImportItem(data []byte, source, item string, passphrase func() ([]byte, 
 		if addr == "" {
 			addr = fp
 		}
-		name = svrpc.PGPItemPrefix + addr
+		name = PathSafe(addr)
 	}
 	if err := svcore.CheckName(name); err != nil {
 		clear(pass)
@@ -105,14 +105,21 @@ func PGPImportItem(data []byte, source, item string, passphrase func() ([]byte, 
 }
 
 // StorePGPKey stores an item PGPImportItem made, which must be new: a key
-// is never replaced.
-func StorePGPKey(ctx context.Context, cl *secretvault.Client, vault string, it svrpc.Item) error {
-	if found, _, err := FindItem(ctx, cl, vault, it.Name); err != nil {
+// is never replaced. One it named for its address (named false) goes
+// beside an item of that name, as "(OpenPGP)" or numbered: it.Name says
+// where it went.
+func StorePGPKey(ctx context.Context, cl *secretvault.Client, vault string, it *svrpc.Item, named bool) error {
+	taken, err := TakenNames(ctx, cl, vault)
+	if err != nil {
 		return err
-	} else if found {
+	}
+	switch {
+	case !named:
+		it.Name = UniqueName(taken, it.Name, "OpenPGP")
+	case taken[it.Name]:
 		return fmt.Errorf("%s already exists; pick another name with --item (%w)", it.Name, ErrKeyExists)
 	}
-	_, err := cl.Put(ctx, vault, it)
+	_, err = cl.Put(ctx, vault, *it)
 	return err
 }
 

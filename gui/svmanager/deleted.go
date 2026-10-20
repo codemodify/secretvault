@@ -20,6 +20,7 @@ func (m *Manager) showDeleted() {
 	if vault == "" || m.gone {
 		return
 	}
+	m.showSection(secVaults)
 	var del []svrpc.DeletedItem
 	m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 		del, err = c.Deleted(ctx, vault, "")
@@ -39,7 +40,7 @@ func (m *Manager) showDeleted() {
 			case 0:
 				return d.Name
 			case 1:
-				return d.Kind
+				return svops.KindText(d.Kind)
 			}
 			return d.Deleted.Local().Format("2006-01-02 15:04")
 		})
@@ -48,7 +49,7 @@ func (m *Manager) showDeleted() {
 			note = "Nothing has been deleted from vault " + vault + "."
 		}
 		var d *dialog
-		restore := widgets.NewButton(svops.RestoreDeletedAction, nil)
+		restore := newButton(svops.RestoreDeletedAction, nil)
 		restore.SetEnabled(len(del) > 0)
 		restore.OnClick = func() {
 			i := selected(t)
@@ -74,7 +75,7 @@ func (m *Manager) showDeleted() {
 			})
 		}
 		t.OnActivate = func(int) { restore.OnClick() }
-		close := widgets.NewButton("Close", func() { d.Close() })
+		close := newButton("Close", func() { d.Close() })
 		body := widgets.NewColumn(m.paragraph(note), widgets.NewHeightBox(260, t)).WithGap(gap)
 		d = m.showDialog("Deleted items", body, widgets.NewButtonBox().AddButton(restore, widgets.RoleAction).AddButton(close, widgets.RoleReject), t, nil)
 	})

@@ -26,7 +26,7 @@ func TestVaultWordsArePlain(t *testing.T) {
 
 	res := svrpc.RotateResult{Epoch: 7, Slots: []svrpc.SlotInfo{{ID: "s1", Type: svformat.SlotPassphrase}},
 		Dropped: []svrpc.SlotInfo{{ID: "s2", Type: svformat.SlotFIDO2, Label: "desk"}}}
-	if s := RotateDone("work", res, 0); strings.Contains(s, "epoch") || !strings.Contains(s, "1 keyslot no longer opens it") {
+	if s := RotateDone("work", res, 0); strings.Contains(s, "epoch") || !strings.Contains(s, "1 way to unlock no longer opens it") {
 		t.Errorf("RotateDone: %q", s)
 	}
 	if d := strings.Join(RotateDetails(res), "\n"); !strings.Contains(d, "Key epoch: 7") || !strings.Contains(d, "desk (security key)") {

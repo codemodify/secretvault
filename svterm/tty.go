@@ -153,6 +153,17 @@ func Secret(prompt string) ([]byte, error) {
 	return t.ReadSecret(prompt)
 }
 
+// Line asks a question on the controlling terminal, the answer shown as
+// it is typed.
+func Line(prompt string) (string, error) {
+	t, err := OpenTerminal("")
+	if err != nil {
+		return "", err
+	}
+	defer t.Close()
+	return t.ReadLine(prompt)
+}
+
 // NewSecret asks for a new secret twice on the controlling terminal.
 func NewSecret(prompt string, min int) ([]byte, error) {
 	t, err := OpenTerminal("")

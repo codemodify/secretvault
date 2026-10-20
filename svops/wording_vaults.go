@@ -126,9 +126,10 @@ func VerifyStatus(vault string, ok bool) string {
 	return "Vault " + vault + " needs attention."
 }
 
-// KeyslotsNote explains keyslots where they are listed.
-const KeyslotsNote = "A keyslot is one way to open the vault: a passphrase, a recovery key, a keyfile, " +
-	"a security key, or a person's or device's key. Each opens it on its own."
+// KeyslotsNote explains keyslots, the ways to unlock a vault, where they
+// are listed.
+const KeyslotsNote = "Each of these unlocks the vault on its own: a passphrase, a recovery key, a keyfile, " +
+	"a security key, or a person's or device's key."
 
 // SlotTypeName names a keyslot's type for people.
 func SlotTypeName(typ string) string {
@@ -191,7 +192,7 @@ func SlotAddAction(typ string) string {
 }
 
 // AddSlotTitle heads adding a keyslot to vault.
-func AddSlotTitle(vault string) string { return "Add a way to open " + vault }
+func AddSlotTitle(vault string) string { return "Add a way to unlock " + vault }
 
 // What adding each kind of keyslot says.
 const (
@@ -218,8 +219,8 @@ func SlotAdded(vault string, s svrpc.SlotInfo) string {
 
 // Removing a keyslot.
 const (
-	RemoveSlotTitle  = "Remove this keyslot?"
-	RemoveSlotAction = "Remove the keyslot"
+	RemoveSlotTitle  = "Remove this way to unlock?"
+	RemoveSlotAction = "Remove the way to unlock"
 )
 
 // RemoveSlotText says what removing s from vault does; the face adds
@@ -293,7 +294,7 @@ func RotateDone(vault string, res svrpc.RotateResult, cut int) string {
 		s += fmt.Sprintf(" The %d cut off can no longer open it.", cut)
 	}
 	if len(res.Dropped) > 0 {
-		s += " " + SentenceStart(countOf(len(res.Dropped), "keyslot", "keyslots")) + " no longer " + opens(len(res.Dropped)) +
+		s += " " + SentenceStart(countOf(len(res.Dropped), "way to unlock", "ways to unlock")) + " no longer " + opens(len(res.Dropped)) +
 			" it; the details say which, to add again if you want them."
 	}
 	return s
@@ -318,7 +319,7 @@ func RotateDetails(res svrpc.RotateResult) []string {
 		out = append(out, "  "+s.ID+"  "+label)
 	}
 	if len(res.Dropped) > 0 {
-		out = append(out, "No longer opening it (add them again as keyslots, or grant emergency access again):")
+		out = append(out, "No longer opening it (add them again under Ways to unlock, or grant emergency access again):")
 		for _, s := range res.Dropped {
 			out = append(out, fmt.Sprintf("  %s  %s (%s)", s.ID, s.Label, SlotTypeName(s.Type)))
 		}

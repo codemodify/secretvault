@@ -29,7 +29,7 @@ import (
 // The helpers are this program under another name (a symlink, so the
 // daemon still knows it as secretvault's own CLI). A reference names a
 // vault ("-" for the default one), an item, and optionally a field (the
-// item's secret when left out): sv://-/web/github.com#username. What a
+// item's secret when left out): sv://-/github.com#username. What a
 // reference resolves to, the items the helpers keep, and env files and
 // templates are svops' (refs.go, helpers.go).
 
@@ -221,7 +221,7 @@ func (c *cli) cmdGitCredential(args []string) error {
 	defer cancel()
 	switch args[0] {
 	case "get":
-		entries, err := cl.List(ctx, c.vault, "git/")
+		entries, err := cl.List(ctx, c.vault, "")
 		if err != nil {
 			return err
 		}
@@ -247,10 +247,28 @@ func (c *cli) cmdGitCredential(args []string) error {
 		if kv["host"] == "" || kv["password"] == "" {
 			return nil
 		}
-		_, err := cl.Put(ctx, c.vault, svops.GitItem(kv))
+		// The same login again replaces itself; a new one goes beside
+		// what is there.
+		entries, err := cl.List(ctx, c.vault, "")
+		if err != nil {
+			return err
+		}
+		it := svops.GitItem(kv)
+		taken := map[string]bool{}
+		for _, e := range entries {
+			taken[e.Item.Name] = true
+			if svops.GitSame(&e.Item, kv) {
+				it.Name, taken = e.Item.Name, nil
+				break
+			}
+		}
+		if taken != nil {
+			it.Name = svops.UniqueName(taken, it.Name, "git")
+		}
+		_, err = cl.Put(ctx, c.vault, it)
 		return err
 	case "erase":
-		entries, err := cl.List(ctx, c.vault, "git/")
+		entries, err := cl.List(ctx, c.vault, "")
 		if err != nil {
 			return err
 		}
@@ -295,8 +313,7 @@ func (c *cli) cmdDockerCredential(args []string) error {
 	switch args[0] {
 	case "get":
 		server, _ := io.ReadAll(c.stdin)
-		name := svops.DockerItemName(strings.TrimSpace(string(server)))
-		e, err := cl.Get(ctx, c.vault, name)
+		e, err := dockerLogin(ctx, cl, c.vault, string(server))
 		if err != nil {
 			// Docker's protocol has one answer for "nothing stored",
 			// which lets it go on without a login; a missing vault gets
@@ -320,13 +337,36 @@ func (c *cli) cmdDockerCredential(args []string) error {
 		if err := json.NewDecoder(c.stdin).Decode(&in); err != nil {
 			return err
 		}
-		_, err := cl.Put(ctx, c.vault, svops.DockerItem(in.ServerURL, in.Username, in.Secret))
+		// A registry's login replaces itself; a new one goes beside what
+		// is there.
+		entries, err := cl.List(ctx, c.vault, "")
+		if err != nil {
+			return err
+		}
+		it := svops.DockerItem(in.ServerURL, in.Username, in.Secret)
+		taken := map[string]bool{}
+		for _, e := range entries {
+			taken[e.Item.Name] = true
+			if svops.DockerMatches(&e.Item, in.ServerURL) {
+				it.Name, taken = e.Item.Name, nil
+				break
+			}
+		}
+		if taken != nil {
+			it.Name = svops.UniqueName(taken, it.Name, "docker")
+		}
+		_, err = cl.Put(ctx, c.vault, it)
 		return err
 	case "erase":
 		server, _ := io.ReadAll(c.stdin)
-		return cl.Delete(ctx, c.vault, svops.DockerItemName(strings.TrimSpace(string(server))))
+		e, err := dockerLogin(ctx, cl, c.vault, string(server))
+		if err != nil {
+			return err
+		}
+		defer svops.Wipe(&e.Item)
+		return cl.Delete(ctx, c.vault, e.Item.Name)
 	case "list":
-		entries, err := cl.List(ctx, c.vault, "docker/")
+		entries, err := cl.List(ctx, c.vault, "")
 		if err != nil {
 			return err
 		}
@@ -350,3 +390,18 @@ func (c *cli) cmdDockerCredential(args []string) error {
 
 // helperName is the command a program name stands for.
 func helperName(argv0 string) string { return svops.HelperName(argv0) }
+
+// dockerLogin is the login docker's helper keeps for server, whatever it
+// is named, with its secrets: svrpc.ErrNotFound when there is none.
+func dockerLogin(ctx context.Context, cl *secretvault.Client, vault, server string) (svrpc.Entry, error) {
+	entries, err := cl.List(ctx, vault, "")
+	if err != nil {
+		return svrpc.Entry{}, err
+	}
+	for _, e := range entries {
+		if svops.DockerMatches(&e.Item, server) {
+			return cl.Get(ctx, vault, e.Item.Name)
+		}
+	}
+	return svrpc.Entry{}, fmt.Errorf("%w: no login for %s", svrpc.ErrNotFound, strings.TrimSpace(server))
+}

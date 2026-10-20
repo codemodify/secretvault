@@ -61,11 +61,16 @@ func (m *Manager) newItemView(e *svrpc.Entry, mode viewMode, keys map[int]*svotp
 	col := widgets.NewColumn().WithGap(gap)
 
 	if mode != viewRevision {
-		title := heading(e.Item.Name)
-		title.SetAccessibleName("Item")
+		// As the list shows it; its whole name, which references and the
+		// CLI use, under it when that is longer.
+		shown := m.shownName(e.Item.Name)
+		title := newDisplayHeading(shown)
 		col.Add(title)
+		if shown != e.Item.Name {
+			col.Add(m.muted("Full name: " + e.Item.Name))
+		}
 	}
-	sub := e.Item.Kind
+	sub := svops.KindText(e.Item.Kind)
 	if e.Item.Label != "" {
 		sub += " · " + e.Item.Label
 	}
@@ -90,28 +95,32 @@ func (m *Manager) newItemView(e *svrpc.Entry, mode viewMode, keys map[int]*svotp
 		actions := widgets.NewWrap()
 		if mode == viewOpen {
 			if _, ok := secretField(&e.Item); ok {
-				cp := widgets.NewButton("Copy password", m.copySecret)
+				cp := newButton("Copy password", m.copySecret)
 				cp.Primary = true
 				cp.Tip = "Ctrl+C; it clears from the clipboard by itself"
 				actions.Add(cp)
 			}
 		} else {
-			o := widgets.NewButton("Open", m.openSelected)
+			o := newButton("Open", m.openSelected)
 			o.Primary = true
 			o.Tip = "Enter"
 			actions.Add(o)
 		}
 		if !svops.IsPasskey(&e.Item) {
-			actions.Add(tip(widgets.NewButton("Edit", m.editItem), "Ctrl+E"))
+			actions.Add(tip(newButton("Edit", m.editItem), "Ctrl+E"))
 		}
-		actions.Add(tip(widgets.NewButton("History", m.showHistory), "Ctrl+H"))
+		actions.Add(tip(newButton("History", m.showHistory), "Ctrl+H"))
 		if !svops.IsPasskey(&e.Item) {
-			actions.Add(tip(widgets.NewButton("Copy reference…", m.copyReference), "Names this secret for scripts and settings files, without holding it"))
+			actions.Add(tip(newButton("Copy reference…", m.copyReference), "Names this secret for scripts and settings files, without holding it"))
 		}
-		actions.Add(tip(widgets.NewButton("Rename…", m.renameItem), "F2"))
-		actions.Add(tip(widgets.NewButton("Move to vault…", func() { m.moveItem(false) }), "Shows what would go before anything moves"))
-		actions.Add(tip(widgets.NewButton("Copy to vault…", func() { m.moveItem(true) }), "Shows what would go before anything is copied"))
-		actions.Add(tip(widgets.NewButton("Delete…", m.deleteItem), "Delete"))
+		actions.Add(tip(newButton("Rename…", m.renameItem), "F2"))
+		actions.Add(tip(newButton("Move to vault…", func() { m.moveItem(false) }), "Shows what would go before anything moves"))
+		actions.Add(tip(newButton("Copy to vault…", func() { m.moveItem(true) }), "Shows what would go before anything is copied"))
+		actions.Add(tip(newButton("Delete…", m.deleteItem), "Delete"))
+		if e.Item.Kind == "container" {
+			vault, name := m.vault, e.Item.Name
+			actions.Add(tip(newButton("Show the disk", func() { m.showDiskOf(vault, name) }), "The disk this is the key of, in the Disk tab"))
+		}
 		col.Add(actions)
 	}
 
@@ -179,10 +188,10 @@ func tip(b *widgets.Button, s string) *widgets.Button {
 	return b
 }
 
-// section is a heading inside a page: a muted, spaced-out label over a
-// rule.
+// section is a heading inside a page: a spaced-out label in the accent,
+// as the look's small headings are, over a rule.
 func section(m *Manager, title string) widget.Component {
-	return widgets.NewColumn(m.muted(strings.ToUpper(title)), widgets.NewSeparator()).WithGap(4).WithPadding(0, 8, 0, 0)
+	return widgets.NewColumn(toned(strings.ToUpper(title), widgets.ToneAccent), widgets.NewSeparator()).WithGap(4).WithPadding(0, 8, 0, 0)
 }
 
 // fieldGrid lays the item's fields out: name, value, and what can be done
@@ -204,14 +213,14 @@ func (v *itemView) fieldGrid() widget.Component {
 		switch f.Type {
 		case svcore.FieldConcealed, svcore.FieldKey:
 			buttons.Add(v.secretCell(g, row, i, f, false))
-			buttons.Add(widgets.NewButton("Copy", func() { v.copyField(i) }))
+			buttons.Add(newButton("Copy", func() { v.copyField(i) }))
 		case svcore.FieldOTP:
 			if k := v.keys[i]; k != nil && v.mode == viewOpen {
 				cr := &codeRow{key: k, text: newCodeText(), bar: widgets.NewProgressBar(0), left: m.muted("")}
 				cr.text.SetAccessibleName(f.Name)
 				v.codes[i] = cr
 				g.Place(widgets.NewRow(cr.text, cr.bar, cr.left).WithGap(gap).WithAlign(layout.AlignCenter), row, 1)
-				buttons.Add(tip(widgets.NewButton("Copy", m.copyCode), "Ctrl+T"))
+				buttons.Add(tip(newButton("Copy", m.copyCode), "Ctrl+T"))
 				g.Place(buttons, row, 2)
 				// The key itself stays hidden, and can be shown like any
 				// other secret, a row down.
@@ -233,7 +242,7 @@ func (v *itemView) fieldGrid() widget.Component {
 			val.Wrap = true
 			g.Place(val, row, 1)
 			if len(f.Value) > 0 {
-				buttons.Add(widgets.NewButton("Copy", func() { v.copyField(i) }))
+				buttons.Add(newButton("Copy", func() { v.copyField(i) }))
 			}
 		}
 		g.Place(buttons, row, 2)
@@ -253,7 +262,7 @@ func (v *itemView) secretCell(g *widgets.Grid, row, i int, f svrpc.Field, key bo
 	}
 	text.SetAccessibleName(name)
 	sr := &secretRow{text: text, key: key}
-	sr.show = widgets.NewButton(showLabel(false, key), func() { v.toggle(i) })
+	sr.show = newButton(showLabel(false, key), func() { v.toggle(i) })
 	sr.show.Tip = "Show or hide it (Ctrl+R: all of them)"
 	v.secrets[i] = sr
 	g.Place(text, row, 1)
@@ -295,13 +304,13 @@ func (v *itemView) fileList() widget.Component {
 			g.Place(widgets.NewLabel(f.Name), i, 0)
 			g.Place(m.muted(size(f.Size)), i, 1)
 			g.Place(widgets.NewRow(
-				widgets.NewButton("Save…", func() { m.saveFile(v.e.Item.Name, f.Name) }),
-				widgets.NewButton("Remove…", func() { m.removeFile(v.e.Item.Name, f.Name) }),
+				newButton("Save…", func() { m.saveFile(v.e.Item.Name, f.Name) }),
+				newButton("Remove…", func() { m.removeFile(v.e.Item.Name, f.Name) }),
 			).WithGap(4), i, 2)
 		}
 		col.Add(g)
 	}
-	add := widgets.NewButton("Add file…", func() { m.attachFile(v.e.Item.Name) })
+	add := newButton("Add file…", func() { m.attachFile(v.e.Item.Name) })
 	col.Add(widgets.NewRow(add))
 	return col
 }

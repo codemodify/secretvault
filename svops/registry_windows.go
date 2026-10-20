@@ -47,3 +47,14 @@ func deleteRegistryKey(key string) error {
 	}
 	return err
 }
+
+// registryHasValue reports whether a key has a value of that name.
+func registryHasValue(key, name string) bool {
+	k, err := registry.OpenKey(registry.CURRENT_USER, key, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer k.Close()
+	_, _, err = k.GetValue(name, nil)
+	return err == nil
+}

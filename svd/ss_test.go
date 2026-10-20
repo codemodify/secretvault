@@ -102,7 +102,7 @@ func TestSecretToolStoresAndReadsBackWithOneConsent(t *testing.T) {
 	term := &scripted{}
 	term.script("pass:" + string(pass))
 	cli := h.connect("/usr/bin/secretvault", term)
-	e, err := cli.Get(ctx(t), "", "keyring/Test login")
+	e, err := cli.Get(ctx(t), "", "Test login")
 	if err != nil || secretField(e) != "s3cr3t-pa55" || e.Item.Attrs["service"] != "myapp" {
 		t.Fatalf("the item as the CLI sees it: %+v, %v", e, err)
 	}
@@ -110,7 +110,7 @@ func TestSecretToolStoresAndReadsBackWithOneConsent(t *testing.T) {
 	if out, err := run(t, "", st, "clear", "service", "myapp", "username", "alice"); err != nil {
 		t.Fatalf("secret-tool clear: %v\n%s", err, out)
 	}
-	if _, err := cli.Get(ctx(t), "", "keyring/Test login"); !errors.Is(err, svrpc.ErrNotFound) {
+	if _, err := cli.Get(ctx(t), "", "Test login"); !errors.Is(err, svrpc.ErrNotFound) {
 		t.Fatalf("after clear: %v", err)
 	}
 }

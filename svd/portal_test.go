@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svdbus"
 	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svrpc"
@@ -88,4 +89,38 @@ func TestOnlyThePortalMayAskForAnAppsSecret(t *testing.T) {
 	if h.desk.count() != 0 {
 		t.Fatal("refusing asked the desktop anyway")
 	}
+}
+
+// An app's key is named for the app, and found by its attribute whatever
+// it is named: one an earlier version kept as flatpak/APP still opens.
+func TestAnAppsKeyIsFoundByItsAttribute(t *testing.T) {
+	h := newSSHarness(t)
+	h.d.opts.IsPortal = func(*svpeer.Process) bool { return true }
+	mv, err := h.d.vault("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := bytes.Repeat([]byte{7}, 64)
+	if _, err := mv.v.Put(svcore.Item{Kind: "key", Name: "flatpak/org.example.Old", Attrs: map[string]string{flatpakApp: "org.example.Old"},
+		Fields: []svcore.Field{{Name: "key", Type: svcore.FieldConcealed, Value: old}}}); err != nil {
+		t.Fatal(err)
+	}
+	// An item that has the new app's name already is left alone.
+	if _, err := mv.v.Put(svcore.Item{Kind: "note", Name: "org.example.Mail", Fields: []svcore.Field{{Name: "notes", Type: svcore.FieldText, Value: []byte("mine")}}}); err != nil {
+		t.Fatal(err)
+	}
+	h.desk.script("choose:"+svrpc.ChoiceOnce, "choose:"+svrpc.ChoiceOnce)
+	if resp, got, err := askPortal(t, h, "org.example.Old"); err != nil || resp != portalOK || !bytes.Equal(got, old) {
+		t.Fatalf("the old app's key: %d, %v", resp, err)
+	}
+	if resp, got, err := askPortal(t, h, "org.example.Mail"); err != nil || resp != portalOK || len(got) != 64 {
+		t.Fatalf("a new app's key: %d, %d bytes, %v", resp, len(got), err)
+	}
+	if e, err := mv.v.Get("org.example.Mail (Flatpak)"); err != nil || e.Item.Attrs[flatpakApp] != "org.example.Mail" {
+		t.Fatalf("the new key's item: %+v, %v", e.Item, err)
+	}
+	if e, _ := mv.v.Get("org.example.Mail"); e.Item.Kind != "note" {
+		t.Fatalf("the item of the app's name became %+v", e.Item)
+	}
+	h.desk.done(t)
 }

@@ -39,7 +39,7 @@ func TestDevicesAreNamedAndSignaturesRequired(t *testing.T) {
 	}
 
 	h.prove()
-	signed := find(h.m.ui.main, func(c *widgets.Checkbox) bool { return c.Text == "Count only signed changes" })
+	signed := find(h.area(), func(c *widgets.Checkbox) bool { return c.Text == "Count only signed changes" })
 	h.win().ClickComponent(signed)
 	h.said("counts only changes signed")
 	if pol, err := h.admin.Signatures(h.ctx(), "", nil); err != nil || !pol.Require {
@@ -67,7 +67,7 @@ func TestTheVaultsSettings(t *testing.T) {
 			t.Errorf("the settings lack %q", want)
 		}
 	}
-	login := find(h.m.ui.main, func(c *widgets.Checkbox) bool { return c.Text == "Open when I log in" })
+	login := find(h.area(), func(c *widgets.Checkbox) bool { return c.Text == "Open when I log in" })
 	h.win().ClickComponent(login)
 	h.waitText("Open vault personal when you log in?")
 	h.press("Open it at login")
@@ -90,7 +90,7 @@ func TestTheVaultsSettings(t *testing.T) {
 		t.Fatal("the folder went with it")
 	}
 
-	// File › Add an existing vault… brings it back.
+	// Vault › Add an existing vault… brings it back.
 	h.m.addVaultFolder()
 	h.pump()
 	h.fill("Its folder", path)
@@ -122,7 +122,10 @@ func TestAboutSaysWhatTheDaemonSays(t *testing.T) {
 	h.start(Options{})
 	h.waitText("Vault personal is locked")
 	h.m.showAbout()
-	h.waitText("About secretvault")
+	if h.m.section() != secSettings || h.m.spage.selected() != tabSetAbout {
+		t.Fatalf("About is not shown in Settings: part %d", h.m.section())
+	}
+	h.waitText("secretvault-gui 0.")
 	for _, want := range []string{"secretvault-gui 0.", "process", filepath.Join(h.dir, "home"), "personal", "locked"} {
 		if !strings.Contains(h.text(), want) {
 			t.Errorf("About lacks %q:\n%s", want, h.text())
@@ -325,11 +328,11 @@ func TestEmergencyAccessBothSides(t *testing.T) {
 	trustee.press("Ask for access")
 	trustee.said("Asked.")
 
-	// The owner is told, in the status bar.
-	owner.waitFor("the request in the status bar", func() bool {
+	// The owner is told, in a note that stays while the request does.
+	owner.waitFor("the request in a note", func() bool {
 		owner.m.loadEmergency()
 		owner.idle()
-		return strings.Contains(owner.m.ui.status.Parts()[0], "asked for emergency access to personal")
+		return strings.Contains(owner.m.ui.notes.stay, "asked for emergency access to personal")
 	})
 	owner.m.vpage.panes[tabSharing].refresh()
 	owner.idle()
@@ -339,8 +342,10 @@ func TestEmergencyAccessBothSides(t *testing.T) {
 
 	trustee.m.requestEmergency()
 	trustee.waitText("Ask for emergency access")
+	trustee.m.ui.message = "" // the first request's
 	trustee.press("Ask for access")
 	trustee.said("Asked.")
+	trustee.waitFor("the request's dialog to go", func() bool { return trustee.m.topDialog() == nil })
 	clock.add(49 * time.Hour)
 	trustee.m.openEmergency()
 	trustee.waitText("Open a vault by emergency access")

@@ -31,7 +31,7 @@ import (
 // page asks is the origin the extension names: the extension is the
 // browser's, and the browser started the host for it alone (its manifest's
 // allowed_extensions), so the origin is the browser's word. Every prompt
-// and audit entry names both: "firefox wants the login "web/github.com"
+// and audit entry names both: "firefox wants the login "github.com"
 // for https://github.com, through the secretvault extension".
 //
 //   - Listing the logins that fit a page (titles and user names, no
@@ -52,9 +52,6 @@ func init() {
 	registerMethod(svrpc.MBrowserOpen, (*Daemon).browserOpen)
 	registerMethod(svrpc.MBrowserMessage, (*Daemon).browserMessage)
 }
-
-// defaultFolder is where a login the extension saves goes.
-const defaultFolder = "web"
 
 func (d *Daemon) browserOpen(ctx context.Context, cl *client, decode func(any) error) (any, error) {
 	var p svrpc.BrowserOpenParams
@@ -480,7 +477,7 @@ func (b *extSession) Save(ctx context.Context, vault string, o svext.Origin, s s
 	if s.Login != "" {
 		return b.update(ctx, mv, o, s)
 	}
-	name := freeName(mv, defaultFolder, o.Host, s.Username)
+	name := freeName(mv, o.Host, s.Username)
 	why := fmt.Sprintf("%s wants to save a new login %q for %s%s", b.app.display(), name, o, through)
 	if err := b.decide(ctx, mv, "", name, svbroker.OpWrite, why); err != nil {
 		return "", false, err
@@ -488,7 +485,7 @@ func (b *extSession) Save(ctx context.Context, vault string, o svext.Origin, s s
 	if e, err := mv.v.Get(name); err == nil {
 		// Taken while the person was deciding.
 		e.Item.Wipe()
-		name = freeName(mv, defaultFolder, o.Host, s.Username)
+		name = freeName(mv, o.Host, s.Username)
 	}
 	label := s.Title
 	if label == "" {
@@ -619,32 +616,14 @@ func segment(s string) string {
 	return s
 }
 
-// freeName is a name for a new login for host in folder, not yet taken.
-func freeName(mv *managedVault, folder, host, login string) string {
-	base := segment(host)
-	if folder != "" {
-		base = folder + "/" + base
-	}
-	free := func(n string) bool {
-		e, err := mv.v.Get(n)
-		if err == nil {
-			e.Item.Wipe()
-		}
-		return err != nil
-	}
-	if free(base) {
-		return base
-	}
+// freeName is a name for a new login for host, not yet taken: the host,
+// else the host with the login's name, else numbered.
+func freeName(mv *managedVault, host, login string) string {
+	q := ""
 	if login != "" {
-		if n := base + " (" + segment(login) + ")"; free(n) {
-			return n
-		}
+		q = segment(login)
 	}
-	for i := 2; ; i++ {
-		if n := fmt.Sprintf("%s (%d)", base, i); free(n) {
-			return n
-		}
-	}
+	return mv.v.FreeName(segment(host), q)
 }
 
 // An extSession is the svext backend.

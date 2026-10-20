@@ -67,7 +67,7 @@ func GnuPGHere() error {
 // (DATA/gnupg) when it is "".
 func GnuPGHome(home string) (string, error) {
 	if home == "" {
-		data, err := svcore.Home()
+		data, err := svcore.DataDir()
 		if err != nil {
 			return "", err
 		}

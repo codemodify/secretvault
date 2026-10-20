@@ -15,6 +15,7 @@ The byte-level details are in [format.md](format.md).
 | --- | --- |
 | Item contents: passwords, keys, notes, fields | vault revisions, encrypted |
 | Item metadata: names, kinds, attributes, tags, labels | vault revisions, encrypted |
+| Folders kept while empty: their names | vault records, encrypted |
 | The vault master key (VMK) | nowhere on disk in the clear; wrapped once per keyslot |
 | Your private keys (identities, OpenPGP, SSH) | vault items, from M5; optionally a hardware token (later) |
 | A security key's secret, for fido2 keyslots | inside the key; never leaves it |
@@ -50,7 +51,10 @@ folder lives in, and the operator of a secretvault sync server.
 
 **They can:**
 - See the number of items, the number and times of their revisions, and their
-  sizes, rounded up by Padmé padding.
+  sizes, rounded up by Padmé padding. Records (grants, contacts, a folder
+  kept while empty) are objects like items, and look like them: a folder's
+  name is inside the encrypted record, and its object ID is random, not
+  derived from the name, so it cannot be guessed at.
 - See which device wrote each revision. The optional device ID in the
   revision header is in the clear, and so is the ID of the key that signed
   it; the key itself, and the device's label, are in the encrypted
@@ -62,7 +66,12 @@ folder lives in, and the operator of a secretvault sync server.
 
 ### Other users on the same computer
 
-- Vault files are created 0600 in 0700 directories.
+- Vault files are created 0600 in 0700 directories. secretvault's two
+  folders, the settings folder (`~/.config/secretvault`) and the data
+  folder (`~/.data/secretvault`), are made 0700. The settings folder
+  holds no secret: `config.json` and the records of what secretvault
+  changed in other programs name vaults, paths and programs; every key
+  is in the data folder.
 - From M1, the daemon's socket accepts only the same user, checked by the
   kernel (`SO_PEERCRED`, `LOCAL_PEERCRED`, the named pipe's owner-only DACL).
 - Administrators (root) are out of scope: they own the machine.
@@ -81,6 +90,25 @@ This is the hard case, and it is worth being plain about it.
   broker raises the bar; it cannot replace the OS's own isolation.
 - **Windows and macOS** code signing makes the program identity sturdier, not
   perfect.
+- **Where things are kept is said, not hidden.** `secretvault where`
+  (and the managers' Where things are kept, in the desktop one's
+  Settings and the terminal one's Tools) lists every folder
+  and file secretvault keeps and every file it changed in other
+  programs, from its own records. The daemon tells only secretvault's
+  own programs (`where`); another program running as you could read the
+  same folders anyway, so the list gives it nothing new, but the daemon
+  does not volunteer it.
+- **Moving the old folder writes over nothing.** An earlier version kept
+  everything in `~/.local/share/secretvault`; the daemon moves it to the
+  two folders as it starts, holding the lock that keeps a second daemon
+  away, before it reads anything (the CLI and the managers do the same
+  when no daemon runs, under the same lock). A file the new place has
+  already is left in both places; across filesystems every file is
+  copied, synced and compared with the original before the original is
+  removed, so a move cut short leaves a copy, never a loss. Only paths
+  in `config.json` that led into the old folder are changed, each to
+  where it went. Nothing moves when `SECRETVAULT_HOME` is set, and an
+  old folder that is a link is left alone.
 - **Where vaults live is secretvault's own business.** Registering,
   forgetting or creating a vault, choosing the default, and setting up or
   joining sync are refused to every program but secretvault's own. A
@@ -936,6 +964,33 @@ by UDisks2 and the kernel's dm-crypt.
   item, since the passphrase then opens the image as the key does. Closing
   needs no consent: a program running as you can already unmount your
   disks through UDisks2.
+- **Deleting.** `container.delete` deletes a file of yours that the
+  daemon may not have made, for good. It is open to every program,
+  asked as deleting the key's item, the question naming the file: a
+  program running as you can delete your files itself, and the item goes
+  to the vault's deleted items as any deleted item does, so nothing is
+  gained by asking the daemon to do it. What the daemon adds is care: it
+  deletes only a regular file that is a LUKS2 image, whose UUID is the one
+  the item records (or, for an item that records none, that the key
+  opens); never one attached, unlocked or mounted under any of its names;
+  never a copy while the image the item was made for is still there; and
+  only the very file it checked (the same inode, just before removing
+  it). The file goes first, then the item; the audit log says which
+  program asked, and how it ended.
+- **The disks remembered.** So that a locked vault's disks can be listed,
+  the daemon keeps `disks.json` in its data directory (0600, in a 0700
+  directory): for each vault, by name, the paths of the image files it has
+  seen as that vault's disks. It holds no key, no item name and nothing of
+  the vault's contents. What it tells someone who can read it is which
+  files on this computer are disks of which vault: the files are on the
+  drive anyway, plainly LUKS2 images, and the data directory is yours
+  alone. `container.known` lists a locked vault's from it to any program
+  that asks, without asking you, since such a program can read the file
+  itself; the vault stays locked, and only its file, its LUKS UUID (in the
+  header, readable without the key) and whether the OS has it attached or
+  mounted are said. An unlocked vault's disks are listed with the consent
+  `container.list` needs, and a program refused that gets the remembered
+  files only.
 - **Where the key goes.** From the daemon over the system bus to udisksd
   (root), which hands it to cryptsetup and the kernel; never to a client.
   The copies svdbus makes while encoding that message are ordinary Go

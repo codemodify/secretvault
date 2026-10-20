@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -117,4 +118,38 @@ func TestAKeyAddedWithConfirmIsAskedAboutEveryTime(t *testing.T) {
 		}
 	}
 	h.desk.done(t)
+}
+
+// A key is named for its comment. Another key with that comment goes
+// beside it, never over it, and the same key added again replaces itself.
+func TestKeysWithOneCommentGoSideBySide(t *testing.T) {
+	h, key, dir := sshHarness(t)
+	other := filepath.Join(dir, "id_other")
+	if out, err := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "test@example", "-f", other).CombinedOutput(); err != nil {
+		t.Fatalf("ssh-keygen: %v %s", err, out)
+	}
+	h.desk.script("choose:" + svrpc.ChoiceAlways)
+	for _, k := range []string{key, other, key} {
+		if out, err := sh(t, "", "ssh-add", k); err != nil {
+			t.Fatalf("ssh-add %s: %v %s", k, err, out)
+		}
+	}
+	mv, err := h.d.vault("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := mv.v.List("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range all {
+		if e.Item.Kind == "ssh-key" {
+			names = append(names, e.Item.Name)
+		}
+		e.Item.Wipe()
+	}
+	if !slices.Equal(names, []string{"test@example", "test@example (2)"}) {
+		t.Fatalf("the keys are %q", names)
+	}
 }

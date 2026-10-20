@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -261,6 +262,34 @@ func TestPutNewNeverOverwrites(t *testing.T) {
 	}
 }
 
+// A name a program makes up for what it stores goes beside an item of
+// that name: with what it says of itself, else numbered.
+func TestAFreeNameIsNeverAnItemsAlready(t *testing.T) {
+	v := newVault(t, svstore.NewMem(), 0)
+	for _, n := range []string{"github.com", "github.com (ada)", "github.com (2)"} {
+		v.Put(login(n, "x"))
+	}
+	for _, c := range []struct {
+		base string
+		also []string
+		want string
+	}{
+		{"gitlab.com", nil, "gitlab.com"},
+		{"github.com", nil, "github.com (3)"},
+		{"github.com", []string{"ada"}, "github.com (3)"},
+		{"github.com", []string{"ada", "OpenPGP"}, "github.com (OpenPGP)"},
+		{"github.com", []string{""}, "github.com (3)"},
+	} {
+		if got := v.FreeName(c.base, c.also...); got != c.want {
+			t.Errorf("FreeName(%q, %q) = %q, want %q", c.base, c.also, got, c.want)
+		}
+	}
+	v.Delete("github.com")
+	if got := v.FreeName("github.com"); got != "github.com" {
+		t.Errorf("a deleted item's name is not free: %q", got)
+	}
+}
+
 func TestAnItemIsFoundByItsIDOnlyWhereItsNameLeads(t *testing.T) {
 	store := svstore.NewMem()
 	v := newVault(t, store, 0)
@@ -509,13 +538,52 @@ func TestTheDeviceIDIsCreatedOnceAndKept(t *testing.T) {
 	}
 }
 
-func TestHomeHonoursTheOverride(t *testing.T) {
+func TestTheFoldersHonourTheirOverrides(t *testing.T) {
+	t.Setenv(EnvConfig, "")
 	t.Setenv(EnvHome, "/somewhere/else")
-	if h, _ := Home(); h != "/somewhere/else" {
-		t.Fatalf("Home = %q", h)
+	if h, _ := DataDir(); h != "/somewhere/else" {
+		t.Fatalf("DataDir = %q", h)
 	}
 	if d, _ := VaultDir("work"); d != filepath.Join("/somewhere/else", "vaults", "work") {
 		t.Fatalf("VaultDir = %q", d)
+	}
+	// The data folder moved alone takes the settings with it...
+	if c, _ := ConfigDir(); c != "/somewhere/else" {
+		t.Fatalf("ConfigDir = %q", c)
+	}
+	// ...unless they are moved too.
+	t.Setenv(EnvConfig, "/settings")
+	if c, _ := ConfigDir(); c != "/settings" {
+		t.Fatalf("ConfigDir = %q", c)
+	}
+}
+
+func TestTheFoldersAreConfigAndDataOnLinux(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the Linux layout")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(EnvHome, "")
+	t.Setenv(EnvConfig, "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "xdg-data"))
+	if c, _ := ConfigDir(); c != filepath.Join(home, ".config", "secretvault") {
+		t.Errorf("ConfigDir = %q", c)
+	}
+	if d, _ := DataDir(); d != filepath.Join(home, ".data", "secretvault") {
+		t.Errorf("DataDir = %q, not ~/.data/secretvault (XDG_DATA_HOME is not used for it)", d)
+	}
+	if l, _ := LegacyDir(); l != filepath.Join(home, "xdg-data", "secretvault") {
+		t.Errorf("LegacyDir = %q", l)
+	}
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "cfg"))
+	t.Setenv("XDG_DATA_HOME", "")
+	if c, _ := ConfigDir(); c != filepath.Join(home, "cfg", "secretvault") {
+		t.Errorf("ConfigDir = %q", c)
+	}
+	if l, _ := LegacyDir(); l != filepath.Join(home, ".local", "share", "secretvault") {
+		t.Errorf("LegacyDir = %q", l)
 	}
 }
 

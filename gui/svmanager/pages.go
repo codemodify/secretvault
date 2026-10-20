@@ -20,7 +20,7 @@ import (
 func (m *Manager) message(title, text string, buttons ...*widgets.Button) widget.Component {
 	body := m.muted(text)
 	body.Wrap = true
-	col := widgets.NewColumn(heading(title), body).WithGap(gap)
+	col := widgets.NewColumn(newDisplayHeading(title), body).WithGap(gap)
 	if len(buttons) > 0 {
 		row := widgets.NewRow().WithGap(gap)
 		for _, b := range buttons {
@@ -36,7 +36,7 @@ func (m *Manager) showEmpty() {
 }
 
 func (m *Manager) showNoVaults() {
-	create := widgets.NewButton("New vault…", m.newVault)
+	create := newButton("New vault…", m.newVault)
 	create.Primary = true
 	m.ui.pane.Set(m.message("No vaults yet", "A vault holds your passwords, keys and notes, sealed with a passphrase. Make one to begin.", create))
 }
@@ -64,20 +64,24 @@ func (m *Manager) showLocked() {
 		// Unlocked by another program since this one last listed it, or
 		// listing it failed: listing it may mean proving this program
 		// knows the passphrase too, so it waits to be asked.
-		show := widgets.NewButton("Show its items", func() { m.showVault(v.Name, true) })
+		show := newButton("Show its items", func() { m.showVault(v.Name, true) })
 		show.Primary = true
 		m.ui.pane.Set(m.message("Vault "+v.Name+" is unlocked",
 			"Another program unlocked it. This window shows its items once you have typed its passphrase here too.", show))
 		return
 	}
-	unlock := widgets.NewButton("Unlock…", func() { m.unlockVault(v.Name) })
+	unlock := newButton("Unlock", func() { m.unlockVault(v.Name) })
 	unlock.Primary = true
 	m.ui.pane.Set(m.message("Vault "+v.Name+" is locked",
-		"Unlocking asks for its passphrase, in a window of its own.", unlock))
+		"Its items show once it is unlocked. Unlock asks for its passphrase, in a window of its own; "+
+			"Unlock with… takes a keyfile, the recovery key, an identity file or a security key instead. "+
+			"The padlocks at the top right do the same.",
+		unlock, newButton("Unlock with…", m.unlockWith)))
 }
 
 func (m *Manager) showGone() {
-	again := widgets.NewButton("Reconnect", m.reconnect)
+	m.syncFace() // no daemon, no face: the window says why
+	again := newButton("Reconnect", m.reconnect)
 	again.Primary = true
 	why := m.goneWhy
 	if why == "" {
@@ -106,9 +110,15 @@ func (m *Manager) showSelected() {
 		m.showLocked()
 		return
 	}
+	if len(m.picked) > 1 {
+		m.showPicked()
+		return
+	}
 	e := m.entry(m.cursor)
 	if e == nil {
-		m.showEmpty()
+		if !m.showItemsPane() {
+			m.showEmpty()
+		}
 		return
 	}
 	m.ui.view = m.newItemView(e, viewPreview, nil)
@@ -172,12 +182,11 @@ func (m *Manager) showing(kind string) bool {
 	return ok && p.kind == kind
 }
 
-// showingVaultPage reports whether a page is up in place of the items:
-// the vault's, or the keys', the contacts' or the desktop's (tabbed.go).
+// showingVaultPage reports whether a page is up beside the list, in place
+// of the item: the vault's, the keys' or the contacts' (tabbed.go).
 // Whatever acts on an item waits while one is.
 func (m *Manager) showingVaultPage() bool {
-	_, ok := m.ui.main.Page().(*page)
-	return ok
+	return m.ui != nil && m.ui.vaultTabs != nil && m.ui.vaultTabs.Selected() > lastItemTab
 }
 
 func (m *Manager) showingHistory() bool { return m.showing(pageHistory) }

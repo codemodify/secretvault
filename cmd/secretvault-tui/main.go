@@ -39,6 +39,8 @@ import (
 
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svcrypto"
+	"github.com/codemodify/secretvault/svops"
+	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/secretvault/svtui"
 )
 
@@ -63,6 +65,11 @@ func main() {
 	if fs.NArg() > 0 {
 		fmt.Fprintln(os.Stderr, "usage: secretvault-tui [--vault NAME]")
 		os.Exit(2)
+	}
+	// Before any daemon has, move what an earlier version kept in one
+	// folder to the settings and data folders (a running daemon did).
+	if mv, err := svops.MoveOldFolderUnlessRunning(svrpc.DefaultSocket(), nil); err == nil && mv.Summary() != "" {
+		fmt.Fprintln(os.Stderr, mv.Summary())
 	}
 	ui, err := svtui.New(svtui.Options{Vault: *vault})
 	if err != nil {

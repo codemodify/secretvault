@@ -25,15 +25,17 @@ func (h *harness) menu(find string) {
 }
 
 // waitAnswering waits for want, typing the passphrase whenever the
-// daemon asks whether this terminal may use a vault.
+// daemon asks whether this terminal may use a vault (each vault asks in
+// turn).
 func (h *harness) waitAnswering(want string) {
 	h.t.Helper()
 	deadline := time.Now().Add(waitTime)
 	for s := h.text(); !strings.Contains(s, want); s = h.text() {
-		if strings.Contains(s, "has not used vault") {
+		if i := strings.Index(s, "has not used vault"); i >= 0 {
+			question, _, _ := strings.Cut(s[i:], " since")
 			h.typeText(pass)
 			h.key(tcell.KeyEnter)
-			h.waitGone("has not used vault")
+			h.waitGone(question)
 		}
 		if time.Now().After(deadline) {
 			h.t.Fatalf("%q never appeared:\n%s", want, s)
@@ -98,7 +100,7 @@ func TestANewVaultShowsItsRecoveryKeyOnce(t *testing.T) {
 	h.key(tcell.KeyEnter)
 	h.waitFor("Recovery key for work")
 	h.waitFor("shown only now")
-	h.waitFor("No items yet") // listed without asking again: the passphrase was presented
+	h.waitFor("None yet: n makes one") // listed without asking again: the passphrase was presented
 	var held []byte
 	h.do(func() {
 		for _, l := range h.u.once.lines {
@@ -243,7 +245,7 @@ func TestUnlockingWithAKeyfileOrRecoveryShares(t *testing.T) {
 	h.typeText(keyfile)
 	h.key(tcell.KeyEnter)
 	h.waitFor("Unlocked personal")
-	h.waitFor("web/github.com")
+	h.waitFor("github.com")
 }
 
 func TestTheHelpSaysTheVersionsAndTheStatus(t *testing.T) {

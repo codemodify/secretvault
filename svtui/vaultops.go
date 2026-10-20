@@ -123,13 +123,13 @@ func (u *UI) afterVaultsChange(name string) {
 		}
 		for i, v := range vs {
 			if v.Name == name {
-				u.vaultList.SetCurrentItem(i)
+				u.cursorOnVault(i)
 			}
 		}
 		if name == "" {
 			u.vault = ""
 			u.closeItem()
-			u.entries, u.shown, u.listed = nil, nil, false
+			u.entries, u.names, u.shown, u.listed = nil, nil, nil, false
 			u.drawVaults()
 			u.drawItems()
 			u.detail.reset("There are no vaults yet.\n\nN makes one.")
@@ -506,6 +506,9 @@ func statusText(st svrpc.Status, err error) string {
 		b.WriteString("mode:    host (the machine's service: the H panel says more)\n")
 	}
 	fmt.Fprintf(&b, "data:    %s\n", tview.Escape(st.Home))
+	if st.Config != "" && st.Config != st.Home {
+		fmt.Fprintf(&b, "config:  %s\n", tview.Escape(st.Config))
+	}
 	if st.Socket != "" {
 		fmt.Fprintf(&b, "socket:  %s\n", tview.Escape(st.Socket))
 	}
@@ -515,7 +518,7 @@ func statusText(st svrpc.Status, err error) string {
 		fmt.Fprintf(&b, "ssh:     %s (export SSH_AUTH_SOCK=%s)\n", tview.Escape(st.SSHAgent), tview.Escape(st.SSHAgent))
 	}
 	if st.GPGAgent != "" {
-		homes := "no GnuPG folder uses it yet: Desktop › GnuPG"
+		homes := "no GnuPG folder uses it yet: Tools › GnuPG"
 		if len(st.GnuPGHomes) > 0 {
 			homes = "for " + strings.Join(st.GnuPGHomes, ", ")
 		}
@@ -540,7 +543,7 @@ func statusText(st svrpc.Status, err error) string {
 	return b.String()
 }
 
-// showStatus is Help › About: the versions and the daemon's status.
+// showStatus is secretvault › About: the versions and the daemon's status.
 func (u *UI) showStatus() {
 	u.fetchStatus(func(st svrpc.Status, err error) {
 		u.showText("About secretvault", statusText(st, err))

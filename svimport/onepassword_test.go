@@ -16,10 +16,10 @@ func onePUX(t *testing.T) []byte {
 	})
 }
 
-func TestA1PUXExportImportsWithVaultsAsFolders(t *testing.T) {
-	res := mustImport(t, Format1PUX, onePUX(t), Options{Prefix: "1password"})
-	db := item(t, res, "1password/Personal/Dropbox")
-	if db.Kind != "login" || !reflect.DeepEqual(db.Tags, []string{"cloud", "storage"}) {
+func TestA1PUXExportImportsWithVaultsAsTags(t *testing.T) {
+	res := mustImport(t, Format1PUX, onePUX(t), Options{})
+	db := item(t, res, "Dropbox")
+	if db.Kind != "login" || !reflect.DeepEqual(db.Tags, []string{"cloud", "storage", "Personal"}) {
 		t.Errorf("dropbox: %s %q", db.Kind, db.Tags)
 	}
 	has(t, db, "username", svcore.FieldText, "ada@example.org")
@@ -33,52 +33,56 @@ func TestA1PUXExportImportsWithVaultsAsFolders(t *testing.T) {
 	has(t, db, "notes", svcore.FieldText, "This is a note. *bold*! _italic_!")
 	hasNot(t, db, "remember")
 	hasNot(t, db, "empty")
-	warned(t, res, "history", "1password/Personal/Dropbox")
+	warned(t, res, "history", "Dropbox")
 
-	visa := item(t, res, "1password/Personal/Visa")
+	visa := item(t, res, "Visa")
 	if visa.Kind != "card" {
 		t.Errorf("card kind %q", visa.Kind)
 	}
+	tagged(t, visa, "Personal")
 	has(t, visa, "cardholder", svcore.FieldText, "Ada Lovelace")
 	has(t, visa, "number", svcore.FieldConcealed, "4111111111111111")
 	has(t, visa, "cvv", svcore.FieldConcealed, "321")
 	has(t, visa, "expiry", svcore.FieldText, "12/2026")
 	has(t, visa, "brand", svcore.FieldText, "visa")
 
-	ada := item(t, res, "1password/Personal/Ada")
+	ada := item(t, res, "Ada")
+	tagged(t, ada, "Personal")
 	has(t, ada, "first_name", svcore.FieldText, "Ada")
 	has(t, ada, "birth_date", svcore.FieldText, "2001-09-09")
 	has(t, ada, "address", svcore.FieldText, "12 St James's Square")
 	has(t, ada, "country", svcore.FieldText, "GB")
 	has(t, ada, "email", svcore.FieldEmail, "ada@example.org")
 
-	router := item(t, res, "1password/Personal/Router admin")
+	router := item(t, res, "Router admin")
 	if router.Kind != "password" {
 		t.Errorf("a Password item became %q", router.Kind)
 	}
+	tagged(t, router, "Personal")
 	has(t, router, "password", svcore.FieldConcealed, "just-a-password")
 
-	warned(t, res, "1password/Personal/Passport scan", "attachment")
+	warned(t, res, "Passport scan", "attachment")
 	warned(t, res, "1 file")
-	noItem(t, res, "1password/Personal/Deleted login")
+	noItem(t, res, "Deleted login")
 	warned(t, res, "1 item in the trash")
 
-	key := item(t, res, "1password/Work/deploy")
-	if key.Kind != "ssh-key" || !reflect.DeepEqual(key.Tags, []string{"archived"}) {
+	key := item(t, res, "deploy")
+	if key.Kind != "ssh-key" || !reflect.DeepEqual(key.Tags, []string{"archived", "Work"}) {
 		t.Errorf("ssh key: %s %q", key.Kind, key.Tags)
 	}
 	has(t, key, "public_key", svcore.FieldText, testSSHPublicKey)
 	has(t, key, "key_type", svcore.FieldText, "ed25519")
-	api := item(t, res, "1password/Work/CI token")
+	api := item(t, res, "CI token")
 	if api.Kind != "api-key" {
 		t.Errorf("an API credential became %q", api.Kind)
 	}
+	tagged(t, api, "Work")
 	has(t, api, "credential", svcore.FieldConcealed, "tok_123")
 }
 
 func TestA1PUXExportDataFileAloneImports(t *testing.T) {
 	res := mustImport(t, Format1PUX, readFixture(t, "1pux-export.data"), Options{})
-	item(t, res, "Personal/Dropbox")
+	tagged(t, item(t, res, "Dropbox"), "cloud", "storage", "Personal")
 }
 
 func TestA1PUXWithoutExportDataIsRefused(t *testing.T) {

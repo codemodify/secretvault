@@ -417,7 +417,7 @@ func TestAPassphraseDialogSaysCapsLockIsOn(t *testing.T) {
 
 // A dialog is the same size at any display scale, in the desktop's
 // logical pixels: its spacing scales with the display as its text and
-// controls do, once (uitoolkit-gaps.md, 14).
+// controls do, once (uitoolkit-gaps.md, 14; a button's mark, 80).
 func TestADialogIsTheSameAtEveryScale(t *testing.T) {
 	size := func(scale float32) (int, int) {
 		h := newHarnessAt(t, uitoolkit.LightLook(), scale)

@@ -75,13 +75,13 @@ func TestPasskeysRoundTripThroughCXF(t *testing.T) {
 		t.Errorf("creationAt %d, scope %v", item.CreationAt, item.Scope.URLs)
 	}
 
-	res := mustImport(t, FormatCXF, buf.Bytes(), Options{Prefix: "back"})
+	res := mustImport(t, FormatCXF, buf.Bytes(), Options{})
 	if len(res.Warnings) != 0 || len(res.Items) != 2 {
 		t.Fatalf("%d items, warnings %q", len(res.Items), res.Warnings)
 	}
 	for i, want := range []svrpc.Item{es, ed} {
 		got := res.Items[i]
-		if got.Kind != svext.PasskeyKind || got.Name != "back/"+want.Name || strings.Join(got.Tags, ",") != "work" {
+		if got.Kind != svext.PasskeyKind || got.Name != want.Name || strings.Join(got.Tags, ",") != "work" {
 			t.Errorf("%s came back as %s %q %q %v", want.Name, got.Kind, got.Name, got.Label, got.Tags)
 		}
 		w, err := svext.ReadPasskey(func(n string) ([]byte, bool) { return field(want, n) }, true)

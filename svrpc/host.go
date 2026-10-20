@@ -80,6 +80,14 @@ func HostSocket() string { return filepath.Join(HostRuntimeDir(), HostServiceSoc
 // HostAdminSocket is root's socket.
 func HostAdminSocket() string { return filepath.Join(HostRuntimeDir(), HostAdminSocketName) }
 
+// The host daemon's system units, which `secretvaultd install --host`
+// writes in HostUnitDir.
+const (
+	HostServiceUnit = "secretvaultd-host.service"
+	HostSocketUnit  = "secretvaultd-host.socket"
+	HostUnitDir     = "/etc/systemd/system"
+)
+
 // HostIdentityFile is the plain host identity file, read when systemd
 // passes no credential: <data>/host.identity.
 func HostIdentityFile() string { return filepath.Join(HostDataDir(), "host.identity") }

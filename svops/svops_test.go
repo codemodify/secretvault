@@ -3,6 +3,7 @@ package svops
 import (
 	"bytes"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -151,14 +152,21 @@ func TestTemplatesAreFilledAndListed(t *testing.T) {
 func TestCredentialHelpersNameTheirItems(t *testing.T) {
 	kv := map[string]string{"protocol": "https", "host": "github.com", "path": "ada/repo", "username": "ada", "password": "pw"}
 	it := GitItem(kv)
-	if it.Name != "git/github.com/ada∕repo/ada" || !GitMatches(&it, map[string]string{"host": "github.com"}) || GitMatches(&it, map[string]string{"host": "gitlab.com"}) {
+	if it.Name != "ada@github.com∕ada∕repo" || !GitMatches(&it, map[string]string{"host": "github.com"}) || GitMatches(&it, map[string]string{"host": "gitlab.com"}) {
 		t.Fatalf("git: %+v", it)
+	}
+	if !GitSame(&it, kv) || GitSame(&it, map[string]string{"protocol": "https", "host": "github.com", "username": "ada"}) {
+		t.Fatal("git: the same login is not told from another")
 	}
 	if f, ok := SecretField(&it); !ok || string(f.Value) != "pw" {
 		t.Fatalf("its secret: %v %q", ok, f.Value)
 	}
-	if n := DockerItemName("https://registry.example.com/v2/"); n != "docker/registry.example.com∕v2∕" {
+	if n := DockerItemName("https://registry.example.com/v2/"); n != "registry.example.com∕v2∕" {
 		t.Fatalf("docker: %s", n)
+	}
+	d := DockerItem("https://registry.example.com/v2/", "ada", "pw")
+	if !DockerMatches(&d, "registry.example.com/v2/") || DockerMatches(&d, "ghcr.io") {
+		t.Fatalf("docker: %+v", d)
 	}
 	for argv0, want := range map[string]string{"/usr/bin/git-credential-secretvault": "git-credential", "age-plugin-secretvault.exe": "age-plugin", "secretvault": ""} {
 		if got := HelperName(argv0); got != want {
@@ -238,16 +246,55 @@ func TestFingerprintsAndNamesAreSaidAsPeopleReadThem(t *testing.T) {
 	if n := UniqueName(taken, "a"); n != "a (3)" {
 		t.Errorf("unique %q", n)
 	}
+	if n := UniqueName(taken, "a", "git"); n != "a (git)" {
+		t.Errorf("unique %q", n)
+	}
 	if s := PathSafe(" a/b\x00 "); s != "a∕b∕" {
 		t.Errorf("path-safe %q", s)
 	}
 	if HumanSize(3<<29) != "1.5 GiB" || HumanSize(10) != "10 bytes" {
 		t.Errorf("sizes: %s %s", HumanSize(3<<29), HumanSize(10))
 	}
-	if ContainerItemName("/home/ada/work.img") != "containers/work" {
+	if ContainerItemName("/home/ada/work.img") != "work" {
 		t.Error(ContainerItemName("/home/ada/work.img"))
 	}
 	if !IsContactURI("OPENPGP4FPR:1A2B") || IsContactURI("alice.asc") {
 		t.Error("contact URIs")
+	}
+}
+
+// Lists show items by their names' last parts, without the places older
+// versions filed them under; two that would show the same show whole.
+func TestListsShowNamesWithoutTheirOldPrefixes(t *testing.T) {
+	got := ShownNames([]string{"containers/test-disk", "git/github.com", "github.com", "Bank card", "prod/db/password"})
+	want := map[string]string{"containers/test-disk": "test-disk", "git/github.com": "git/github.com", "github.com": "github.com",
+		"Bank card": "Bank card", "prod/db/password": "password"}
+	if !maps.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// Every item is in one row of what a vault holds: its kind's, Other for
+// a kind of no row of its own, or none for a key of My keys.
+func TestEveryItemIsInOneRow(t *testing.T) {
+	for _, c := range []struct {
+		it   svrpc.Item
+		want string
+	}{
+		{svrpc.Item{Kind: "login"}, "Logins"},
+		{svrpc.Item{Kind: "otp"}, "One-time codes"},
+		{svrpc.Item{Kind: "container"}, "Disk keys"},
+		{svrpc.Item{Kind: "generic"}, "Other"},
+		{svrpc.Item{Kind: "someone-elses"}, "Other"},
+		{svrpc.Item{Kind: "key"}, "Keys"},
+		{svrpc.Item{Kind: "key", Attrs: map[string]string{svrpc.PGPFingerprint: "AB"}}, ""},
+	} {
+		got := ""
+		if i := KindRowOf(&c.it); i >= 0 {
+			got = KindRows[i].Title
+		}
+		if got != c.want {
+			t.Errorf("%+v is in %q, want %q", c.it, got, c.want)
+		}
 	}
 }

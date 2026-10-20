@@ -23,9 +23,9 @@ import (
 
 const (
 	// HostServiceName is the host daemon's system unit.
-	HostServiceName = "secretvaultd-host.service"
+	HostServiceName = svrpc.HostServiceUnit
 	// HostSocketName is its socket unit.
-	HostSocketName = "secretvaultd-host.socket"
+	HostSocketName = svrpc.HostSocketUnit
 )
 
 // The layout the units use: systemd's StateDirectory= and
@@ -56,7 +56,7 @@ type HostInstall struct {
 
 func (o HostInstall) withDefaults() HostInstall {
 	if o.UnitDir == "" {
-		o.UnitDir = "/etc/systemd/system"
+		o.UnitDir = svrpc.HostUnitDir
 	}
 	if o.Credstore == "" {
 		o.Credstore = svrpc.HostCredstore

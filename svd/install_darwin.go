@@ -7,14 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/codemodify/secretvault/svops"
 )
 
-const launchLabel = "io.github.codemodify.secretvaultd"
+const launchLabel = svops.DaemonLaunchLabel
 
-func plistPath() string {
-	h, _ := os.UserHomeDir()
-	return filepath.Join(h, "Library", "LaunchAgents", launchLabel+".plist")
-}
+func plistPath() string { return svops.DaemonLaunchAgentFile() }
 
 func install(exe string) (string, error) {
 	plist := `<?xml version="1.0" encoding="UTF-8"?>

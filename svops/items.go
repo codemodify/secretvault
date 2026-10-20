@@ -149,16 +149,58 @@ func PathSafe(s string) string {
 	return s
 }
 
-// UniqueName is name, or name (2), name (3)... if it is taken.
-func UniqueName(taken map[string]bool, name string) string {
+// ShownNames are the names lists show items by, by item name: each one's
+// part after its last slash, without the place an earlier version filed
+// it under (git/, containers/, web/...), as there are no folders. Two
+// items that would show the same show their whole names, which differ.
+func ShownNames(names []string) map[string]string {
+	short := func(n string) string { return n[strings.LastIndex(n, "/")+1:] }
+	count := map[string]int{}
+	for _, n := range names {
+		count[short(n)]++
+	}
+	out := make(map[string]string, len(names))
+	for _, n := range names {
+		if s := short(n); count[s] == 1 {
+			out[n] = s
+		} else {
+			out[n] = n
+		}
+	}
+	return out
+}
+
+// UniqueName is name, else "name (q)" for each q of also in turn, else
+// name (2), name (3)...: the first that is not taken. It names what is
+// stored for someone (what a helper keeps, what an import brings), so that
+// it goes beside an item already there, never over it.
+func UniqueName(taken map[string]bool, name string, also ...string) string {
 	if !taken[name] {
 		return name
+	}
+	for _, q := range also {
+		if c := name + " (" + q + ")"; q != "" && !taken[c] {
+			return c
+		}
 	}
 	for n := 2; ; n++ {
 		if c := fmt.Sprintf("%s (%d)", name, n); !taken[c] {
 			return c
 		}
 	}
+}
+
+// TakenNames are the names of a vault's items, for UniqueName.
+func TakenNames(ctx context.Context, cl *secretvault.Client, vault string) (map[string]bool, error) {
+	entries, err := cl.List(ctx, vault, "")
+	if err != nil {
+		return nil, err
+	}
+	taken := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		taken[e.Item.Name] = true
+	}
+	return taken, nil
 }
 
 // FindItem looks an item up by listing (which shows attributes, never

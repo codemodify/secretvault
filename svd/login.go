@@ -197,7 +197,7 @@ func (d *Daemon) setLogin(mv *managedVault, on bool) error {
 		if d.cfg.Vaults[i].Name == mv.cfg.Name {
 			old := d.cfg.Vaults[i]
 			d.cfg.Vaults[i].LoginUnlock, d.cfg.Vaults[i].AutoLock = on, lock
-			if err := d.cfg.save(d.home); err != nil {
+			if err := d.cfg.save(d.config); err != nil {
 				d.cfg.Vaults[i] = old
 				return err
 			}

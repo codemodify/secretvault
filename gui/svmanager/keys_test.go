@@ -52,7 +52,7 @@ func TestOpenPGPKeysAreMadeExportedAndImported(t *testing.T) {
 	h.fill("Addresses", "ada@example.org")
 	h.tick("Version 4", true)
 	h.press("Make the key")
-	h.waitText("Made a version 4 OpenPGP key, kept as pgp/ada@example.org")
+	h.waitText("Made a version 4 OpenPGP key, kept as ada@example.org")
 	h.press("Close")
 	h.idle()
 	if len(p.pgp) != 1 {
@@ -172,7 +172,7 @@ func TestAgeIdentitiesAndIdentityFiles(t *testing.T) {
 	h.pressOn("Copy the identity line")
 	h.waitFor("the identity line", func() bool { c := h.clip.last(); return strings.HasPrefix(c.text, "AGE-PLUGIN-SECRETVAULT-1") })
 
-	h.m.selectTab(p.tabbedPage, tabIdentities)
+	h.m.showTools(tabIdentities)
 	h.idle()
 	file := filepath.Join(h.dir, "me.id")
 	h.pressOn("New identity file…")
@@ -193,7 +193,7 @@ func TestSecurityKeysPluggedIn(t *testing.T) {
 	h := newHarness(t)
 	h.start(Options{})
 	h.waitText("Vault personal is locked")
-	h.openKeysPage(tabSecurityKeys)
+	h.m.showTools(tabSecurityKeys)
 	h.waitText("No security key is plugged in")
 	h.plug(fidotest.Options{Name: "YubiKey 5", PIN: "1234"})
 	h.pressOn("Refresh")

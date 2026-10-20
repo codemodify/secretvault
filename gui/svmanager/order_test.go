@@ -101,7 +101,7 @@ func TestLeavingTheHistoryWipesItsRevisions(t *testing.T) {
 
 	// The item, opened from the list, in its place.
 	revs = h.history()
-	h.win().FocusOn(h.m.ui.items)
+	h.win().FocusOn(h.m.ui.content)
 	h.win().Press(platform.KeyReturn)
 	h.waitFor("the item", func() bool { return h.m.cur != nil })
 	h.idle()
@@ -249,12 +249,12 @@ func TestSwitchingVaultsShowsNothingOfTheLastOne(t *testing.T) {
 	}
 	h.m.showVault("work", true)
 	d := h.asking() // this program has to show it knows work's passphrase too
-	for _, gone := range []string{"GitHub", "web/github.com", "mail/fastmail", "All items"} {
+	for _, gone := range []string{"GitHub", "github.com", "fastmail", "All items (4)"} {
 		if strings.Contains(h.text(), gone) {
 			t.Fatalf("while work is listed, %q still shows:\n%s", gone, h.text())
 		}
 	}
-	if h.m.ui.items.RowCount != 0 || !strings.Contains(h.text(), "Vault work") {
+	if len(h.m.shown) != 0 || !strings.Contains(h.text(), "Vault work") {
 		t.Fatalf("while work is listed:\n%s", h.text())
 	}
 	d.win.Type(pass)
@@ -469,7 +469,7 @@ func TestARecoveryKeyGoesOverTheDialogUp(t *testing.T) {
 	h.m.showRecoveryKey("a", first)
 	h.m.showRecoveryKey("b", second)
 	h.pump()
-	if n := len(h.win().Overlays()); n != 3 || allZero(first) || allZero(second) {
+	if n := len(h.m.dialogs); n != 3 || allZero(first) || allZero(second) {
 		t.Fatalf("%d dialogs up, or a key wiped unread:\n%s", n, h.text())
 	}
 	h.waitText("Recovery key for b")
@@ -492,7 +492,7 @@ func TestARecoveryKeyGoesOverTheDialogUp(t *testing.T) {
 	h.m.showRecoveryKey("c", third)
 	h.m.showRecoveryKey("d", fourth)
 	h.m.Close()
-	if !allZero(third) || !allZero(fourth) || len(h.win().Overlays()) != 0 {
+	if !allZero(third) || !allZero(fourth) || len(h.m.dialogs) != 0 {
 		t.Fatal("recovery keys outlived the program")
 	}
 }
@@ -598,9 +598,9 @@ func TestADialogOverAnotherLeavesItAsItWas(t *testing.T) {
 	h.win().FocusOn(pass)
 	h.win().Type("half a passphrase")
 
-	h.m.showKeys()
+	h.m.openGenerator()
 	h.pump()
-	if n := len(h.win().Overlays()); n != 2 || pass.Len() != 17 {
+	if n := len(h.m.dialogs); n != 2 || pass.Len() != 17 {
 		t.Fatalf("%d dialogs up, and the passphrase field holds %d", n, pass.Len())
 	}
 	h.win().Press(platform.KeyEscape)
@@ -610,33 +610,21 @@ func TestADialogOverAnotherLeavesItAsItWas(t *testing.T) {
 
 	h.m.opts.PickFile = nil // uitoolkit's own chooser
 	t.Setenv("HOME", t.TempDir())
-	cancel := h.m.pickFile(PickOpen, "", func(string) {})
-	h.pump()
-	if n := len(h.win().Overlays()); n != 2 {
-		t.Fatalf("%d dialogs up with the file chooser", n)
-	}
-	cancel()
-	h.pump()
-	if h.overlay() != nv || pass.Len() != 17 {
-		t.Fatal("taking the chooser down took the dialog under it too")
-	}
-
-	// In a window too small to hold it the chooser has a window of its own
-	// (uitoolkit v0.23.4), and taking it down closes that window, answers
-	// nothing, and leaves this window's dialog alone.
-	h.win().SetMinSize(1, 1)
-	h.win().SetSize(420, 300)
-	h.pump()
+	// The chooser goes over the dialog it was asked from: in that
+	// dialog's window, or in one of its own where that is too small,
+	// never into the manager's window under them.
+	windows := len(h.m.app.Windows())
 	answer := "none"
-	cancel = h.m.pickFile(PickOpen, "", func(p string) { answer = p })
+	cancel := h.m.pickFile(PickOpen, "", func(p string) { answer = p })
 	h.pump()
-	if n, w := len(h.win().Overlays()), len(h.m.app.Windows()); n != 1 || w != 2 {
-		t.Fatalf("in a small window the chooser left %d dialogs up and %d windows open", n, w)
+	if len(h.main().Overlays()) != 1 || len(h.win().Overlays()) == 0 && len(h.m.app.Windows()) == windows {
+		t.Fatalf("the chooser is not over the dialog: %d over the window, %d over the dialog, %d windows",
+			len(h.main().Overlays()), len(h.win().Overlays()), len(h.m.app.Windows()))
 	}
 	cancel()
 	h.pump()
-	if w := len(h.m.app.Windows()); w != 1 || answer != "" || h.overlay() != nv || pass.Len() != 17 {
-		t.Fatalf("taking the chooser in its own window down left %d windows, answered %q, or took the dialog under it", w, answer)
+	if w := len(h.m.app.Windows()); w != windows || answer != "" || h.overlay() != nv || pass.Len() != 17 {
+		t.Fatalf("taking the chooser down left %d windows (%d before), answered %q, or took the dialog under it", w, windows, answer)
 	}
 	h.win().Press(platform.KeyEscape)
 	if h.overlay() != nil || !pass.Empty() {
@@ -686,7 +674,7 @@ func TestTheEditorFitsTheNarrowestWindow(t *testing.T) {
 	h.waitFor("the editor", func() bool { return h.m.editor != nil })
 	h.idle()
 	floor, _ := h.win().MinSize()
-	if need := float32(math.Ceil(float64(widget.MinWidthOf(h.win().Content()) / h.win().Scale()))); floor != need || floor <= browsing {
+	if need := float32(math.Ceil(float64(widget.MinWidthOf(h.m.ui.root) / h.win().Scale()))); floor != need || floor <= browsing {
 		t.Fatalf("with the editor up the window's minimum is %v, its content's %v, the items' %v", floor, need, browsing)
 	}
 	if w, _ := h.win().Size(); float32(w) < floor {
@@ -719,7 +707,7 @@ func TestARefusedRenameIsSaidInTheDialog(t *testing.T) {
 	h.start(Options{})
 	h.unlock()
 	h.selectItem("mail/fastmail")
-	h.win().FocusOn(h.m.ui.items)
+	h.win().FocusOn(h.m.ui.content)
 	h.win().Press(platform.KeyF2)
 	h.stopDaemon()
 	h.win().Press(platform.KeyA, platform.ModCtrl)
@@ -761,20 +749,22 @@ func TestATallDialogKeepsItsButtonsInView(t *testing.T) {
 	h.unlock()
 	h.m.confirm("Delete?", "Delete it?", "Delete", func() {})
 	h.pump()
-	short := find(h.overlay(), func(p *widgets.Panel) bool { return true })
-	_, ph := h.win().PixelSize()
-	if hgt := widget.DeviceBounds(short).Dy(); hgt > float32(ph)/2 {
-		t.Fatalf("a dialog of one line is %v tall in a window %d tall", hgt, ph)
+	// A dialog's window is as tall as what it holds.
+	if _, dh := h.win().Size(); h.m.topDialog() == nil || dh > 300 {
+		t.Fatalf("a dialog of one line is in a window %d tall", dh)
 	}
 	h.win().Press(platform.KeyEscape)
 
-	h.win().SetSize(1120, minWindowHeight)
-	h.pump()
 	invite := []byte("svsync1:" + strings.Repeat("Qm9vdHN0cmFwIGludml0ZQ", 8))
 	h.m.showSecrets("Invite a device to personal", "Paste it on the new device, or scan it.",
 		[]secretShown{{label: "Invite", value: invite}}, true, "Done")
 	h.pump()
-	_, ph = h.win().PixelSize()
+	// Made shorter than what it holds, its body scrolls and its buttons
+	// stay in view.
+	dw, _ := h.win().Size()
+	h.win().SetSize(dw, 300)
+	h.idle()
+	_, ph := h.win().PixelSize()
 	done := button(h.overlay(), "Done")
 	if b := widget.DeviceBounds(done); b.Dy() <= 0 || b.Max.Y > float32(ph) {
 		t.Fatalf("the dialog's button is at %v, in a window %d tall", b, ph)

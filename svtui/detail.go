@@ -219,7 +219,7 @@ func itemRows(e *svrpc.Entry, reveal bool, keys map[int]*svotp.Key, now time.Tim
 	if e.Deleted {
 		rows = append(rows, detailRow{label: "deleted", field: -1, style: plain.Foreground(tcell.ColorRed), text: "this revision deleted the item"})
 	}
-	add("kind", e.Item.Kind)
+	add("kind", svops.KindText(e.Item.Kind))
 	add("name", e.Item.Name)
 	if e.Item.Label != "" {
 		add("label", e.Item.Label)

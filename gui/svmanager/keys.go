@@ -18,28 +18,26 @@ import (
 
 // Keys: your own OpenPGP keys, S/MIME keys and age identities, which are
 // kept in the vault shown (the daemon signs and decrypts with them, so
-// the secret key never comes here unless it is exported); identity files,
-// which open keyslots and emergency access; and the security keys plugged
-// in.
+// the secret key never comes here unless it is exported): the Vaults
+// tab's My keys. Identity files, which open keyslots and emergency
+// access, and the security keys plugged in are the Tools tab's
+// (toolspage.go); their panes are here.
 
 // The keys page's tabs.
 const (
 	tabPGP = iota
 	tabSMIME
 	tabAge
-	tabIdentities
-	tabSecurityKeys
 )
 
 // keysPage is the keys page's state.
 type keysPage struct {
 	*tabbedPage
-	pgp     []svrpc.Entry
-	ptable  *widgets.TableView
-	smime   []svrpc.SMIMEKey
-	age     []svrpc.Entry
-	atable  *widgets.TableView
-	devices []svrpc.FIDO2Device
+	pgp    []svrpc.Entry
+	ptable *widgets.TableView
+	smime  []svrpc.SMIMEKey
+	age    []svrpc.Entry
+	atable *widgets.TableView
 }
 
 // showKeysPage shows the keys page, open at tab.
@@ -52,11 +50,14 @@ func (m *Manager) showKeysPage(tab int) {
 		m.fail(errGone)
 		return
 	}
-	if m.kpage != nil && m.kpage.vault == m.vault && m.up(m.kpage.tabbedPage) {
+	m.showVaultTab(vtMyKeys)
+	if m.kpage != nil {
 		m.selectTab(m.kpage.tabbedPage, tab)
-		return
 	}
-	m.closeVaultPage()
+}
+
+// makeKeysPage makes the keys' page for the vault shown.
+func (m *Manager) makeKeysPage() {
 	title := "Keys"
 	if m.vault != "" {
 		title = "Keys in vault " + m.vault
@@ -66,11 +67,8 @@ func (m *Manager) showKeysPage(tab int) {
 		newPane("OpenPGP", func(pn *pane) { m.fillPGP(p, pn) }),
 		newPane("S/MIME", func(pn *pane) { m.fillSMIME(p, pn) }),
 		newPane("age", func(pn *pane) { m.fillAge(p, pn) }),
-		newPane("Identity files", func(pn *pane) { m.fillIdentities(pn) }),
-		newPane("Security keys", func(pn *pane) { m.fillSecurityKeys(p, pn) }),
 	}
 	m.kpage = p
-	m.openPage(p.tabbedPage, tab)
 }
 
 // refreshKeys fills a tab of the keys page again, if it is up.
@@ -85,7 +83,7 @@ func (m *Manager) needsVault(pn *pane) bool {
 	if pn.pg.vault != "" {
 		return false
 	}
-	pn.box.Set(m.paragraph("These keys are kept in a vault: make one first (File › New vault…)."))
+	pn.box.Set(m.paragraph("These keys are kept in a vault: make one first (Vault › New vault…)."))
 	return true
 }
 
@@ -114,15 +112,15 @@ func (m *Manager) fillPGP(p *keysPage, pn *pane) {
 		})
 		pn.focus = p.ptable
 		note := "Your OpenPGP keys, for signing and decrypting mail and files. " + svops.KeysInVaultNote +
-			" Desktop › GnuPG lets gpg use them too."
+			" Tools › GnuPG lets gpg use them too."
 		if len(keys) == 0 {
 			note = "No OpenPGP keys yet: New… makes one, Import… takes one in."
 		}
 		return m.paneColumn(note, p.ptable,
-			widgets.NewButton("New…", func() { m.newPGPKey(p) }),
-			widgets.NewButton("Import…", func() { m.importPGPKey(p) }),
-			widgets.NewButton("Export…", func() { m.exportPGPKey(p) }),
-			widgets.NewButton("Copy the public key", func() { m.copyPGPPublic(p) }))
+			newButton("New…", func() { m.newPGPKey(p) }),
+			newButton("Import…", func() { m.importPGPKey(p) }),
+			newButton("Export…", func() { m.exportPGPKey(p) }),
+			newButton("Copy the public key", func() { m.copyPGPPublic(p) }))
 	})
 }
 
@@ -141,7 +139,7 @@ func (m *Manager) newPGPKey(p *keysPage) {
 	f.note(svops.PGPVersionNote)
 	name := f.text("Your name", "", "as people will see it")
 	emails := f.text("Addresses", "", "your address; several separated by commas")
-	item := f.text("Item name", "", "Leave empty for pgp/ADDRESS")
+	item := f.text("Item name", "", "Leave empty to name it for its address")
 	expires := f.text("Expires after", "", "days; empty for never")
 	v4 := f.check("Version 4, for GnuPG 2.4 and older", false)
 	f.show("Make the key", func() {
@@ -173,7 +171,7 @@ func (m *Manager) newPGPKey(p *keysPage) {
 		}, func() {
 			m.refreshKeys(p, tabPGP)
 			m.showText("OpenPGP key made", fmt.Sprintf("Made a version %d OpenPGP key, kept as %s. Give people its public key "+
-				"(Copy the public key), or show it as a QR code (Contacts › Show my QR code…). %s", k.Version, k.Item, svops.FingerprintNote),
+				"(Copy the public key), or show it as a QR code (Vault › Contacts › Show my QR code…). %s", k.Version, k.Item, svops.FingerprintNote),
 				svops.GroupFingerprint(k.Fingerprint)+"\n"+strings.Join(k.UserIDs, "\n"))
 		})
 	})
@@ -184,8 +182,8 @@ func (m *Manager) newPGPKey(p *keysPage) {
 func (m *Manager) importPGPKey(p *keysPage) {
 	f := m.newForm("Import an OpenPGP key")
 	file := f.path("Key file", PickOpen, "")
-	item := f.text("Item name", "", "Leave empty for pgp/ADDRESS")
-	f.intro("One secret key of yours. Someone else's public key goes to Contacts › Add… instead.")
+	item := f.text("Item name", "", "Leave empty to name it for its address")
+	f.intro("One secret key of yours. Someone else's public key goes to Vault › Contacts › Add… instead.")
 	f.show("Import the key", func() {
 		path := file.Path()
 		if path == "" {
@@ -209,7 +207,7 @@ func (m *Manager) importPGPKey(p *keysPage) {
 				return err
 			}
 			defer svops.Wipe(&it)
-			return svops.StorePGPKey(ctx, c, p.vault, it)
+			return svops.StorePGPKey(ctx, c, p.vault, &it, name != "")
 		}, func() {
 			m.say("Imported %s as %s.", svops.GroupFingerprint(fp), it.Name)
 			m.refreshKeys(p, tabPGP)
@@ -330,7 +328,7 @@ func (m *Manager) fillSMIME(p *keysPage, pn *pane) {
 		if len(keys) == 0 {
 			note = "No S/MIME keys: Import… takes one in from a .p12 file."
 		}
-		return m.paneColumn(note, t, widgets.NewButton("Import…", func() { m.importSMIME(p) }))
+		return m.paneColumn(note, t, newButton("Import…", func() { m.importSMIME(p) }))
 	})
 }
 
@@ -341,7 +339,7 @@ func (m *Manager) importSMIME(p *keysPage) {
 	f.intro("A PKCS #12 file (.p12 or .pfx): your certificate and its private key.")
 	file := f.path("File", PickOpen, "")
 	pass := f.secret("The file's password", "")
-	item := f.text("Item name", "", "Leave empty for smime/ADDRESS")
+	item := f.text("Item name", "", "Leave empty to name it for its address")
 	f.show("Import the key", func() {
 		path := file.Path()
 		if path == "" {
@@ -387,14 +385,14 @@ func (m *Manager) fillAge(p *keysPage, pn *pane) {
 			return keys[r].Item.Attrs[svops.AgeRecipientName]
 		})
 		pn.focus = p.atable
-		note := svops.AgeNote + " Tools › Decrypt a file (age)… decrypts here; Desktop › Program helpers sets age up."
+		note := svops.AgeNote + " Tools › Decrypt a file (age)… decrypts here; Tools › Program helpers sets age up."
 		if len(keys) == 0 {
 			note = "No age identities yet: New… makes one."
 		}
 		return m.paneColumn(note, p.atable,
-			widgets.NewButton("New…", func() { m.newAgeIdentity(p) }),
-			widgets.NewButton("Copy the public key", func() { m.copyAge(p, false) }),
-			widgets.NewButton("Copy the identity line", func() { m.copyAge(p, true) }))
+			newButton("New…", func() { m.newAgeIdentity(p) }),
+			newButton("Copy the public key", func() { m.copyAge(p, false) }),
+			newButton("Copy the identity line", func() { m.copyAge(p, true) }))
 	})
 }
 
@@ -402,7 +400,7 @@ func (m *Manager) fillAge(p *keysPage, pn *pane) {
 // keygen), and offers its identity line as a file for age and SOPS.
 func (m *Manager) newAgeIdentity(p *keysPage) {
 	f := m.newForm("New age identity")
-	name := f.text("Item name", "age/", "where to keep it, like age/backups")
+	name := f.text("Item name", "", "what to call it, like backups")
 	pq := f.check("Post-quantum (ML-KEM-768 with X25519; age 1.3 or later reads it)", false)
 	file := f.path("Identity line file", PickSave, "identity.txt")
 	f.note("Optional: a file for age and SOPS that names the identity. It holds no secret; the key stays in the vault.")
@@ -477,10 +475,10 @@ func (m *Manager) copyAge(p *keysPage, line bool) {
 }
 
 func (m *Manager) fillIdentities(pn *pane) {
-	newID := widgets.NewButton("New identity file…", m.newIdentityFile)
+	newID := newButton("New identity file…", m.newIdentityFile)
 	pn.focus = newID
 	pn.box.Set(m.paneColumn(svops.IdentityFileNote, nil,
-		newID, widgets.NewButton("Show a file's public key…", m.showIdentityRecipient)))
+		newID, newButton("Show a file's public key…", m.showIdentityRecipient)))
 }
 
 // newIdentityFile makes an identity and writes it to a new file (the
@@ -536,7 +534,7 @@ func (m *Manager) showIdentityRecipient() {
 	})
 }
 
-func (m *Manager) fillSecurityKeys(p *keysPage, pn *pane) {
+func (m *Manager) fillSecurityKeys(p *toolsPage, pn *pane) {
 	var keys []svrpc.FIDO2Device
 	m.load(pn, func(ctx context.Context, c *secretvault.Client) (err error) {
 		keys, err = c.SecurityKeys(ctx)
@@ -544,10 +542,10 @@ func (m *Manager) fillSecurityKeys(p *keysPage, pn *pane) {
 	}, func() widget.Component {
 		p.devices = keys
 		col := widgets.NewColumn().WithGap(gap).WithPad(gap)
-		refresh := widgets.NewButton("Refresh", pn.refresh)
+		refresh := newButton("Refresh", pn.refresh)
 		pn.focus = refresh
 		if len(keys) == 0 {
-			col.Add(m.paragraph("No security key is plugged in. Plug one in and press Refresh; Vault › Keyslots › Add a keyslot… adds it as a way to open a vault."))
+			col.Add(m.paragraph("No security key is plugged in. Plug one in and press Refresh; then Vault › Ways to unlock › Add a way to unlock… lets it open a vault."))
 		}
 		for _, k := range keys {
 			col.Add(section(m, k.Name))

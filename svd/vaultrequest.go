@@ -399,7 +399,7 @@ func (d *Daemon) refuseVaultRequests(cl *client) error {
 		}
 	}
 	d.cfg.NoVaultRequests = append(d.cfg.NoVaultRequests, ProgramDecision{Identity: id, Program: cl.display(), Created: d.opts.Now().UTC()})
-	if err := d.cfg.save(d.home); err != nil {
+	if err := d.cfg.save(d.config); err != nil {
 		d.cfg.NoVaultRequests = d.cfg.NoVaultRequests[:len(d.cfg.NoVaultRequests)-1]
 		return err
 	}
@@ -440,7 +440,7 @@ func (d *Daemon) forgetVaultRequests(id string) error {
 		}
 		old := d.cfg.NoVaultRequests
 		d.cfg.NoVaultRequests = append(append([]ProgramDecision(nil), old[:i]...), old[i+1:]...)
-		if err := d.cfg.save(d.home); err != nil {
+		if err := d.cfg.save(d.config); err != nil {
 			d.cfg.NoVaultRequests = old
 			return err
 		}

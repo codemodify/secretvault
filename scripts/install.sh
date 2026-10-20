@@ -55,7 +55,7 @@ echo "Building in $root ..."
 # The desktop programs are a module of their own (gui/), built with cgo
 # against a uitoolkit release, which go fetches like any other module;
 # without cgo, the rest works.
-if (cd "$root/gui" && CGO_ENABLED=1 go build -trimpath -o "$build/" ./cmd/...) 2>"$build/gui.log"; then
+if (cd "$root/gui" && CGO_ENABLED=1 go build -trimpath -tags theme_engine_hangar,theme_engine_plastik -o "$build/" ./cmd/...) 2>"$build/gui.log"; then
 	programs="$programs $gui_programs"
 else
 	echo "Skipped the desktop programs ($gui_programs): they need cgo, which needs a C compiler. The build said:"

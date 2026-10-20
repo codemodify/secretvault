@@ -41,3 +41,20 @@ func (c *Client) ContainerPasswd(ctx context.Context, p svrpc.ContainerPasswdPar
 	err = c.conn.Call(ctx, svrpc.MContainerPasswd, p, &out)
 	return
 }
+
+// DeleteContainer deletes a container's image file, for good, and then
+// its key's item, which goes to the vault's deleted items (see
+// svrpc.ContainerDeleteParams). It is refused while the image is in use.
+func (c *Client) DeleteContainer(ctx context.Context, p svrpc.ContainerDeleteParams) (out svrpc.ContainerInfo, err error) {
+	err = c.conn.Call(ctx, svrpc.MContainerDelete, p, &out)
+	return
+}
+
+// KnownContainers lists the disks of every vault (svrpc.MContainerKnown):
+// an unlocked vault's as Containers lists them, and a locked one's as the
+// daemon remembers them, marked Locked, with their files and states but
+// not their keys' items. It never unlocks a vault.
+func (c *Client) KnownContainers(ctx context.Context) (out []svrpc.ContainerInfo, err error) {
+	err = c.conn.Call(ctx, svrpc.MContainerKnown, struct{}{}, &out)
+	return
+}

@@ -255,6 +255,7 @@ type kdbxString struct {
 // kdbxMeta is what ExportKDBX keeps about an item that KDBX has no place
 // for, in the entry's CustomData under "secretvault".
 type kdbxMeta struct {
+	Name   string            `json:"name,omitempty"`
 	Kind   string            `json:"kind,omitempty"`
 	Label  string            `json:"label,omitempty"`
 	Attrs  map[string]string `json:"attrs,omitempty"`
@@ -361,10 +362,10 @@ func kdbxDraft(e *xnode, path []string, pool [][]byte) *draft {
 	return d
 }
 
-// kdbxApplyMeta restores what ExportKDBX kept: kind, label, attributes,
-// and each field's type and place.
+// kdbxApplyMeta restores what ExportKDBX kept: name, kind, label,
+// attributes, and each field's type and place.
 func kdbxApplyMeta(d *draft, m *kdbxMeta) {
-	d.kind, d.label, d.attrs = m.Kind, m.Label, m.Attrs
+	d.name, d.kind, d.label, d.attrs = m.Name, m.Kind, m.Label, m.Attrs
 	if len(m.Fields) == 0 {
 		return
 	}

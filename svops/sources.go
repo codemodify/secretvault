@@ -11,7 +11,7 @@ import (
 
 // The programs people bring their passwords from, and how to make the
 // file each gives secretvault: the CLI's 'import sources' and 'import
-// SOURCE', the GUI's File › Import… and the TUI's I all show these words,
+// SOURCE', the GUI's Vault › Import… and the TUI's I all show these words,
 // and nothing else. Browsers' own stores are never read: every program
 // imports through the export file it makes.
 

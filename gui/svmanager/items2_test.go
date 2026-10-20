@@ -127,19 +127,19 @@ func TestImportShowsWhatItWouldMakeAndExportWritesANewFile(t *testing.T) {
 	if err := os.WriteFile(in, []byte(chromeCSV), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h.importFrom("chrome", in, "imported/chrome")
+	h.importFrom("chrome", in)
 	h.waitText("2 items from Chrome Passwords.csv will be added to vault personal.")
 	h.expand("Show details")
-	if !strings.Contains(h.text(), "imported/chrome/github.com") {
+	if !strings.Contains(h.text(), "github.com") {
 		t.Fatalf("the preview:\n%s", h.text())
 	}
-	if h.m.entry("imported/chrome/github.com") != nil {
+	if h.m.entry("github.com") != nil {
 		t.Fatal("the preview stored something")
 	}
 	h.press("Import 2 items")
 	h.waitText("2 items were imported.")
 	h.press("Close")
-	h.waitFor("the items", func() bool { return h.m.entry("imported/chrome/example.org") != nil })
+	h.waitFor("the items", func() bool { return h.m.entry("example.org") != nil })
 	// The file held them in the clear: deleting it is offered, and
 	// declined here.
 	h.waitText("Delete Chrome Passwords.csv?")
@@ -149,7 +149,7 @@ func TestImportShowsWhatItWouldMakeAndExportWritesANewFile(t *testing.T) {
 	}
 
 	// Again: what exists is skipped, in this program's words.
-	h.importFrom("chrome", in, "imported/chrome")
+	h.importFrom("chrome", in)
 	h.waitText("2 items from Chrome Passwords.csv will be added")
 	h.press("Import 2 items")
 	h.waitText("No items were imported. 2 items the vault had already were skipped.")

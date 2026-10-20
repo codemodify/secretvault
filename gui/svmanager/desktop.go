@@ -29,42 +29,15 @@ import (
 // are told to start is the secretvault CLI (svops.CLIProgram), never this
 // program.
 
-// The desktop page's tabs.
-const (
-	tabKeyring = iota
-	tabBrowsers
-	tabGnuPG
-	tabHelpers
-	tabHost
-)
-
-// desktopPage is the desktop page's state.
+// desktopPage is these tabs' state: they are the Tools tab's page's
+// (toolspage.go, tabBrowsers and on).
 type desktopPage struct {
 	*tabbedPage
 }
 
-// showDesktopPage shows the desktop page, open at tab.
-func (m *Manager) showDesktopPage(tab int) {
-	if m.editor != nil {
-		m.say("Save or cancel the edit first.")
-		return
-	}
-	if m.dpage != nil && m.up(m.dpage.tabbedPage) {
-		m.selectTab(m.dpage.tabbedPage, tab)
-		return
-	}
-	m.closeVaultPage()
-	p := &desktopPage{tabbedPage: &tabbedPage{kind: pageDesktop, vault: m.vault, title: "Desktop"}}
-	p.panes = []*pane{
-		newPane("System keyring", func(pn *pane) { m.fillKeyring(p, pn) }),
-		newPane("Browsers", func(pn *pane) { m.fillBrowsers(p, pn) }),
-		newPane("GnuPG", func(pn *pane) { m.fillGnuPG(p, pn) }),
-		newPane("Program helpers", func(pn *pane) { m.fillHelpers(p, pn) }),
-		newPane("Host daemon", func(pn *pane) { m.fillHost(p, pn) }),
-	}
-	m.dpage = p
-	m.openPage(p.tabbedPage, tab)
-}
+// showDesktopPage shows tab of the Tools tab's page: one of the other
+// programs secretvault works with (tabKeyring and on).
+func (m *Manager) showDesktopPage(tab int) { m.showTools(tab) }
 
 // refreshDesktop fills a tab of the desktop page again, if it is up.
 func (m *Manager) refreshDesktop(p *desktopPage, tab int) {
@@ -105,9 +78,9 @@ func (m *Manager) fillKeyring(p *desktopPage, pn *pane) {
 			col.Add(m.paragraph(sentence(here.Error())))
 			return scrolled(col)
 		}
-		imp := widgets.NewButton("Copy its passwords into the vault…", func() { m.importKeyring(p) })
-		take := widgets.NewButton("Take over the keyring…", func() { m.takeOver(p) })
-		give := widgets.NewButton("Give the keyring back…", func() { m.restoreKeyring(p) })
+		imp := newButton("Copy its passwords into the vault…", func() { m.importKeyring(p) })
+		take := newButton("Take over the keyring…", func() { m.takeOver(p) })
+		give := newButton("Give the keyring back…", func() { m.restoreKeyring(p) })
 		take.SetEnabled(state == nil)
 		give.SetEnabled(state != nil)
 		pn.focus = imp
@@ -124,7 +97,7 @@ func orNot(s string) string {
 }
 
 // readKeyring reads every secret the current keyring holds
-// (svops.ReadKeyring), saying whose they are in the status bar, since it
+// (svops.ReadKeyring), saying whose they are in a note, since it
 // may ask the person to unlock it. The caller wipes them.
 func (m *Manager) readKeyring(ctx context.Context) ([]svsecret.Secret, []string, error) {
 	return svops.ReadKeyring(ctx, func(o svsecret.Owner) {
@@ -143,12 +116,7 @@ func (m *Manager) importKeyring(p *desktopPage) {
 	}
 	f := m.newForm("Copy the keyring's passwords")
 	f.intro("The passwords apps keep in the system keyring are copied into vault " + vault + ". The keyring keeps them too, and nothing changes for your apps.")
-	prefix := f.text("Put them in the folder", "imported", "imported")
 	f.show("Next", func() {
-		pre := strings.TrimSpace(prefix.Text)
-		if pre == "" {
-			pre = "imported"
-		}
 		var secrets []svsecret.Secret
 		var warnings, names []string
 		var holder string
@@ -162,7 +130,7 @@ func (m *Manager) importKeyring(p *desktopPage) {
 			if secrets, warnings, err = m.readKeyring(ctx); err != nil {
 				return err
 			}
-			names, _, _ = svops.ImportKeyring(ctx, nil, vault, pre, secrets)
+			names, _, _ = svops.ImportKeyring(ctx, nil, vault, secrets)
 			return nil
 		}, func() {
 			wipe := func() {
@@ -170,11 +138,11 @@ func (m *Manager) importKeyring(p *desktopPage) {
 					secrets[i].Wipe()
 				}
 			}
-			m.showPlan(svops.KeyringImportPlain(holder, vault, pre, names, warnings), func() {
+			m.showPlan(svops.KeyringImportPlain(holder, vault, names, warnings), func() {
 				var n int
 				m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 					defer wipe()
-					_, n, err = svops.ImportKeyring(ctx, c, vault, pre, secrets)
+					_, n, err = svops.ImportKeyring(ctx, c, vault, secrets)
 					return err
 				}, func(err error) {
 					if err != nil {
@@ -230,26 +198,21 @@ func (m *Manager) takeOver(p *desktopPage) {
 			m.fail(err)
 			return
 		}
-		show := func(doImport bool, pre string) {
+		show := func(doImport bool) {
 			m.showPlan(svops.TakeoverPlain(plan, exe, doImport, vault), func() {
-				m.applyTakeover(p, plan, exe, vault, pre, doImport)
+				m.applyTakeover(p, plan, exe, vault, doImport)
 			}, nil)
 		}
 		if exe == "" || vault == "" {
-			show(false, "imported") // nothing to copy first
+			show(false) // nothing to copy first
 			return
 		}
 		f := m.newForm("Make secretvault your system keyring")
 		f.intro("Before secretvault takes over, it can copy the passwords " + svops.KeyringName(exe) + " holds into your vault, so that apps still find them.")
 		importFirst := f.check("Copy its passwords into vault "+vault+" first", true)
-		prefix := f.text("Put them in the folder", "imported", "imported")
 		f.show("Next", func() {
-			pre := "imported"
-			if strings.TrimSpace(prefix.Text) != "" {
-				pre = strings.TrimSpace(prefix.Text)
-			}
 			f.close()
-			show(importFirst.Checked, pre)
+			show(importFirst.Checked)
 		})
 	})
 }
@@ -258,7 +221,7 @@ func (m *Manager) takeOver(p *desktopPage) {
 // one runs at a time, and it checks again, as it starts, that no takeover
 // was done meanwhile (by the CLI, say): the import before it may wait a
 // long time for the old keyring to be unlocked.
-func (m *Manager) applyTakeover(p *desktopPage, plan *svops.TakeoverPlan, exe, vault, prefix string, doImport bool) {
+func (m *Manager) applyTakeover(p *desktopPage, plan *svops.TakeoverPlan, exe, vault string, doImport bool) {
 	if m.takingOver {
 		m.say("A takeover is under way already.")
 		return
@@ -281,7 +244,7 @@ func (m *Manager) applyTakeover(p *desktopPage, plan *svops.TakeoverPlan, exe, v
 			for _, w := range warnings {
 				report = append(report, "warning: "+w)
 			}
-			_, n, err := svops.ImportKeyring(ctx, c, vault, prefix, secrets)
+			_, n, err := svops.ImportKeyring(ctx, c, vault, secrets)
 			for i := range secrets {
 				secrets[i].Wipe()
 			}
@@ -425,9 +388,9 @@ func (m *Manager) fillBrowsers(p *desktopPage, pn *pane) {
 
 		col.Add(section(m, "secretvault's own extension"))
 		hostTable(svops.ExtensionHost)
-		setup := widgets.NewButton("Let browsers use secretvault…", func() { m.installBrowsers(p, states, svops.ExtensionHost) })
-		undo := widgets.NewButton("Take the permission back…", func() { m.uninstallBrowsers(p, &svops.ExtensionHost) })
-		save := widgets.NewButton("Save the extension…", func() { m.saveExtension() })
+		setup := newButton("Let browsers use secretvault…", func() { m.installBrowsers(p, states, svops.ExtensionHost) })
+		undo := newButton("Take the permission back…", func() { m.uninstallBrowsers(p, &svops.ExtensionHost) })
+		save := newButton("Save the extension…", func() { m.saveExtension() })
 		setup.SetEnabled(cli != "")
 		undo.SetEnabled(recorded(svops.ExtensionHost))
 		pn.focus = setup
@@ -648,8 +611,8 @@ func (m *Manager) fillGnuPG(p *desktopPage, pn *pane) {
 			col.Add(m.paragraph(sentence(here.Error())))
 			return scrolled(col)
 		}
-		setup := widgets.NewButton("Let gpg use the vault's keys…", func() { m.gnupgSetup(p) })
-		stop := widgets.NewButton("Stop gpg using them…", func() { m.gnupgRemove(p) })
+		setup := newButton("Let gpg use the vault's keys…", func() { m.gnupgSetup(p) })
+		stop := newButton("Stop gpg using them…", func() { m.gnupgRemove(p) })
 		pn.focus = setup
 		col.Add(buttons(setup, stop))
 		return scrolled(col)
@@ -774,8 +737,8 @@ func (m *Manager) gnupgRemove(p *desktopPage) {
 var helperUse = map[string]string{
 	"git-credential-secretvault":    "git config --global credential.helper secretvault",
 	"docker-credential-secretvault": `"credsStore": "secretvault" in ~/.docker/config.json`,
-	"age-plugin-secretvault":        "age -d -i IDENTITY-FILE (the identity line of Keys › age identities)",
-	"secretvault-browser":           "Desktop › Browsers › Let browsers use secretvault…",
+	"age-plugin-secretvault":        "age -d -i IDENTITY-FILE (the identity line of Vault › My keys › age identities)",
+	"secretvault-browser":           "Tools › Browsers › Let browsers use secretvault…",
 }
 
 func (m *Manager) fillHelpers(p *desktopPage, pn *pane) {
@@ -808,8 +771,8 @@ func (m *Manager) fillHelpers(p *desktopPage, pn *pane) {
 			// uses: git's credential helpers and docker's credsStore.
 			col.Add(m.facts(plan.PlainRows()))
 		}
-		setup := widgets.NewButton("Let git, docker and age use secretvault…", func() { m.helpersPlan(p, true) })
-		undo := widgets.NewButton("Remove the setup…", func() { m.helpersPlan(p, false) })
+		setup := newButton("Let git, docker and age use secretvault…", func() { m.helpersPlan(p, true) })
+		undo := newButton("Remove the setup…", func() { m.helpersPlan(p, false) })
 		setup.SetEnabled(plan != nil)
 		undo.SetEnabled(plan != nil && plan.Undoable())
 		col.Add(buttons(setup, undo))
@@ -829,14 +792,14 @@ func (m *Manager) fillHelpers(p *desktopPage, pn *pane) {
 			use := helperUse[h.Name]
 			col.Add(m.facts([][2]string{{"Installed as", link}, {"Programs find it at", found}, {"Used through", use}}))
 			if strings.HasPrefix(use, "git ") {
-				col.Add(buttons(widgets.NewButton("Copy git's setting", func() { m.copyValue([]byte(use), "git's setting", "") }),
-					widgets.NewButton("Show git's logins", func() { m.showFolder("git/") })))
+				col.Add(buttons(newButton("Copy git's setting", func() { m.copyValue([]byte(use), "git's setting", "") }),
+					newButton("Show git's logins", func() { m.showHelperLogins("git_host", "git") })))
 			}
 			if strings.HasPrefix(h.Name, "docker") {
-				col.Add(buttons(widgets.NewButton("Show the registries' logins", func() { m.showFolder("docker/") })))
+				col.Add(buttons(newButton("Show the registries' logins", func() { m.showHelperLogins("docker_server", "docker") })))
 			}
 		}
-		refresh := widgets.NewButton("Refresh", pn.refresh)
+		refresh := newButton("Refresh", pn.refresh)
 		pn.focus = setup
 		if plan == nil {
 			pn.focus = refresh
@@ -892,18 +855,6 @@ func (m *Manager) helpersPlan(p *desktopPage, setup bool) {
 	})
 }
 
-// showFolder goes back to the items, showing a folder of them.
-func (m *Manager) showFolder(folder string) {
-	m.closeVaultPage()
-	m.folder = folder
-	if m.findFolder(folder) == nil {
-		m.say("Vault %s has nothing under %s yet: the helper makes those items as it stores logins.", m.vault, folder)
-		m.folder = ""
-	}
-	m.drawFolders()
-	m.applyFilter()
-}
-
 // --- The host daemon ---
 
 // hostCall talks to the host daemon on its admin socket (root's alone),
@@ -942,11 +893,11 @@ func (m *Manager) fillHost(p *desktopPage, pn *pane) {
 			return
 		}
 		pn.filled = true
-		initBtn := widgets.NewButton("Make the host identity…", func() { m.hostInit(p) })
+		initBtn := newButton("Make the host identity…", func() { m.hostInit(p) })
 		if err != nil {
 			pn.focus = initBtn
 			pn.box.Set(m.paneColumn("The host daemon hands secrets to the services on a server, by rules you set, without asking anyone. It is set up "+
-				"by root, on the server: run this program as root there to manage it. "+m.describe(err), nil, initBtn, widgets.NewButton("Try again", pn.refresh)))
+				"by root, on the server: run this program as root there to manage it. "+m.describe(err), nil, initBtn, newButton("Try again", pn.refresh)))
 			return
 		}
 		pn.box.Set(m.drawHost(p, pn, st, pol, events, initBtn))
@@ -975,9 +926,9 @@ func (m *Manager) drawHost(p *desktopPage, pn *pane, st svrpc.HostStatus, pol sv
 	}
 	rows = append(rows, [2]string{"Policy", policy}, [2]string{"Since it started", fmt.Sprintf("%d delivered, %d refused or failed", st.Delivered, st.Refused)})
 	col := widgets.NewColumn(m.facts(rows)).WithGap(gap).WithPad(gap)
-	allow := widgets.NewButton("Let a service read secrets…", func() { m.hostRule(p, true) })
+	allow := newButton("Let a service read secrets…", func() { m.hostRule(p, true) })
 	pn.focus = allow
-	col.Add(buttons(allow, widgets.NewButton("Stop a service reading secrets…", func() { m.hostRule(p, false) }), initBtn, widgets.NewButton("Refresh", pn.refresh)))
+	col.Add(buttons(allow, newButton("Stop a service reading secrets…", func() { m.hostRule(p, false) }), initBtn, newButton("Refresh", pn.refresh)))
 
 	col.Add(section(m, "Vaults"))
 	if len(st.Vaults) == 0 {

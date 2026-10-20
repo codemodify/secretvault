@@ -300,7 +300,6 @@ type SeenResult struct {
 // and primary user ID as attributes.
 const (
 	PGPItemKind    = "key"
-	PGPItemPrefix  = "pgp/" // new keys are named pgp/ADDRESS
 	PGPSecretField = "pgp_secret_key"
 	PGPPublicField = "pgp_public_key"
 	PGPPassField   = "passphrase"
@@ -309,7 +308,8 @@ const (
 )
 
 // PGPGenerateParams make a new OpenPGP key in a vault, as item Item (""
-// for pgp/EMAIL). Version is 6 (the default) or 4; LifetimeDays 0 means
+// for one named for its address, "(OpenPGP)" or a number added if an
+// item has that name). Version is 6 (the default) or 4; LifetimeDays 0 means
 // it does not expire.
 type PGPGenerateParams struct {
 	Vault        string   `json:"vault,omitempty"`

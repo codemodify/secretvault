@@ -586,7 +586,7 @@ The payload is JSON:
 ```json
 {"type": "item", "item": {
     "kind": "login",
-    "name": "web/github.com",
+    "name": "github.com",
     "label": "GitHub",
     "attrs": {"service": "github.com", "username": "ada"},
     "tags": ["work"],
@@ -604,6 +604,8 @@ The payload is JSON:
 
 - **Item names** are path-like: non-empty UTF-8 segments separated by `/`, with
   no `.` or `..` segments, no control characters, and at most 1,024 bytes.
+  A `/` is part of the name, as pass and Vault KV paths have them; nothing
+  groups items by it.
 - **Field types:**
   - `text`, `url`, `email` — ordinary values;
   - `concealed` — a secret, shown masked;
@@ -613,9 +615,11 @@ The payload is JSON:
 - **Kinds** are listed in [`svcore/item.go`](../svcore/item.go). Unknown kinds
   are kept as they are.
 - **Records** are payloads of any other type: remembered access grants,
-  contacts, and the two below that the format itself
-  reads, `device` and `policy`. A reader keeps and authenticates types it
-  does not know, but otherwise ignores them.
+  contacts, and the two below that the format itself reads, `device` and
+  `policy`. A reader keeps and authenticates types it does not know, but
+  otherwise ignores them. (Development builds wrote `folder` records, to
+  keep a folder while it was empty; there are no folders now, and readers
+  ignore those as any type they do not know.)
 - **Known draft limitation:** unknown JSON fields inside an item are dropped
   when an older version rewrites it. This must be fixed before the format
   freeze.

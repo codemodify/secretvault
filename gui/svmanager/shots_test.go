@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codemodify/secretvault/gui/secretui"
 	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/uitoolkit"
 	"github.com/codemodify/uitoolkit/app"
@@ -37,6 +38,7 @@ func TestScreenshots(t *testing.T) {
 		t.Setenv("UITK_COLOR_SCHEME", scheme)
 		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		a := uitoolkit.New(uitoolkit.Options{Headless: true, Scale: 1, DisableLookWatch: true})
+		secretui.UseLook(a) // as the program does
 		h := newHarness(t)
 		h.start(Options{App: a})
 		h.waitText("Vault personal is locked")
@@ -62,13 +64,19 @@ func TestScreenshots(t *testing.T) {
 
 		h.open("web/github.com")
 		shoot(h.win(), "05-open"+suffix)
+		h.openCrumb("Logins")
+		shoot(h.win(), "05-kinds"+suffix)
+		h.closeDrop()
+		h.openCrumb("personal")
+		shoot(h.win(), "05-vaults"+suffix)
+		h.closeDrop()
 		h.win().Press(platform.KeyR, platform.ModCtrl)
 		shoot(h.win(), "06-revealed"+suffix)
 
 		h.open("2fa/example")
 		shoot(h.win(), "07-otp"+suffix)
 
-		h.win().FocusOn(h.m.ui.search)
+		h.win().FocusOn(h.m.ui.filter)
 		h.win().Type("git")
 		h.idle()
 		shoot(h.win(), "08-search"+suffix)
@@ -98,7 +106,11 @@ func TestScreenshots(t *testing.T) {
 		h.waitFor("the vault page", h.m.showingVaultPage)
 		h.idle()
 		shoot(h.win(), "11-grants"+suffix)
-		h.m.vpage.tabs.Select(tabAudit)
+		h.m.showSettings(tabSetAppearance)
+		h.idle()
+		shoot(h.win(), "11-appearance"+suffix)
+		h.m.showSection(secVaults)
+		h.m.selectTab(h.m.vpage.tabbedPage, tabAudit)
 		h.idle()
 		shoot(h.win(), "12-audit"+suffix)
 		h.win().Press(platform.KeyEscape)
@@ -129,7 +141,7 @@ func TestScreenshots(t *testing.T) {
 		h.m.showVault("personal", false)
 		h.idle()
 		h.selectItem("web/gitlab.com")
-		h.win().FocusOn(h.m.ui.items)
+		h.win().FocusOn(h.m.ui.content)
 		h.win().Press(platform.KeyDelete)
 		shoot(h.win(), "16-delete"+suffix)
 		h.win().Press(platform.KeyEscape)
@@ -138,9 +150,23 @@ func TestScreenshots(t *testing.T) {
 		shoot(h.win(), "17-keys"+suffix)
 		h.win().Press(platform.KeyEscape)
 
+		// The Tools and the Disks tabs.
+		h.m.showTools(tabFiles)
+		h.idle()
+		shoot(h.win(), "17-tools"+suffix)
+		h.m.showTools(tabBrowsers)
+		h.idle()
+		shoot(h.win(), "17-tools-browsers"+suffix)
+		h.m.showDisks()
+		h.waitFor("the disks", func() bool { return h.m.disks != nil && h.m.disks.ctable != nil })
+		h.idle()
+		shoot(h.win(), "17-disks"+suffix)
+		h.m.showSection(secVaults)
+		h.idle()
+
 		// A new name refused where it was typed.
 		h.selectItem("web/github.com")
-		h.win().FocusOn(h.m.ui.items)
+		h.win().FocusOn(h.m.ui.content)
 		h.win().Press(platform.KeyF2)
 		h.win().Press(platform.KeyA, platform.ModCtrl)
 		h.win().Type("web//github")
@@ -204,7 +230,7 @@ func TestScreenshots(t *testing.T) {
 		// A keyslot added in one step: the kind at the head, and only
 		// what it takes under it.
 		h.openVaultPage(tabKeyslots)
-		h.pressOn("Add a keyslot…")
+		h.pressOn("Add a way to unlock…")
 		shoot(h.win(), "28-keyslot-passphrase"+suffix)
 		h.choose("Opens with", 1)
 		h.pump()
@@ -237,7 +263,7 @@ func TestScreenshots(t *testing.T) {
 		// An invite and its QR code in one dialog; in a window too short
 		// for both it scrolls, its button in view.
 		invite := []byte("svsync1:" + strings.Repeat("Qm9vdHN0cmFwIGludml0ZSBmb3IgYSBkZXZpY2U", 4))
-		d4 := h.m.showSecrets("Invite a device to personal", "On the new device: File › Join a synced vault…, and paste this invite, or scan it.",
+		d4 := h.m.showSecrets("Invite a device to personal", "On the new device: Vault › Join a synced vault…, and paste this invite, or scan it.",
 			[]secretShown{{label: "Invite", value: invite}}, true, "Done")
 		h.pump()
 		shoot(h.win(), "31-invite-qr"+suffix)

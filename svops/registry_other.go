@@ -14,3 +14,5 @@ func registryValue(string) (string, bool, error) { return "", false, errNoRegist
 func setRegistryValue(string, string) error { return errNoRegistry }
 
 func deleteRegistryKey(string) error { return errNoRegistry }
+
+func registryHasValue(string, string) bool { return false }

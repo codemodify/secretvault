@@ -340,8 +340,8 @@ func KeyringName(exe string) string {
 }
 
 // KeyringImportPlain says copying the keyring's secrets (names, as
-// ImportKeyring without a client says them) into vault under prefix.
-func KeyringImportPlain(exe, vault, prefix string, names, warnings []string) Plain {
+// ImportKeyring without a client says them) into vault.
+func KeyringImportPlain(exe, vault string, names, warnings []string) Plain {
 	from := KeyringName(exe)
 	pl := Plain{Details: append([]string(nil), names...)}
 	for _, w := range warnings {
@@ -354,8 +354,8 @@ func KeyringImportPlain(exe, vault, prefix string, names, warnings []string) Pla
 	}
 	n := countOf(len(names), "password", "passwords")
 	pl.Title = "Copy the keyring's passwords into " + vault
-	pl.Summary = fmt.Sprintf("%s from %s %s copied into vault %s, in the folder %s. %s keeps its own copies, and nothing changes for your apps.",
-		SentenceStart(n), from, isAre(len(names)), vault, strings.TrimSuffix(prefix, "/")+"/", SentenceStart(from))
+	pl.Summary = fmt.Sprintf("%s from %s %s copied into vault %s. %s keeps its own copies, and nothing changes for your apps.",
+		SentenceStart(n), from, isAre(len(names)), vault, SentenceStart(from))
 	if len(warnings) > 0 {
 		pl.Notes = append(pl.Notes, "Some could not be read as they are; the details say which.")
 	}

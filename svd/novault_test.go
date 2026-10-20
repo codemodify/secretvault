@@ -49,6 +49,8 @@ var namesAVault = map[string]map[string]any{
 	svrpc.MFileRemove:   {"item": "x", "name": "f"},
 	svrpc.MDeviceList:   {},
 	svrpc.MSyncStatus:   {},
+
+	svrpc.MContainerDelete: {"path": "/nowhere/private.img"},
 }
 
 // ownOnly are secretvault's own programs' to call: a program is refused

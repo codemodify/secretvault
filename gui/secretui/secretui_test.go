@@ -223,13 +223,17 @@ func TestTheIcon(t *testing.T) {
 	if img.Width != 32 || img.Height != 32 {
 		t.Fatalf("%dx%d", img.Width, img.Height)
 	}
-	opaque := 0
+	// The logo is round: its corners are clear, its middle painted.
+	painted := 0
 	for i := 3; i < len(img.Pix); i += 4 {
-		if img.Pix[i] == 255 {
-			opaque++
+		if img.Pix[i] > 0 {
+			painted++
 		}
 	}
-	if opaque < 32*32/2 {
-		t.Fatalf("only %d of its pixels are painted", opaque)
+	if painted < 32*32*2/5 {
+		t.Fatalf("only %d of its pixels are painted", painted)
+	}
+	if mid := (16*32 + 16) * 4; img.Pix[mid+3] != 255 {
+		t.Fatalf("its middle is not opaque: alpha %d", img.Pix[mid+3])
 	}
 }

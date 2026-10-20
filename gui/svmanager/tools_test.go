@@ -30,7 +30,7 @@ func TestFilesAreSignedCheckedAndDecryptedWithOpenPGP(t *testing.T) {
 	h.waitText("Sign a file")
 	h.fill("File to sign", doc)
 	h.press("Sign the file")
-	h.said("Signed doc.txt with pgp/ada@example.org: the signature is in " + doc + ".asc")
+	h.said("Signed doc.txt with ada@example.org: the signature is in " + doc + ".asc")
 	sig, err := os.ReadFile(doc + ".asc")
 	if err != nil || !bytes.Contains(sig, []byte("BEGIN PGP SIGNATURE")) {
 		t.Fatalf("the signature: %q %v", sig, err)
@@ -68,7 +68,7 @@ func TestFilesAreSignedCheckedAndDecryptedWithOpenPGP(t *testing.T) {
 	h.fill("Encrypted file", enc)
 	h.fill("Save it decrypted to", plain)
 	h.press("Decrypt the file")
-	h.said("Decrypted enc.asc with pgp/ada@example.org into " + plain + ", which only you can read.")
+	h.said("Decrypted enc.asc with ada@example.org into " + plain + ", which only you can read.")
 	if b, _ := os.ReadFile(plain); string(b) != "for your eyes" {
 		t.Fatalf("decrypted %q", b)
 	}
@@ -154,7 +154,7 @@ func TestMailIsInspectedAndComposed(t *testing.T) {
 	h.tick("Encrypt it", false)
 	h.fill("Save the result to", sent)
 	h.press("Sign and encrypt")
-	h.said("Wrote " + sent + " (openpgp, signed with pgp/me@example.org)")
+	h.said("Wrote " + sent + " (openpgp, signed with me@example.org)")
 
 	h.m.inspectMessage()
 	h.pump()

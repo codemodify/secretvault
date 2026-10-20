@@ -634,7 +634,7 @@ func (m *Manager) showMailReport(rep *svmail.Report, verdicts []svrpc.MailVerdic
 		t.wrap = true
 		t.SetAccessibleName(label)
 		texts = append(texts, t)
-		show := widgets.NewButton("Show", nil)
+		show := newButton("Show", nil)
 		show.SetAccessibleName("Show the " + strings.ToLower(label))
 		show.OnClick = func() {
 			t.SetReveal(!t.Revealed())
@@ -662,7 +662,7 @@ func (m *Manager) showMailReport(rep *svmail.Report, verdicts []svrpc.MailVerdic
 		col.Add(masked(p.ContentType, []byte(p.Text)))
 	}
 	var d *dialog
-	ok := widgets.NewButton("Close", func() { d.Close() })
+	ok := newButton("Close", func() { d.Close() })
 	// The dialog scrolls a message longer than the window (uitoolkit-gaps.md, 40).
 	d = m.showDialog("The message", col, widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept), ok, func() {
 		for _, t := range texts {
@@ -750,7 +750,7 @@ func (m *Manager) resolveReference() {
 			t := newSecretText(v)
 			t.wrap = true
 			t.SetAccessibleName("Value")
-			show := widgets.NewButton("Show", nil)
+			show := newButton("Show", nil)
 			show.OnClick = func() {
 				t.SetReveal(!t.Revealed())
 				show.Text = showLabel(t.Revealed(), false)
@@ -758,7 +758,7 @@ func (m *Manager) resolveReference() {
 				m.syncCapture()
 			}
 			vault := r.Vault
-			copyBtn := widgets.NewButton("Copy", func() { m.copyValue(v, "The value", vault) })
+			copyBtn := newButton("Copy", func() { m.copyValue(v, "The value", vault) })
 			// The value wraps to what its column is given, beside its
 			// buttons.
 			value := widgets.NewGrid()
@@ -769,7 +769,7 @@ func (m *Manager) resolveReference() {
 			value.Place(copyBtn, 0, 2)
 			body := widgets.NewColumn(m.paragraph(r.String()+" names:"), value).WithGap(12)
 			var d *dialog
-			ok := widgets.NewButton("Close", func() { d.Close() })
+			ok := newButton("Close", func() { d.Close() })
 			d = m.showDialog("Resolved", body, widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept), ok, func() {
 				t.Forget()
 				clear(v)

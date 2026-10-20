@@ -45,7 +45,7 @@ func TestImportFromFirefoxShowsItsStepsStoresAndDeletesTheFile(t *testing.T) {
 		}
 	}
 	h.typeText(file)
-	h.tabs(3) // the folder, replace, Read it
+	h.tabs(2) // replace, Read it
 	h.key(tcell.KeyEnter)
 	h.waitForWords("2 items from logins.csv will be added to vault personal")
 	h.details()
@@ -96,7 +96,7 @@ func TestImportAsksOnlyWhatTheSourceNeeds(t *testing.T) {
 	if strings.Contains(h.text(), "unencrypted") {
 		t.Error("a KeePass database is said to be unencrypted")
 	}
-	h.tabs(7) // master password, key file, folder, replace, Read it, Cancel, Back
+	h.tabs(6) // master password, key file, replace, Read it, Cancel, Back
 	h.key(tcell.KeyEnter)
 	h.waitFor("Where are your passwords now?")
 	h.waitGone("What to do in KeePass")
@@ -115,7 +115,7 @@ func TestImportAsksOnlyWhatTheSourceNeeds(t *testing.T) {
 	h.typeText(file)
 	h.tabs(1)
 	h.typeText(pass)
-	h.tabs(3) // the folder, replace, Read it
+	h.tabs(2) // replace, Read it
 	h.key(tcell.KeyEnter)
 	h.waitForWords("2 items from bitwarden_export.json will be added to vault personal")
 	h.key(tcell.KeyTab)

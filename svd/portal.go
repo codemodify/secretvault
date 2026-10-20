@@ -3,6 +3,7 @@ package svd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"regexp"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svcrypto"
 	"github.com/codemodify/secretvault/svdbus"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svrpc"
 )
@@ -104,7 +106,7 @@ func (d *Daemon) appSecret(ctx context.Context, appID string, portalPID int) ([]
 	if err != nil {
 		return nil, err
 	}
-	name := "flatpak/" + appID
+	name := appID
 	why := cl.display() + " asks for the key to its own secret storage."
 	record := d.recorder(cl, mv, name, svbroker.OpRead)
 	prompted, own, err := d.ensureUnlocked(ctx, cl, mv, why)
@@ -112,18 +114,19 @@ func (d *Daemon) appSecret(ctx context.Context, appID string, portalPID int) ([]
 		record(outcomeOf(err), err.Error())
 		return nil, err
 	}
-	e, err := mv.v.Get(name)
+	e, err := appSecretItem(mv, appID)
 	if errors.Is(err, svcore.ErrNotFound) {
 		key := svcrypto.RandomBytes(64)
-		it := svcore.Item{Kind: "key", Name: name, Label: "Secret storage key of " + appID + " (Flatpak)",
-			Attrs:  map[string]string{"flatpak-app": appID},
+		it := svcore.Item{Kind: "key", Name: mv.v.FreeName(svops.PathSafe(appID), "Flatpak"), Label: "Secret storage key of " + appID + " (Flatpak)",
+			Attrs:  map[string]string{flatpakApp: appID},
 			Fields: []svcore.Field{{Name: "key", Type: svcore.FieldConcealed, Value: key}}}
-		e, err = mv.v.Put(it)
+		e, err = mv.v.PutNew(it)
 		clear(key)
 	}
 	if err != nil {
 		return nil, err
 	}
+	name = e.Item.Name
 	defer e.Item.Wipe()
 	if err := d.decide(ctx, cl, mv, e.ID.String(), name, svbroker.OpRead, why, prompted, own, record); err != nil {
 		return nil, err
@@ -134,4 +137,30 @@ func (d *Daemon) appSecret(ctx context.Context, appID string, portalPID int) ([]
 		}
 	}
 	return nil, errors.New(name + " has no key field")
+}
+
+// flatpakApp is the attribute that says whose key an app's secret
+// storage key is: the app's Flatpak ID.
+const flatpakApp = "flatpak-app"
+
+// appSecretItem is the item that holds appID's key, found by its
+// attribute (whatever it is named), with its fields.
+func appSecretItem(mv *managedVault, appID string) (svcore.Entry, error) {
+	all, err := mv.v.List("")
+	if err != nil {
+		return svcore.Entry{}, err
+	}
+	var found svcore.Entry
+	ok := false
+	for _, e := range all {
+		if !ok && e.Item.Kind == "key" && e.Item.Attrs[flatpakApp] == appID {
+			found, ok = e, true
+			continue
+		}
+		e.Item.Wipe()
+	}
+	if !ok {
+		return svcore.Entry{}, fmt.Errorf("%w: the key of %s", svcore.ErrNotFound, appID)
+	}
+	return found, nil
 }

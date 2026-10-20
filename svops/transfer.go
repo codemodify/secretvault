@@ -71,8 +71,7 @@ func WrongPassphrase(err error) bool { return errors.Is(err, svimport.ErrWrongKe
 // ImportOptions say how an import's items are stored.
 type ImportOptions struct {
 	Vault     string
-	Prefix    string // the folder they were read under (svimport.Options.Prefix): what is listed to find those that exist
-	Overwrite bool   // replace items that exist (else they are skipped)
+	Overwrite bool // replace items that exist (else they are skipped)
 	// Describe says an error in words, in the warnings (err.Error() when
 	// nil).
 	Describe func(error) string
@@ -116,7 +115,7 @@ func StoreImport(newCtx func() (context.Context, context.CancelFunc), cl *secret
 		describe = func(err error) string { return err.Error() }
 	}
 	ctx, cancel := newCtx()
-	existing, err := cl.List(ctx, o.Vault, o.Prefix)
+	existing, err := cl.List(ctx, o.Vault, "")
 	cancel()
 	if err != nil {
 		return nil, err
@@ -180,23 +179,21 @@ func CheckExport(format, path string) error {
 // ExportOptions say what an export reads.
 type ExportOptions struct {
 	Vault    string
-	Prefix   string // only the items under it
 	Describe func(error) string
 	// Each is told of every item read, as it is: an interface warns of
 	// its conflicts there.
 	Each func(svrpc.Entry)
 }
 
-// ReadForExport reads every item (under the prefix) whole, for an export,
-// a request per item, each in a context newCtx makes. The caller wipes
-// the items.
+// ReadForExport reads every item whole, for an export, a request per
+// item, each in a context newCtx makes. The caller wipes the items.
 func ReadForExport(newCtx func() (context.Context, context.CancelFunc), cl *secretvault.Client, o ExportOptions) ([]svrpc.Item, error) {
 	describe := o.Describe
 	if describe == nil {
 		describe = func(err error) string { return err.Error() }
 	}
 	ctx, cancel := newCtx()
-	entries, err := cl.List(ctx, o.Vault, o.Prefix)
+	entries, err := cl.List(ctx, o.Vault, "")
 	cancel()
 	if err != nil {
 		return nil, err

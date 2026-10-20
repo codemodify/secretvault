@@ -210,3 +210,27 @@ func (c *cli) newPassphrase(file string) ([]byte, error) {
 	}
 	return c.askNew("New passphrase: ", minPassphrase)
 }
+
+// confirm asks a yes-or-no question on the terminal. Only yes is yes:
+// Enter, like anything else, is no.
+func (c *cli) confirm(prompt string) (bool, error) {
+	var answer string
+	if c.askLine != nil {
+		a, err := c.askLine(prompt)
+		if err != nil {
+			return false, err
+		}
+		answer = a
+	} else {
+		a, err := c.ask(prompt)
+		if err != nil {
+			return false, err
+		}
+		answer = string(a)
+	}
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "y", "yes":
+		return true, nil
+	}
+	return false, nil
+}

@@ -11,13 +11,13 @@ func TestBrowserCSVExportsImport(t *testing.T) {
 	chrome := "\xef\xbb\xbfname,url,username,password,note\n" +
 		"github.com,https://github.com/login,ada,gh-pass,\"line one\nline two\"\n" +
 		"github.com,https://github.com/session,ada-work,gh-pass-2,\n"
-	res := mustImport(t, FormatCSV, []byte(chrome), Options{Prefix: "chrome"})
-	gh := item(t, res, "chrome/github.com")
+	res := mustImport(t, FormatCSV, []byte(chrome), Options{})
+	gh := item(t, res, "github.com")
 	has(t, gh, "username", svcore.FieldText, "ada")
 	has(t, gh, "password", svcore.FieldConcealed, "gh-pass")
 	has(t, gh, "url", svcore.FieldURL, "https://github.com/login")
 	has(t, gh, "notes", svcore.FieldText, "line one\nline two")
-	has(t, item(t, res, "chrome/github.com (2)"), "username", svcore.FieldText, "ada-work")
+	has(t, item(t, res, "github.com (2)"), "username", svcore.FieldText, "ada-work")
 
 	firefox := `"url","username","password","httpRealm","formActionOrigin","guid","timeCreated","timeLastUsed","timePasswordChanged"
 "https://www.mozilla.org","ada","moz-pass",,"https://www.mozilla.org","{0b5f8b1c}","1600000000000","1600000000000","1600000000000"
@@ -48,7 +48,8 @@ func TestPasswordManagerCSVExportsImport(t *testing.T) {
 		"Work/Servers,1,login,db1,,\"port: 5432\nregion: eu\",0,\"https://db1.example,https://db1-admin.example\",root,r00t,JBSWY3DPEHPK3PXP\n" +
 		",,note,Door code,4711#,,0,,,,\n"
 	res := mustImport(t, FormatCSV, []byte(bitwarden), Options{})
-	db := item(t, res, "Work/Servers/db1")
+	db := item(t, res, "db1")
+	tagged(t, db, "Work/Servers")
 	has(t, db, "url2", svcore.FieldURL, "https://db1-admin.example")
 	has(t, db, "port", svcore.FieldText, "5432")
 	has(t, db, "region", svcore.FieldText, "eu")
@@ -63,21 +64,25 @@ func TestPasswordManagerCSVExportsImport(t *testing.T) {
 "Passwords","Top","t","p","","","","0","2025-01-01T00:00:00Z","2025-01-01T00:00:00Z"
 `
 	res = mustImport(t, FormatCSV, []byte(keepassxc), Options{})
-	vpn := item(t, res, "Work/VPN")
+	vpn := item(t, res, "VPN")
+	tagged(t, vpn, "Work") // the database's root group is left out
 	has(t, vpn, "otp", svcore.FieldOTP, "otpauth://totp/VPN:ada?issuer=VPN&secret=JBSWY3DPEHPK3PXP")
 	hasNot(t, vpn, "Icon")
-	item(t, res, "Top")
+	tagged(t, item(t, res, "Top"))
 
 	lastpass := "url,username,password,totp,extra,name,grouping,fav\n" +
 		"https://lastpass.com,ada,lp-pass,,a note,LastPass,Security,0\n" +
 		"http://sn,,,,secure note body,Wifi,Home,0\n"
 	res = mustImport(t, FormatCSV, []byte(lastpass), Options{})
-	lp := item(t, res, "Security/LastPass")
+	lp := item(t, res, "LastPass")
+	tagged(t, lp, "Security")
 	has(t, lp, "notes", svcore.FieldText, "a note")
 	hasNot(t, lp, "fav")
-	if n := item(t, res, "Home/Wifi"); n.Kind != "note" || len(n.Fields) != 1 {
-		t.Errorf("a LastPass secure note: %+v", n)
+	wifi := item(t, res, "Wifi")
+	if wifi.Kind != "note" || len(wifi.Fields) != 1 {
+		t.Errorf("a LastPass secure note: %+v", wifi)
 	}
+	tagged(t, wifi, "Home")
 
 	generic := "Account;Site;Login;Pass\nignored\n"
 	if _, err := Import(FormatCSV, []byte(generic), Options{}); !errors.Is(err, ErrFormat) {

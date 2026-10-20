@@ -60,15 +60,15 @@ func TestGoogleAuthenticatorExportsImport(t *testing.T) {
 	unknown := append(protoBytes(1, []byte("abcdefghij")), append(protoBytes(2, []byte("Future:x")), protoVarint(99, 5)...)...)
 	input := gaExample + "\n\n# a second QR code of the batch\n" + migrationURI(hotp, md5, unknown) + "\n"
 
-	res := mustImport(t, FormatGoogleAuthenticator, []byte(input), Options{Prefix: "phone"})
-	ex := item(t, res, "phone/Example (alice@google.com)")
+	res := mustImport(t, FormatGoogleAuthenticator, []byte(input), Options{})
+	ex := item(t, res, "Example (alice@google.com)")
 	if ex.Kind != "otp" {
 		t.Errorf("kind %q", ex.Kind)
 	}
 	has(t, ex, "otp", svcore.FieldOTP, "otpauth://totp/Example:alice@google.com?issuer=Example&secret=JBSWY3DPEHPK3PXP")
-	has(t, item(t, res, "phone/Bank (ada@example.org)"), "otp", svcore.FieldOTP,
+	has(t, item(t, res, "Bank (ada@example.org)"), "otp", svcore.FieldOTP,
 		"otpauth://hotp/Bank:ada@example.org?algorithm=SHA512&counter=42&digits=8&issuer=Bank&secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")
-	has(t, item(t, res, "phone/Future (x)"), "otp", svcore.FieldOTP, "otpauth://totp/Future:x?issuer=Future&secret=MFRGGZDFMZTWQ2LK")
+	has(t, item(t, res, "Future (x)"), "otp", svcore.FieldOTP, "otpauth://totp/Future:x?issuer=Future&secret=MFRGGZDFMZTWQ2LK")
 	warned(t, res, "old", "MD5")
 	if len(res.Items) != 3 {
 		t.Errorf("%d items", len(res.Items))

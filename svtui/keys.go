@@ -35,7 +35,7 @@ func (u *UI) showKeys() {
 	vault := u.vault
 	p := u.newPanel("Keys · "+vault, "ITEM", "FINGERPRINT / PUBLIC KEY", "FOR")
 	p.vault = vault
-	p.setHead(svops.KeysInVaultNote + " Signing, decrypting and encrypting files are in the : menu, under Tools.")
+	p.setHead(svops.KeysInVaultNote + " Signing, decrypting and encrypting files are on the Tools tab (3).")
 	p.reload = func() {
 		var entries []svrpc.Entry
 		var smime []svrpc.SMIMEKey
@@ -111,7 +111,7 @@ func (u *UI) newPGPKey(vault string, then func()) {
 	name := f.text("Your name", "", "as people will see it")
 	emails := f.text("Your addresses", "", "several separated by commas")
 	version := f.choice("Version", []string{"6", "4 (for GnuPG 2.4 and older)"}, 0)
-	item := f.text("Item name", "", "Leave empty for pgp/ADDRESS")
+	item := f.text("Item name", "", "Leave empty to name it for its address")
 	days := f.text("Expires after", "", "days (empty: never)")
 	f.show("Make the key", func() string {
 		p := svrpc.PGPGenerateParams{Vault: vault, Item: trimmed(item), Name: trimmed(name), Emails: splitList(trimmed(emails)), Version: 6}
@@ -152,7 +152,7 @@ func (u *UI) newPGPKey(vault string, then func()) {
 func (u *UI) importPGPKey(vault string, then func()) {
 	f := u.newForm("Import an OpenPGP key into "+vault, "One secret key of yours, from a file. Someone else's public key goes to Contacts instead.")
 	path := f.path("Key file", "", "")
-	item := f.text("Item name", "", "Leave empty for pgp/ADDRESS")
+	item := f.text("Item name", "", "Leave empty to name it for its address")
 	f.show("Import the key", func() string {
 		pth := filePath(path)
 		if pth == "" {
@@ -174,7 +174,7 @@ func (u *UI) importPGPKey(vault string, then func()) {
 				return err
 			}
 			defer svops.Wipe(&it)
-			return svops.StorePGPKey(ctx, c, vault, it)
+			return svops.StorePGPKey(ctx, c, vault, &it, name != "")
 		}, func(err error) {
 			if err != nil {
 				u.fail(err)
@@ -312,7 +312,7 @@ func (u *UI) importSMIME(vault string, then func()) {
 	f := u.newForm("Import an S/MIME key into "+vault, "A PKCS #12 file (.p12 or .pfx): your certificate and its private key, for signed and encrypted mail.")
 	path := f.path("File", "", "")
 	pass := f.secret("The file's password")
-	item := f.text("Item name", "", "Leave empty for smime/ADDRESS")
+	item := f.text("Item name", "", "Leave empty to name it for its address")
 	f.show("Import the key", func() string {
 		pth := filePath(path)
 		if pth == "" {
@@ -350,7 +350,7 @@ func (u *UI) importSMIME(vault string, then func()) {
 // svops.StoreAgeIdentity).
 func (u *UI) newAgeIdentity(vault string, then func()) {
 	f := u.newForm("New age identity in "+vault, svops.AgeNote)
-	name := f.text("Item name", "", "like age/backups")
+	name := f.text("Item name", "", "what to call it, like backups")
 	pq := f.check("Post-quantum (ML-KEM-768 + X25519, age 1.3 or later)", false)
 	out := f.path("Also write the identity line to", "", "a new file (optional)")
 	f.show("Make the identity", func() string {

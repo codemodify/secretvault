@@ -3,54 +3,53 @@
 This list is for [uitoolkit](https://github.com/codemodify/uitoolkit)'s
 maintainers.
 
-**Does uitoolkit v0.23.4 address all of secretvault's needs? Nearly,
-not all.** It closes everything v0.23.3 left open: 50–55 hold, and with
-them 7's, 12's, 48's and 49's missing halves. Of the 60 items, 53 are
-satisfactory, one (11) is declined by design, one (7) is partly met, and
-five are open (56–60, all found in this audit). Every one of the five is
-an edge of the secret clipboard or of a paste, narrow, read from the code
-and not run; three of them (58, 59, 60) are older than v0.23.4, and
-missed before. What holds: another
-program's copy ends a held secret on all four backends (52); on a Wayland
-desktop with XWayland a copy is held while either clipboard still serves
-it, and the Wayland clear gives up only this program's own selections
-(55); each piece of a long X11 paste is zeroed before Xlib frees it (53);
-a prompt opened with Caps Lock on says so before the first key on all
-four, and a window coming back into focus asks again (51); a short text
-view keeps a scroll bar that says where it is, its lines clear of it
-(50); and `DialogContentFoot` gives a foot the dialog's whole width (54).
-What is left:
+**Does uitoolkit v0.23.21 address all of secretvault's needs? Yes, all
+it uses.** v0.23.17 to v0.23.21 change nothing at run time (two of its
+own tests, and a script that lists skips, subtests included, with each
+skip's own reason, a failed run reported as one, two packages' tests of
+one name kept apart, and a test run twice reported for each run). v0.23.16 changes nothing secretvault uses (a tag sequence's
+flag, and a test of its own that skipped rather than checked; read
+against the manager's own run, none of its checks skip but the
+screenshot writers, and Hangar's capitals where Hangar is not built
+in). v0.23.15 carries a flip panel's clock to the turn a framed
+window builds for itself (94, found moving to v0.23.14), so the
+manager's test of its turn steps a held clock, under the race detector
+too. v0.23.14 let a test hold a flip panel's clock. v0.23.13 fixes a race in the text path that every build had
+(a cached shape's groups re-pointed while another goroutine drew from
+them); the manager draws on one goroutine, and its tests under the race
+detector, run for this release, report no race anywhere. v0.23.12 changes nothing secretvault uses (two emoji
+sequences, and a test of its own). v0.23.11 changes nothing the manager needed; its note on what
+a tray icon's `Name` does beside its picture (the picture is chosen,
+the name is sent as well, and the tray shows which it likes) made the
+manager stop sending one, as no icon theme has a "secretvault". v0.23.10
+closes the two the manager had been working round
+since before v0.23.6: every digit is a key (92), so its parts are
+Ctrl+1, 2, 3; and the set has a cloud and an icon can carry a badge
+(93), so the only mark it draws itself is its logo. v0.23.9 changed
+nothing secretvault uses (a GPU device's closing callback, and complex
+text and colour emoji, which it is not built with). v0.23.8 closed the
+two found moving to v0.23.7: the flip panel that is a turned window's
+content offers a key to the face that is up (90), and a framed window
+comes back the way it went (91). v0.23.7 had closed everything found
+moving to v0.23.6 but 88: a framed window turns over with its frame
+(77), so the manager's window keeps the toolkit's frame, its buttons
+and its resizing; a turn's pictures are wiped (78); a breadcrumb says
+its own tip and marks what it opens (79, 81), and its words are whole
+(82); a mark's strip scales (80); a merged caption keeps Hangar's cut
+corners (83), and the cut's hairline is drawn over the content (84); the
+two clipboard edges are closed (85, 86); an application may say which
+motion is the thing itself (87); and a panel's floor holds its chrome
+(89). Of the 94 items, 91 are satisfactory, one (11) is declined by
+design, and two are open, neither of them something the manager uses:
+61, a tree that picks several nodes (its items are a list), and 88, a
+window panel's silhouette that is not its window's shape (its window
+wears the toolkit's frame). Moving to v0.23.8 through v0.23.13 and to
+v0.23.15 to v0.23.21 found nothing new; v0.23.14 found 94, which
+v0.23.15 closed.
 
-- touching the passphrase, on the clipboard:
-  - a loss of the last copy that is handled as the next is made ends the
-    new one, which is then put on the clipboard with nothing left to
-    clear it: the copy is held before it is on the clipboard, and a
-    cancel or a `SelectionClear` names whatever is held when it is
-    handled. On X11 the copy's own round trip handles a clear already
-    queued, so it takes another program copying within milliseconds of
-    this one; with XWayland beside a compositor the mirror check rescues
-    it but for goroutine scheduling going wrong (57);
-  - a secret's clear runs on its timer's goroutine against Wayland state
-    the event loop changes without the lock: a double destroy of the data
-    source, a cache zeroed as it is written, or another program's new
-    selection unset, if the two meet (59, older than v0.23.4);
-  - on Windows a copy that fails (the clipboard busy, or the block
-    refused) is taken for one that was made: a paste serves the held
-    secret, the clear at its time empties what was there, and a refused
-    block holding the passphrase is freed unzeroed (60);
-- touching a pasted secret, on X11: a reply that comes after the paste
-  gave up waiting is kept until the next paste, and may be taken for that
-  paste's answer; a transfer its owner stops part way the same (56, what
-  53 and 42 leave);
-- and one that does not touch a secret: a Wayland secret copy unsets the
-  primary selection, whoever holds it, so what the person had selected
-  in another program goes as they copy a password (58, as in v0.23.3).
-
-secretvault works around 57, 58 and 59 on Linux, where the manager keeps
-copying through the CLI beside it (`secretvault __clip`, svclip), as the
-CLI and the TUI do (and on the BSDs, where uitoolkit has no clipboard of
-its own); on Windows and macOS it copies through uitoolkit, and 60 stands
-on Windows. 56 it cannot. The workaround for 54 is gone: the manager's
+The manager copies through uitoolkit's secret clipboard on Linux now,
+as on Windows and macOS (2026-10-12); the CLI's helper stays on the BSDs,
+where uitoolkit has no clipboard. The workaround for 54 is gone: the manager's
 dialogs are `DialogContentFoot` now, rather than its own copy of
 `DialogContent`'s arrangement. 50's, `detailText`, stays by choice: a
 plan's lines read better as tall as they are, in a dialog that scrolls as
@@ -65,7 +64,21 @@ tests of it.
   v0.22.5, 35–37 in the audit of v0.23.0), 38–40 while bringing the
   manager level with the CLI, on v0.23.0, 41–45 in the audit of v0.23.1,
   46–49 in the audit of v0.23.2, 50 since, on v0.23.2, 51–55 in the
-  audit of v0.23.3, and 56–60 in the audit of v0.23.4.
+  audit of v0.23.3, 56–60 in the audit of v0.23.4, 61–76 since, on
+  v0.23.4, 77–89 moving to v0.23.6, 90–91 moving to v0.23.7, 92–93
+  looking again for what the manager works round, at v0.23.9, and 94
+  moving to v0.23.14.
+- **The move to v0.23.6.** Everything the manager did for itself where
+  the toolkit had nothing is the toolkit's now: its look is Hangar, a
+  pack of uitoolkit's, where it was a skin of its own (`hudskin`, gone);
+  its title bar's breadcrumbs are `widgets.Breadcrumbs`, their choices
+  the toolkit's menus (but the vaults', a list with buttons under it);
+  its notes are toasts; its icons the toolkit's seven new ones; its turn
+  to Settings is the toolkit's own (`Window.SetFlipFaces` and
+  `Window.Flip`), frame and all since v0.23.7 (77); its pages are plain
+  scroll views, and its drop-down passes keys on by itself; the locked
+  vault's logo shows the pointing hand, and its buttons' marks are the
+  engine's. Since v0.23.10 it works round nothing.
 - **The audit of v0.23.4** re-read every item from scratch against the
   release as the module proxy serves it (file for file the same tree as
   uitoolkit's checkout at the tag), and diffed it against v0.23.3 file by
@@ -96,7 +109,14 @@ tests of it.
   where a headless window can show it (7, 34, 38–40, 44–46, 48, 50, 51,
   54), and read uitoolkit's functions, parsed rather than grepped, where
   it cannot (12, 35, 37, 41–43, 47–49, 52, 53, 55–60).
-- **The manager's clipboard, decided again.** On Linux the manager keeps
+- **The manager's clipboard, decided again at v0.23.6.** With 56–60
+  closed, the person chose uitoolkit's secret clipboard on Linux too
+  (2026-10-12): one way of copying on every platform but the BSDs.
+  What svclip still had over it stays a difference, and was weighed: the
+  manager's heap holds the copy while it is on the clipboard, where the
+  helper held it in a process of its own. The bullet as it was decided at
+  v0.23.4 follows.
+- **The manager's clipboard, decided again at v0.23.4.** On Linux the manager kept
   copying through the CLI beside it (`gui/svmanager/clip.go`):
   `secretvault __clip SECONDS`, the secret on its stdin, takes the
   clipboard in a process of its own through svclip (Wayland's data
@@ -159,26 +179,26 @@ tests of it.
 Two voices below. **"After v0.2x.y"** paragraphs are secretvault's own
 checks, each pinned by a test in `gui/uitoolkit_test.go`. **"Closed in
 0.2x.y"** paragraphs are uitoolkit's maintainers' notes on the same items;
-those for 0.23.1 to 0.23.4 are their release notes' words, copied
+those for 0.23.1 to 0.23.21 are their release notes' words, copied
 verbatim (for 0.23.2, for 46 in 0.23.3, and for parts of 51, 54 and 55
 in 0.23.4, the commit's where the release notes say less). The
 maintainers count all of 18–32 closed by 0.22.3, 8, 23 and 28 closed by
 0.22.5, 12, 33–38 and 40 closed by 0.23.1, 39 and 41–45 closed by
 0.23.2, 12's other half and 46–49 closed by 0.23.3, and 50–55 closed by
-0.23.4. secretvault's checks agree on 8, 12, 18–29, 31–54, and on 55 as
-it was asked, and disagree on:
+0.23.4; their notes for 0.23.5 and 0.23.6 number none of secretvault's
+items, and what they describe closes 56–60 (0.23.5) and 62–76 (0.23.6);
+those for 0.23.7 name secretvault's 78 and close 77–87 and 89, and those
+for 0.23.8 close 90 and 91; those for 0.23.9 touch none of the items,
+those for 0.23.10 close 92 and 93, those for 0.23.11 to 0.23.14 touch
+none, those for 0.23.15 close 94, and those for 0.23.16 to 0.23.21 touch none. secretvault's checks agree on 7, 8, 12,
+18–29, 31–60, 62–87 and 89–94, and disagree on:
 
-- 7: what 52 and 55 asked holds, but a loss handled as the next copy is
-  made ends the new one (57), a secret's clear meets the Wayland event
-  loop unlocked (59), and a Windows copy that fails is taken for one that
-  was made (60);
 - 30: `DismissOverlay` from outside closes the *top* dialog only, so the
   manager keeps `SetOverlay(nil)` at quit, which closes them all;
-- 55: as asked, yes; but the copy a cancel ends is named when the cancel
-  is handled, not when the copy was taken (57), and a secret copy still
-  unsets the primary selection, whoever holds it (58).
+- 89: the floor came out too small here, not too large, as the
+  maintainers found it; a panel holds its chrome either way now.
 
-The GUIs build against uitoolkit v0.23.4 from the module proxy
+The GUIs build against uitoolkit v0.23.21 from the module proxy
 (`gui/go.mod`). `gui/uitoolkit_test.go` checks every item from 7 on
 against it, headless, a test per item (`TestItem12CapsLock` and so on): a
 provided item's test pins what secretvault relies on, and an open item's
@@ -186,17 +206,19 @@ test pins the gap, so it fails on the uitoolkit release that closes it.
 Item 23's tray half is pinned in `gui/svmanager/tray_test.go` on a private
 session bus; 12, 35, 37, 41–43, 47–49, 52, 53 and 55–60 are about code no
 headless window reaches, and their pins read uitoolkit's source as the
-test is built against it.
+test is built against it, as do those of 71, 74, 76–79, 81 and 82, to
+see that what the manager relies on is there, or that what is missing is
+missing still.
 
-| # | Item | After v0.23.4 | Verdict |
+| # | Item | After v0.23.21 | Verdict |
 | --- | --- | --- | --- |
-| 1 | A secret field that does not leak | `widgets.SecretField` (65463cc): a byte buffer edited in place, zeroed when outgrown or shortened, copy, cut, drag and PRIMARY refused, no string made of it; a paste is bytes on every platform (e54cba4, 18a98d9) | **Satisfactory**; a late X11 paste: 56 |
+| 1 | A secret field that does not leak | `widgets.SecretField` (65463cc): a byte buffer edited in place, zeroed when outgrown or shortened, copy, cut, drag and PRIMARY refused, no string made of it; a paste is bytes on every platform (e54cba4, 18a98d9) | **Satisfactory**, a late X11 paste too (56) |
 | 2 | A dialog window | `Role`, `Center`, `KeepAbove`, `Activate` (3fa3094) | **Satisfactory** |
 | 3 | Holding the keyboard | `SetSecureInput`, and since 3c3c2c7 `SecureInputHeld`, `OnSecureInput`, the X11 grab taken at the map | **Satisfactory** (37); the prompts say "Typing is private" |
 | 4 | Out of screenshots | `Window.SetExcludeFromCapture` (b87afe0); Windows and macOS only | **Satisfactory** where a platform can; X11 and Wayland cannot, by the platform |
 | 5 | No input method in secret fields | input method off while a `SecretTarget` has the focus (`app/window.go`, `syncIMECursor`) | **Satisfactory** |
 | 6 | Headless driving for tests | `Type`, `Press`, `ClickComponent`, `FocusOn` (a0bd1d7) | **Satisfactory** |
-| 7 | A clipboard that can hold a secret | `ClipboardSetSecret` and the rest (7020c65), `OnCleared` (58140ea); bytes everywhere (e54cba4, d9356f0); wiped before it is said gone (9e7e1c6); the hint "secret" on Wayland too (dbcb934); cleared only while it is ours (c3ba669); ended by another program's copy everywhere (4a6691c); the Wayland end (6e161a6, 16aca25) | **Partly**: the hint, CLIPBOARD only, a clear only of its own copy, an end at another's; a loss pinned on the next copy: 57; the Wayland clear against the event loop: 59; a failed Windows copy: 60. The manager still copies through the CLI on Linux |
+| 7 | A clipboard that can hold a secret | `ClipboardSetSecret` and the rest (7020c65), `OnCleared` (58140ea); bytes everywhere (e54cba4, d9356f0); wiped before it is said gone (9e7e1c6); the hint "secret" on Wayland too (dbcb934); cleared only while it is ours (c3ba669); ended by another program's copy everywhere (4a6691c); the Wayland end (6e161a6, 16aca25); held only once it is on the clipboard (34a8a36); a refused copy not taken for one (d635a4b); the clear on the loop (f1cd408); another program's primary selection left alone (88f39fa) | **Satisfactory** (52, 55, 57–60); a Wayland cancel that names nothing: 85; a busy Windows clipboard: 86. The manager copies through uitoolkit on Linux too |
 | 8 | Showing a secret without a string | `SecretLabel.MaskLen`, `Lines`, `Describe` (649af18); no copy masked (6126bcd) | **Satisfactory**; the manager keeps its own, which holds no copy revealed either |
 | 9 | A tray menu on macOS | `SetMenu` builds an NSMenu (9f360ec) | **Satisfactory** (not run on macOS here) |
 | 10 | Search-as-you-type suggestions | `widget.SetPopupKeysPass` (5285f3e) | **Satisfactory** (unused) |
@@ -208,7 +230,7 @@ test is built against it.
 | 16 | A default button that looks it | measured per pack (256978b) | **Satisfactory** |
 | 17 | A wrapping label measured at its own width | `Font.Wrap` (256978b) | **Satisfactory** |
 | 18 | Giving a secret field a value | `SecretField.SetBytes` (58140ea), taking ownership | **Satisfactory** |
-| 19 | A secret text area | `widgets.SecretArea` (fc42680) | **Satisfactory**; a late X11 paste: 56 |
+| 19 | A secret text area | `widgets.SecretArea` (fc42680) | **Satisfactory**, a late X11 paste too (56) |
 | 20 | Dialogs that stack | (fc42680) | **Satisfactory** |
 | 21 | A wrapping label's height in a column | for dialogs (91133b2); a column is the caller's | **Satisfactory** |
 | 22 | Clicking something scrolled out of view | (5e7a6cc) | **Satisfactory** |
@@ -224,32 +246,66 @@ test is built against it.
 | 32 | A SecretArea in a narrow form | (6e1d4f9), `PreferredWidth` | **Satisfactory** |
 | 33 | A hidden SecretLabel's copy of the secret | (6126bcd) | **Satisfactory** |
 | 34 | A window's floor from its content | `Window.SetMinSize`, `Splitter.MinWidth`, `TextField.PreferredWidth` (afa38a3, 3a0fba6); a one-child wrapper (99e0c22) | **Satisfactory**; it lasts (44) |
-| 35 | A secret on the Linux clipboard as a string | (e54cba4, d9356f0, 99e0c22) | **Satisfactory**; what is left is 56–59 |
+| 35 | A secret on the Linux clipboard as a string | (e54cba4, d9356f0, 99e0c22) | **Satisfactory**, and what was left (56–59) since v0.23.5 |
 | 36 | A form value read aloud as its caption | (570438f) | **Satisfactory**; the prompt's workaround is gone |
 | 37 | Secure input's answer, and its first attempt | (3c3c2c7) | **Satisfactory**; a failed grab is no diagnostic, which secretvault does not need |
 | 38 | A form's rows shown or hidden | `Form.Row`, `FormRow` (021593b); no gap (d9356f0) | **Satisfactory**; Add… for a keyslot is one step |
 | 39 | A grid cell offered no width | `widgets.Share` (e011659) | **Satisfactory**; the manager's fixed wrap is gone |
 | 40 | A dialog taller than its window | `DialogCard` (bba1c63), `DialogContent` (dbb2644), `DialogContentFoot` (16aca25) | **Satisfactory**; the manager's dialogs are `DialogContentFoot`. The QR code is back under its invite |
 | 41 | The Wayland owner serves a secret from a string | (d9356f0) | **Satisfactory** |
-| 42 | What a pasted secret leaves behind | (d9356f0, 18a98d9) | **Satisfactory**, a long paste too (49, 53); a late X11 paste: 56 |
+| 42 | What a pasted secret leaves behind | (d9356f0, 18a98d9) | **Satisfactory**, a long paste and a late one too (49, 53, 56) |
 | 43 | X11 reads its own copy as the last paste | (99e0c22) | **Satisfactory** |
 | 44 | A window's stated minimum does not last | (99e0c22) | **Satisfactory**; the manager no longer states it again |
 | 45 | A hidden form row keeps its gap | (d9356f0) | **Satisfactory** |
 | 46 | `DialogContent` fills the window, and squeezes a `ButtonBox` | (244f2ac) | **Satisfactory**; a foot that holds a `ButtonBox` too since v0.23.4 (54) |
 | 47 | Wayland answers the password-manager hint with the secret | (dbcb934) | **Satisfactory** |
-| 48 | A copied secret outlives the clipboard | (c3ba669): the program's own copy, everywhere; another's, everywhere (4a6691c); the clear, on all four, the Wayland one giving up only its own (16aca25) | **Satisfactory** (52, 55); a failed Windows copy: 60. The manager copies through the CLI on Linux |
+| 48 | A copied secret outlives the clipboard | (c3ba669): the program's own copy, everywhere; another's, everywhere (4a6691c); the clear, on all four, the Wayland one giving up only its own (16aca25) | **Satisfactory** (52, 55, 60) |
 | 49 | What a long pasted secret leaves behind | (244f2ac; 6e161a6) | **Satisfactory** (53) |
 | 50 | A short text view's scroll bar is squeezed, and its lines run under it | (16aca25) | **Satisfactory**; the manager keeps `detailText`, by choice |
 | 51 | Caps Lock is asked of a Wayland window before the compositor has said | (70f4d6e, e535eb1) | **Satisfactory** |
-| 52 | Another program's copy leaves a secret held on X11, Windows and macOS | (4a6691c) | **Satisfactory**; a failed Windows copy: 60 |
-| 53 | X11's INCR transfer still leaves pieces of a long paste | (6e161a6, 16aca25) | **Satisfactory**; a late paste: 56 |
+| 52 | Another program's copy leaves a secret held on X11, Windows and macOS | (4a6691c) | **Satisfactory** (60) |
+| 53 | X11's INCR transfer still leaves pieces of a long paste | (6e161a6, 16aca25) | **Satisfactory** (56) |
 | 54 | `DialogContent` squeezes a foot that holds a `ButtonBox` | (70f4d6e, 16aca25) | **Satisfactory**; the manager's dialogs are `DialogContentFoot` |
-| 55 | The Wayland end of a secret copy | (6e161a6, 16aca25) | **Satisfactory** as asked; 57 and 58 are what is left. The manager copies through the CLI on Linux |
-| 56 | An X11 paste that gave up waiting keeps what arrives after it | (new) | **Open** |
-| 57 | A loss still on its way is pinned on the copy just made | (new; the rest of 55) | **Open**; the manager copies through the CLI on Linux |
-| 58 | A Wayland secret copy unsets the primary selection, whoever holds it | (new; as in v0.23.3) | **Open**; the manager copies through the CLI on Linux |
-| 59 | A secret's clear runs on its timer's goroutine, against Wayland state the event loop changes unlocked | (new; as in v0.23.3) | **Open**; the manager copies through the CLI on Linux |
-| 60 | A Windows secret copy that fails is taken for one that was made | (new; as in v0.23.3) | **Open** |
+| 55 | The Wayland end of a secret copy | (6e161a6, 16aca25) | **Satisfactory** (57, 58) |
+| 56 | An X11 paste that gave up waiting keeps what arrives after it | (716d552) | **Satisfactory** |
+| 57 | A loss still on its way is pinned on the copy just made | (34a8a36) | **Satisfactory**; a Wayland cancel that names nothing: 85 |
+| 58 | A Wayland secret copy unsets the primary selection, whoever holds it | (88f39fa) | **Satisfactory**; the manager copies through uitoolkit on Linux now |
+| 59 | A secret's clear runs on its timer's goroutine, against Wayland state the event loop changes unlocked | (f1cd408) | **Satisfactory**; the manager copies through uitoolkit on Linux now |
+| 60 | A Windows secret copy that fails is taken for one that was made | (d635a4b), macOS too | **Satisfactory**; a busy Windows clipboard keeps the copy before it: 86 |
+| 61 | A tree that picks several nodes | (new, since v0.23.4) | **Open** (unused): the manager's items are a list, which picks several |
+| 62 | A popup's keys go to the popup alone | (6f6fc45) | **Satisfactory**; the manager's drop-down takes Escape alone |
+| 63 | A key with the keyboard on nothing reaches nothing | (6f6fc45) | **Satisfactory**; the manager still puts the keyboard on the part's button, for Tab |
+| 64 | A scroll view takes Ctrl+Page Up and Down | (125681b) | **Satisfactory**; the manager's pages are plain scroll views |
+| 65 | `ShowPopup` shows a popup at the size it was measured at | (4d237e5) | **Satisfactory**; the manager places its drop-down with `PlacePopupForAnchor` all the same |
+| 66 | Breadcrumbs | `widgets.Breadcrumbs` (c9d508b) | **Satisfactory**; the manager's title bar is one. A tip: 79; a sign of a menu: 81 |
+| 67 | Icons a password manager needs | seven icons (52541d9) | **Satisfactory**; the manager draws none of them now |
+| 68 | Nothing lies over a framed window's title bar | `Window.SetCover` (c575c39) | **Satisfactory** (unused now: the manager's turn is `Window.Flip`, 77) |
+| 69 | A window cannot be laid out at once | `Window.Layout` (7002b3f) | **Satisfactory** |
+| 70 | A picture cannot be drawn in perspective | `widgets.FlipPanel` (2041083, ee2acd5) | **Satisfactory** otherwise: the turn is the toolkit's; paintengine2d still has no projective draw. The whole window: 77 |
+| 71 | No pointing hand | `platform.CursorPointer` (5dc6a0d) | **Satisfactory**; on the locked vault's logo |
+| 72 | No passing note | `widgets.Toast` (e7c055b) | **Satisfactory**; the manager's notes are toasts |
+| 73 | A skin's radio is its check box | a `radio` part (2a518d9) | **Satisfactory** (unused: the manager's look is a pack, Hangar) |
+| 74 | A button's icon is in the text's colour, not its label's | `style.ButtonDraw` (da6819a, c74233f) | **Satisfactory**; the manager draws no mark again. The strip at 2x: 80 |
+| 75 | A framed window's shadow cannot be turned off | `Window.SetFrameShadow` (1fa7918) | **Satisfactory** (unused now: the manager's window has no frame of the toolkit's, 77) |
+| 76 | A skin's capitals reach its caption's title alone | `style.ControlLabelOf` (9a643ab) | **Satisfactory**; Hangar's labels are in capitals |
+| 77 | A framed window cannot turn over, title bar and all | `Window.Flip` of a framed window (f754b65) | **Satisfactory**; the manager's window turns with its frame, buttons and resizing |
+| 78 | A flip panel's pictures are not wiped | `FlipPanel.Wipe`, the window's photographs (c40b170) | **Satisfactory** |
+| 79 | A breadcrumb has no tip of its own | `Crumb.Tip` (aadd607) | **Satisfactory**; the vault's step says its state |
+| 80 | A marked button's mark strip does not scale with the display | (714f8ab) | **Satisfactory** |
+| 81 | A breadcrumb that opens a menu shows no sign of it | `Crumb.Opens` and a chevron (aadd607) | **Satisfactory** |
+| 82 | A breadcrumb's words are cut short by a rounding error | `Font.Fit`'s slack (f899ec5) | **Satisfactory** |
+| 83 | A merged caption drops the look's silhouette | (05f6aa2) | **Satisfactory**; the manager's window is cut |
+| 84 | A cut corner's border is painted under the content | `style.DecorationOverEngine` (44415e8) | **Satisfactory**; Hangar's bracket shows over the rail |
+| 85 | A Wayland cancel handled while nothing is held ends the next secret | (39e4fa4) | **Satisfactory** |
+| 86 | A busy Windows clipboard keeps the copy before a new one | (39e4fa4) | **Satisfactory** |
+| 87 | Nothing animates where the person's settings ask for less motion, whoever asks | `SetMotion`, `style.MotionAlways` (b076d9b) | **Satisfactory**; the manager's turn is `MotionAlways` |
+| 88 | A window panel's silhouette is not its window's shape | (new, at v0.23.6) | **Open** (unused now: the manager's window has the toolkit's frame again, 77) |
+| 89 | A panel's floor leaves out its chrome | `Panel.MinWidth` (5179abe) | **Satisfactory** (unused now: no window panel) |
+| 90 | A flip panel passes a key to neither face | `FlipPanel.KeyPress` (8ca4b6d) | **Satisfactory**; the title bar's keys reach the manager's by themselves |
+| 91 | A framed window always turns the same way | (a12ba05) | **Satisfactory** |
+| 92 | One digit key | `Key0`..`Key9` (398d343) | **Satisfactory**; the manager's parts are Ctrl+1, 2, 3 |
+| 93 | The icon set has no cloud, and an icon carries no badge | `IconCloud`, `DrawIconBadge` (a097e91) | **Satisfactory**; the manager draws its logo alone |
+| 94 | A framed window's turn cannot be held still from outside | `FlipPanel.Clock`, carried to the turn (6100823) | **Satisfactory**; the manager's turn test steps a held clock |
 
 The first findings come from reading uitoolkit's source at v0.20.x (file
 references are to that tree); 12–24 come from building on it after v0.21.0,
@@ -653,6 +709,40 @@ paste and the manager's own copies on X11 alike, and hold.
 `TestItem07ASecretOnTheClipboard`, `TestItem48ACopiedSecretEndsWithTheClipboard`,
 `TestItem52AnotherCopyEndsAHeldSecret`, `TestItem55TheWaylandEndOfASecretCopy`
 and 57–60's.
+
+**Closed in 0.23.5** (the release notes, verbatim, the head of "The secret clipboard, audited"; its five points are quoted under 56–60): The vault read 0.23.4's clipboard work through to the backends and found five things. Two were 0.23.4's own: … And three older ones that every audit before this one missed: …
+
+**After v0.23.6: satisfactory (57–60); the manager copies through it on
+Linux too now.** Read once more end to end, every backend, error
+paths too. What the item asked holds on all four, and what 52 and 55
+asked with it: CLIPBOARD only, the hint answered "secret" on both Linux
+protocols, the copy bytes on every path and wiped before anything says
+it has gone, a clear only while the copy is still there, an end when
+another program copies, and on a Wayland desktop with XWayland a copy
+held while either of its clipboards still serves it. The three things
+v0.23.4 left are closed: a copy is held only once the platform has
+taken it, so a loss on its way finds nothing to end (57); the clear
+runs on the loop rather than against it (59); and a copy the platform
+refuses comes back cleared, on Windows and macOS alike, its sequence
+number or `changeCount` not noted, a refused Windows block zeroed (60).
+A Wayland secret copy leaves another program's primary selection alone
+(58), and a paste that gave up waiting keeps nothing that comes after
+it (56). Two narrow edges are left, read from the code: a Wayland cancel
+handled while nothing is held ends whatever is held when its goroutine
+runs (85); and the copy a new one replaces is let go before the new one
+is tried, so a Windows clipboard held open by another program for all
+of the copy's tries leaves the previous secret on it with nothing to
+clear it (86). Of the `ClipboardClear` edges of v0.23.3, the failed
+Windows copy is 60's and closed, the noted number has been atomic since
+v0.23.4, and the first, that on Windows and macOS it leaves the
+clipboard alone once a copy has ended without a clear, is as it was;
+nothing of secretvault's calls it.
+The manager's clipboard was decided again at the top: it copies through
+uitoolkit on Linux too now (2026-10-12), and through the CLI on the BSDs
+alone. `TestItem07ASecretOnTheClipboard`,
+`TestItem48ACopiedSecretEndsWithTheClipboard`,
+`TestItem52AnotherCopyEndsAHeldSecret`,
+`TestItem55TheWaylandEndOfASecretCopy` and 56–60's.
 
 ### 8. Showing a secret without making it a string
 
@@ -2962,6 +3052,34 @@ run.
   is zeroed as it arrives, and never answers another paste.
   `TestItem56ALatePasteIsKeptUntilTheNext` pins today's code.
 
+**Closed in 0.23.5** (the release notes, verbatim): A paste that gave up waiting **kept what arrived after it**. `handleSelNotify` never asked `pasteWaiting` — 0.23.4 added that flag for the INCR path and wired it only there — and `pasteWant` was written and never read. So a reply from a slow owner went into `pasteData` and only the *next* paste cleared it, which in a manager that lives in the tray is days; and a late answer about PRIMARY, or about another field's ordinary text, could be served as the answer to a secret paste. (And the commit, 716d552, verbatim, where the release notes say nothing:) The same for an INCR transfer: one still running when its paste gives up has what it read zeroed at once and reads the rest into nothing, rather than sitting on the start of a private key until some later paste replaced it. A drop's transfer taking the state over zeroes what was there first, and closing the connection lets go of both — until now nothing but the next paste ever did.
+
+**After v0.23.6: satisfactory.** The notes and the code agree.
+`handleSelNotify` asks first whether a paste is waiting and whether the
+reply is about the selection it asked for (`pasteAskedFor`, which reads
+`pasteWant` at last); a reply that is neither goes to
+`discardSelNotify`, which reads it (an owner waits for its property to
+be taken), zeroes Xlib's buffer through the volatile helper before
+`XFree`, and puts nothing in `pasteData`; an INCR one becomes a transfer
+marked `discard` (where none is running), whose pieces `handleProperty` zeroes as they come, let
+go at its end. `readSelection` stops waiting on its way out
+(`endPasteWaitLocked`: `pasteWaiting` false, `pasteWant` none), and a
+transfer still running then has what it read zeroed at once and the
+rest read into nothing (`discardINCRLocked`). A drop's INCR transfer
+zeroes what a paste's had read before it takes the state over, and at
+its own end (`dropINCRLocked` both times); and closing the connection
+wipes `pasteData` and the transfer. The target is checked loosely, on
+purpose (UTF8_STRING, STRING or none: a paste asks for both, and an
+owner may echo either), the selection strictly: a late reply to an
+earlier paste of the same selection can still answer the next one,
+which is that selection's own text a moment older; PRIMARY's cannot.
+secretvault had no workaround, so nothing comes out; every
+`SecretField` paste, the manager's and the prompt's, goes through this
+reader. uitoolkit's own
+`TestAPasteThatGaveUpDoesNotKeepWhatArrivesAfterIt` runs it against a
+slow second client (`clipown`'s `SLOW_MS`); here it is read, not run.
+`TestItem56ALatePasteIsDropped`.
+
 ### 57. A loss still on its way is pinned on the copy just made
 
 - **Today** (`platform/clipboard_secret.go`, `ClipboardSetSecret`;
@@ -3002,6 +3120,35 @@ run.
   cleared at its time. `TestItem57ALossOnItsWayIsPinnedOnTheNewCopy`
   pins today's code.
 
+**Closed in 0.23.5** (the release notes, verbatim): **A loss still on its way was pinned on the copy just made.** 0.23.4 made a lost selection end the copy it was about rather than whatever is held — but it named that copy when the news is *handled*, and the fresh selection timestamp 0.23.4 also added is a round trip whose drain dispatches a `SelectionClear` from another program's copy made milliseconds earlier. Inside the new copy's own call. The password manager said "cleared" the instant the user copied, with the passphrase still on the clipboard. Nothing is held for the length of a copy now.
+
+**After v0.23.6: satisfactory, by the proposal's second way; a Wayland
+cancel that names nothing is left, narrow.** `ClipboardSetSecret` lets
+the copy it replaces go first (nothing held; the old copy wiped, its
+timer stopped, said gone), puts the new one on the clipboard, and makes
+it the held copy only once the platform has taken it; a refused one is
+never held (60). So a `SelectionClear` for the old copy, dispatched by
+X11's own round trip inside the new copy, finds nothing held, and
+`endLostSecret` returns without ending anything: the copy it was about
+has been let go, and the one it was not about is not held yet. That is
+the whole of it on X11 alone; with XWayland the X11 side is the same,
+and the mirror check as before. The backends still name a copy as its
+loss is handled rather than record which they serve; the gap between
+the two is now one in which nothing is held. What is left, read from
+the code: Wayland's cancel names what is held as it is handled
+(`lost := heldSecret()`), and where that is nothing it hands
+`forgetHeldSecretIf` a nil, which means "whichever is held" when its
+goroutine runs. X11's `endLostSecret` returns on nil; the cancel does
+not. So a cancel handled while nothing is held (an ordinary copy's
+source cancelled, or, where no window is and the clipboard service
+dispatches, one during a secret copy) ends a secret copied before its
+goroutine runs, while the Wayland source goes on serving it. Goroutine
+scheduling, as 55's second point was; the nil check `endLostSecret`
+makes would close it in the cancel too. The manager copies through uitoolkit on Linux now (2026-10-12), so it
+can reach it: 85. uitoolkit's own `TestALossOnItsWayIsNotPinnedOnTheCopyJustMade`
+runs the X11 case on a display.
+`TestItem57ACopyIsHeldOnlyOnceItIsOnTheClipboard`.
+
 ### 58. A Wayland secret copy unsets the primary selection, whoever holds it
 
 - **Today** (`platform/wayland_linux.go`, `wlClipSetSel`). A secret copy
@@ -3026,6 +3173,21 @@ run.
   selection as it was.
   `TestItem58AWaylandSecretCopyUnsetsThePrimarySelection` pins today's
   code.
+
+**Closed in 0.23.5** (the release notes, verbatim): **A Wayland secret copy unset whoever held the primary selection.** It called `set_selection(null)` whenever a primary device existed at all, and that unsets whichever client's selection it is — so copying a password threw away whatever the person had selected in another program, and the middle click after it pasted nothing. The clear had been guarded against exactly this since 0.23.3; the copy path never was.
+
+**After v0.23.6: satisfactory.** For a secret, `wlClipSetSel` destroys
+a primary source of this program's own and only then unsets the primary
+selection, under the same guard as `wlClipClear` (55); anyone else's is
+not touched. Its cache of the primary selection goes either way, so a
+read of it falls through to whoever holds it. One thing in the notes is
+off: the clear's guard is 0.23.4's (6e161a6); 0.23.3's clear was a copy
+of nothing. With X11, which gives PRIMARY up only when it owns it, no
+secret copy on any backend touches a selection that is not this
+program's. uitoolkit's own
+`TestAWaylandSecretCopyLeavesAnotherProgramsPrimarySelectionAlone` runs
+it on a compositor, with a window for the serial.
+`TestItem58AWaylandSecretCopyLeavesThePrimarySelectionAlone`.
 
 ### 59. A secret's clear runs on its timer's goroutine, against Wayland state the event loop changes unlocked
 
@@ -3052,6 +3214,34 @@ run.
 - **Done when:** nothing the Wayland selection's callbacks touch is
   touched from another goroutine without the lock they hold.
   `TestItem59ASecretsClearRacesTheWaylandEventLoop` pins today's code.
+
+**Closed in 0.23.5** (the release notes, verbatim): **A secret's clear ran on its timer's goroutine**, against Wayland state the event loop mutates without that lock: two destroys of one data source, a cache zeroed while it was being written. It goes to the loop now — `app.Run` lends the platform layer its `Post` for as long as it is running, and only that long, because posted work nothing will ever drain would be a passphrase left on the clipboard.
+
+**After v0.23.6: satisfactory, by the proposal's first way.** A
+secret's timer hands its clear to `onLoop` (`platform/looppost.go`),
+which posts it to the UI goroutine through the poster `app.Run` lends
+the platform (`SetLoopPoster(a.Post)`) from the moment it loops until it
+returns, and runs it on the timer's goroutine only where no loop runs (a
+headless tool, a test, a program that has not called `Run`). That is the
+goroutine that dispatches the Wayland callbacks of a program with a
+window, so a clear and a cancel or a paste being served no longer meet:
+no double destroy, no cache zeroed as it is written, and a cancel being
+dispatched is done before the clear looks or after it, never during
+(one still on the wire is the protocol's own window, which no client
+closes). Where no window is, the clipboard service dispatches them on a
+goroutine of its own, and `wlRetain` stops it before the clear goes on,
+as before. A clear posted as the loop stops is left in its queue, but the
+quit's `ClipboardClearSecret`, after the loop, clears a copy still held.
+Holding `wlMu` across the callbacks, the other way, the commit declines:
+one of them writes to a reader's pipe. Left, and harmless: X11's mirror
+check (`wlStillServesTheSecret`) reads the Wayland source and its secret
+flag under `wlMu` from the X11 side's goroutine, while the cancel writes
+them without it; the cancel only ever takes them from serving to not, so
+a stale read says "still serving" and keeps the copy, which the cancel's
+own check then ends. uitoolkit's own
+`TestASecretsTimeoutIsRunOnTheLoopAndNotItsTimer` and
+`TestWithNoLoopASecretsTimeoutStillClearsItself` pass here, displayless.
+`TestItem59ASecretsClearRunsOnTheLoop`.
 
 ### 60. A Windows secret copy that fails is taken for one that was made
 
@@ -3082,6 +3272,43 @@ run.
   clear leaves the clipboard alone, and no block of the passphrase is
   freed unzeroed. `TestItem60AFailedWindowsCopyIsTakenForOne` pins today's
   code.
+
+**Closed in 0.23.5** (the release notes, verbatim): **A copy the platform refused was taken for one that was made.** `clipboardNativeSetSecret` returned nothing, so Windows noted the clipboard sequence number and macOS the pasteboard changeCount either way — and macOS threw away all three `setString:forType:` results, which is the same defect as the drag types below. The seam reports on every backend now and a refused copy comes back already cleared. "There is no window system here" stays a *success*: the in-memory copy is the copy then, which every displayless test depends on. (And the commit, d635a4b, verbatim, where the release notes say nothing:) A refused block, which holds the passphrase as UTF-16, was also GlobalFree'd without being zeroed.
+
+**After v0.23.6: satisfactory, macOS too; a busy Windows clipboard now
+keeps the copy before it, narrow.** `clipboardNativeSetSecret` says
+whether the copy was made, on every backend: Windows whether
+`withClipboard` got the clipboard and `SetClipboardData` took the block,
+macOS whether the string went on the pasteboard (the two hints stay
+advisory), X11 whether the server made this process the owner, Wayland
+whether a source was made; no window system at all is a copy made.
+`ClipboardSetSecret` hands a refused one back already cleared: wiped,
+never held, no timer, `Cleared` true and `OnCleared` called at once.
+Windows notes the sequence number, and macOS the `changeCount`, only for
+a copy that was made, so no clear empties what the person had there on
+the strength of a copy that did not happen; and a block
+`SetClipboardData` refused is zeroed under `GlobalLock` before
+`GlobalFree` (`winGlobalWipeFree`). The manager, on Windows and macOS,
+then says the copy is on the clipboard and at once that it is no longer
+(`copyValue`) said the copy was on the clipboard and at once that it was
+no longer; it asks `Cleared()` after the copy now, and says it could not
+copy.
+What is left, read from the code and new with 57's fix: the copy being
+replaced is let go before the new one is tried, so where another program
+holds the Windows clipboard open for all of `withClipboard`'s tries, and
+nothing on it changes, the program's previous secret copy stays there
+with its timer stopped and nothing held: not cleared at its time, nor at
+its vault's lock (the manager clears the refused copy, which is not
+held), nor at the quit (`ClipboardClearSecret` finds nothing held). In
+v0.23.4 the failed copy's own clear emptied it, by the defect this item
+was about. Where `SetClipboardData` refuses after `EmptyClipboard` the
+old copy has gone with it, and X11, Wayland and macOS have given theirs
+up before they can be refused. On X11 a refused ownership also leaves
+the owner's copy of the new secret (`clipData`) unwiped until the next
+copy or clear. Both narrow, and 86; ending the copy being replaced only once the new
+one is made, or clearing it when the new one is refused, would close the
+first. uitoolkit's own `TestARefusedCopyComesBackCleared` passes
+here, displayless. `TestItem60ARefusedCopyIsNotTakenForOne`.
 
 ---
 
@@ -3115,3 +3342,987 @@ run.
   its button says Rename, and a name that cannot be used, or is taken, is
   refused under the field with what was typed still there, rather than
   after the dialog has gone. Its own `ask` is gone.
+
+### 61. A tree that picks several nodes
+
+- **Today** (`widgets/tree.go`). A `TreeView` has one `Selected` node: a
+  press picks the node under it, and Ctrl+ and Shift+click pick that one
+  node too. Nothing says which modifiers the press had (`OnSelect` gets the
+  node alone), and a drag carries the one node pressed.
+- **What the manager needed.** Its Vault tab was a tree of the vault's
+  contents, items under their folders, and the person picked several items
+  to drag onto a folder or delete together, as in any file manager. It
+  marked its own picks meanwhile (the modifiers noted at each press, the
+  items picked shown bold with a check).
+- **Now** there are no folders (`gui/svmanager/content.go`): a tab of
+  items is a `ListView` in `SelectExtended` mode, which picks several
+  (Ctrl+click, Shift+click and Shift+arrows, Ctrl+A) and reports them
+  (`OnSelectionChange`). The manager needs nothing of the tree here.
+- **Done when** a `TreeView` has a selection of several nodes
+  (Ctrl+click toggling one, Shift+click and Shift+arrows a range from an
+  anchor), painted as selected, with an `OnSelectionChange` that reports
+  them, and a drag that starts on one of them carries them all.
+  `TestItemsArePickedTogetherAndDeleted` pins the manager's side, on the
+  list.
+
+## Found redrawing the manager's window (since v0.23.4)
+
+The manager's window draws its own title bar now: secretvault's mark at
+its top left locks every vault, and beside it breadcrumbs say where the
+window is, each opening what it can change to; Settings is on the
+window's back (`gui/svmanager/titlebar.go`, `flip.go`). Building that
+found four gaps in how keys and popups behave, and what the toolkit did
+not have for the rest. Each is pinned in `gui/uitoolkit_test.go`, and
+v0.23.6 closed them all (70 otherwise).
+
+### 62. A popup's keys go to the popup alone
+
+- **Today** (`app/window.go`, the key-down case of the event handler).
+  While a popup is up, a key is offered to `widget.CascadeLeaf(popup)`, the
+  popup itself for one that is not a menu, and, unless
+  `widget.SetPopupKeysPass` says otherwise, to nothing after it: not to
+  what has the keyboard inside the popup, though `FocusOn` put it there
+  and Tab (which the window handles first) moves it round the popup's
+  widgets as it should. A popup of widgets, rather than a menu, therefore
+  hears every key itself, and a list or a button in it never does: Up,
+  Down and Enter in the manager's vault list reached the drop-down and
+  stopped.
+- **Workaround.** The manager's drop-down hands each key on to what has
+  the keyboard in it, then up its ancestors to the drop-down
+  (`dropPanel.KeyPress`, `gui/svmanager/titlebar.go`).
+- **Proposal.** Offer a popup's keys as the window's are offered: to what
+  has the keyboard, when it is inside the popup, and up from it to the
+  popup; a menu, whose leaf is what has the keyboard, is as it is.
+- **Done when:** in a popup of a focusable widget with the keyboard on
+  it, a key reaches that widget first.
+  `TestItem62AKeyInAPopupReachesWhatHasTheKeyboard` pins today's routing (and
+  Tab's, which holds).
+
+**Closed in 0.23.6** (the release notes, verbatim): **A key reaches whatever has the keyboard**, in a popup and out of one; a key with no focus reaches the content root instead of being dropped.
+
+**After v0.23.6: satisfactory** (6f6fc45). In a popup a key goes to
+what has the keyboard in it, then up to the popup; Tab goes round the
+popup's widgets as before. The manager's drop-down takes Escape alone
+now (`dropPanel.KeyPress`), and Up, Down and Enter reach the vault list
+in it by themselves. `TestItem62AKeyInAPopupReachesWhatHasTheKeyboard`.
+
+### 63. A key with the keyboard on nothing reaches nothing
+
+- **Today** (`app/window.go`, `bubbleKey`). A key is offered to what has
+  the keyboard and up its ancestors; with nothing to start from it goes
+  to no one, and from a widget that has left the window it goes up to the
+  last of what it was under and stops there. The content root, where an
+  application keeps its own keys (its `KeyPress`, before the
+  accelerators), hears it only when the climb reaches it, or comes from
+  the title bar. So when what had the keyboard is taken out of the window
+  (a page swapped for another, a tab's content replaced), every key of
+  the window's own stops working until something is clicked: in the
+  manager, Ctrl+Page Up and Down, Escape clearing the filter, Delete.
+- **Workaround.** Whenever a part or a tab is shown, the manager puts the
+  keyboard back on the part's button when what had it has gone
+  (`keepFocus`, `gui/svmanager/sections.go`).
+- **Proposal.** When what has the keyboard leaves the window, give it to
+  nothing; and offer a key with the keyboard on nothing to the content
+  root, as one from the title bar is offered.
+- **Done when:** with the keyboard on a widget that was taken out of the
+  window, a key reaches the content root.
+  `TestItem63AKeyWithTheKeyboardOnNothingReachesTheRoot` pins it.
+
+**Closed in 0.23.6** (the release notes, verbatim): **A key reaches whatever has the keyboard**, in a popup and out of one; a key with no focus reaches the content root instead of being dropped.
+
+**After v0.23.6: satisfactory** (6f6fc45). A key with the keyboard on a
+widget that left the window reaches the content root, so the window's
+own keys work whatever was swapped out. The manager still puts the
+keyboard on the part's button when what had it goes (`keepFocus`), now
+for Tab's sake alone: from there Tab goes into the part.
+`TestItem63AKeyWithTheKeyboardOnNothingReachesTheRoot`.
+
+### 64. A scroll view takes Ctrl+Page Up and Down
+
+- **Today** (`widgets/scroll.go`, `ScrollView.KeyPress`). Page Up and Page
+  Down scroll by a page whatever the modifiers. Ctrl+Page Up and Down are
+  the previous and the next tab, in a `TabView` and in every browser, and
+  in the manager the previous and the next part of the window; inside a
+  page that scrolls they scroll it instead, and never reach the window.
+- **Workaround.** The manager's pages scroll in a view of its own that
+  leaves them to the window (`pageScroll`, `gui/svmanager/tabbed.go`).
+- **Proposal.** Take Page Up and Down only with no modifier but Shift.
+- **Done when:** a `ScrollView` leaves Ctrl+Page Up and Ctrl+Page Down.
+  `TestItem64AScrollViewLeavesCtrlPageUpAndDown` pins it.
+
+**Closed in 0.23.6** (the release notes, verbatim): **A scroll view leaves Ctrl+Page Up and Down alone**, so the tabs underneath get them.
+
+**After v0.23.6: satisfactory** (125681b). The manager's pages are the
+toolkit's scroll views again; `pageScroll` is gone.
+`TestItem64AScrollViewLeavesCtrlPageUpAndDown`.
+
+### 65. `ShowPopup` shows a popup at the size it was measured at
+
+- **Today** (`widget/popup.go`, `ShowPopup`). It puts the window's look on
+  the popup (`inheritLook`), and with it the window's display scale, and
+  shows it at the bounds it was given. A caller that measured the popup
+  before showing it, as one must to arrange it, measured it in the
+  toolkit's default look at scale 1: on a screen at twice that, the popup
+  is drawn at twice the size inside a box of the first, its words cut
+  short and its last rows cut off. This is what the manager's drop-downs
+  did on the person's screen. `PlacePopupForAnchor` does it right
+  (`PreparePopup` first), but nothing says that `ShowPopup` needs it, and
+  a popup arranged by hand, as `ShowPopup` invites, is wrong.
+- **Workaround.** The manager places its drop-downs with
+  `PlacePopupForAnchor` (`openDrop`, `gui/svmanager/titlebar.go`).
+- **Proposal.** Have `ShowPopup` measure the popup again, once its look is
+  on, and grow it where it is if it was arranged smaller; or refuse a
+  popup that was not prepared, saying to call `PreparePopup` or a
+  `Place*` first.
+- **Done when:** a popup measured and arranged before `ShowPopup` is shown
+  at its size in the window's look.
+  `TestItem65ShowPopupShowsAPopupAtItsSizeInTheWindowsLook` pins it.
+
+**Closed in 0.23.6** (the release notes, verbatim): **A popup is shown at the size it was measured at**, in the look it is drawn in rather than the look that opened it.
+
+**After v0.23.6: satisfactory** (4d237e5), by the proposal's first way:
+a popup measured in another look is measured again and shown at its
+size in the window's, and the toolkit says on its log to call
+`PreparePopup` or a `Place*` first. The manager's drop-down was placed
+with `PlacePopupForAnchor` and still is, which is the way the toolkit
+asks for. `TestItem65ShowPopupShowsAPopupAtItsSizeInTheWindowsLook`.
+
+### 66. Breadcrumbs
+
+- **Today.** Nothing in `widgets` shows a path of steps, each a button
+  that opens what it can change to: no breadcrumb bar, no stepper, no row
+  whose children overlap (an arrow's point in the next one's notch), and
+  no hit test by shape short of overriding `HitTest`.
+- **What the manager needed.** The title bar says where the window is,
+  Vault › personal › Logins, as arrows in the accent, each with an icon of
+  what it is, each opening a drop-down of what it can change to.
+- **Workaround.** The manager draws its own (`crumbRow` and
+  `crumbButton`, `gui/svmanager/crumbs.go`): the arrow's outline, a row
+  that lays each one's start under the one before's point, and a
+  `HitTest` that leaves a press in a notch to the arrow before.
+- **Proposal.** A `Breadcrumbs` widget: a row of steps, each with its
+  text, an icon and what a click on it opens, drawn by the look (arrows,
+  or chevrons between words), with the keyboard going from one to the
+  next.
+- **Done when:** `widgets` has one. `TestItem66Breadcrumbs` pins its
+  absence.
+
+**Closed in 0.23.6** (the release notes, verbatim): **`widgets.Breadcrumbs`** is a path of steps whose arrows overlap, hit tested by shape, with the keyboard and the accessibility nodes an application would otherwise write itself.
+
+**After v0.23.6: satisfactory** (c9d508b). The manager's title bar is
+`widgets.Breadcrumbs` with `Arrows` (`gui/svmanager/titlebar.go`):
+each step with the toolkit's icon of what it is, the kinds of item, a
+page's tabs and the disks as the toolkit's menu (`Crumb.Menu`), the
+vaults as the manager's own drop-down, a live list with buttons under
+it (`Crumb.OnClick`, placed at `CrumbRect`). `crumbRow`, `crumbButton`
+and the manager's pick list are gone. The look is the toolkit's now:
+the step the window is on in the accent, the others on the window's
+surface, where the manager's were all in the accent; and its labels in
+the look's capitals. What it lacks: a tip of a step's own (79), and a
+sign on a step that opens a menu (81). `TestItem66Breadcrumbs`.
+
+### 67. Icons a password manager needs
+
+- **Today** (`style/icons.go`). The set has a padlock (`IconLock`), but no
+  padlock open, no key, no password masked, no shell prompt, no drive, no
+  safe and no dice.
+- **Workaround.** The manager draws them in one ink, to sit beside the
+  set's: `drawLock` (open or shut), `drawVault`, `drawDisk` and
+  `drawDice` (`gui/svmanager/marks.go`), `drawKey`, `drawStars` and
+  `drawPrompt` (`gui/svmanager/crumbs.go`).
+- **Proposal.** `IconLockOpen`, `IconKey`, `IconPassword`, `IconTerminal`,
+  `IconDrive`, `IconSafe` and `IconDice`, in every icon set.
+- **Done when:** the set has them. `TestItem67IconsAPasswordManagerNeeds`
+  pins their absence.
+
+**Closed in 0.23.6** (the release notes, verbatim): **Seven icons a vault is made of**: an open padlock, a key, a masked password, a shell prompt, a disk, a safe and dice.
+
+**After v0.23.6: satisfactory** (52541d9). The rail's Vault, Disk and
+generator, the padlocks in the title bar and the vault list, and the
+kinds of item are the toolkit's icons; `drawLock`, `drawKey`,
+`drawStars`, `drawPrompt`, `drawDisk`, `drawVault` and `drawDice` are
+gone. The manager still draws what the set has nothing for: the logo, a
+padlock or the logo with a plus, and a cloud a vault comes down from.
+`TestItem67IconsAPasswordManagerNeeds`.
+
+### 68. Nothing lies over a framed window's title bar
+
+- **Today** (`app/window.go`, `layout`; `widget/popup.go`). Where the
+  toolkit draws the frame, an overlay is laid out over the content alone
+  (`ob = g.content`: the title bar stays out of a modal dialog's dimming,
+  which is right for a dialog); a popup is placed anywhere but is, on
+  Wayland and X11, a surface of its own, with a shadow; and every
+  component is clipped to its own box. So nothing can be drawn over the
+  whole of the window inside its frame, title bar and content as one.
+- **What the manager needed.** The mark at the top left turns the window
+  over to Settings, on its back, as a card turns: the title bar turns
+  with the rest (`gui/svmanager/flip.go`).
+- **Workaround.** The card is drawn in two parts that meet: one in the
+  title bar, standing in for its items while they are put out of sight
+  (`standIn`, `gui/svmanager/titlebar.go`), and one laid over the
+  content. The title bar's ground is guessed from the look's `titleBar`
+  colour, as the frame's own painting of it is not exposed; the window's
+  buttons, the frame's, stay where they are, painted over the card.
+- **Proposal.** A layer of the window's own over everything inside its
+  frame, title bar included, under its popups: `Window.SetCover(c)`, for
+  a transition, a lock screen or a splash; and the caption's ground
+  painted by an exported call, so a picture of the window can be made.
+- **Done when:** a component can be laid over the whole window inside its
+  frame. `TestItem68ACoverLiesOverTheTitleBar` pins it.
+
+**Closed in 0.23.6** (the release notes, verbatim): **`Window.SetCover`** draws over the whole window, title bar and all. An overlay covers the content alone, because a modal dimming its own title bar would be wrong; a card turning the window over needs the other thing.
+
+**After v0.23.6: satisfactory** (c575c39), and the caption's ground
+painted by an exported call too (`style.DrawDecorationOf`). The
+manager's turn is one cover over the whole window inside its frame, the
+window's buttons included, where it was two canvases that met; the
+title bar's stand-in is gone. `TestItem68ACoverLiesOverTheTitleBar`.
+
+### 69. A window cannot be laid out at once
+
+- **Today** (`app/window.go`, `RequestLayout`). A window is laid out at
+  its next frame; nothing lays it out now.
+- **What the manager needed.** The window's back is painted into a
+  picture the moment it is shown, before the turn starts, so it must be
+  laid out first.
+- **Workaround.** The manager measures and arranges the title bar and
+  the content itself, at the size they have (`layoutNow`,
+  `gui/svmanager/flip.go`).
+- **Proposal.** `Window.Layout()`, laying the window out at once, as its
+  next frame would.
+- **Done when:** `Window` has it. `TestItem69AWindowIsLaidOutAtOnce`
+  pins its absence.
+
+**Closed in 0.23.6** (the release notes, verbatim): **`Window.Layout`** lays the window out at once rather than at its next frame — what a picture of the window, taken the moment it is shown, needs.
+
+**After v0.23.6: satisfactory** (7002b3f); `layoutNow` is gone.
+`TestItem69AWindowIsLaidOutAtOnce`.
+
+### 70. A picture cannot be drawn in perspective
+
+- **Today** (paintengine2d, `Context`). Its transforms are affine, and an
+  image is drawn into a rectangle: nothing draws one into a quadrilateral.
+  This is paintengine2d's, which uitoolkit draws with.
+- **What the manager needed.** The card turning over is a face seen in
+  perspective, its far edge shorter than its near one.
+- **Workaround.** Each face is drawn as narrow upright strips, each as
+  tall as its depth makes it, the far ones dimmed (`drawTurned`,
+  `gui/svmanager/flip.go`): about 260 strips in a wide window, every
+  frame.
+- **Proposal.** `Context.DrawImageQuad(img, src, quad [4]Point)`, drawing
+  with the projective mapping of src onto quad.
+- **Done when:** paintengine2d has it.
+  `TestItem70ACardTurnsInPerspective` pins its absence.
+
+**Closed in 0.23.6** (the release notes, verbatim): **`Window.Flip`** turns the whole window over in perspective, front face to back, and `SetFlipShapesWindow` cuts the window to the card's outline while it turns, so the desktop shows through the corner the card has turned away. A card comes back the way it went.
+
+**After v0.23.6: satisfactory otherwise.** paintengine2d still draws
+an image into a rectangle alone, but what the manager needed it for is
+the toolkit's: `widgets.FlipPanel` turns two faces about the upright
+middle in perspective, cut into strips, comes back the way it went, and
+says the card's outline at every frame (2041083, ee2acd5). The
+manager's turn is one (`gui/svmanager/flip.go`), and `drawTurned` is
+gone. The window turning over whole, frame and all, is 77.
+`TestItem70ACardTurnsInPerspective`.
+
+### 71. No pointing hand
+
+- **Today** (`platform/cursor.go`). The pointer's shapes are the eight
+  resize ones and the column and row ones, move, grab and grabbing, the
+  drag ones, and a text beam. None is the pointing hand that says "this
+  can be clicked" (a link's, CSS `pointer`, GTK's `pointer`, Qt's
+  `PointingHandCursor`, macOS `pointingHandCursor`, Windows `IDC_HAND`).
+  The macOS side knows the hand (`akCursorPointingHand`), but no shape
+  maps to it.
+- **What the manager needed.** A locked vault is its logo alone, on an
+  empty page, by the person's wish: no words, no buttons, no ring round
+  it. A click on the logo unlocks it, and nothing but the pointer could
+  say so without a mark on the page.
+- **Workaround.** The logo lifts under the pointer, a little larger in a
+  soft light (`lockFace`, `gui/svmanager/lockface.go`); it has no tip, by
+  the person's wish. The title bar's padlocks unlock the vault too.
+- **Proposal.** `platform.CursorPointer`, mapped on each backend to the
+  desktop's own hand (the `pointer` cursor name under X11 and Wayland,
+  `IDC_HAND`, `pointingHandCursor`), for a component's `CursorAt` to
+  return.
+- **Done when:** platform has it. `TestItem71ThePointingHand` pins its
+  absence.
+
+**Closed in 0.23.6** (the release notes, verbatim): **`platform.CursorPointer`**, the pointing hand, on all four backends.
+
+**After v0.23.6: satisfactory** (5dc6a0d). The locked vault's logo
+shows it under the pointer (`lockFace.CursorAt`), and lifts as before.
+`TestItem71ThePointingHand`.
+
+### 72. No passing note
+
+- **Today** (`widgets`). Nothing says something for a few seconds and
+  goes, as a toast or a snackbar does (GTK's `AdwToast`, Android's
+  `Snackbar`, KDE's `KNotification` in-window, Qt Quick's `ToolTip` with a
+  timeout): a `StatusBar` is the only place a window has for what just
+  happened, and it stays.
+- **What the manager needed.** No status bar, by the person's wish: what
+  the window has to say (Copied, Unlocked, Canceled, what went wrong)
+  comes as a note at the bottom of the pages, over them and out of the
+  pointer's way, that fades after a few seconds; and a note that stays
+  while something is so (an emergency request waiting, work taking a
+  while).
+- **Workaround.** The manager's notes are its own (`noteLayer`,
+  `gui/svmanager/notes.go`): a layer over the pages that the pointer goes
+  through, the text painted rather than a `Label`'s so that it can fade, a
+  frame at a time; its accessible name is what it says, with the role of
+  a status bar.
+- **Proposal.** `widgets.Toast`: `ShowToast(from, text, kind, for)`, over
+  the window's content, out of the pointer's way unless it holds an
+  action (Undo), faded in and out by the look (and at once under reduced
+  motion), stacked when several come, and announced to a screen reader
+  as a polite live region.
+- **Done when:** `widgets` has one. `TestItem72APassingNote` pins its
+  absence.
+
+**Closed in 0.23.6** (the release notes, verbatim): **`widgets.Toast`** is a line that appears and goes — Copied, Unlocked, Canceled. Nothing in the toolkit said something and went: a status bar was the only place a window had for what just happened, and a status bar never goes. A toast announces itself to the screen reader as a polite live region, and a press goes straight through it.
+
+**After v0.23.6: satisfactory** (e7c055b), stacked, faded by the
+toolkit, said to a screen reader, and one that stays until it is taken
+down (a negative time). The manager's notes are toasts
+(`gui/svmanager/notes.go`): a message for four and a half seconds, an
+error for eight, and an emergency request, or work that takes a while,
+for as long as it is so; `noteLayer` is gone. A note taken down for the
+next fades out, where the manager's went at once.
+`TestItem72APassingNote`.
+
+### 73. A skin's radio is its check box
+
+- **Today** (`style/engine_skin.go`, `checkLike`; `docs/skins.md`,
+  Parts). The skin format has one part for the check box's well and the
+  radio's (`check`), and a mark for each (`check.mark`, `radio.mark`).
+  `RadioIndicator` paints the `check` well, so a skin that binds it paints
+  its radios in its check boxes' well: square, where a radio is round,
+  and no skin can say otherwise.
+- **What the manager needed.** Its look, a skin
+  (`gui/secretui/hudskin`): check boxes as square wells, radios as round
+  ones, both filled orange when on.
+- **Workaround.** The skin binds neither, so both are the pack's under
+  it, in the look's colours; its sheet has no check or radio art.
+- **Proposal.** A `radio` part, the radio's well, falling back to
+  `check` where a skin does not bind it, so every skin that exists keeps
+  painting as it does.
+- **Done when:** `style.SkinPartNames()` has it.
+  `TestItem73ASkinHasARadiosWell` pins its absence.
+
+**Closed in 0.23.6** (the release notes, verbatim): **A skin can say what its radios' well looks like.** One part served the check box's well and the radio's, so a skin that bound `check` painted its radios square.
+
+**After v0.23.6: satisfactory, and unused**: the manager's look is
+uitoolkit's Hangar now, a pack, and the manager has no skin of its own
+(`gui/secretui/hudskin` is gone). `TestItem73ASkinHasARadiosWell`.
+
+### 74. A button's icon is in the text's colour, not its label's
+
+- **Today** (`widgets/button.go`, `Button.face`). A button's leading mark
+  (`Icon`) is drawn in `Palette().Text` (or `TextMuted` when disabled),
+  whatever face is under it. On the default button, whose face is the
+  accent and whose label is in `TextOnAccent` (or a skin's `default`
+  ink), the mark is the colour the face is: in a look whose accent is
+  near-black, a black mark on a black key.
+- **What the manager needed.** Its look's default button is solid
+  orange, its label and its icon white on it (an earlier look's was
+  near-black, where a mark in the text's colour vanished altogether).
+- **Workaround.** Every button the manager makes draws its mark again,
+  in `TextOnAccent`, over the toolkit's where it is Primary (`newButton`,
+  `gui/svmanager/buttons.go`), at the toolkit's own icon rect.
+- **Proposal.** Draw the mark in the label's ink: the engine's label
+  colour for the state (`DrawButton` already chooses it), exported so the
+  widget can ask for it.
+- **Done when:** a default button's mark is in its label's colour.
+  `TestItem74AButtonsMarkIsInItsLabelsInk` pins today's code.
+
+**Closed in 0.23.6** (the release notes, verbatim): **Breaking.** `Engine.DrawButton` takes a `ButtonDraw` — the label and the mark — rather than a label string. […] `DrawToolButton` has been handed the icon all along, which is exactly why a tool button can be tight. This is the same idea applied to the seam that was missing it.
+
+**After v0.23.6: satisfactory** (da6819a, c74233f). The engine draws
+the mark with the label, in its ink; `newButton` no longer draws it
+again. A marked button's strip is narrower at 2x than at 1x, which is
+80. `TestItem74AButtonsMarkIsInItsLabelsInk`.
+
+### 75. A framed window's shadow cannot be turned off
+
+- **Today** (`style/engine_web_frame.go`, `webEngine.Decoration`;
+  `style/decoration.go`, `DecorationOf`; `app/frame.go`). Where the
+  toolkit draws the frame, the look's decoration drops a soft shadow
+  round the window into a transparent margin: the web engine always
+  does, as every engine that draws a modern frame does, and
+  `DecorationOf` takes it away only for a maximised or tiled window or an
+  uncomposited screen. Nothing an application or a look states turns it
+  off: `Window` has no such option, a pack has no token for it, and a
+  skin's `window` block, which restates the border, the radius and the
+  shape, has no shadow key.
+- **What the manager needed.** Crisp edges, by the person's wish: a
+  window that is a plain rectangle, no soft shadow round it and no
+  transparent margin, with its own title bar and the toolkit's frame,
+  buttons and resizing.
+- **Workaround.** None. A window with no frame (`platform.DecorationsNone`)
+  and the application drawing its own buttons and resize band was tried
+  and taken out: the manager uses the toolkit's frame, buttons and
+  resizing, and wears the shadow until the toolkit can drop it.
+- **Proposal.** `Window.SetFrameShadow(false)` (or a pack's `shadow`
+  token, and a skin's `window.shadow`): the frame as it is, with no
+  shadow and no margin, its resize band inside the window as it already
+  is when there is no shadow.
+- **Done when:** a framed window can drop its shadow.
+  `TestItem75AFramedWindowDropsItsShadow` pins its absence.
+
+**Closed in 0.23.6** (the release notes, verbatim): **`Window.SetFrameShadow(false)`** gives up the soft shadow the look drops into the transparent margin, without giving up the toolkit's frame, buttons and resizing with it.
+
+**After v0.23.6: satisfactory** (1fa7918). The manager's window wears
+the toolkit's frame, its buttons and its resizing, with no shadow.
+`TestItem75AFramedWindowDropsItsShadow`.
+
+### 76. A skin's capitals reach its caption's title alone
+
+- **Today** (`style/skin.go`, `TextRole.Upper`; `style/engine_skin_frame.go`;
+  `style/engine_skin.go`). A text role's `"case": "upper"` is documented
+  as setting the role's text in capitals, painting only. It is applied
+  where the frame paints the window's title, and nowhere else: a button,
+  a tab or a tool button bound to the same role draws its label as
+  written.
+- **What the manager needed.** Its look (`gui/secretui/hudskin`), after
+  the picture the person chose: the labels of buttons and tabs in
+  capitals, names and values as written.
+- **Workaround.** None: the labels are as written. Writing them in
+  capitals in the code would change what a screen reader says and what a
+  test or a person searching for a label finds; the manager does not.
+  Its own headings (sections, breadcrumbs) it paints in capitals itself.
+- **Proposal.** Apply the role's case wherever the engine paints a label
+  for a part bound to it (`DrawButton`, `DrawTab`, `DrawToolButton`, the
+  combo's text), painting only, as the caption's title already is.
+- **Done when:** a button bound to an upper-case role draws its label in
+  capitals. `TestItem76ALooksCapitalsReachItsLabels` pins today's
+  code.
+
+**Closed in 0.23.6** (the release notes, verbatim): **A skin's capitals reach the labels it paints**, and a generated skin can state its typefaces (`skingen.Plan.Fonts`) instead of the application reopening the manifest the generator just wrote.
+
+**After v0.23.6: satisfactory** (9a643ab, `style.ControlLabelOf`),
+painting only: a screen reader hears the words as written. The
+manager's look is Hangar, whose chrome labels are in capitals; the
+breadcrumbs' `ToUpper` is gone with them.
+`TestItem76ALooksCapitalsReachItsLabels`.
+
+## Found moving to v0.23.6
+
+Moving the manager onto what v0.23.6 gave (its look Hangar, its title
+bar `Breadcrumbs`, its notes toasts, its turn to Settings the toolkit's)
+found thirteen more (85 and 86 in the clipboard, read again for 56–60;
+87–89 moving to `Window.Flip`). Each is pinned in
+`gui/uitoolkit_test.go`.
+
+### 77. A framed window cannot turn over, title bar and all
+
+- **Today** (`app/flip.go`, `Window.SetFlipFaces`). The whole-window turn
+  puts its flip panel in the window's content, so its faces are the
+  content: under the toolkit's frame the title bar is outside them and
+  stands still while the rest turns, and the shape the window takes is
+  the content's card alone, the title bar cut away while it turns. The
+  file says to use it without the toolkit's frame, and its sample draws a
+  frame on each face (`Panel.Window`): a caption, a close button and a
+  move, but no minimise, no maximise and no resizing, which a window
+  wearing the toolkit's frame has.
+- **What the manager needed.** The whole window turning over to Settings
+  on its back, by the person's wish (2026-10-12), the desktop showing
+  through where the card has turned away; and the toolkit's frame, its
+  buttons and its resizing, which the person had asked for before
+  (2026-10-10).
+- **Workaround.** None now. The manager first laid a flip panel of two
+  pictures of the window over it as a cover and shaped the window to the
+  card itself, which kept the frame; the person chose uitoolkit's own
+  turn instead (2026-10-12). Its window wears no frame
+  (`platform.DecorationsNone`): its chrome is a window panel
+  (`widgets.Panel` with `Window`), whose caption moves the window and
+  closes it, and nothing else: no minimise, no maximise, no resizing
+  (`buildFaces` and `turn`, `gui/svmanager/flip.go`).
+- **Proposal.** A whole-window turn for a framed window: `SetFlipFaces`
+  (or a `Window.FlipTo(switch func())`) that turns the window inside its
+  frame, title bar and buttons included, from a picture of it before
+  `switch` to one after, as a cover, the window following the card.
+- **Done when:** a window wearing the toolkit's frame can turn over with
+  its title bar. `TestItem77AFramedWindowCannotTurnOverWhole` pins
+  `SetFlipFaces` putting its panel in the content.
+
+**Closed in 0.23.7** (the release notes, verbatim): `Window.Flip` worked only on a window with no frame of the toolkit's, and the frame is what supplies the resize edges, the minimise and the maximise — so an application that wanted the turn gave up all three and drew a caption of its own on each face, with close and move only. The panel could not do otherwise: it is the window's content, every component is clipped to its own box, and the frame is drawn outside that box. A framed window turns as a *picture of itself* instead — photographed with each face up, the two turned over everything it draws, the card's silhouette worn by the window every frame. The live content under the picture is already the face being turned to, so when the picture goes there is nothing to swap.
+
+**After v0.23.7: satisfactory** (f754b65). The manager's window wears
+the toolkit's frame again, with its buttons and its resizing, and turns
+with `Window.Flip`: the toolkit photographs it with each face up, the
+title bar and the frame in both, and turns the pictures over the whole
+window, the window shaped to the card. The window's content is one tree,
+so the faces take turns to hold it: the flip panel says the other face is
+up between the two photographs (`OnFlip`), and the manager changes the
+window there and moves the content onto it (`faceUp`,
+`gui/svmanager/flip.go`). The window panel and the picture of the
+manager's own are gone. One thing the turn needs: the window's content
+root is the flip panel, which passes a key to neither face (90).
+
+### 78. A flip panel's pictures are not wiped
+
+- **Today** (`widgets/flip.go`, `FlipPanel.rasterise` and `end`). A turn
+  paints both faces into pictures at its first frame, and its end drops
+  them (`f.turn = flipTurn{}`) without zeroing them; nothing else does.
+- **What the manager needed.** Its window turns over with an item open,
+  its password shown, on the front: a picture of it is a copy of the
+  password, which the manager wipes wherever it makes one.
+- **Workaround.** The manager wipes its own pictures of the window when
+  the turn ends (`flipAnim.end`); the panel's copies of them it cannot
+  reach, and they stay in memory until they are collected.
+- **Proposal.** Zero the pictures at the end of a turn (`clear(img.Pix)`)
+  before they are dropped, and when the panel is taken down mid-turn.
+- **Done when:** a turn's pictures are zeroed when it ends.
+  `TestItem78AFlipPanelsPicturesAreNotWiped` pins today's code.
+
+**Closed in 0.23.7** (the release notes, verbatim): A flip paints both faces into pictures at its first frame and dropped them at its end without zeroing them. A picture of a face is a copy of what that face showed, and a password manager turns its window over with an item open and its password on the front — so these were copies of a passphrase it wipes everywhere it can reach, and could not reach here. The panel zeroes them wherever a turn ends, `FlipPanel.Wipe` is there for an application taking the panel down itself, and a framed window wipes the two photographs of itself as well: 1.5 MB, in that case.
+
+**After v0.23.7: satisfactory** (c40b170): the panel's pictures and the
+window's photographs are zeroed when a turn ends. The manager makes no
+pictures of its own now. `TestItem78ATurnsPicturesAreWiped`.
+
+### 79. A breadcrumb has no tip of its own
+
+- **Today** (`widgets/breadcrumbs.go`). A `Crumb` has its text, an icon,
+  a click and a menu; the row says no tip when the pointer rests on a
+  step, and its accessible nodes no description.
+- **What the manager needed.** The vault's breadcrumb said, when the
+  pointer rested on it, the vault's state, its items and its sync's
+  (`personal: unlocked, 4 items; synced 2 minutes ago`).
+- **Workaround.** The row is held in a box whose tip, and whose
+  description to a screen reader, is the vault's state, whichever step
+  the pointer is on (`tipBox`, `gui/svmanager/titlebar.go`); in the Disk
+  and Tools parts it says nothing.
+- **Proposal.** `Crumb.Tip`, said when the pointer rests on that step,
+  and its node's description.
+- **Done when:** a step can say a tip of its own.
+  `TestItem79ABreadcrumbHasNoTip` pins its absence.
+
+**Closed in 0.23.7** (the release notes, verbatim): **A breadcrumb step says its own tip and marks what it opens.** `Crumb.Tip` is the step's, not the row's — a path whose steps are a vault, an item and a tab has something different to say at each — and a step with a `Menu`, or with `Opens` set, wears a chevron.
+
+**After v0.23.7: satisfactory** (aadd607), and the tip is the step's
+description to a screen reader too. The vault's step says the vault's
+state and its sync's; `tipBox` is gone. `TestItem79ABreadcrumbHasATip`.
+
+### 80. A marked button's mark strip does not scale with the display
+
+- **Today** (`style/look.go`, `ToolButtonChromeFor`). The icon's side is
+  multiplied by the display scale, and the pad and the gap round it (10
+  and 8) are not: they are device pixels at any scale. So a button with a
+  mark is 32 logical pixels wider than one without at 1x and 28 at 2x,
+  and a tool button's and a breadcrumb's chrome are narrower at 2x the
+  same way.
+- **What the manager needed.** Its passphrase and consent questions are
+  the same size at every scale (14): with four marked buttons in a row,
+  the consent question is 17 pixels narrower at 2x than at 1x.
+- **Workaround.** None: the dialog's test allows for it
+  (`TestADialogIsTheSameAtEveryScale`,
+  `gui/cmd/secretvault-gui-prompt`).
+- **Proposal.** Scale the pad and the gap with the icon (`style.Dip`).
+- **Done when:** a mark's strip is the same width in logical pixels at
+  1x and 2x. `TestItem80AMarkedButtonsStripDoesNotScale` pins the
+  difference.
+
+**Closed in 0.23.7** (the release notes, verbatim): **A mark's strip is the same width in logical pixels at every scale.** The icon was multiplied by the display scale and the pad and the gap round it were not, so a marked button was 32 logical pixels wider than a plain one at 1x and 28 at 2x.
+
+**After v0.23.7: satisfactory** (714f8ab): 32 at 1x and at 2x. The
+prompt's test allows nothing for it again.
+`TestItem80AMarkedButtonsStripScales`.
+
+### 81. A breadcrumb that opens a menu shows no sign of it
+
+- **Today** (`widgets/breadcrumbs.go`, `paintCrumb`). A step is drawn with
+  its icon and its words whether a click on it goes there or opens a menu
+  of what it can change to.
+- **What the manager needed.** Its own breadcrumbs had a chevron after
+  the words of a step that opens something (the vault, the kind of item,
+  the tab), and none on one that does not (Vault, Settings, Tools).
+- **Workaround.** None: the manager's steps show no sign, as the
+  toolkit's look draws them.
+- **Proposal.** A chevron (`style.DrawArrowOf`, down) at the end of a
+  step with a `Menu`, and one with a flag for an `OnClick` that opens a
+  drop-down of the application's own (`Crumb.Opens`).
+- **Done when:** a step that opens a menu is marked.
+  `TestItem81ABreadcrumbsMenuHasNoSign` pins its absence.
+
+**Closed in 0.23.7** (the release notes, verbatim): **A breadcrumb step says its own tip and marks what it opens.** `Crumb.Tip` is the step's, not the row's — a path whose steps are a vault, an item and a tab has something different to say at each — and a step with a `Menu`, or with `Opens` set, wears a chevron.
+
+**After v0.23.7: satisfactory** (aadd607). The kinds, the tabs and the
+disks are menus and wear the chevron by themselves; the vault's step,
+which opens the manager's own drop-down, says `Opens`.
+`TestItem81ABreadcrumbThatOpensIsMarked`.
+
+### 82. A breadcrumb's words are cut short by a rounding error
+
+- **Today** (`widgets/breadcrumbs.go`, `paintCrumb`). A step is measured
+  as its pads, its icon, the gap and its words' advance, and its words
+  are drawn with `Font.Fit` in what is left of the step's box once the
+  pads, the icon and the gap are taken off again. In float32, at a step
+  that starts some hundreds of pixels along, what is left comes out a
+  hair narrower than the advance it was made of (57.046844 for
+  57.046875), and `Fit`, which allows nothing, puts an ellipsis on the
+  words. Which steps it hits depends on where they fall: in the manager,
+  Vault › personal › About this vault › Grants shows GRAN….
+- **What the manager needed.** Its breadcrumbs' words whole wherever the
+  row has the room for them.
+- **Workaround.** None: the words are the toolkit's to draw.
+- **Proposal.** Fit the words to the advance the step was measured with,
+  or allow `Fit` a part of a pixel (`maxW+0.01`), as layout already
+  rounds a measured size up to whole pixels.
+- **Done when:** a step's words are drawn whole in the box measured for
+  them. `TestItem82ABreadcrumbsWordsAreCutShortByARoundingError` pins
+  today's arithmetic.
+
+**Closed in 0.23.7** (the release notes, verbatim): **Words fitted to the width they were measured with are not cut short.** A widget measures its words, is given a box that holds them, and fits them into what is left — and float32 does not survive the round trip, so `Font.Fit` put an ellipsis on words that fit. A breadcrumb row drew `Vault › personal › About this vault › Grants` as `GRAN…`. Fit allows a thirty-second of a pixel now, which covers every caller of that shape.
+
+**After v0.23.7: satisfactory** (f899ec5): Grants is whole.
+`TestItem82WordsFitTheWidthTheyWereMeasuredWith`.
+
+### 83. A merged caption drops the look's silhouette
+
+- **Today** (`style/silhouette.go`, `WindowShapeOf`). A look's silhouette
+  is dropped for a window whose own title bar is its caption
+  (`DecorationState.Merged`), as for a maximized or tiled one. The
+  reason given is a look whose outline leaves part of the top edge to the
+  desktop (BeOS's tab), which an application's bar across the window's
+  width would be drawn outside of. It holds for every look, though:
+  Hangar cuts the top right, the bottom right and the bottom left, and
+  its top edge is whole, yet a window with a merged title bar stays a
+  rectangle, while `DrawDecoration` still strokes its border along the
+  cuts it did not make. The corners show the window's own ground and
+  content beyond the frame's diagonal hairlines.
+- **What the manager needed.** Its look's window, cut as the look cuts
+  it, with its own title bar (breadcrumbs, the logo, Settings before the
+  window's buttons) as the caption.
+- **Workaround.** None. The manager's window has no merged caption now
+  (77): its chrome is a window panel, which meets 88 instead.
+- **Proposal.** Drop a silhouette under a merged caption only where it
+  leaves the top edge to the desktop (a `Silhouette` that says so, or a
+  look that says its outline holds a full-width bar).
+- **Done when:** a merged window in Hangar is cut as an unmerged one is.
+  `TestItem83AMergedCaptionDropsTheLooksSilhouette` pins today's code.
+
+**Closed in 0.23.7** (the release notes, verbatim): **A window keeps its look's outline when its own bar is the caption.** The outline was dropped for every look the moment a bar was merged, so a window with tabs in its title bar lost every corner Hangar takes off, and Deck lost its whole silhouette. That rule belongs to BeOS alone, whose tab is only as wide as its title.
+
+**After v0.23.7: satisfactory** (05f6aa2): the manager's window, its
+title bar merged, is cut at the top right, the bottom right and the
+bottom left. `TestItem83AMergedCaptionKeepsTheLooksSilhouette`.
+
+### 84. A cut corner's border is painted under the content
+
+- **Today** (`app/window.go`, the frame's painting; Hangar's
+  `DrawDecoration`). The frame paints its border and caption band first,
+  then the title bar and the content over them. A rectangular border
+  lies outside the content's box; a border along a cut corner does not:
+  the cut crosses the box, so whatever the content paints in that corner
+  covers the cut's hairline, and in Hangar the bracket inside its bottom
+  left corner.
+- **What the manager needed.** Its rail runs down the window's left
+  edge on a ground of its own, to the bottom, where Hangar cuts the
+  corner and puts its bracket.
+- **Workaround.** None.
+- **Proposal.** Paint the border of a cut corner, and its marks, over
+  the content (as a cover is laid over it), or clip the content to the
+  silhouette inset by the border.
+- **Done when:** a cut corner's hairline shows over content that fills
+  the corner. `TestItem84ACutCornersBorderIsUnderTheContent` pins the
+  order.
+
+**Closed in 0.23.7** (the release notes, verbatim): **A cut corner's hairline is drawn over the content.** A rectangular border lies outside the content's box; a chamfer crosses it, so content that filled the corner buried Hangar's hairline and its bracket. `style.DecorationOverEngine` is the seam, because only the engine knows where its chamfer is.
+
+**After v0.23.7: satisfactory** (44415e8): the bracket and the cut's
+hairline show over the rail at the bottom left.
+`TestItem84ACutCornersBorderIsOverTheContent`.
+
+### 85. A Wayland cancel handled while nothing is held ends the next secret
+
+- **Today** (`platform/wayland_linux.go`, `uitkWlDataCancelled`). See 57's
+  "After v0.23.6": the cancel names the copy it ends as whatever is held
+  when it is handled, and where that is nothing it hands
+  `forgetHeldSecretIf` a nil, which means "whichever is held" when its
+  goroutine runs. X11's `endLostSecret` returns on nil; the cancel does
+  not. So a cancel handled while nothing is held (an ordinary copy's
+  source cancelled, or one during a secret copy where the clipboard
+  service dispatches) ends a secret copied before its goroutine runs,
+  while the Wayland source goes on serving it: wiped, its timer stopped,
+  said gone, and the passphrase on the clipboard with nothing to clear
+  it.
+- **What the manager needed.** Its copies on Linux go through uitoolkit
+  now (2026-10-12).
+- **Workaround.** None: goroutine scheduling, narrow.
+- **Proposal.** The nil check `endLostSecret` makes, in the cancel too.
+- **Done when:** a cancel handled while nothing is held ends nothing.
+  `TestItem85AWaylandCancelWithNothingHeldEndsTheNextSecret` pins today's
+  code.
+
+**Closed in 0.23.7** (the release notes, verbatim): **A Wayland cancel handled while nothing was held ended the next secret.** The cancel names the copy it ends as whatever is held when it is *handled*, and where that was nothing it passed a nil — `forgetHeldSecretIf` reads nil as "whichever is held when the goroutine runs". So a cancel arriving while no secret was held — an ordinary copy's source cancelled, or one during a secret copy — ended a secret copied in between: wiped, its timer stopped, the application told it had gone, while the Wayland source went on serving it. X11's `endLostSecret` has always returned on nil; the cancel does now.
+
+**After v0.23.7: satisfactory** (39e4fa4).
+`TestItem85AWaylandCancelWithNothingHeldEndsNothing`.
+
+### 86. A busy Windows clipboard keeps the copy before a new one
+
+- **Today** (`platform/clipboard_secret.go`, `ClipboardSetSecret`). See
+  60's "After v0.23.6": the copy being replaced is let go
+  (`prev.forget()`) before the new one is tried, so where another
+  program holds the Windows clipboard open for all of the copy's tries,
+  and nothing on it changes, the previous secret stays on the clipboard
+  with its timer stopped and nothing held: not cleared at its time, nor
+  at its vault's lock, nor at the quit. On X11 a refused ownership also
+  leaves the owner's copy of the new secret (`clipData`) unwiped until
+  the next copy or clear. New with 57's fix.
+- **What the manager needed.** On Windows it copies through uitoolkit.
+- **Workaround.** None: the manager says the new copy could not be made
+  (it asks `Cleared()` after copying), but cannot reach the one before.
+- **Proposal.** End the copy being replaced only once the new one is
+  made, or clear it when the new one is refused; wipe X11's `clipData`
+  when the ownership is refused.
+- **Done when:** a refused copy leaves the one before it cleared at its
+  time. `TestItem86ABusyClipboardKeepsTheCopyBefore` pins today's order.
+
+**Closed in 0.23.7** (the release notes, verbatim): **A refused copy left the one before it on the clipboard.** The copy being replaced was let go before the new one was tried, so where another program held the clipboard open for every try — and nothing on it changed — the previous secret stayed there with its timer stopped and nobody holding it: not cleared at its time, nor at the vault's lock, nor at the quit. The old copy is let go only once the new one is made now, and *cleared* rather than forgotten when the new one is refused. X11's served buffer is wiped on a refused ownership too, where it sat until the next copy.
+
+**After v0.23.7: satisfactory** (39e4fa4); 60's refused copy is as it
+was, never held and never timed, and the manager still says it could not
+copy. `TestItem86ARefusedCopyClearsTheOneBefore`.
+
+### 87. Nothing animates where the person's settings ask for less motion, whoever asks
+
+- **Today** (`style/motion.go`, `Animations`; `widgets/flip.go`,
+  `animates`). The person's "reduce motion" (`look.json`'s
+  `reduceMotion`, `SetReduceMotion`) turns every animation of every
+  uitoolkit program off, and nothing lets one component, or one turn, be
+  animated over it: `UITK_ANIMATIONS=1` is the whole process's, and a
+  flip panel asks `style.Animations()` alone.
+- **What the manager needed.** The person keeps "reduce motion" on, and
+  asked for the window to turn over to Settings all the same
+  (2026-10-12): that one movement, the rest still.
+- **Workaround.** The manager lifts the preference for the moment its
+  turn starts and puts it back at once (`turn`,
+  `gui/svmanager/flip.go`): a flip panel asks whether to animate as a
+  turn starts and not again. Nothing else moves meanwhile.
+- **Proposal.** A component's own say over its motion where the
+  application has the person's word (`FlipPanel.Animate`, or
+  `Window.Flip(animate bool)`), the preference staying the default.
+- **Done when:** one turn can be animated where the preference says
+  otherwise. `TestItem87NoAnimationOverReducedMotion` pins its absence.
+
+**Closed in 0.23.7** (the release notes, verbatim): That preference is right for the motion that decorates — a hover fading in, a scroll bar fading out — and wrong for the motion that *is* the thing. A card that turns over to show it has a back, switched off, simply shows the back: the one cue that said "this is the same object, seen from behind" is gone, and the application had nothing it could say about it. […] `widget.MotionOf` reads the nearest word — the component's own, else an ancestor's, else the window's — so a dialog says it once and everything inside is covered. The preference stays the default, and `UITK_ANIMATIONS=0` still beats everything, because reproducible screenshots need one switch nothing overrides.
+
+**After v0.23.7: satisfactory** (b076d9b). The manager's flip panel is
+`style.MotionAlways` as it turns, and nothing else of the window says
+anything, so the person's setting holds for the rest; the manager no
+longer lifts the setting itself. `TestItem87MotionThatIsTheThingItself`.
+
+### 88. A window panel's silhouette is not its window's shape
+
+- **Today** (`widgets/panel.go`, `PaintClip`; `app/shape.go`,
+  `lookShape`; `app/flip.go`, `clearFlipShape`). A `Panel` with `Window`
+  clips its chrome to the outline the look gives a window, Hangar's cut
+  corners among them; but the window under it takes a look's silhouette
+  only where the toolkit draws its frame, and `Window.Flip`, which asks
+  for a window with no frame and a window panel on each face, puts the
+  window's shape back to none once a turn is over. So such a window
+  stays a rectangle at rest: Hangar's three cut corners show the
+  window's own ground.
+- **What the manager needed.** Its window cut as its look cuts a window,
+  at rest as well as while it turns.
+- **Workaround.** None: the corners are the toolkit's.
+- **Proposal.** Give a frameless window whose content is a window panel
+  (or a flip panel of them) the panel's silhouette as its shape, and
+  keep it once a turn is over.
+- **Done when:** a window turned with `Window.Flip` in Hangar is cut at
+  rest. `TestItem88AWindowPanelsSilhouetteIsNotItsWindowsShape` pins
+  today's code.
+
+**After v0.23.7: open, and unused**: the manager's window wears the
+toolkit's frame again (77), and the frame's silhouette is the window's
+shape. A frameless window with a window panel for its chrome still
+stays a rectangle.
+
+### 89. A panel's floor leaves out its chrome
+
+- **Today** (`widgets/panel.go`; `widget/minwidth.go`, `MinWidthOf`). A
+  `Panel` answers no `MinWidth` of its own, so the floor a window is
+  given from it is its one child's, without the frame and the padding the
+  panel puts round it.
+- **What the manager needed.** Its window as wide as the editor needs at
+  the narrowest, the window panel's chrome round it.
+- **Workaround.** The manager adds the panel's chrome, its laid-out
+  width less its content's, to its content's floor (`contentFloor`,
+  `gui/svmanager/manager.go`).
+- **Proposal.** `Panel.MinWidth`: its body's floor and its insets.
+- **Done when:** a panel's floor holds its chrome.
+  `TestItem89APanelsFloorLeavesOutItsChrome` pins its absence.
+
+**Closed in 0.23.7** (the release notes, verbatim): **A panel's floor holds the chrome it draws.** Without one of its own the floor came out *too large*, not too small: `MinWidthOf` fell back to a splitter's fixed unbounded measure, so a window could not be made as narrow as its content allows.
+
+**After v0.23.7: satisfactory, and unused**: the manager's window has
+no window panel now (77). The two reports disagree on the sign: the
+manager measured the floor 19 pixels too small, the editor's pane 475
+wide for the 494 it needs at an 808-pixel window, where the maintainers
+found it too large; a panel answers for its chrome either way now.
+`TestItem89APanelsFloorHoldsItsChrome`.
+
+## Found moving to v0.23.7
+
+Moving the manager's turn onto `Window.Flip` of a framed window found
+two. Each is pinned in `gui/uitoolkit_test.go`.
+
+### 90. A flip panel passes a key to neither face
+
+- **Today** (`app/flip.go`, `SetFlipFaces`; `widgets/flip.go`;
+  `app/window.go`, `contentKey` and the title bar's keys).
+  `SetFlipFaces` makes the flip panel the window's content root, which is
+  where the window offers a key from its title bar, and a key with
+  nothing focused; the panel has no `KeyPress` of its own, so neither of
+  its faces hears it. An application's own keys, kept on its content
+  root as the toolkit has it, are on a face now, and stop working from
+  the title bar.
+- **What the manager needed.** Its own keys (Ctrl+Page Up and Down for
+  the next and the previous part, Escape back from Settings) with the
+  keyboard on the title bar's buttons or breadcrumbs, as before the turn
+  was the toolkit's.
+- **Workaround.** Each of the title bar's groups (the logo, the
+  breadcrumbs, the part's buttons, Settings) hands a key nothing in it
+  took to the manager's keys (`keyRelay`, `gui/svmanager/titlebar.go`);
+  the keyboard is kept on something in the window (`keepFocus`), so a key
+  with nothing focused does not come up.
+- **Proposal.** Offer a key the flip panel gets, and nothing in it took,
+  to the face that is up.
+- **Done when:** a key from the title bar of a window turned with
+  `Window.Flip` reaches the face that is up.
+  `TestItem90AFlipPanelPassesAKeyToNeitherFace` pins its absence.
+
+**Closed in 0.23.8** (the release notes, verbatim): **A framed window always turned the same way**, and **a flip panel passed a key to neither face** (a password manager).
+
+**After v0.23.8: satisfactory** (8ca4b6d): the flip panel offers a key
+to the face that is up, so a key from the title bar, or with nothing
+focused, reaches the manager's own keys on its content; `keyRelay` is
+gone. `TestItem90AFlipPanelOffersAKeyToTheFaceUp`.
+
+### 91. A framed window always turns the same way
+
+- **Today** (`app/flip.go`, `turnWholeWindow`). A framed window's turn is
+  a new flip panel each time, the picture of the window before as its
+  front and the picture after as its back, turned with `Flip`: front to
+  back, always. A flip panel turns back the way it came, one way to its
+  back and the other way to its front (`show`, `dir`), so that a card
+  retraces its turn; but the window's turn never asks which way its own
+  flip panel is going, so every turn goes round the same way, to the
+  back and back again alike.
+- **What the manager needed.** Its window turning over to Settings and
+  back the way it came, as a card is turned over and back.
+- **Workaround.** None: the turn is the toolkit's, and nothing says its
+  way from outside.
+- **Proposal.** Turn the stand-in panel the way the window's flip panel
+  goes: with the pictures as back and front, `ShowNow(true)` and then
+  `ShowFront()`, where the window is coming back to its front.
+- **Done when:** a framed window's turn back to its front goes the other
+  way round. `TestItem91AFramedWindowAlwaysTurnsTheSameWay` pins today's
+  code.
+
+**Closed in 0.23.8** (the release notes, verbatim): **A framed window always turned the same way**, and **a flip panel passed a key to neither face** (a password manager).
+
+**After v0.23.8: satisfactory** (a12ba05), as proposed: the stand-in
+panel of the window's two pictures turns to its back where the window
+goes to its back, and to its front where it comes back, so the window
+turns to Settings one way and back the other.
+`TestItem91AFramedWindowComesBackTheWayItWent`.
+
+## Found looking again for what the manager works round (2026-10-13)
+
+Two the manager had been working round since before v0.23.6, noted in
+its code and never written down here. Each is pinned in
+`gui/uitoolkit_test.go`.
+
+### 92. One digit key
+
+- **Today** (`platform/event.go`). The keys are the letters, the function
+  keys, the arrows and the rest, and of the digits `Key3` alone. No
+  widget can take Ctrl+1, 2 or 3, which is how a window steps to its
+  first, second and third tab in every browser and most tabbed programs.
+- **What the manager needed.** Its parts, Vault, Disk and Tools, and
+  Settings' tabs, picked from the keyboard as tabs are: Ctrl+1, 2, 3.
+- **Workaround.** Ctrl+Page Up and Down step through them, one at a time
+  (`key`, `gui/svmanager/layout.go`).
+- **Proposal.** `Key0` to `Key9`, mapped on every backend from the
+  digit row (and the keypad's digits, with Num Lock).
+- **Done when:** platform has the ten digits. `TestItem92OneDigitKey`
+  pins today's one.
+
+**Closed in 0.23.10** (the release notes, verbatim): `platform.Key` had the letters, the function keys, the arrows — and of the digits, `Key3` alone, sitting between `KeySpace` and `KeyHash` because those three characters are what an accelerator needed once. So `Ctrl+3` worked and `Ctrl+1` did nothing: the accelerator parser answered `KeyUnknown`, which matches no key event ever sent. `Key0`..`Key9` are a contiguous run now, so `Key0+n` is the nth, with `DigitKey` and `DigitRune` beside `LetterKey` and `KeyRune`.
+
+**After v0.23.10: satisfactory** (398d343). Ctrl+1, 2 and 3 pick
+Vault, Disk and Tools, and on the window's back Settings' tabs, beside
+Ctrl+Page Up and Down (`key`, `gui/svmanager/layout.go`); Settings ›
+Keyboard shortcuts says so. `TestItem92EveryDigitIsAKey`.
+
+### 93. The icon set has no cloud, and an icon carries no badge
+
+- **Today** (`style/icons.go`; `widgets/toolbar.go`, `ToolButton`). The
+  set has a download arrow and a sync, but no cloud; and nothing puts a
+  small mark on an icon's corner (a plus, a count), on a tool button or
+  anywhere an icon is drawn.
+- **What the manager needed.** A vault joined from a sync server, which
+  comes down from a cloud; Unlock with…, a padlock with a plus (unlock
+  with something else than the passphrase); New vault, the vault's mark
+  with a plus.
+- **Workaround.** The manager draws those three marks itself, in a tool
+  button's content, in the look's text colour (`syncMark`,
+  `lockPlusMark`, `newVaultMark`, `gui/svmanager/marks.go`). They reach
+  its buttons alone; `style.RegisterIcon` (0.23.5) would make them icons
+  of its own, for a menu or a breadcrumb too, which is the manager's to
+  do.
+- **Proposal.** `IconCloud` and `IconCloudDownload`; and a badge on an
+  icon (`ToolButton.Badge`, or `style.DrawToolIconBadge`) for a plus,
+  a dot or a count, drawn by the look.
+- **Done when:** the set has a cloud and an icon can carry a badge.
+  `TestItem93NoCloudAndNoBadge` pins their absence.
+
+**Closed in 0.23.10** (the release notes, verbatim): `IconCloud` is an icon like the others, in all five premiere packs and drawn by both vector sets. […] A badge is a small mark over a corner: a plus for an action that adds, a dot for something waiting, a count for how many. It decorates a **box**, not a widget — a tool bar passes the button it has just had drawn, an application passes the icon it is drawing — which is what keeps thirty-four engines out of it, since where an icon sits inside a tool button is the look's business.
+
+**After v0.23.10: satisfactory** (a097e91), by the proposal's second
+way: a badge is drawn over a box (`style.DrawIconBadge`), which a tool
+bar's item carries itself (`ToolItem.Badge`) and a lone tool button,
+which the manager's are, draws in its content over the icon. Join a
+synced vault is the cloud; Unlock with… is the toolkit's padlock with
+its plus, and New vault the manager's logo with it (`plusBadge`,
+`newVaultMark`, `gui/svmanager/marks.go`). The logo is the only mark the
+manager draws now. `TestItem93ACloudAndABadge`.
+
+## Found moving to v0.23.14
+
+### 94. A framed window's turn cannot be held still from outside
+
+- **Today** (`app/flip.go`, `turnWholeWindow`; `widgets/flip.go`,
+  `SetClock`). v0.23.14 gave the flip panel a clock a test can hold
+  (`SetClock`), so that a turn is stepped a frame at a time instead of
+  raced over its 420 ms. A framed window, though, turns in a panel of its
+  own, which `Flip` builds as the turn starts: it is handed the window
+  flip panel's `Perspective` and `Strips`, not its clock, and nothing
+  outside the package can reach it (uitoolkit's own test holds it as
+  `win.turn`). So an application's test of a framed window's turn still
+  races the wall clock.
+- **What the manager needed.** Its test of the window turning over, frame
+  and all, to see the window take the card's outline at a frame of the
+  turn: under the race detector one frame of the window outlasts the whole
+  turn, and the test saw none.
+- **Workaround.** The test stands down that one check under the race
+  detector (`raceOn`, `gui/svmanager/flip_test.go`), and makes it
+  everywhere else.
+- **Proposal.** Carry the window flip panel's clock to the panel the turn
+  builds, as its perspective and strips are; or `Window.SetClock`, which
+  holds a tooltip's time already, holding a turn's too.
+- **Done when:** a clock set on the window's flip panel (or the window)
+  holds a framed window's turn. `TestItem94AFramedWindowsTurnCannotBeHeldStill`
+  pins its absence.
+
+**Closed in 0.23.15** (the release notes, verbatim): 0.23.14 gave `FlipPanel` a clock a test can hold, so that a turn is stepped a frame at a time instead of raced over its 420 ms. It did not reach a framed window, which turns as one picture in a panel `Flip` builds as the turn starts: that panel was handed the perspective and the strips and nothing else, and nothing outside the package can reach it. […] The built panel takes the clock with the rest, and `FlipPanel.Clock` reads it back, which is what lets `app` carry it across the package boundary. The test here now holds the clock from outside, before `Flip`, the way an application would.
+
+**After v0.23.15: satisfactory** (6100823), as proposed. The manager's
+test holds the window flip panel's clock before the turn, steps it 30 ms
+a frame, and sees the window take the card's outline, under the race
+detector as everywhere else; `raceOn` is gone.
+`TestItem94AFramedWindowsTurnTakesItsClock`.

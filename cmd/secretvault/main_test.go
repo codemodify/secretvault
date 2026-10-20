@@ -16,6 +16,7 @@ import (
 
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/internal/fidotest"
+	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svcrypto"
 	"github.com/codemodify/secretvault/svd"
 	"github.com/codemodify/secretvault/svfido"
@@ -117,6 +118,11 @@ func newHarness(t *testing.T, tweaks ...func(*svd.Options)) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
+	// What the CLI keeps itself (records of the browsers' setup, a GnuPG
+	// folder), and a CLI binary run by a test, stay in the test's folder,
+	// and never move the person's own (svops.MoveOldFolderUnlessRunning).
+	t.Setenv(svcore.EnvHome, filepath.Join(dir, "cli-home"))
+	t.Setenv(svcore.EnvConfig, "")
 	h := &harness{t: t, dir: dir, home: filepath.Join(dir, "home"), sock: filepath.Join(dir, "s", "d.sock"), passFile: filepath.Join(dir, "pass"), desk: &fakeDesk{}}
 	h.write("pass", "correct horse battery staple\n")
 
@@ -169,6 +175,10 @@ func (h *harness) run(stdin string, args ...string) (string, string, int) {
 		stderr: &errb,
 		ask:    h.terminal,
 		askNew: func(p string, _ int) ([]byte, error) { return h.terminal(p) },
+		askLine: func(p string) (string, error) {
+			b, err := h.terminal(p)
+			return string(b), err
+		},
 		canAsk: true,
 		connect: func(o secretvault.Options) (*secretvault.Client, error) {
 			o.Socket, o.NoStart = h.sock, true
@@ -654,6 +664,40 @@ func TestDockerStoresAndGetsCredentialsThroughTheHelper(t *testing.T) {
 	out, _, code := h.run("ghcr.io", h.with("docker-credential", "get")...)
 	if code != 1 || !strings.Contains(out, "credentials not found in native keychain") {
 		t.Fatalf("a missing server: %d %q", code, out)
+	}
+}
+
+// The helpers name new logins for their host or registry, beside an item
+// of that name and never over it; a login stored again replaces itself;
+// and those made under git/ and docker/ before are still found.
+func TestTheHelpersNameTheirLoginsAndFindOldOnes(t *testing.T) {
+	h := newHarness(t)
+	h.init()
+	h.ok("browser-pass", h.with("set", "github.com", "--kind", "login")...)
+	h.ok("old-pass", h.with("set", "git/gitlab.com", "--kind", "login", "--field", "username=ada", "--attr", "git_host=gitlab.com",
+		"--attr", "git_protocol=https", "--attr", "git_username=ada")...)
+	h.ok("old-pat", h.with("set", "docker/ghcr.io", "--kind", "login", "--field", "username=ada", "--attr", "docker_server=ghcr.io")...)
+
+	h.ok("protocol=https\nhost=github.com\nusername=ada\npassword=ghp_one\n\n", h.with("git-credential", "store")...)
+	h.ok("protocol=https\nhost=github.com\nusername=ada\npassword=ghp_two\n\n", h.with("git-credential", "store")...)
+	if got := h.ok("", h.with("get", "github.com")...); got != "browser-pass\n" {
+		t.Fatalf("git's login landed on the browser's: %q", got)
+	}
+	if got := h.ok("", h.with("get", "ada@github.com")...); got != "ghp_two\n" {
+		t.Fatalf("git's login: %q", got)
+	}
+	if got := h.ok("protocol=https\nhost=gitlab.com\n\n", h.with("git-credential", "get")...); got != "username=ada\npassword=old-pass\n" {
+		t.Fatalf("the login under git/: %q", got)
+	}
+	if got := h.ok("https://ghcr.io", h.with("docker-credential", "get")...); !strings.Contains(got, `"Secret":"old-pat"`) {
+		t.Fatalf("the login under docker/: %q", got)
+	}
+	h.ok(`{"ServerURL":"ghcr.io","Username":"ada","Secret":"new-pat"}`, h.with("docker-credential", "store")...)
+	if got := h.ok("", h.with("get", "docker/ghcr.io")...); got != "new-pat\n" {
+		t.Fatalf("docker's login was not replaced where it is: %q", got)
+	}
+	if got := h.ok("", h.with("ls")...); got != "ada@github.com\ndocker/ghcr.io\ngit/gitlab.com\ngithub.com\n" {
+		t.Fatalf("the vault holds %q", got)
 	}
 }
 

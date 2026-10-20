@@ -1,3 +1,7 @@
+//go:build linux
+
+// The desktop page's plans are Linux's, as its tests are (desktop_test.go).
+
 package svmanager
 
 import (

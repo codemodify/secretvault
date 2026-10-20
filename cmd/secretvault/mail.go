@@ -123,7 +123,7 @@ func (c *cli) cmdSMIME(args []string) error {
 	switch args[0] {
 	case "import":
 		passFile := fs.String("password-file", "", "the file's password, in `FILE` (default: asked for)")
-		item := fs.String("item", "", "the item to keep it in (default: smime/ADDRESS)")
+		item := fs.String("item", "", "the item to keep it in (default: named for its address)")
 		pos, err := parse(fs, args[1:], 1, 1, "FILE.p12 [--password-file F] [--item NAME]")
 		if err != nil {
 			return err

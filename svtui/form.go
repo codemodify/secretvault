@@ -29,6 +29,7 @@ type editor struct {
 
 	form    *tview.Form
 	kind    *tview.DropDown
+	kinds   []string // what ed.kind offers, as stored; it shows their names
 	name    *tview.InputField
 	label   *tview.InputField
 	tags    *tview.InputField
@@ -97,6 +98,11 @@ func (u *UI) newItem(generated []byte) {
 		u.say("There is no vault to put an item in.")
 		return
 	}
+	if svops.KindRows[u.kind].Kind == "container" && generated == nil {
+		// A disk's key is made with its disk.
+		u.newContainer(u.vault, nil)
+		return
+	}
 	ed := u.openEditor(nil)
 	if generated != nil {
 		ed.useGenerated(generated)
@@ -121,7 +127,11 @@ func (u *UI) openEditor(e *svrpc.Entry) *editor {
 	}
 	ed := &editor{u: u, vault: u.vault}
 	u.editor = ed
-	it := svrpc.Item{Kind: "login"}
+	// A new item is of the kind listed.
+	it := svrpc.Item{Kind: svops.KindRows[u.kind].Kind}
+	if it.Kind == "container" {
+		it.Kind = "login"
+	}
 	if e != nil {
 		it, ed.orig = e.Item, e.Item.Name
 	}
@@ -133,14 +143,18 @@ func (u *UI) openEditor(e *svrpc.Entry) *editor {
 		ed.form.SetTitle(" Edit " + tview.Escape(e.Item.Name) + " — Ctrl+S saves · Esc cancels ")
 	}
 
-	kinds := slices.Clone(svcore.Kinds)
-	if !slices.Contains(kinds, it.Kind) {
-		kinds = append(kinds, it.Kind)
+	ed.kinds = slices.Clone(svcore.Kinds)
+	if !slices.Contains(ed.kinds, it.Kind) {
+		ed.kinds = append(ed.kinds, it.Kind)
 	}
-	ed.kind = tview.NewDropDown().SetLabel("Kind").SetOptions(kinds, nil)
-	ed.kind.SetCurrentOption(slices.Index(kinds, it.Kind))
-	ed.kind.SetSelectedFunc(func(kind string, _ int) { ed.kindChanged(kind) })
-	ed.name = tview.NewInputField().SetLabel("Name").SetText(it.Name).SetPlaceholder("a path, like web/example.com")
+	names := make([]string, len(ed.kinds))
+	for i, k := range ed.kinds {
+		names[i] = svops.KindText(k)
+	}
+	ed.kind = tview.NewDropDown().SetLabel("Kind").SetOptions(names, nil)
+	ed.kind.SetCurrentOption(slices.Index(ed.kinds, it.Kind))
+	ed.kind.SetSelectedFunc(func(_ string, i int) { ed.kindChanged(ed.kinds[i]) })
+	ed.name = tview.NewInputField().SetLabel("Name").SetText(it.Name).SetPlaceholder("like github.com")
 	ed.label = tview.NewInputField().SetLabel("Label").SetText(it.Label).SetPlaceholder("a title for people (optional)")
 	ed.tags = tview.NewInputField().SetLabel("Tags").SetText(strings.Join(it.Tags, ", ")).SetPlaceholder("comma-separated (optional)")
 	var attrs []string
@@ -358,7 +372,8 @@ func (ed *editor) askRemove() {
 // item reads the form. The caller wipes the fields' values.
 func (ed *editor) item() (svrpc.Item, error) {
 	var it svrpc.Item
-	_, it.Kind = ed.kind.GetCurrentOption()
+	i, _ := ed.kind.GetCurrentOption()
+	it.Kind = ed.kinds[max(0, i)]
 	it.Name = strings.TrimSpace(ed.name.GetText())
 	if err := svcore.CheckName(it.Name); err != nil {
 		return it, errors.New(svops.ItemNameNeeded)

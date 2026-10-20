@@ -14,6 +14,7 @@ import (
 	"github.com/codemodify/secretvault/svbroker"
 	"github.com/codemodify/secretvault/svcms"
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -186,11 +187,15 @@ func (d *Daemon) smimeImport(ctx context.Context, cl *client, decode func(any) e
 		if len(emails) == 0 {
 			return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "the certificate names no address: say what to call the item")
 		}
-		name = svrpc.SMIMEItemPrefix + strings.ToLower(emails[0])
+		name = svops.PathSafe(strings.ToLower(emails[0]))
 	}
 	mv, err := d.managed(ctx, cl, p.Vault, "", name, svbroker.OpWrite)
 	if err != nil {
 		return nil, err
+	}
+	if p.Item == "" {
+		// Named for its address, beside an item of that name.
+		name = mv.v.FreeName(name, "S∕MIME")
 	}
 	var chain [][]byte
 	for _, c := range b.CACertificates {

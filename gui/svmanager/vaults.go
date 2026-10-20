@@ -8,9 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codemodify/paintengine2d"
 	"github.com/codemodify/uitoolkit/layout"
-	"github.com/codemodify/uitoolkit/style"
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
@@ -121,7 +119,7 @@ func (m *Manager) loadSyncs() {
 	})
 }
 
-// syncLine is how a synced vault is doing, for the status bar.
+// syncLine is how a synced vault is doing, for its breadcrumb's tip.
 func syncLine(s svrpc.SyncStatus) string {
 	switch {
 	case s.Error != "":
@@ -132,52 +130,20 @@ func syncLine(s svrpc.SyncStatus) string {
 	return "; synced " + s.LastOK.Local().Format("15:04")
 }
 
-// drawVaults fills the vault list, keeping the vault shown selected.
+// drawVaults fills the vault list, keeping the vault shown picked.
 func (m *Manager) drawVaults() {
-	t := m.ui.vaultList
-	t.RowCount = len(m.vaults)
-	t.Selected = -1
-	for i, v := range m.vaults {
-		if v.Name == m.vault {
-			t.Selected = i
-		}
-	}
-	t.Invalidate()
+	m.ui.vaultList.set(m.vaults, m.vault)
+	m.syncFace()
 	m.enableMenus()
 }
 
-func (m *Manager) vaultCell(row, col int) string {
-	if row < 0 || row >= len(m.vaults) {
-		return ""
-	}
-	v := m.vaults[row]
-	if col == 0 {
-		return v.Name
-	}
-	switch {
-	case v.ID == "":
-		return "missing"
-	case v.Locked:
-		return "locked"
-	}
-	return "unlocked"
-}
-
-// vaultIcon marks the default vault with a star.
-func (m *Manager) vaultIcon(row, col int) (style.ToolIcon, paintengine2d.Color) {
-	if col == 0 && row >= 0 && row < len(m.vaults) && m.vaults[row].Default {
-		return style.IconStar, paintengine2d.Color{}
-	}
-	return style.IconNone, paintengine2d.Color{}
-}
-
+// vaultSelected shows the vault picked in the list.
 func (m *Manager) vaultSelected(i int) {
 	if i >= 0 && i < len(m.vaults) && m.vaults[i].Name != m.vault {
 		m.showVault(m.vaults[i].Name, false)
 	}
 }
 
-// vaultActivated is Enter or a double click on a vault: a locked one is
 // unlocked, an open one's items take the keyboard.
 func (m *Manager) vaultActivated(i int) {
 	if i < 0 || i >= len(m.vaults) {
@@ -197,7 +163,7 @@ func (m *Manager) vaultActivated(i int) {
 	case !m.listed && !m.listing:
 		m.showVault(v.Name, true)
 	}
-	m.win.RequestFocus(m.ui.items)
+	m.focus(m.ui.content)
 }
 
 // showVault shows a vault's items. A locked vault is listed only when
@@ -219,16 +185,17 @@ func (m *Manager) showVault(name string, unlock bool) {
 	m.listing = false
 	m.entries, m.shown, m.listed = nil, nil, false
 	if other {
-		m.folder, m.cursor = "", ""
-		m.closeVaultPage()
+		m.cursor, m.picked = "", nil
 		m.leaveHistory()
 		m.closeItem()
+		m.vaultChanged()
 	}
-	m.drawVaults()
-	m.drawFolders()
+	// Its items asked for first, so that what is drawn knows they are on
+	// their way (a closed vault's face waits for them, lockface.go).
 	if v := m.vaultInfo(name); v == nil || !v.Locked || unlock {
 		m.loadItems()
 	}
+	m.drawVaults()
 	m.drawItems()
 	if m.cur == nil && m.editor == nil && !m.showingVaultPage() && !m.showingHistory() {
 		m.showSelected()
@@ -255,8 +222,9 @@ func (m *Manager) unlockVault(vault string) {
 			return
 		}
 		m.say("Unlocked %s.", vault)
+		m.unlockedHere(vault)
 		m.showVault(vault, true)
-		m.win.RequestFocus(m.ui.items)
+		m.focus(m.ui.content)
 	})
 }
 
@@ -340,7 +308,6 @@ func (m *Manager) vaultLocked(vault string) {
 	m.listing = false
 	m.entries, m.shown, m.listed = nil, nil, false
 	m.drawVaults()
-	m.drawFolders()
 	m.drawItems()
 	m.showSelected() // which says it is locked, or that the daemon has gone
 	m.drawStatus()
@@ -355,8 +322,10 @@ func (m *Manager) event(method string, ev svrpc.VaultEvent) {
 		case svrpc.EVaultLocked:
 			m.vaultLocked(ev.Vault)
 			m.reloadVaults()
+			m.refreshDisks(m.disks)
 		case svrpc.EVaultUnlocked:
 			m.reloadVaults()
+			m.refreshDisks(m.disks)
 		case svrpc.EEmergency:
 			m.loadEmergency()
 			if p := m.vpage; p != nil && p.vault == ev.Vault {
@@ -408,7 +377,7 @@ func (m *Manager) newVault() {
 		problem).WithGap(gap)
 
 	var d *dialog
-	create := widgets.NewButton(svops.CreateVaultAction, nil)
+	create := newButton(svops.CreateVaultAction, nil)
 	create.OnClick = func() {
 		n := strings.TrimSpace(name.Text)
 		switch {
@@ -430,7 +399,7 @@ func (m *Manager) newVault() {
 			pass.Wipe()
 			again.Wipe()
 			problem.SetText("The two passphrases differ.")
-			m.win.RequestFocus(pass)
+			m.focus(pass)
 			return
 		}
 		dir, err := absPath(folder.Path())
@@ -458,11 +427,11 @@ func (m *Manager) newVault() {
 			}
 		}, params.Passphrase)
 	}
-	pass.OnSubmit = func(*widgets.SecretField) { m.win.RequestFocus(again) }
+	pass.OnSubmit = func(*widgets.SecretField) { m.focus(again) }
 	again.OnSubmit = func(*widgets.SecretField) { create.OnClick() }
 	buttons := widgets.NewButtonBox().
 		AddButton(create, widgets.RoleAccept).
-		AddButton(widgets.NewButton("Cancel", func() { d.Close() }), widgets.RoleReject)
+		AddButton(newButton("Cancel", func() { d.Close() }), widgets.RoleReject)
 	// A passphrase made with Caps Lock on would open the vault only with
 	// Caps Lock on: said beside the buttons while it is.
 	row := widgets.NewRow(secretui.NewCapsLock(), buttons).WithGap(16).WithAlign(layout.AlignCenter)
@@ -488,8 +457,8 @@ func (m *Manager) showRecoveryKey(vault string, key []byte) {
 	note.Wrap = true
 	body := widgets.NewColumn(note, text).WithGap(12)
 	var d *dialog
-	copyBtn := widgets.NewButton("Copy the key", func() { m.copyValue(key, "The recovery key", vault) })
-	done := widgets.NewButton("I have written it down", func() { d.Close() })
+	copyBtn := newButton("Copy the key", func() { m.copyValue(key, "The recovery key", vault) })
+	done := newButton("I have written it down", func() { d.Close() })
 	buttons := widgets.NewButtonBox().
 		AddButton(done, widgets.RoleAccept).
 		AddButton(copyBtn, widgets.RoleAction)
@@ -499,10 +468,13 @@ func (m *Manager) showRecoveryKey(vault string, key []byte) {
 	})
 }
 
-// showKeys lists the keyboard shortcuts.
-func (m *Manager) showKeys() {
+// showKeys shows the keyboard shortcuts, in Settings.
+func (m *Manager) showKeys() { m.showSettings(tabSetShortcuts) }
+
+// fillShortcuts lists the keyboard shortcuts.
+func (m *Manager) fillShortcuts(pn *pane) {
 	rows := [][2]string{
-		{"Ctrl+F", "search the items; Down goes to them"},
+		{"Ctrl+F", "filter the items, in every tab; Down goes to them"},
 		{"Enter", "open the item, or unlock the vault"},
 		{"Ctrl+C", "copy the item's password"},
 		{"Ctrl+B, Ctrl+T", "copy its username, its one-time code"},
@@ -514,10 +486,11 @@ func (m *Manager) showKeys() {
 		{"Ctrl+G", "the password generator"},
 		{"Ctrl+U, Ctrl+L", "unlock, lock the vault"},
 		{"Ctrl+Shift+L", "lock every vault"},
-		{"Ctrl+Shift+G", "the vault's grants and audit log"},
+		{"Ctrl+Shift+G", "the vault's grants"},
 		{"Ctrl+Shift+K", "the contacts"},
 		{"Escape", "from a page back to the items"},
-		{"Alt+V, K, C, T, D", "the Vault … Desktop menus"},
+		{"Ctrl+1, 2, 3", "Vault, Disk, Tools (on the back, Settings' tabs)"},
+		{"Ctrl+Page Down, Up", "the next, the previous of Vault, Disk and Tools"},
 		{"Ctrl+W, Ctrl+Q", "close the window (to the tray), quit"},
 	}
 	g := widgets.NewGrid()
@@ -529,9 +502,8 @@ func (m *Manager) showKeys() {
 		g.Place(widgets.NewLabel(r[1]), i, 1)
 	}
 	note := m.muted(fmt.Sprintf("Copies clear themselves from the clipboard after %d seconds.", int(m.ttl/time.Second)))
-	var d *dialog
-	ok := widgets.NewButton("Close", func() { d.Close() })
-	d = m.showDialog("Keyboard shortcuts", widgets.NewColumn(g, note).WithGap(12), widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept), ok, nil)
+	pn.focus = nil
+	pn.box.Set(scrolled(widgets.NewColumn(g, note).WithGap(12)))
 }
 
 // checkName is svcore.CheckName, said as a person would.

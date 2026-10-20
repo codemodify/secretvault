@@ -519,7 +519,7 @@ func (d *Daemon) setSyncConfig(mv *managedVault, r *svsync.Remote) error {
 		if d.cfg.Vaults[i].Name == mv.cfg.Name {
 			old := d.cfg.Vaults[i].Sync
 			d.cfg.Vaults[i].Sync = r
-			if err := d.cfg.save(d.home); err != nil {
+			if err := d.cfg.save(d.config); err != nil {
 				d.cfg.Vaults[i].Sync = old
 				return err
 			}

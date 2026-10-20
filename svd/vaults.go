@@ -305,12 +305,13 @@ func (d *Daemon) register(mv *managedVault) error {
 	if d.cfg.Default == "" && mv.cfg.RequestedBy == "" {
 		d.cfg.Default = mv.cfg.Name
 	}
-	if err := d.cfg.save(d.home); err != nil {
+	if err := d.cfg.save(d.config); err != nil {
 		d.cfg.Vaults = d.cfg.Vaults[:len(d.cfg.Vaults)-1]
 		d.cfg.Default = def
 		return err
 	}
 	d.vaults[mv.cfg.Name] = mv
+	d.forgetDisks(mv.cfg.Name) // any remembered under the name were another vault's
 	return nil
 }
 
@@ -341,6 +342,7 @@ func (d *Daemon) forgetVault(name string) error {
 	}
 	d.lock(mv, "forgotten")
 	d.stopSync(mv)
+	d.forgetDisks(mv.cfg.Name)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.vaults, mv.cfg.Name)
@@ -353,7 +355,7 @@ func (d *Daemon) forgetVault(name string) error {
 	if d.cfg.Default == mv.cfg.Name {
 		d.cfg.Default = d.cfg.firstDefault()
 	}
-	return d.cfg.save(d.home)
+	return d.cfg.save(d.config)
 }
 
 func (d *Daemon) setDefault(name string) error {
@@ -364,5 +366,5 @@ func (d *Daemon) setDefault(name string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.cfg.Default = mv.cfg.Name
-	return d.cfg.save(d.home)
+	return d.cfg.save(d.config)
 }

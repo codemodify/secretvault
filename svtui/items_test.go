@@ -220,20 +220,18 @@ func TestImportShowsTheNamesFirstThenStores(t *testing.T) {
 	h.key(tcell.KeyEnter)
 	h.waitFor("chrome://password-manager/settings")
 	h.typeText(file)
-	h.tabs(1)
-	h.typeText("imported/chrome")
 	h.tabs(2) // replace, Read it
 	h.key(tcell.KeyEnter)
 	h.waitForWords("2 items from Chrome Passwords.csv will be added to vault personal")
 	h.details()
-	h.waitFor("imported/chrome/github.com")
-	if _, err := h.get("imported/chrome/github.com"); err == nil {
+	h.waitFor("github.com")
+	if _, err := h.get("github.com"); err == nil {
 		t.Fatal("something was stored before the plan was accepted")
 	}
 	h.key(tcell.KeyBacktab) // Import 2 items
 	h.key(tcell.KeyEnter)
 	h.waitFor("2 items were imported.")
-	if e, err := h.get("imported/chrome/github.com"); err != nil || field(e, "password") != "gh-p4ss" {
+	if e, err := h.get("github.com"); err != nil || field(e, "password") != "gh-p4ss" {
 		t.Fatalf("imported: %v %+v", err, e.Item)
 	}
 	// The file held them in the clear: deleting it is offered, and
@@ -256,7 +254,7 @@ func TestExportWritesANewKeePassFile(t *testing.T) {
 	h.waitFor("Export from personal")
 	h.tabs(1) // kdbx is chosen already
 	h.typeText(out)
-	h.tabs(2)
+	h.tabs(1)
 	h.typeText(filePass)
 	h.tabs(1)
 	h.typeText(filePass)
@@ -279,7 +277,7 @@ func TestExportWritesANewKeePassFile(t *testing.T) {
 	h.waitFor("Export from personal")
 	h.tabs(1)
 	h.typeText(out)
-	h.tabs(4)
+	h.tabs(3) // the passphrase, again, Export
 	h.key(tcell.KeyEnter)
 	h.waitFor("already exists")
 }

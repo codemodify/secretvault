@@ -190,7 +190,7 @@ func cxfExportItem(it *svrpc.Item) cxfItem {
 	if len(urls) > 0 {
 		ci.Scope = &cxfScope{URLs: urls, AndroidApps: []json.RawMessage{}}
 	}
-	ext, _ := json.Marshal(cxfItemExt{Name: cxfExtItem, Kind: it.Kind, Attrs: it.Attrs})
+	ext, _ := json.Marshal(cxfItemExt{Name: cxfExtItem, Item: it.Name, Kind: it.Kind, Attrs: it.Attrs})
 	ci.Extensions = []json.RawMessage{ext}
 	return ci
 }

@@ -413,7 +413,7 @@ func (x *xmlOut) entry(it *svrpc.Item) {
 		x.leaf("Tags", strings.Join(it.Tags, ";"))
 	}
 	x.times()
-	meta := kdbxMeta{Kind: it.Kind, Attrs: it.Attrs}
+	meta := kdbxMeta{Name: it.Name, Kind: it.Kind, Attrs: it.Attrs}
 	if it.Label != title {
 		meta.Label = it.Label
 	}

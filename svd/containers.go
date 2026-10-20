@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/codemodify/secretvault/svbroker"
 	"github.com/codemodify/secretvault/svcontainer"
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/secretvault/svudisks"
 )
@@ -28,8 +31,23 @@ import (
 //   - container.passwd reads the item (a passphrase keyslot is as good as
 //     the key) and changes it;
 //   - container.list lists the vault;
+//   - container.known lists every vault's disks: an unlocked vault's as
+//     container.list does, asked the same, and a locked one's as the
+//     daemon remembers them (disks_seen.go), asking nothing and unlocking
+//     nothing: only their files, which any program running as you can
+//     read in the daemon's data directory, and what the system says of
+//     them;
 //   - container.close needs none: whoever may reach UDisks2 can unmount
-//     their own disks without us.
+//     their own disks without us;
+//   - container.delete deletes the image file and then the item, asked
+//     as "delete" on the item, the question naming the file. It is open
+//     to every program, as item.delete is: a program running as you can
+//     delete your files itself, and the item goes where item.delete puts
+//     it, to the vault's deleted items (so a copy of the image kept
+//     elsewhere still opens once it is brought back). What the daemon
+//     adds is care: it deletes only a LUKS2 image the item is the key of
+//     (its UUID, or else the key opening it), never one attached as a
+//     disk, and never a copy while the image the item names is there.
 //
 // A key goes from the vault to UDisks2 (and the kernel) and to no client.
 //
@@ -53,6 +71,7 @@ func init() {
 	registerMethod(svrpc.MContainerClose, (*Daemon).containerClose)
 	registerMethod(svrpc.MContainerList, (*Daemon).containerList)
 	registerMethod(svrpc.MContainerPasswd, (*Daemon).containerPasswd)
+	registerMethod(svrpc.MContainerDelete, (*Daemon).containerDelete)
 }
 
 // containers is the daemon's container state.
@@ -67,6 +86,9 @@ type containers struct {
 	// closing counts containers being closed after their vault locked, so
 	// a daemon that stops can wait for them.
 	closing sync.WaitGroup
+
+	// seen are the disks seen, vault by vault (disks_seen.go).
+	seen seenDisks
 }
 
 // disks is the connection to the OS's disk service, made on first use and
@@ -124,6 +146,12 @@ func (d *Daemon) containerCreate(ctx context.Context, cl *client, decode func(an
 	case len(p.Passphrase) > 0 && len(p.Passphrase) < MinPassphrase:
 		return nil, invalid("the passphrase is too short: use at least %d characters", MinPassphrase)
 	}
+	// With no item named, the key is named for the file, beside an item
+	// of that name.
+	named := p.Item != ""
+	if !named {
+		p.Item = svops.ContainerItemName(p.Path)
+	}
 	if err := svcore.CheckName(p.Item); err != nil {
 		return nil, invalid("%v", err)
 	}
@@ -144,7 +172,9 @@ func (d *Daemon) containerCreate(ctx context.Context, cl *client, decode func(an
 	itemExists := func() error {
 		return svrpc.Errorf(svrpc.CodeExists, "there is already an item named %q", p.Item)
 	}
-	if e, err := mv.v.Get(p.Item); err == nil {
+	if !named {
+		p.Item = mv.v.FreeName(p.Item, "disk")
+	} else if e, err := mv.v.Get(p.Item); err == nil {
 		e.Item.Wipe()
 		return nil, itemExists()
 	}
@@ -196,6 +226,7 @@ func (d *Daemon) containerCreate(ctx context.Context, cl *client, decode func(an
 		return nil, containerErr(err)
 	}
 	d.opts.Log(fmt.Sprintf("created container %s (%s, key in %s/%s)", path, p.FS, mv.cfg.Name, p.Item))
+	d.sawDisk(mv.cfg.Name, path)
 	return containerInfo(mv.cfg.Name, p.Item, path, img.UUID, img.PassphraseSlot >= 0, st, true), nil
 }
 
@@ -267,6 +298,10 @@ func (d *Daemon) containerItem(ctx context.Context, cl *client, vault, name, pat
 	switch op {
 	case svbroker.OpMount:
 		why = fmt.Sprintf("%s wants to open the container %s with the key in %q, in vault %q.", cl.display(), path, name, mv.cfg.Name)
+	case svbroker.OpDelete:
+		why = fmt.Sprintf("%s wants to delete the container %s, and its key %q in vault %q.\n"+
+			"The file and every file in it are deleted from this computer for good; the key goes to the vault's deleted items.",
+			cl.display(), path, name, mv.cfg.Name)
 	default:
 		why = describeRequest(cl, mv, name, op) + "\n(It is the key of the container " + path + ".)"
 	}
@@ -319,6 +354,7 @@ func (d *Daemon) containerOpen(ctx context.Context, cl *client, decode func(any)
 	if err != nil {
 		return nil, containerErr(err)
 	}
+	d.sawDisk(mv.cfg.Name, st.Image)
 	return containerInfo(mv.cfg.Name, e.Item.Name, st.Image, e.Item.Attrs[attrUUID], e.Item.Attrs[attrPassSlot] != "", st, true), nil
 }
 
@@ -356,34 +392,9 @@ func (d *Daemon) containerList(ctx context.Context, cl *client, decode func(any)
 	if err != nil {
 		return nil, err
 	}
-	entries, err := mv.v.List("")
-	if err != nil {
-		return nil, err
-	}
 	// Where each image is, when this system can say.
-	status := map[string]svcontainer.Status{}
-	known := false
-	if disks, err := d.disks(); err == nil {
-		if all, err := disks.All(ctx); err == nil {
-			known = true
-			for _, s := range all {
-				if cur, seen := status[s.Image]; !seen || !cur.Mounted() {
-					status[s.Image] = s
-				}
-			}
-		}
-	}
-	out := []svrpc.ContainerInfo{}
-	for _, e := range entries {
-		e.Item.Wipe()
-		if e.Item.Kind != kindContainer {
-			continue
-		}
-		path := e.Item.Attrs[attrImage]
-		st := status[svcontainer.Canonical(path)]
-		out = append(out, containerInfo(mv.cfg.Name, e.Item.Name, path, e.Item.Attrs[attrUUID], e.Item.Attrs[attrPassSlot] != "", st, known))
-	}
-	return out, nil
+	status, known := d.diskStatus(ctx)
+	return d.listContainers(mv, status, known)
 }
 
 func (d *Daemon) containerPasswd(ctx context.Context, cl *client, decode func(any) error) (any, error) {
@@ -464,7 +475,164 @@ func (d *Daemon) containerPasswd(ctx context.Context, cl *client, decode func(an
 	}
 	ne.Item.Wipe()
 	d.notify(svrpc.EItemChanged, svrpc.VaultEvent{Vault: mv.cfg.Name, Item: it.Name})
+	d.sawDisk(mv.cfg.Name, path)
 	return containerInfo(mv.cfg.Name, it.Name, path, it.Attrs[attrUUID], !p.Remove, svcontainer.Status{}, false), nil
+}
+
+// containerDelete deletes a container: its image file, for good, then its
+// key's item, to the vault's deleted items. What can refuse it that the
+// program could find out itself (the file is no LUKS2 image, it is in
+// use as a disk) is said before anyone is asked, and checked again after.
+func (d *Daemon) containerDelete(ctx context.Context, cl *client, decode func(any) error) (any, error) {
+	var p svrpc.ContainerDeleteParams
+	if err := decode(&p); err != nil {
+		return nil, err
+	}
+	if !filepath.IsAbs(p.Path) {
+		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "name the disk's file by its absolute path")
+	}
+	mv, err := d.vault(p.Vault)
+	if err != nil {
+		return nil, err
+	}
+	if mv.cfg.Emergency != "" {
+		return nil, errTheirs(mv)
+	}
+	path := svcontainer.Canonical(p.Path)
+	if _, _, err := d.deletable(ctx, path); err != nil {
+		return nil, err
+	}
+	mv, e, err := d.containerItem(ctx, cl, p.Vault, p.Item, path, svbroker.OpDelete)
+	if err != nil {
+		return nil, err
+	}
+	defer e.Item.Wipe()
+	name := e.Item.Name
+	record := d.recorder(cl, mv, name, svbroker.OpDelete)
+	fail := func(err error) (any, error) {
+		record("failed", "the container "+path+" was not deleted: "+reasonOf(err))
+		return nil, err
+	}
+	if err := mv.v.Writable(); err != nil {
+		return fail(svrpc.Errorf(svrpc.CodeFailed, "vault %q: %s: nothing was deleted", mv.cfg.Name, strings.TrimPrefix(err.Error(), "svcore: ")))
+	}
+
+	d.ctr.mu.Lock()
+	defer d.ctr.mu.Unlock()
+	// Again, now that it is our turn: it may have been mounted, or
+	// replaced, while the person was asked.
+	uuid, fi, err := d.deletable(ctx, path)
+	if err != nil {
+		return fail(err)
+	}
+	// Only a file this item is the key of: an item merely naming a file
+	// does not make it a container.
+	if want := e.Item.Attrs[attrUUID]; want != "" {
+		if uuid != want {
+			return fail(svrpc.Errorf(svrpc.CodeInvalidParams,
+				"%s is not the disk %q was made for (its LUKS UUID is %s, not %s), so it was not deleted: name the disk's own file, or its own item with --item",
+				path, name, uuid, want))
+		}
+	} else {
+		key, err := keyOf(e)
+		if err != nil {
+			return fail(err)
+		}
+		if _, err := svcontainer.Check(path, key); err != nil {
+			return fail(svrpc.Errorf(svrpc.CodeInvalidParams,
+				"the key in %q does not open %s, so it was not deleted: name the disk's own file, or its own item with --item", name, path))
+		}
+	}
+	// A copy (the same UUID), while the image the item was made for is
+	// still there: deleting the key would leave that one with none.
+	if img := e.Item.Attrs[attrImage]; img != "" && svcontainer.Canonical(img) != path {
+		if h, st, err := svcontainer.Identify(img); err == nil && h.UUID() == uuid && !os.SameFile(st, fi) {
+			return fail(svrpc.Errorf(svrpc.CodeInvalidParams,
+				"%s is a copy of %s, the disk %q was made for, which is still there, so it was not deleted: delete %s itself, or delete this copy with your file manager and keep the key",
+				path, img, name, img))
+		}
+	}
+	// The file checked is the file deleted.
+	if cur, err := os.Lstat(path); err != nil || !os.SameFile(cur, fi) {
+		return fail(svrpc.Errorf(svrpc.CodeFailed, "%s changed while it was being checked, so it was not deleted: try again", path))
+	}
+	if err := os.Remove(path); err != nil {
+		why := err.Error()
+		var pe *os.PathError
+		if errors.As(err, &pe) {
+			why = pe.Err.Error()
+		}
+		return fail(svrpc.Errorf(svrpc.CodeFailed, "%s could not be deleted (%s), and its key stays in %q: check that you may change its folder, and try again", path, why, name))
+	}
+	d.opts.Log(fmt.Sprintf("deleted container %s (key in %s/%s, now in its deleted items; asked by %s)", path, mv.cfg.Name, name, cl.display()))
+	d.lostDisk(mv.cfg.Name, path)
+	// The key the ordinary way: to the vault's deleted items, from where
+	// it can be brought back for a copy of the image kept elsewhere.
+	if err := mv.v.Delete(name); err != nil {
+		record("failed", "deleted the container "+path+", but not its key: "+reasonOf(err))
+		return nil, svrpc.Errorf(svrpc.CodeFailed, "deleted %s, but its key stays in %q, in vault %q (%s): delete the item with 'secretvault rm %s'",
+			path, name, mv.cfg.Name, reasonOf(err), name)
+	}
+	d.notify(svrpc.EItemChanged, svrpc.VaultEvent{Vault: mv.cfg.Name, Item: name})
+	record("allowed", "deleted the container "+path+"; its key is in the deleted items")
+	return svrpc.ContainerInfo{Vault: mv.cfg.Name, Item: name, Path: path, UUID: uuid, State: "deleted", Passphrase: e.Item.Attrs[attrPassSlot] != ""}, nil
+}
+
+// deletable checks that the file at path can be deleted as a container's
+// image: a LUKS2 image, attached as a disk under no name (deleting it
+// would pull its files from under whoever uses them). It returns its LUKS
+// UUID and which file it is.
+func (d *Daemon) deletable(ctx context.Context, path string) (string, os.FileInfo, error) {
+	// Said before any consent, so no more than whether a container is
+	// there, as for container.open: the program can look itself.
+	h, fi, err := svcontainer.Identify(path)
+	if err != nil {
+		return "", nil, svrpc.Errorf(svrpc.CodeInvalidParams,
+			"there is no disk at %s that secretvault can delete (only a LUKS2 image is deleted), so nothing was: name the disk's file where it is now", path)
+	}
+	st, used, err := d.containerInUse(ctx, path, fi)
+	switch {
+	case err != nil:
+		return "", nil, err
+	case used && st.Mounted():
+		return "", nil, svrpc.Errorf(svrpc.CodeFailed, "%s is mounted, its files in %s: unmount it first ('secretvault container close %s'), then delete it",
+			path, st.MountPoint, path)
+	case used:
+		return "", nil, svrpc.Errorf(svrpc.CodeFailed, "%s is still attached as a disk: unmount it first ('secretvault container close %s'), then delete it",
+			path, path)
+	}
+	return h.UUID(), fi, nil
+}
+
+// containerInUse is how the image fi, at path, is attached as a disk, by
+// any of its names (a hard link, a path through a symbolic link), if it
+// is. Where secretvault mounts nothing, nothing is.
+func (d *Daemon) containerInUse(ctx context.Context, path string, fi os.FileInfo) (svcontainer.Status, bool, error) {
+	if runtime.GOOS != "linux" {
+		return svcontainer.Status{}, false, nil
+	}
+	disks, err := d.disks()
+	var all []svcontainer.Status
+	if err == nil {
+		all, err = disks.All(ctx)
+	}
+	if err != nil {
+		return svcontainer.Status{}, false, svrpc.Errorf(svrpc.CodeFailed,
+			"secretvault cannot tell whether %s is in use as a disk (%s), so it was not deleted: try again once the disk service, UDisks2, answers",
+			path, reasonOf(err))
+	}
+	for _, s := range all {
+		if !s.Attached {
+			continue
+		}
+		if s.Image == path {
+			return s, true, nil
+		}
+		if st, err := os.Stat(s.Image); err == nil && os.SameFile(st, fi) {
+			return s, true, nil
+		}
+	}
+	return svcontainer.Status{}, false, nil
 }
 
 func containerInfo(vault, item, path, uuid string, pass bool, st svcontainer.Status, known bool) svrpc.ContainerInfo {

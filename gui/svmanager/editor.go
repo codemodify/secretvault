@@ -112,6 +112,7 @@ func (m *Manager) newItem(generated []byte) {
 		m.say("There is no vault to put an item in.")
 		return
 	}
+	m.showSection(secVaults)
 	if v := m.vaultInfo(m.vault); v != nil && v.Locked {
 		m.say("Vault %s is locked: Ctrl+U unlocks it.", m.vault)
 		return
@@ -160,8 +161,13 @@ func (m *Manager) openEditor(e *svrpc.Entry) *editor {
 	if !slices.Contains(ed.kinds, it.Kind) {
 		ed.kinds = append(ed.kinds, it.Kind)
 	}
-	ed.kind = widgets.NewComboBox(ed.kinds, slices.Index(ed.kinds, it.Kind), func(i int) { ed.kindChanged(ed.kinds[i]) })
-	ed.name = widgets.NewTextField(it.Name, "a path, like web/example.com", nil)
+	// Offered by their names; ed.kinds keeps what is stored.
+	names := make([]string, len(ed.kinds))
+	for i, k := range ed.kinds {
+		names[i] = svops.KindText(k)
+	}
+	ed.kind = widgets.NewComboBox(names, slices.Index(ed.kinds, it.Kind), func(i int) { ed.kindChanged(ed.kinds[i]) })
+	ed.name = widgets.NewTextField(it.Name, "like github.com", nil)
 	ed.label = widgets.NewTextField(it.Label, "a title for people (optional)", nil)
 	ed.tags = widgets.NewTextField(strings.Join(it.Tags, ", "), "comma-separated (optional)", nil)
 	var attrs []string
@@ -193,15 +199,15 @@ func (m *Manager) openEditor(e *svrpc.Entry) *editor {
 
 	ed.problem = toned("", widgets.ToneDanger)
 	ed.problem.Wrap = true
-	save := tip(widgets.NewButton("Save", ed.save), "Ctrl+S")
+	save := tip(newButton("Save", ed.save), "Ctrl+S")
 	save.Primary = true
-	ed.reveal = tip(widgets.NewButton("Show secrets", ed.toggleReveal), "Ctrl+R")
+	ed.reveal = tip(newButton("Show secrets", ed.toggleReveal), "Ctrl+R")
 	buttons := widgets.NewWrap(
 		save,
-		tip(widgets.NewButton("Add field…", ed.askField), "Ctrl+Shift+N"),
-		tip(widgets.NewButton("Generate password…", ed.generate), "Ctrl+G"),
+		tip(newButton("Add field…", ed.askField), "Ctrl+Shift+N"),
+		tip(newButton("Generate password…", ed.generate), "Ctrl+G"),
 		ed.reveal,
-		tip(widgets.NewButton("Cancel", ed.close), "Escape"),
+		tip(newButton("Cancel", ed.close), "Escape"),
 	)
 
 	title := "New item in " + m.vault
@@ -212,9 +218,9 @@ func (m *Manager) openEditor(e *svrpc.Entry) *editor {
 	ed.page = newPage(pageEditor, widgets.NewScrollView(col), ed.key)
 	m.ui.pane.Set(ed.page)
 	if e == nil {
-		m.win.RequestFocus(ed.name)
+		m.focus(ed.name)
 	} else {
-		m.win.RequestFocus(ed.label)
+		m.focus(ed.label)
 	}
 	m.enableMenus()
 	return ed
@@ -296,7 +302,7 @@ func (ed *editor) addField(name, typ string, value []byte) *fieldEditor {
 		in.SetAccessibleName(name)
 		fe.input = in
 	}
-	fe.remove = widgets.NewButton("Remove", func() { ed.removeField(fe) })
+	fe.remove = newButton("Remove", func() { ed.removeField(fe) })
 	fe.remove.Tip = "Remove the " + name + " field"
 	ed.fields = append(ed.fields, fe)
 	return fe
@@ -326,7 +332,7 @@ func (ed *editor) layoutFields() {
 		switch {
 		case fe.box != nil && fe.box != widget.Component(fe.secret):
 			// A key: pasted, or read from a file.
-			replace := widgets.NewButton("Replace from file…", func() { ed.replaceFromFile(fe) })
+			replace := newButton("Replace from file…", func() { ed.replaceFromFile(fe) })
 			value = widgets.NewColumn(fe.box, widgets.NewRow(replace)).WithGap(4)
 		case fe.secret != nil:
 			value = fe.secret
@@ -335,7 +341,7 @@ func (ed *editor) layoutFields() {
 		case fe.input != nil:
 			value = fe.input
 		default:
-			replace := widgets.NewButton("Replace from file…", func() { ed.replaceFromFile(fe) })
+			replace := newButton("Replace from file…", func() { ed.replaceFromFile(fe) })
 			value = widgets.NewRow(ed.m.muted(fmt.Sprintf("%s, kept as it is", size(int64(len(fe.kept))))), replace).WithGap(gap).WithAlign(layout.AlignCenter)
 		}
 		g.Place(value, i, 1)
@@ -396,7 +402,7 @@ func (ed *editor) removeField(fe *fieldEditor) {
 	if len(ed.fields) > 0 {
 		next = ed.fields[min(i, len(ed.fields)-1)].focusable(ed.name)
 	}
-	ed.m.win.RequestFocus(next)
+	ed.m.focus(next)
 }
 
 // focusable is the widget that takes the keyboard for this field, or
@@ -507,7 +513,7 @@ func (ed *editor) askField() {
 	form.AddRow("Name", name)
 	form.AddRow("Type", typ)
 	var d *dialog
-	add := widgets.NewButton("Add", nil)
+	add := newButton("Add", nil)
 	add.OnClick = func() {
 		if ed.closed {
 			d.Close()
@@ -528,13 +534,23 @@ func (ed *editor) askField() {
 		fe := ed.addField(n, fieldTypes[max(0, typ.Selected)], nil)
 		ed.touched = true
 		ed.layoutFields()
-		m.win.RequestFocus(fe.focusable(ed.name))
+		m.focus(fe.focusable(ed.name))
 	}
 	name.OnSubmit = func(string) { add.OnClick() }
 	buttons := widgets.NewButtonBox().AddButton(add, widgets.RoleAccept).
-		AddButton(widgets.NewButton("Cancel", func() { d.Close() }), widgets.RoleReject)
+		AddButton(newButton("Cancel", func() { d.Close() }), widgets.RoleReject)
 	d = m.showDialog("Add a field", widgets.NewColumn(form, problem).WithGap(gap), buttons, name, nil)
 	ed.cancels = append(ed.cancels, d.Close)
+}
+
+// setKind makes a new item one of kind, with that kind's fields.
+func (ed *editor) setKind(kind string) {
+	i := slices.Index(ed.kinds, kind)
+	if i < 0 || i == ed.kind.Selected {
+		return
+	}
+	ed.kind.Select(i)
+	ed.kindChanged(kind)
 }
 
 // item reads the form. The caller wipes the fields' values.
@@ -639,7 +655,7 @@ func (ed *editor) close() {
 	if ed.m.ui.pane.Page() == widget.Component(ed.page) {
 		ed.m.showSelected()
 	}
-	ed.m.win.RequestFocus(ed.m.ui.items)
+	ed.m.focus(ed.m.ui.content)
 	ed.m.enableMenus()
 	ed.m.syncCapture()
 }

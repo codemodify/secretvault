@@ -116,13 +116,12 @@ func ReadKeyring(ctx context.Context, reading func(svsecret.Owner)) ([]svsecret.
 	return kc.ReadAll(ctx)
 }
 
-// KeyringItems are the items secrets become, under prefix, each named
-// for its collection and label, and never one in taken (which it adds
-// them to).
-func KeyringItems(secrets []svsecret.Secret, prefix string, taken map[string]bool) []svrpc.Item {
+// KeyringItems are the items secrets become, each named for its label,
+// and never one in taken (which it adds them to).
+func KeyringItems(secrets []svsecret.Secret, taken map[string]bool) []svrpc.Item {
 	var out []svrpc.Item
 	for _, s := range secrets {
-		name := UniqueName(taken, prefix+"/"+PathSafe(s.Collection)+"/"+PathSafe(s.Label))
+		name := UniqueName(taken, PathSafe(s.Label))
 		taken[name] = true
 		it := svrpc.Item{Kind: "password", Name: name, Label: s.Label, Attrs: s.Attributes,
 			Fields: []svrpc.Field{{Name: "secret", Type: svcore.FieldConcealed, Value: s.Value}}}
@@ -134,10 +133,10 @@ func KeyringItems(secrets []svsecret.Secret, prefix string, taken map[string]boo
 	return out
 }
 
-// ImportKeyring stores secrets read from the keyring in a vault, under
-// prefix, beside what is there, and returns how many it stored. With cl
-// nil it stores nothing, a dry run, and names says what it would store.
-func ImportKeyring(ctx context.Context, cl *secretvault.Client, vault, prefix string, secrets []svsecret.Secret) (names []string, n int, err error) {
+// ImportKeyring stores secrets read from the keyring in a vault, beside
+// what is there, and returns how many it stored. With cl nil it stores
+// nothing, a dry run, and names says what it would store.
+func ImportKeyring(ctx context.Context, cl *secretvault.Client, vault string, secrets []svsecret.Secret) (names []string, n int, err error) {
 	taken := map[string]bool{}
 	if cl != nil {
 		if existing, err := cl.List(ctx, vault, ""); err == nil {
@@ -146,7 +145,7 @@ func ImportKeyring(ctx context.Context, cl *secretvault.Client, vault, prefix st
 			}
 		}
 	}
-	for _, it := range KeyringItems(secrets, prefix, taken) {
+	for _, it := range KeyringItems(secrets, taken) {
 		names = append(names, it.Name)
 		if cl == nil {
 			continue
@@ -167,13 +166,16 @@ type TakeoverState struct {
 	Previous string    `json:"previous"` // the keyring it took over from
 }
 
+// TakeoverFile is the record of a takeover, in the settings folder.
+const TakeoverFile = "keyring-takeover.json"
+
 // TakeoverPath is where the record of a takeover is kept.
 func TakeoverPath() (string, error) {
-	h, err := svcore.Home()
+	h, err := svcore.ConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(h, "keyring-takeover.json"), nil
+	return filepath.Join(h, TakeoverFile), nil
 }
 
 // LoadTakeover reads the record of the takeover; an error satisfying
@@ -183,6 +185,11 @@ func LoadTakeover() (*TakeoverState, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadTakeoverAt(p)
+}
+
+// loadTakeoverAt is LoadTakeover, from the record at p.
+func loadTakeoverAt(p string) (*TakeoverState, error) {
 	b, err := os.ReadFile(p)
 	if err != nil {
 		return nil, err
@@ -411,6 +418,9 @@ func ApplyTakeover(p *TakeoverPlan, previous string) ([]string, error) {
 		return state.Created, err
 	}
 	b, _ := json.MarshalIndent(state, "", "  ")
+	if err := os.MkdirAll(filepath.Dir(sp), 0o700); err != nil {
+		return state.Created, err
+	}
 	if err := os.WriteFile(sp, b, 0o600); err != nil {
 		return state.Created, err
 	}

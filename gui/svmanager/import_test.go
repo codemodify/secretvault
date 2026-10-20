@@ -12,7 +12,7 @@ import (
 	"github.com/codemodify/secretvault/svops"
 )
 
-// File › Import…, in steps: where the passwords are now, how to export
+// Vault › Import…, in steps: where the passwords are now, how to export
 // them from there (svops.ImportSources' words), the preview, the import,
 // and the offer to delete an export that held them in the clear. Every
 // file is the test's own: no browser's profile is read.
@@ -37,9 +37,8 @@ func sourceIndex(t *testing.T, name string) int {
 }
 
 // importFrom goes through the import's steps as a person does: the
-// source chosen, Next, the file chosen in the file dialog, the folder
-// under More options, and Preview.
-func (h *harness) importFrom(source, file, folder string) {
+// source chosen, Next, the file chosen in the file dialog, and Preview.
+func (h *harness) importFrom(source, file string) {
 	h.t.Helper()
 	h.m.importItems()
 	h.pump()
@@ -49,10 +48,6 @@ func (h *harness) importFrom(source, file, folder string) {
 	h.waitText("Choose the export file…")
 	h.picks = append(h.picks, file)
 	h.press("Choose the export file…")
-	if folder != "" {
-		h.expand("More options")
-		h.fill("Put them in a folder", folder)
-	}
 	h.press("Preview")
 }
 
@@ -122,11 +117,11 @@ func TestImportAsksWhereThePasswordsAreThenShowsHowToExportThem(t *testing.T) {
 		}
 	}
 	if h.fieldShown("Put them in a folder") {
-		t.Error("the folder is shown before More options is opened")
+		t.Error("the import asks for a folder: there are none")
 	}
 	h.expand("More options")
-	if !h.fieldShown("Put them in a folder") || find(h.overlay(), func(c *widgets.Checkbox) bool { return strings.HasPrefix(c.Text, "Replace items that exist") }) == nil {
-		t.Errorf("More options holds the folder and replacing:\n%s", h.text())
+	if find(h.overlay(), func(c *widgets.Checkbox) bool { return strings.HasPrefix(c.Text, "Replace items that exist") }) == nil {
+		t.Errorf("More options does not hold replacing:\n%s", h.text())
 	}
 	a11ytest.Audit(t, "the import's second step", h.win().AccessibleTree())
 	h.press("Preview")
@@ -170,7 +165,7 @@ func TestAFirefoxExportIsImportedAndThenDeleted(t *testing.T) {
 	if err := os.WriteFile(in, []byte(firefoxCSV), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h.importFrom("firefox", in, "")
+	h.importFrom("firefox", in)
 	h.waitText("2 items from logins.csv will be added to vault personal.")
 	h.expand("Show details")
 	if !strings.Contains(h.text(), "www.mozilla.org") || !strings.Contains(h.text(), "intranet.example") {
@@ -210,7 +205,7 @@ func TestAnEncryptedExportIsNotOfferedForDeletion(t *testing.T) {
 	if err := os.WriteFile(in, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h.importFrom("bitwarden", in, "bw")
+	h.importFrom("bitwarden", in)
 	if p := h.failed(); !strings.Contains(p, "is encrypted: type its file password") {
 		t.Fatalf("no password: %q", p)
 	}

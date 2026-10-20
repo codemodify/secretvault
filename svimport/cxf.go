@@ -98,6 +98,7 @@ const (
 
 type cxfItemExt struct {
 	Name  string            `json:"name"`
+	Item  string            `json:"item,omitempty"` // the item's own name
 	Kind  string            `json:"kind,omitempty"`
 	Attrs map[string]string `json:"attrs,omitempty"`
 }
@@ -181,7 +182,7 @@ func cxfDrafts(b *builder, it *cxfItem, folder []string) []*draft {
 	} else if len(passkeys) == 0 {
 		// Nothing but passkeys, none of them usable: no item, only why.
 		for _, l := range d.lost {
-			b.warn("%s: %s", strings.Join(append(append([]string(nil), folder...), it.Title), "/"), l)
+			b.warn("%s: %s", it.Title, l)
 		}
 		return nil
 	}
@@ -191,7 +192,7 @@ func cxfDrafts(b *builder, it *cxfItem, folder []string) []*draft {
 			p.title = it.Title + " passkey"
 		}
 		if len(passkeys) == 1 && onlyURLs {
-			p.attrs = d.attrs // its own secretvault/item extension
+			p.name, p.attrs = d.name, d.attrs // its own secretvault/item extension
 		}
 		if onlyURLs && i == 0 {
 			p.lost = append(p.lost, d.lost...) // the item is not imported but for its passkeys
@@ -257,7 +258,7 @@ func cxfDraft(it *cxfItem, folder []string) (*draft, []*draft, int) {
 			if x.Kind != "" {
 				d.kind = x.Kind
 			}
-			d.attrs = x.Attrs
+			d.name, d.attrs = x.Item, x.Attrs
 		}
 	}
 	if d.kind == svext.PasskeyKind {

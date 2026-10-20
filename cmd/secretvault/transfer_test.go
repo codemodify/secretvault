@@ -19,36 +19,36 @@ func TestImportStoresItemsAndSkipsWhatExists(t *testing.T) {
 	h := newHarness(t)
 	h.init()
 	file := h.write("Chrome Passwords.csv", chromeCSV)
-	out, errs, code := h.run("", h.with("import", "auto", file, "--prefix", "imported/chrome")...)
+	out, errs, code := h.run("", h.with("import", "auto", file)...)
 	if code != 0 || !strings.Contains(out, "Imported 2 items, skipped 0") || !strings.Contains(errs, "as csv") {
 		t.Fatalf("import: %d\n%s\n%s", code, out, errs)
 	}
 	if strings.Contains(out+errs, "gh-p4ss") {
 		t.Fatal("the import printed a secret")
 	}
-	if got := h.ok("", h.with("get", "imported/chrome/github.com")...); got != "gh-p4ss\n" {
+	if got := h.ok("", h.with("get", "github.com")...); got != "gh-p4ss\n" {
 		t.Fatalf("get = %q", got)
 	}
 	var j jsonItem
-	json.Unmarshal([]byte(h.ok("", h.with("get", "--json", "imported/chrome/github.com")...)), &j)
+	json.Unmarshal([]byte(h.ok("", h.with("get", "--json", "github.com")...)), &j)
 	if j.Kind != "login" || j.Label != "github.com" || len(j.Fields) != 4 {
 		t.Fatalf("imported item: %+v", j)
 	}
 
 	// Again: both exist now, and are left alone.
 	h.write("Chrome Passwords.csv", strings.Replace(chromeCSV, "gh-p4ss", "changed", 1))
-	out, errs, _ = h.run("", h.with("import", "csv", file, "--prefix", "imported/chrome")...)
-	if !strings.Contains(out, "Imported 0 items, skipped 2") || !strings.Contains(errs, "imported/chrome/github.com: already exists") {
+	out, errs, _ = h.run("", h.with("import", "csv", file)...)
+	if !strings.Contains(out, "Imported 0 items, skipped 2") || !strings.Contains(errs, "github.com: already exists") {
 		t.Fatalf("second import:\n%s\n%s", out, errs)
 	}
-	if got := h.ok("", h.with("get", "imported/chrome/github.com")...); got != "gh-p4ss\n" {
+	if got := h.ok("", h.with("get", "github.com")...); got != "gh-p4ss\n" {
 		t.Fatalf("an existing item was changed: %q", got)
 	}
-	out = h.ok("", h.with("import", "csv", file, "--prefix", "imported/chrome", "--overwrite")...)
+	out = h.ok("", h.with("import", "csv", file, "--overwrite")...)
 	if !strings.Contains(out, "Imported 2 items, skipped 0") {
 		t.Fatalf("--overwrite: %s", out)
 	}
-	if got := h.ok("", h.with("get", "imported/chrome/github.com")...); got != "changed\n" {
+	if got := h.ok("", h.with("get", "github.com")...); got != "changed\n" {
 		t.Fatalf("--overwrite did not replace: %q", got)
 	}
 }
@@ -58,8 +58,8 @@ func TestImportDryRunListsNamesAndStoresNothing(t *testing.T) {
 	h.init()
 	file := h.write("export.csv", chromeCSV)
 	// No vault key given: a dry run never talks to the vault.
-	out, errs, code := h.run("", "import", "csv", file, "--dry-run", "--prefix", "x")
-	if code != 0 || out != "x/github.com\nx/example.org\n" || !strings.Contains(errs, "nothing was stored") {
+	out, errs, code := h.run("", "import", "csv", file, "--dry-run")
+	if code != 0 || out != "github.com\nexample.org\n" || !strings.Contains(errs, "nothing was stored") {
 		t.Fatalf("dry run: %d %q %q", code, out, errs)
 	}
 	if got := h.ok("", h.with("ls")...); got != "" {
@@ -79,7 +79,7 @@ func TestAnEncryptedExportAsksForItsOwnPassphrase(t *testing.T) {
 	if strings.Contains(out, "not encrypted") {
 		t.Fatalf("an encrypted export is said not to be:\n%s", out)
 	}
-	if got := h.ok("", h.with("get", "Work/Servers/db.example")...); got != "pg-secret\n" {
+	if got := h.ok("", h.with("get", "db.example")...); got != "pg-secret\n" {
 		t.Fatalf("get = %q", got)
 	}
 
@@ -91,15 +91,15 @@ func TestAnEncryptedExportAsksForItsOwnPassphrase(t *testing.T) {
 	kdbx := filepath.Join("..", "..", "svimport", "testdata", "kdbx4-chacha20-argon2d.kdbx")
 	keyx := filepath.Join("..", "..", "svimport", "testdata", "kdbx4-chacha20-argon2d.keyx")
 	out = h.ok("", h.with("import", "kdbx", kdbx, "--source-passphrase-file", h.passFile, "--source-keyfile", keyx, "--dry-run")...)
-	if !strings.Contains(out, "Mail & Chat/Mailbox") {
+	if !strings.Contains(out, "Mailbox") || strings.Contains(out, "Mail & Chat") {
 		t.Fatalf("a KDBX file with a key file: %q", out)
 	}
 	// For real: the entry's attachment comes along.
-	out = h.ok("", h.with("import", "kdbx", kdbx, "--source-passphrase-file", h.passFile, "--source-keyfile", keyx, "--prefix", "kp")...)
+	out = h.ok("", h.with("import", "kdbx", kdbx, "--source-passphrase-file", h.passFile, "--source-keyfile", keyx)...)
 	if !strings.Contains(out, "(1 files)") {
 		t.Fatalf("importing with an attachment: %q", out)
 	}
-	if got := h.ok("", h.with("file", "get", "kp/Mail & Chat/Mailbox", "backup-codes.txt", "-o", "-")...); got != "code-1 code-2 code-3" {
+	if got := h.ok("", h.with("file", "get", "Mailbox", "backup-codes.txt", "-o", "-")...); got != "code-1 code-2 code-3" {
 		t.Fatalf("the imported attachment: %q", got)
 	}
 }
@@ -113,8 +113,8 @@ func TestExportWritesNewPrivateFilesThatImportBack(t *testing.T) {
 
 	kdbx := filepath.Join(h.dir, "out.kdbx")
 	newPass := h.write("newpass", "file passphrase 1\n")
-	out := h.ok("", h.with("export", "kdbx", kdbx, "--new-passphrase-file", newPass, "--prefix", "web/")...)
-	if !strings.Contains(out, "Exported 1 items") {
+	out := h.ok("", h.with("export", "kdbx", kdbx, "--new-passphrase-file", newPass)...)
+	if !strings.Contains(out, "Exported 3 items") {
 		t.Fatalf("export: %q", out)
 	}
 	cxf := filepath.Join(h.dir, "out.cxf.json")
@@ -135,19 +135,23 @@ func TestExportWritesNewPrivateFilesThatImportBack(t *testing.T) {
 		t.Fatalf("an export over an existing file: %d %q", code, errs)
 	}
 
-	// The KDBX file asks for its passphrase when imported.
+	// The KDBX file asks for its passphrase when imported; each file
+	// brings the items back as they were, names and all, into vaults of
+	// their own.
+	h.ok("", "init", "--name", "from-kdbx", "--passphrase-file", h.passFile)
+	h.ok("", "init", "--name", "from-cxf", "--passphrase-file", h.passFile)
 	h.answers = []string{"file passphrase 1"}
-	h.ok("", h.with("import", "auto", kdbx, "--prefix", "from-kdbx")...)
-	if got := h.ok("", h.with("get", "from-kdbx/web/github.com")...); got != "hunter2\n" {
+	h.ok("", h.with("import", "auto", kdbx, "--vault", "from-kdbx")...)
+	if got := h.ok("", h.with("get", "web/github.com", "--vault", "from-kdbx")...); got != "hunter2\n" {
 		t.Fatalf("from KDBX: %q", got)
 	}
 	var j jsonItem
-	json.Unmarshal([]byte(h.ok("", h.with("get", "--json", "from-kdbx/web/github.com")...)), &j)
+	json.Unmarshal([]byte(h.ok("", h.with("get", "--json", "web/github.com", "--vault", "from-kdbx")...)), &j)
 	if j.Kind != "login" || len(j.Tags) != 1 || j.Tags[0] != "dev" {
 		t.Fatalf("from KDBX: %+v", j)
 	}
-	h.ok("", h.with("import", "auto", cxf, "--prefix", "from-cxf")...)
-	json.Unmarshal([]byte(h.ok("", h.with("get", "--json", "from-cxf/db/prod")...)), &j)
+	h.ok("", h.with("import", "auto", cxf, "--vault", "from-cxf")...)
+	json.Unmarshal([]byte(h.ok("", h.with("get", "--json", "db/prod", "--vault", "from-cxf")...)), &j)
 	if j.Attrs["env"] != "prod" || j.Fields[0].Value != "s3cret" {
 		t.Fatalf("from CXF: %+v", j)
 	}
@@ -223,7 +227,7 @@ func TestImportFromFirefoxByItsName(t *testing.T) {
 	if code != 0 || out != "www.mozilla.org\nintranet.example\n" || strings.Contains(errs, "Reading") {
 		t.Fatalf("dry run: %d %q %q", code, out, errs)
 	}
-	out = h.ok("", h.with("import", "firefox", file, "--prefix", "ff")...)
+	out = h.ok("", h.with("import", "firefox", file)...)
 	if !strings.Contains(out, "Imported 2 items, skipped 0") {
 		t.Fatalf("import: %s", out)
 	}
@@ -237,7 +241,7 @@ func TestImportFromFirefoxByItsName(t *testing.T) {
 	if _, err := os.Stat(file); err != nil {
 		t.Fatalf("the CLI deleted the export: %v", err)
 	}
-	if got := h.ok("", h.with("get", "ff/www.mozilla.org")...); got != "moz-pass\n" {
+	if got := h.ok("", h.with("get", "www.mozilla.org")...); got != "moz-pass\n" {
 		t.Fatalf("get = %q", got)
 	}
 }

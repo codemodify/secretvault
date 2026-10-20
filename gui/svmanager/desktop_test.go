@@ -26,11 +26,11 @@ import (
 // keyring, systemd or /etc. Every change is shown as a plan first, and
 // what other programs are told to start is the CLI, never this program.
 
-// openDesktopPage opens the desktop page at tab.
+// openDesktopPage opens the Tools tab at one of the other programs' tabs.
 func (h *harness) openDesktopPage(tab int) *desktopPage {
 	h.t.Helper()
 	h.m.showDesktopPage(tab)
-	h.waitFor("the desktop page", h.m.showingVaultPage)
+	h.waitFor("the Tools tab", func() bool { return h.m.section() == secTools && h.m.tpage != nil })
 	h.idle()
 	return h.m.dpage
 }
@@ -150,7 +150,7 @@ func TestBrowsersAreSetUpForTheCLIAndUndone(t *testing.T) {
 	h.m.cliProgram = func() string { return "" }
 	h.openDesktopPage(tabBrowsers)
 	h.waitText("not installed beside this one")
-	if b := button(h.m.ui.main, "Let browsers use secretvault…"); b == nil || b.Enabled() {
+	if b := button(h.area(), "Let browsers use secretvault…"); b == nil || b.Enabled() {
 		t.Fatal("Set up… was offered with no CLI to name")
 	}
 
@@ -377,7 +377,7 @@ func TestProgramHelpersAreSetUpOnAPlanAndUndone(t *testing.T) {
 	h.m.cliProgram = func() string { return "" }
 	h.openDesktopPage(tabHelpers)
 	h.waitText("not installed beside this one")
-	if b := button(h.m.ui.main, "Let git, docker and age use secretvault…"); b == nil || b.Enabled() {
+	if b := button(h.area(), "Let git, docker and age use secretvault…"); b == nil || b.Enabled() {
 		t.Fatal("Set up… was offered with no CLI to name")
 	}
 
@@ -386,7 +386,7 @@ func TestProgramHelpersAreSetUpOnAPlanAndUndone(t *testing.T) {
 	h.m.dpage.panes[tabHelpers].refresh()
 	h.waitText("docker: keeps its logins with desktop")
 	h.waitText("git: does not use secretvault yet")
-	if b := button(h.m.ui.main, "Remove the setup…"); b == nil || b.Enabled() {
+	if b := button(h.area(), "Remove the setup…"); b == nil || b.Enabled() {
 		t.Fatal("Undo… was offered with nothing to undo")
 	}
 
@@ -410,6 +410,7 @@ func TestProgramHelpersAreSetUpOnAPlanAndUndone(t *testing.T) {
 	// Said yes to: carried out, and the pane filled again.
 	h.pressOn("Let git, docker and age use secretvault…")
 	h.waitText("Let git, docker and age use secretvault")
+	h.waitText("Set up git, docker and age") // the plan's button, once the plan has come
 	h.press("Set up git, docker and age")
 	h.waitText("git, docker and age can use secretvault")
 	h.expand("Show details")
@@ -456,7 +457,7 @@ func TestProgramHelpersAreSetUpOnAPlanAndUndone(t *testing.T) {
 		t.Fatalf("docker's config: %s", b)
 	}
 	h.waitText("docker: keeps its logins with desktop")
-	if b := button(h.m.ui.main, "Remove the setup…"); b == nil || b.Enabled() {
+	if b := button(h.area(), "Remove the setup…"); b == nil || b.Enabled() {
 		t.Fatal("Undo… is offered with nothing left to undo")
 	}
 }

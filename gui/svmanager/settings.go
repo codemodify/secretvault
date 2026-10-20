@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/codemodify/uitoolkit/layout"
 	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 
@@ -31,7 +30,7 @@ func (m *Manager) fillSettings(p *vaultPage, pn *pane) {
 		m.drawVaults()
 		v := m.vaultInfo(p.vault)
 		if v == nil {
-			return m.paragraph("Vault " + p.vault + " is no longer in the list here: File › Add an existing vault… brings it back.")
+			return m.paragraph("Vault " + p.vault + " is no longer in the list here: Vault › Add an existing vault… brings it back.")
 		}
 		info := *v
 		p.info = &info
@@ -104,11 +103,14 @@ func (m *Manager) drawSettings(p *vaultPage, pn *pane, v svrpc.VaultInfo) widget
 		}, nil)
 	}
 	col.Add(widgets.NewTip("With a key the system keeps for you; it locks when you log out. Programs still ask before they read it.", login))
-	verify := widgets.NewButton("Check every file…", func() { m.verifyVault(p) })
+	verify := newButton("Check every file…", func() { m.verifyVault(p) })
 	pn.focus = verify
-	def2 := widgets.NewButton("Make it the default", func() { m.makeDefaultOf(p.vault, func() { m.refreshTab(p, tabSettings) }) })
+	def2 := newButton("Make it the default", func() { m.makeDefaultOf(p.vault, func() { m.refreshTab(p, tabSettings) }) })
 	def2.SetEnabled(!v.Default)
-	col.Add(buttons(verify, def2, widgets.NewButton("Forget this vault…", func() { m.forgetVault(p) })))
+	col.Add(buttons(verify, def2, newButton("Forget this vault…", func() { m.forgetVault(p) })))
+	// Its items, all at once, to another vault (the CLI's mv --all).
+	col.Add(buttons(newButton("Move every item to vault…", func() { m.moveAll(p.vault, false) }),
+		newButton("Copy every item to vault…", func() { m.moveAll(p.vault, true) })))
 	return scrolled(col)
 }
 
@@ -159,7 +161,7 @@ func (m *Manager) verifyVault(p *vaultPage) {
 // forgetVault unregisters the vault, leaving its folder as it is (the
 // CLI's vault forget).
 func (m *Manager) forgetVault(p *vaultPage) {
-	text := svops.ForgetVaultText(p.vault) + " File › Add an existing vault… brings it back."
+	text := svops.ForgetVaultText(p.vault) + " Vault › Add an existing vault… brings it back."
 	if p.info != nil && p.info.Path != "" {
 		text += "\n\nIts folder: " + p.info.Path
 	}
@@ -322,8 +324,9 @@ func (m *Manager) presentKey(vault string, key *svrpc.Key) {
 // unlocked shows a vault just unlocked.
 func (m *Manager) unlocked(vault string) {
 	m.say("Unlocked %s.", vault)
+	m.unlockedHere(vault)
 	m.showVault(vault, true)
-	m.win.RequestFocus(m.ui.items)
+	m.focus(m.ui.content)
 }
 
 // unlockWithShares takes recovery shares one at a time, as they are typed
@@ -360,7 +363,7 @@ func (m *Manager) unlockWithShares(vault string) {
 		if !shares.Done() {
 			count.SetText(fmt.Sprintf("%d of %d shares typed.", shares.Have(), shares.Need()))
 			f.form.Invalidate()
-			m.win.RequestFocus(share)
+			m.focus(share)
 			return
 		}
 		rk, err := shares.Key()
@@ -379,31 +382,30 @@ func (m *Manager) unlockWithShares(vault string) {
 	share.OnSubmit = func(*widgets.SecretField) { f.accept.OnClick() }
 }
 
-// showAbout says what the daemon says of itself (the CLI's status and
+// showAbout shows About secretvault, in Settings.
+func (m *Manager) showAbout() { m.showSettings(tabSetAbout) }
+
+// fillAbout says what the daemon says of itself (the CLI's status and
 // version): its version, where it keeps its data, how it asks, whether it
 // is the keyring, its SSH and gpg agents, emergency requests, and the
 // vaults, where they are and when they lock.
-func (m *Manager) showAbout() {
+func (m *Manager) fillAbout(pn *pane) {
 	if m.gone {
-		m.showText("About secretvault", "secretvault "+secretvault.Version+". "+svops.DaemonNotRunning, "")
+		pn.box.Set(m.message("About secretvault", "secretvault "+secretvault.Version+". "+svops.DaemonNotRunning))
 		return
 	}
 	var st svrpc.Status
-	m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
+	m.load(pn, func(ctx context.Context, c *secretvault.Client) (err error) {
 		st, err = c.Status(ctx)
 		return err
-	}, func(err error) {
-		if err != nil {
-			m.fail(err)
-			return
-		}
+	}, func() widget.Component {
 		rows := [][2]string{
 			{"This program", "secretvault-gui " + secretvault.Version},
 			{"secretvaultd", fmt.Sprintf("%s, process %d", st.Version, st.PID)},
 			{"Data", st.Home},
 		}
 		if st.Mode == "host" {
-			rows = append(rows, [2]string{"Mode", "the host daemon (Desktop › Host daemon)"})
+			rows = append(rows, [2]string{"Mode", "the host daemon (Tools › Host daemon)"})
 		}
 		if st.Socket != "" {
 			rows = append(rows, [2]string{"Socket", st.Socket})
@@ -413,7 +415,7 @@ func (m *Manager) showAbout() {
 			rows = append(rows, [2]string{"SSH agent", st.SSHAgent + " (SSH_AUTH_SOCK)"})
 		}
 		if st.GPGAgent != "" {
-			homes := "no GnuPG folder uses it yet: Desktop › GnuPG"
+			homes := "no GnuPG folder uses it yet: Tools › GnuPG"
 			if len(st.GnuPGHomes) > 0 {
 				homes = "for " + strings.Join(st.GnuPGHomes, ", ")
 			}
@@ -430,7 +432,7 @@ func (m *Manager) showAbout() {
 		}
 		col.Add(section(m, "Vaults"))
 		if len(st.Vaults) == 0 {
-			col.Add(m.paragraph("No vaults yet: File › New vault… makes one."))
+			col.Add(m.paragraph("No vaults yet: Vault › New vault… makes one."))
 		} else {
 			vs := st.Vaults
 			t := table("Vaults", []widgets.TableColumn{
@@ -458,9 +460,6 @@ func (m *Manager) showAbout() {
 			})
 			col.Add(widgets.NewHeightBox(min(40+28*float32(len(vs)), 200), t))
 		}
-		var d *dialog
-		ok := widgets.NewButton("Close", func() { d.Close() })
-		d = m.showDialog("About secretvault", col, widgets.NewRow(widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept)).WithJustify(layout.JustifyEnd), ok, nil)
-		m.reloadVaults()
+		return scrolled(widgets.NewColumn(m.paragraph("The versions of secretvault, the background service and what it serves, and every vault."), col).WithGap(gap))
 	})
 }

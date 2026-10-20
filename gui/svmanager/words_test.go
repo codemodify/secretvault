@@ -16,8 +16,8 @@ func TestMessagesAreSaidInThisProgramsWords(t *testing.T) {
 	for in, want := range map[string]string{
 		"keyslot 1a2b is emergency access (grant 3c4d): end it with 'secretvault emergency revoke 3c4d', with --rotate to cut the trustee off": "end it with Vault › Sharing › Emergency access › Revoke… (with the key rotated)",
 		"revoke it and rotate the vault key: 'secretvault --vault personal emergency revoke 3c4d --rotate'.":                                   "rotate the vault key: Vault › Sharing › Emergency access › Revoke… (with the key rotated).",
-		"it is yours: 'secretvault emergency open ada --identity FILE'.":                                                                       "it is yours: File › Emergency access › Open the vault….",
-		"create one with 'secretvault init'":              "create one with File › New vault…",
+		"it is yours: 'secretvault emergency open ada --identity FILE'.":                                                                       "it is yours: Vault › Emergency access given to me › Open the vault….",
+		"create one with 'secretvault init'":              "create one with Vault › New vault…",
 		"GnuPG's gpg is not on PATH (name it with --gpg)": "GnuPG's gpg is not on PATH",
 		"an unknown 'secretvault frobnicate' stays":       "an unknown 'secretvault frobnicate' stays",
 	} {

@@ -22,7 +22,7 @@ func TestItemsMoveAndCopyToAnotherVault(t *testing.T) {
 
 	// What would go; nothing goes.
 	h.answers = []string{pass}
-	out := h.ok("", h.with("mv", "--to", "team", "--prefix", "pgp/", "--dry-run")...)
+	out := h.ok("", h.with("mv", "--to", "team", "pgp/a", "pgp/b", "--dry-run")...)
 	for _, want := range []string{"Move 2 items to team?", `2 items go from vault default to vault team: "pgp/a" and "pgp/b".`, "deleted items", "  pgp/b"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("--dry-run does not say %q:\n%s", want, out)
@@ -53,7 +53,7 @@ func TestItemsMoveAndCopyToAnotherVault(t *testing.T) {
 	}
 	// A name team has already: nothing is written, and the error says it.
 	h.answers = []string{pass}
-	if _, errs, code := h.run("", h.with("cp", "--to", "team", "--prefix", "web/")...); code != 1 || !strings.Contains(errs, `"web/c"`) || !strings.Contains(errs, "nothing was copied") {
+	if _, errs, code := h.run("", h.with("cp", "--to", "team", "--all")...); code != 1 || !strings.Contains(errs, `"web/c"`) || !strings.Contains(errs, "nothing was copied") {
 		t.Fatalf("a clash: %d %q", code, errs)
 	}
 	if got := h.ok("", h.with("get", "web/c")...); got != "secret-web/c\n" {
@@ -86,7 +86,8 @@ func TestItemsMoveAndCopyToAnotherVault(t *testing.T) {
 	// Usage.
 	for _, args := range [][]string{
 		{"mv", "--to", "team"},
-		{"mv", "--to", "team", "--prefix", "pgp/", "x"},
+		{"mv", "--to", "team", "--all", "x"},
+		{"mv", "--to", "team", "--prefix", "pgp/"},
 		{"cp", "x"},
 	} {
 		if _, _, code := h.run("", h.with(args...)...); code != 2 {

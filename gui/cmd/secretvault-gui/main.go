@@ -7,13 +7,20 @@
 //
 // It does whatever the secretvault CLI does, through the same daemon
 // methods and svops functions (docs/interfaces.md maps each command to
-// its place here): each vault's keyslots, devices, sharing and emergency
-// access, sync, encrypted containers and settings on the vault's page;
-// OpenPGP, S/MIME and age keys, identity files and security keys under
-// Keys; contacts and the trust store under Contacts; signing, encrypting,
-// mail and references under Tools; and the system keyring, browsers,
-// GnuPG, the helper programs and the host daemon under Desktop, where
-// every change is shown as a plan before it is made.
+// its place here). Its window has no menu bar: a toolbar along the top
+// (the password generator, the shortcuts, About, Quit) and three tabs.
+// Vault is the vaults, a padlock on each row, and beside them a tab for
+// each kind of item (logins, passwords, passkeys, one-time codes, cards,
+// notes, SSH and API keys…), each its items by folder with the item
+// picked beside them; then My keys, Contacts, and Vault, whose own tabs
+// are the ways it unlocks, sharing, devices, sync, grants, the audit log
+// and settings. Disk lists
+// the encrypted disk files whose keys the vaults keep, and shows the one
+// picked. Tools holds files and mail signed or encrypted, references, the
+// password generator, identity files, security keys, the other programs
+// secretvault works with (every change shown as a plan before it is
+// made), and where everything is kept. Every button has an icon, and
+// every dialog is a window of its own.
 //
 // It is a client of secretvaultd, which it starts if it is not running,
 // and holds no keys itself. When the daemon needs to know it is you, it
@@ -36,8 +43,9 @@
 //	F2  Delete       rename, delete (asks first)
 //	Ctrl+H  Ctrl+G   history, password generator
 //	Ctrl+U  Ctrl+L   unlock, lock; Ctrl+Shift+L locks every vault
-//	Ctrl+Shift+G     the vault's grants and audit log; Ctrl+Shift+K the contacts
+//	Ctrl+Shift+G     the vault's grants; Ctrl+Shift+K the contacts
 //	Escape           from a page back to the items
+//	Ctrl+PgDn  PgUp  the next, the previous of the Vaults, Disks and Tools tabs
 //	Ctrl+W  Ctrl+Q   close the window (to the tray, if there is one), quit
 //
 // Environment: SECRETVAULT_VAULT names the vault to show first,
@@ -57,8 +65,11 @@ import (
 	"github.com/codemodify/uitoolkit/platform"
 
 	"github.com/codemodify/secretvault"
+	"github.com/codemodify/secretvault/gui/secretui"
 	"github.com/codemodify/secretvault/gui/svmanager"
 	"github.com/codemodify/secretvault/svcrypto"
+	"github.com/codemodify/secretvault/svops"
+	"github.com/codemodify/secretvault/svrpc"
 )
 
 // EnvVault names the vault to show first when --vault is not given.
@@ -93,7 +104,13 @@ func main() {
 	// The look is uitoolkit's: whatever its Settings say, and with nothing
 	// chosen there, the desktop's light or dark mode, followed as it
 	// changes.
+	// Before any daemon has, move what an earlier version kept in one
+	// folder to the settings and data folders (a running daemon did).
+	if mv, err := svops.MoveOldFolderUnlessRunning(svrpc.DefaultSocket(), nil); err == nil && mv.Summary() != "" {
+		fmt.Fprintln(os.Stderr, mv.Summary())
+	}
 	a := uitoolkit.New(uitoolkit.Options{})
+	secretui.UseLook(a) // secretvault's own look, as chosen in Tools › Appearance
 	m, err := svmanager.New(svmanager.Options{App: a, Vault: *vault, Tray: !*noTray})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "secretvault-gui:", err)

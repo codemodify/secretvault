@@ -224,6 +224,15 @@ func (c *Client) Status(ctx context.Context) (st svrpc.Status, err error) {
 	return
 }
 
+// Where lists every place secretvault keeps or changes anything, as the
+// daemon uses them, grouped as svrpc.PlaceGroups (svrpc.MWhere). Only
+// secretvault's own programs are told.
+func (c *Client) Where(ctx context.Context) ([]svrpc.Place, error) {
+	var out []svrpc.Place
+	err := c.conn.Call(ctx, svrpc.MWhere, nil, &out)
+	return out, err
+}
+
 func (c *Client) Vaults(ctx context.Context) (out []svrpc.VaultInfo, err error) {
 	err = c.conn.Call(ctx, svrpc.MVaultList, nil, &out)
 	return

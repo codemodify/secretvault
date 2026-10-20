@@ -49,7 +49,7 @@ func (m *Manager) fillSync(p *vaultPage, pn *pane) {
 func (m *Manager) drawSync(p *vaultPage, pn *pane, open bool, devErr error) widget.Component {
 	s := p.sync
 	if s == nil {
-		setup := widgets.NewButton("Set up syncing…", func() { m.setupSync(p) })
+		setup := newButton("Set up syncing…", func() { m.setupSync(p) })
 		setup.Primary = true
 		pn.focus = setup
 		return m.paneColumn(svops.SyncOffAbout, nil, setup)
@@ -78,11 +78,11 @@ func (m *Manager) drawSync(p *vaultPage, pn *pane, open bool, devErr error) widg
 		k.Wrap = true
 		col.Add(k)
 	}
-	now := widgets.NewButton("Sync now", func() { m.syncNow(p) })
+	now := newButton("Sync now", func() { m.syncNow(p) })
 	pn.focus = now
-	col.Add(buttons(now, widgets.NewButton("Refresh", pn.refresh),
-		widgets.NewButton("Invite a device…", func() { m.inviteDevice(p) }),
-		widgets.NewButton("Stop syncing…", func() { m.syncOff(p) })))
+	col.Add(buttons(now, newButton("Refresh", pn.refresh),
+		newButton("Invite a device…", func() { m.inviteDevice(p) }),
+		newButton("Stop syncing…", func() { m.syncOff(p) })))
 	col.Add(section(m, "Devices that sync it"))
 	switch {
 	case !open:
@@ -115,7 +115,7 @@ func (m *Manager) drawSync(p *vaultPage, pn *pane, open bool, devErr error) widg
 			return d.LastSeen.Local().Format("2006-01-02 15:04")
 		})
 		col.Add(widgets.NewHeightBox(160, p.sdtable))
-		col.Add(buttons(widgets.NewButton("Remove a device…", func() { m.removeSyncDevice(p) })))
+		col.Add(buttons(newButton("Remove a device…", func() { m.removeSyncDevice(p) })))
 	}
 	return scrolled(col)
 }
@@ -187,7 +187,7 @@ func (m *Manager) inviteDevice(p *vaultPage) {
 			return
 		}
 		m.showSecrets("Invite a device to "+p.vault,
-			"On the other device, choose File › Join a synced vault… and paste this invite, or scan the code. "+
+			"On the other device, choose Vault › Join a synced vault… and paste this invite, or scan the code. "+
 				svops.SyncInviteNote(inv.Expires.Local().Format("15:04")),
 			[]secretShown{{label: "Invite", value: []byte(inv.Invite)}}, true, "Done")
 	})

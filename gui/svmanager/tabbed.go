@@ -3,34 +3,49 @@ package svmanager
 import (
 	"context"
 
-	"github.com/codemodify/uitoolkit/platform"
 	"github.com/codemodify/uitoolkit/widget"
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault"
 )
 
-// Pages that take the place of the items: the vault's own (its keyslots,
-// devices, sharing, sync, containers, grants, audit log and settings), the
-// keys kept in it, the contacts, and the desktop's setup. Each is a row of
-// tabs; a tab asks the daemon for what it shows when it is first shown,
-// and again after something on it changed. Escape goes back to the items.
+// Pages of tabs. In the window's Vault tab they are tabs of it beside the
+// tabs of items: the vault's own (the ways it unlocks, sharing, devices,
+// sync, grants, audit log and settings), the keys kept in it and the
+// contacts (vaulttabs.go). The Disk and Tools tabs each hold one page that
+// stays (disks.go, toolspage.go). A tab asks the daemon for what it shows
+// when it is first shown, and again after something on it changed.
+// Escape goes back to the item.
 
-// Kinds of page over the items, besides the vault's.
+// Kinds of page, besides the vault's.
 const (
 	pageKeys     = "keys"
 	pageContacts = "contacts"
-	pageDesktop  = "desktop"
+	pageTools    = "tools"
+	pageDisks    = "disks"
+	pageSettings = "settings"
 )
 
-// tabbedPage is the page up over the items.
+// tabbedPage is a page of tabs.
 type tabbedPage struct {
 	kind  string
 	vault string // the vault it is about, or "" for none
 	title string
-	tabs  *widgets.TabView
+	tabs  *widgets.TabView // its row of tabs; nil for a page whose tab is chosen for it
+	bare  *slot            // where such a page shows its tab
+	sel   int              // and which one it shows
+	head  *widgets.Label   // the tab's title, over it
+	pick  func(int)        // shows tab i, for a page whose tabs another row holds (the vault page's)
 	panes []*pane
 	keys  func(widget.KeyEvent) bool // the page's own keys, before Escape
+}
+
+// selected is the tab shown.
+func (pg *tabbedPage) selected() int {
+	if pg.tabs != nil {
+		return pg.tabs.Selected()
+	}
+	return pg.sel
 }
 
 // pane is one tab of a page.
@@ -54,61 +69,111 @@ func (p *pane) refresh() {
 	p.fill(p)
 }
 
-// openPage puts a page of tabs up over the items, open at tab.
-func (m *Manager) openPage(pg *tabbedPage, tab int) {
-	m.leaveHistory()
-	m.closeItem()
-	m.page = pg
+// standPage puts a page that stays into host: the Disk, Tools or Settings
+// part's, My keys' or Contacts'. Its tabs have no row of their own: the
+// title bar picks them (titlebar.go).
+func (m *Manager) standPage(pg *tabbedPage, host *slot, tab int) {
+	body := m.pageBody(pg, false)
+	host.Set(widgets.NewPad(pad, body))
+	m.selectTab(pg, tab)
+	m.paneShown(pg, pg.selected())
+}
+
+// pageBody is what shows pg's tabs: a row of them over the one chosen
+// (withRow), or the one chosen alone.
+func (m *Manager) pageBody(pg *tabbedPage, withRow bool) widget.Component {
+	pg.tabs, pg.bare, pg.sel = nil, nil, 0
+	for _, p := range pg.panes {
+		p.pg = pg
+		p.filled = false
+		p.box.Set(m.paragraph("Loading…"))
+	}
+	if !withRow {
+		pg.bare = newSlot()
+		pg.bare.Set(pg.panes[0].box)
+		pg.bare.SetAccessibleName(pg.title)
+		return pg.bare
+	}
 	tabs := make([]widgets.Tab, len(pg.panes))
 	for i, p := range pg.panes {
-		p.pg = pg
-		p.box.Set(m.paragraph("Loading…"))
 		tabs[i] = widgets.Tab{Title: p.title, Content: p.box}
 	}
 	pg.tabs = widgets.NewTabView(tabs...)
 	pg.tabs.SetAccessibleName(pg.title)
 	pg.tabs.OnChange = func(i int) { m.paneShown(pg, i) }
-	back := tip(widgets.NewButton("Back to the items", m.closeVaultPage), "Escape")
-	col := widgets.NewColumn(heading(pg.title), pg.tabs, widgets.NewRow(back)).WithGap(gap).WithPad(pad)
-	col.AddFlex(pg.tabs, 1)
-	m.ui.main.Set(newPage(pg.kind, col, func(e widget.KeyEvent) bool {
-		if pg.keys != nil && pg.keys(e) {
-			return true
-		}
-		if e.Key == platform.KeyEscape {
-			m.closeVaultPage()
-			return true
-		}
-		return false
-	}))
-	pg.tabs.Select(tab)
-	m.paneShown(pg, pg.tabs.Selected())
-	m.enableMenus()
+	return pg.tabs
 }
 
 // paneShown fills a tab the first time it is shown, and gives it the
 // keyboard.
 func (m *Manager) paneShown(pg *tabbedPage, i int) {
-	if i < 0 || i >= len(pg.panes) || m.page != pg {
+	if i < 0 || i >= len(pg.panes) || !m.current(pg) {
 		return
 	}
 	p := pg.panes[i]
 	if !p.filled {
 		p.refresh()
-	} else if p.focus != nil {
-		m.win.RequestFocus(p.focus)
+	} else if p.focus != nil && m.visible(pg) {
+		m.focus(p.focus)
 	}
 }
 
-// selectTab shows tab i of the page up, if it is pg.
+// selectTab shows tab i of pg, if pg is up.
 func (m *Manager) selectTab(pg *tabbedPage, i int) {
-	if m.page == pg && pg.tabs != nil {
+	if !m.current(pg) || i < 0 || i >= len(pg.panes) {
+		return
+	}
+	if pg.pick != nil {
+		pg.pick(i)
+		return
+	}
+	if pg.tabs != nil {
 		pg.tabs.Select(i)
+		return
+	}
+	pg.sel = i
+	pg.bare.Set(pg.panes[i].box)
+	if pg.head != nil {
+		pg.head.SetText(pg.panes[i].title)
+	}
+	m.paneShown(pg, i)
+	m.keepFocus()
+	m.drawTitle()
+	if pg == m.page {
+		m.syncList()
 	}
 }
 
-// up reports whether pg is the page up.
-func (m *Manager) up(pg *tabbedPage) bool { return pg != nil && m.page == pg && m.showingVaultPage() }
+// up reports whether pg is up: the page over the items, or the Disks or
+// the Tools tab's.
+func (m *Manager) up(pg *tabbedPage) bool { return m.current(pg) }
+
+// current reports whether pg is the page in its place, up or being put
+// up.
+func (m *Manager) current(pg *tabbedPage) bool { return pg != nil && (m.page == pg || m.standing(pg)) }
+
+// visible reports whether pg is up in the window's tab shown, so that it
+// may take the keyboard.
+func (m *Manager) visible(pg *tabbedPage) bool {
+	switch {
+	case !m.up(pg):
+		return false
+	case m.tpage != nil && m.tpage.tabbedPage == pg:
+		return m.section() == secTools
+	case m.disks != nil && m.disks.tabbedPage == pg:
+		return m.section() == secDisks
+	case m.spage == pg:
+		return m.section() == secSettings
+	}
+	return m.section() == secVaults && m.page == pg && m.showingVaultPage()
+}
+
+// standing reports whether pg is the Disks or the Tools tab's page.
+func (m *Manager) standing(pg *tabbedPage) bool {
+	return m.tpage != nil && m.tpage.tabbedPage == pg || m.disks != nil && m.disks.tabbedPage == pg || m.spage != nil && m.spage == pg ||
+		m.vpage != nil && m.vpage.tabbedPage == pg || m.kpage != nil && m.kpage.tabbedPage == pg ||
+		m.cpage != nil && m.cpage.tabbedPage == pg
+}
 
 // load asks the daemon with fetch, and once it answers, if the page is
 // still up and no later fill has started, shows what draw makes. An error
@@ -121,7 +186,7 @@ func (m *Manager) load(p *pane, fetch func(ctx context.Context, c *secretvault.C
 			return
 		}
 		if err != nil {
-			again := widgets.NewButton("Try again", p.refresh)
+			again := newButton("Try again", p.refresh)
 			p.focus = again
 			p.box.Set(m.message(p.title, m.describe(err), again))
 			m.reloadVaults() // asking may have unlocked the vault, or not
@@ -129,8 +194,8 @@ func (m *Manager) load(p *pane, fetch func(ctx context.Context, c *secretvault.C
 		}
 		p.focus = nil
 		p.box.Set(draw())
-		if pg.tabs.Selected() >= 0 && pg.panes[pg.tabs.Selected()] == p && p.focus != nil {
-			m.win.RequestFocus(p.focus)
+		if i := pg.selected(); i >= 0 && pg.panes[i] == p && p.focus != nil && m.visible(pg) {
+			m.focus(p.focus)
 		}
 		m.reloadVaults()
 		m.syncCapture()

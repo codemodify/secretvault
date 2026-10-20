@@ -26,6 +26,11 @@
 //     decrypts with the OpenPGP keys in vaults, asked about like any
 //     program's use of them, and the keys never leave the daemon.
 //
+//   - It keeps its settings in ~/.config/secretvault and everything else
+//     in ~/.data/secretvault ('secretvault where' lists every file). As
+//     it starts, it moves what an earlier version kept in
+//     ~/.local/share/secretvault there, writing over nothing.
+//
 //   - Vaults lock after 15 idle minutes, when the screen locks and before
 //     the machine sleeps (all adjustable per vault); every vault locks when
 //     the user's last session ends and when the daemon stops.
@@ -73,6 +78,7 @@ import (
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svcrypto"
 	"github.com/codemodify/secretvault/svd"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -111,10 +117,8 @@ func main() {
 
 func runUser() {
 	sock := svrpc.DefaultSocket()
-	d, err := svd.New(svd.Options{Socket: sock, Log: func(s string) { log.Print(s) }})
-	if err != nil {
-		log.Fatal(err)
-	}
+	// The socket first: its lock keeps a second daemon away while this one
+	// moves the old folder's files and reads them.
 	ln, cleanup, err := svd.Listen(sock)
 	if err != nil {
 		if errors.Is(err, svd.ErrRunning) {
@@ -124,6 +128,15 @@ func runUser() {
 		log.Fatal(err)
 	}
 	defer cleanup()
+	logf := func(s string) { log.Print(s) }
+	if _, err := svops.MoveOldFolderHere(logf); err != nil {
+		log.Printf("moving the old folder's files: %v", err)
+	}
+	d, err := svd.New(svd.Options{Socket: sock, Log: logf})
+	if err != nil {
+		cleanup()
+		log.Fatal(err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	d.WatchSession(ctx) // lock on screen lock, sleep and logout

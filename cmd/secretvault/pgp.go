@@ -114,7 +114,7 @@ func (c *cli) pgpNew(args []string) error {
 	var emails multi
 	fs.Var(&emails, "email", "your address (repeatable: a user ID each)")
 	v4 := fs.Bool("v4", false, "make a version 4 key, which GnuPG 2.4 and older software read (default: version 6)")
-	item := fs.String("item", "", "store it as `ITEM` (default: pgp/ADDRESS)")
+	item := fs.String("item", "", "store it as `ITEM` (default: named for its address)")
 	days := fs.Int("expires", 0, "expire after `DAYS` days (default: never)")
 	var u unlockFlags
 	u.register(fs)
@@ -150,7 +150,7 @@ func (c *cli) pgpNew(args []string) error {
 
 func (c *cli) pgpImport(args []string) error {
 	fs := c.flags("pgp import")
-	item := fs.String("item", "", "store it as `ITEM` (default: pgp/ADDRESS)")
+	item := fs.String("item", "", "store it as `ITEM` (default: named for its address)")
 	passFile := fs.String("key-passphrase-file", "", "the key's own passphrase, from `FILE` (default: asked, if it has one)")
 	var u unlockFlags
 	u.register(fs)
@@ -182,7 +182,7 @@ func (c *cli) pgpImport(args []string) error {
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
-	if err := svops.StorePGPKey(ctx, cl, c.vault, it); err != nil {
+	if err := svops.StorePGPKey(ctx, cl, c.vault, &it, *item != ""); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.stdout, "Imported %s as %s.\n", svops.GroupFingerprint(fp), it.Name)

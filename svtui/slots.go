@@ -24,7 +24,7 @@ func (u *UI) showSlots() {
 		return
 	}
 	vault := u.vault
-	p := u.newPanel("Keyslots · "+vault, "ID", "TYPE", "LABEL", "CREATED", "DETAIL")
+	p := u.newPanel("Ways to unlock · "+vault, "ID", "TYPE", "LABEL", "CREATED", "DETAIL")
 	p.vault = vault
 	p.setHead(svops.KeyslotsNote)
 	p.reload = func() {
@@ -44,7 +44,7 @@ func (u *UI) showSlots() {
 				return
 			}
 			p.clear()
-			p.heading("Keyslots")
+			p.heading("Ways to unlock")
 			for _, s := range slots {
 				detail := s.Detail
 				if s.Recipient != "" {
@@ -85,7 +85,7 @@ func (u *UI) showSlots() {
 		})
 	})
 	p.rowAct('i', "What it can do", is[svrpc.FIDO2Device], func(ref any) { u.showSecurityKey(ref.(svrpc.FIDO2Device)) })
-	p.act('a', "Add a keyslot…", func() { u.addSlot(vault, p.refresh) })
+	p.act('a', "Add a way to unlock…", func() { u.addSlot(vault, p.refresh) })
 	p.act('p', "Change the passphrase…", func() { u.changePassphrase(vault) })
 	p.act('r', "Give the vault a new key…", func() { u.rotateKey(vault, nil, p.refresh) })
 	p.show()
@@ -99,6 +99,43 @@ func (u *UI) showSecurityKey(k svrpc.FIDO2Device) {
 		fmt.Fprintf(&b, "  %-14s %s\n", r[0]+":", tview.Escape(r[1]))
 	}
 	u.showText("Security key", b.String())
+}
+
+// showSecurityKeys is 'secretvault fido2 ls' on its own, for the Tools
+// tab: the security keys plugged in, Enter on one saying what it can do.
+// It needs no vault.
+func (u *UI) showSecurityKeys() {
+	p := u.newPanel("Security keys plugged in", "KEY", "WHAT IT CAN DO")
+	p.reload = func() {
+		var keys []svrpc.FIDO2Device
+		u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
+			keys, err = c.SecurityKeys(ctx)
+			return err
+		}, func(err error) {
+			p.clear()
+			switch {
+			case err != nil:
+				p.setHead("[red]" + tview.Escape(u.describe(err)) + "[-]")
+			case len(keys) == 0:
+				p.setHead("")
+				p.none("None plugged in.")
+			default:
+				p.setHead("")
+			}
+			for _, k := range keys {
+				what := svops.SecurityKeyCan(k)
+				if k.Problem != "" {
+					what = k.Problem
+				}
+				p.row(k, k.Name, what)
+			}
+			p.done()
+		})
+	}
+	p.enter = func(ref any) { u.showSecurityKey(ref.(svrpc.FIDO2Device)) }
+	p.enterIs = "what it can do"
+	p.act('r', "Refresh", p.refresh)
+	p.show()
 }
 
 // addSlot is 'secretvault slot add TYPE'.

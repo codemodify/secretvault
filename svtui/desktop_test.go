@@ -122,22 +122,15 @@ func TestTheKeyringsSecretsAreImportedNamesFirst(t *testing.T) {
 	h.typeText("Y")
 	h.waitFor("System keyring")
 	h.typeText("i")
-	h.waitFor("Put them in the folder:")
-	h.key(tcell.KeyEnter)
 	h.waitFor("Copy the keyring's passwords into personal")
-	h.waitForWords("into vault personal, in the folder imported/")
+	h.waitForWords("copied into vault personal.")
 	h.details()
-	h.waitFor("imported/")
+	h.waitFor("GitHub") // named for its label
 	h.key(tcell.KeyBacktab)
 	h.key(tcell.KeyEnter)
 	h.waitSaid("Copied")
-	entries, err := h.admin.List(h.ctx(), "", "imported/")
-	if err != nil {
-		h.unlockAdmin("")
-		entries, err = h.admin.List(h.ctx(), "", "imported/")
-	}
-	if err != nil || len(entries) == 0 {
-		t.Fatalf("imported: %d %v", len(entries), err)
+	if _, err := h.get("GitHub"); err != nil {
+		t.Fatalf("imported: %v", err)
 	}
 }
 

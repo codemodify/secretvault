@@ -442,13 +442,13 @@ func TestTheExtensionUnlocksSavesAndFillsCodes(t *testing.T) {
 	asked := h.desk.count()
 	h.desk.answer(svrpc.ChoiceOnce, "")
 	r = x.ask("save", map[string]any{"origin": "https://shop.example", "username": "bob", "password": "s3cr\"et", "title": "Shop"})
-	if r["created"] != true || h.desk.count() != asked+1 || !strings.Contains(h.desk.questions()[asked], `wants to save a new login "web/shop.example" for https://shop.example`) {
+	if r["created"] != true || h.desk.count() != asked+1 || !strings.Contains(h.desk.questions()[asked], `wants to save a new login "shop.example" for https://shop.example`) {
 		t.Fatalf("save: %v (%d prompts)", r, h.desk.count()-asked)
 	}
-	if got := h.ok("", h.with("get", "web/shop.example")...); got != "s3cr\"et\n" {
+	if got := h.ok("", h.with("get", "shop.example")...); got != "s3cr\"et\n" {
 		t.Fatalf("stored %q", got)
 	}
-	if got := h.ok("", h.with("get", "web/shop.example", "--field", "url")...); got != "https://shop.example\n" {
+	if got := h.ok("", h.with("get", "shop.example", "--field", "url")...); got != "https://shop.example\n" {
 		t.Fatalf("its URL: %q", got)
 	}
 	id := r["login"]

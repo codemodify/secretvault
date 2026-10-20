@@ -11,6 +11,7 @@ import (
 
 	"github.com/codemodify/secretvault/svbroker"
 	"github.com/codemodify/secretvault/svcore"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svpgp"
 	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/secretvault/svtrust"
@@ -276,7 +277,7 @@ func (d *Daemon) pgpGenerate(ctx context.Context, cl *client, decode func(any) e
 		if addr == "" {
 			addr = name
 		}
-		item = svrpc.PGPItemPrefix + addr
+		item = svops.PathSafe(addr)
 	}
 	if err := svcore.CheckName(item); err != nil {
 		return nil, svrpc.Errorf(svrpc.CodeInvalidParams, "%v", err)
@@ -288,8 +289,11 @@ func (d *Daemon) pgpGenerate(ctx context.Context, cl *client, decode func(any) e
 	if err != nil {
 		return nil, err
 	}
-	// Never replace a key: what was encrypted to it would be lost.
-	if e, err := mv.v.Get(item); err == nil {
+	// Never replace a key: what was encrypted to it would be lost. One
+	// named for its address goes beside an item of that name.
+	if p.Item == "" {
+		item = mv.v.FreeName(item, "OpenPGP")
+	} else if e, err := mv.v.Get(item); err == nil {
 		e.Item.Wipe()
 		return nil, svrpc.Errorf(svrpc.CodeExists, "%s already exists; pick another name (an OpenPGP key is never replaced)", item)
 	}
@@ -315,7 +319,7 @@ func (d *Daemon) pgpGenerate(ctx context.Context, cl *client, decode func(any) e
 			{Name: svrpc.PGPSecretField, Type: svcore.FieldKey, Value: secret},
 			{Name: svrpc.PGPPublicField, Type: svcore.FieldText, Value: public},
 		}}
-	e, err := mv.v.Put(it)
+	e, err := mv.v.PutNew(it)
 	if err != nil {
 		return nil, err
 	}

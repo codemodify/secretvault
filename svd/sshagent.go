@@ -236,7 +236,7 @@ func (a *sshAgent) Add(key agent.AddedKey) error {
 	if comment == "" {
 		comment = ssh.FingerprintSHA256(pub)
 	}
-	name := "ssh/" + strings.NewReplacer("/", "∕", "\n", " ").Replace(comment)
+	name := strings.NewReplacer("/", "∕", "\n", " ").Replace(comment)
 	ctx, cancel := context.WithTimeout(a.ctx, 2*time.Minute)
 	defer cancel()
 	if err := a.d.authorize(ctx, a.cl, mv, "", name, svbroker.OpWrite); err != nil {
@@ -257,8 +257,19 @@ func (a *sshAgent) Add(key agent.AddedKey) error {
 		{Name: "private_key", Type: svcore.FieldKey, Value: buf.Bytes()},
 		{Name: "public_key", Type: svcore.FieldText, Value: ssh.MarshalAuthorizedKey(pub)},
 	}}
-	_, err = mv.v.Put(it)
-	it.Wipe()
+	defer it.Wipe()
+	// The same key added again replaces itself; another goes beside what
+	// is there, never over an item of the same name.
+	if e, err := mv.v.Get(name); err == nil {
+		same := e.Item.Kind == "ssh-key" && e.Item.Attrs["fingerprint"] == attrs["fingerprint"]
+		e.Item.Wipe()
+		if same {
+			_, err = mv.v.Put(it)
+			return err
+		}
+	}
+	it.Name = mv.v.FreeName(name)
+	_, err = mv.v.PutNew(it)
 	return err
 }
 

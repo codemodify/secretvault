@@ -1,4 +1,4 @@
-//go:build linux || freebsd || netbsd || openbsd
+//go:build freebsd || netbsd || openbsd
 
 package svmanager
 
@@ -10,7 +10,7 @@ import (
 
 // systemClipboard is where the manager's copies go: through the CLI
 // beside this program where there is one (clip.go), else through
-// uitoolkit.
+// uitoolkit, which has no clipboard here and so takes none.
 func systemClipboard() Clipboard {
 	if exe := svops.CLIProgram(); exe != "" {
 		return helperClipboard{exe: exe, fallback: desktopClipboard{}, wait: 3 * time.Second}

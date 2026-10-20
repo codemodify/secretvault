@@ -128,30 +128,28 @@ func (u *UI) keyringImport(then func()) {
 		return
 	}
 	vault := u.vault
-	u.askTo("Copy the keyring's passwords into "+vault, "Put them in the folder: ", "imported", "Next", func(prefix string) {
-		u.readKeyring(func(holder string, secrets []svsecret.Secret, warnings []string) {
-			names, _, _ := svops.ImportKeyring(u.ctx, nil, vault, prefix, secrets)
-			u.showPlan(svops.KeyringImportPlain(holder, vault, prefix, names, warnings), func() {
-				var n int
-				u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
-					defer wipeSecrets(secrets)
-					_, n, err = svops.ImportKeyring(ctx, c, vault, prefix, secrets)
-					return err
-				}, func(err error) {
-					if err != nil {
-						u.fail(err)
-						return
-					}
-					u.say("Copied %d passwords into vault %s", n, vault)
-					if vault == u.vault {
-						u.loadItems()
-					}
-					if then != nil {
-						then()
-					}
-				})
-			}, func() { wipeSecrets(secrets) })
-		})
+	u.readKeyring(func(holder string, secrets []svsecret.Secret, warnings []string) {
+		names, _, _ := svops.ImportKeyring(u.ctx, nil, vault, secrets)
+		u.showPlan(svops.KeyringImportPlain(holder, vault, names, warnings), func() {
+			var n int
+			u.call(func(ctx context.Context, c *secretvault.Client) (err error) {
+				defer wipeSecrets(secrets)
+				_, n, err = svops.ImportKeyring(ctx, c, vault, secrets)
+				return err
+			}, func(err error) {
+				if err != nil {
+					u.fail(err)
+					return
+				}
+				u.say("Copied %d passwords into vault %s", n, vault)
+				if vault == u.vault {
+					u.loadItems()
+				}
+				if then != nil {
+					then()
+				}
+			})
+		}, func() { wipeSecrets(secrets) })
 	})
 }
 
@@ -196,7 +194,7 @@ func (u *UI) keyringTakeover(then func()) {
 					rctx, cancel := context.WithTimeout(u.ctx, 10*time.Minute)
 					secrets, _, err := svops.ReadKeyring(rctx, nil)
 					if err == nil {
-						_, _, err = svops.ImportKeyring(rctx, c, vault, "imported", secrets)
+						_, _, err = svops.ImportKeyring(rctx, c, vault, secrets)
 					}
 					wipeSecrets(secrets)
 					cancel()

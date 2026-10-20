@@ -13,33 +13,25 @@ import (
 	"time"
 )
 
-// Copies through the secretvault CLI, on Linux and the BSDs.
+// Copies through the secretvault CLI, on the BSDs.
 //
-// There the manager copies as the CLI and the TUI do: the CLI beside this
-// program, run as `secretvault __clip SECONDS` with the secret on its
-// stdin, takes the clipboard in a process of its own (svclip, Wayland's
-// data control or X11), serves it, and clears it when its time is up if
-// it is still its own. Since v0.23.4 uitoolkit's secret clipboard does
-// what was asked of it on Linux too (uitoolkit-gaps.md, 47, 48, 52 and
-// 55), and going back to it was weighed; svclip is still the safer of the
-// two there. The helper takes one clipboard and ends only its own copy,
-// so none of what uitoolkit's two owners in one process can get wrong
-// reaches it: a loss of the last copy handled as the next is made, which
-// ends the new one while it is put on the clipboard with nothing left to
-// clear it (57); a clear on its timer's goroutine against Wayland state
-// the event loop changes unlocked (59); a Wayland copy that unsets the
-// primary selection whoever holds it (58). And this program's heap holds
-// no copy of the secret while it is on the clipboard.
-// A copy taken back (its vault locked, the program quitting) is the
-// helper ended: its selection goes with it, and only if it still has it.
+// There uitoolkit has no clipboard of its own, so the manager copies as
+// the CLI and the TUI do: the CLI beside this program, run as
+// `secretvault __clip SECONDS` with the secret on its stdin, takes the
+// clipboard in a process of its own (svclip, X11), serves it, and clears
+// it when its time is up if it is still its own. A copy taken back (its
+// vault locked, the program quitting) is the helper ended: its selection
+// goes with it, and only if it still has it.
 //
-// Where there is no CLI beside this program, or it cannot reach a
-// clipboard, the copy goes to uitoolkit's. On the BSDs uitoolkit has no
-// clipboard of its own, so there the helper is the only way. On Windows a
-// helper ended leaves its copy on the clipboard, and macOS has no svclip
-// yet: both copy through uitoolkit (clip_other.go), which since v0.23.4
-// ends a copy another program has replaced there too (52); a Windows copy
-// that fails is still taken for one that was made (60).
+// Everywhere else the manager copies through uitoolkit's secret clipboard
+// (clip_other.go). On Linux it went through the helper too, until
+// uitoolkit v0.23.6 answered the last of what was asked of its secret
+// clipboard there (uitoolkit-gaps.md items 56 to 59): a late paste kept,
+// a loss pinned on the next copy, the primary selection unset whoever
+// held it, a clear racing the Wayland event loop (2026-10-12). One
+// difference stays: through uitoolkit, this program holds the copy while
+// it is on the clipboard, where the helper held it in a process of its
+// own.
 
 // helperMax is the most the helper reads (cmd/secretvault's clipHelper);
 // a larger copy goes to the fallback, whole, rather than to a helper

@@ -19,13 +19,13 @@ import (
 // Python's cryptography package and the reference argon2 tool, not by this
 // package's writer.
 
-func TestAKeePass31FileImportsWithItsFolders(t *testing.T) {
+func TestAKeePass31FileImportsWithItsFoldersAsTags(t *testing.T) {
 	data := readFixture(t, "kdbx31-aes-aeskdf-salsa20.kdbx")
-	res := mustImport(t, FormatKDBX, data, Options{Passphrase: testPassphrase, Prefix: "keepass"})
+	res := mustImport(t, FormatKDBX, data, Options{Passphrase: testPassphrase})
 	if len(res.Items) != 5 {
 		t.Errorf("%d items, want 5", len(res.Items))
 	}
-	bank := item(t, res, "keepass/Bank")
+	bank := item(t, res, "Bank")
 	if bank.Kind != "login" || bank.Label != "Bank" || !reflect.DeepEqual(bank.Tags, []string{"finance", "important"}) {
 		t.Errorf("bank: %s %q %q", bank.Kind, bank.Label, bank.Tags)
 	}
@@ -35,27 +35,30 @@ func TestAKeePass31FileImportsWithItsFolders(t *testing.T) {
 	has(t, bank, "notes", svcore.FieldText, "PIN is in the safe\nsecond line")
 	has(t, bank, "Recovery code", svcore.FieldConcealed, "RC-123-456")
 	has(t, bank, "Security question", svcore.FieldText, "first pet")
-	if note := item(t, res, "keepass/Wifi note"); note.Kind != "note" || len(note.Fields) != 1 {
+	if note := item(t, res, "Wifi note"); note.Kind != "note" || len(note.Fields) != 1 {
 		t.Errorf("a notes-only entry: %+v", note)
 	}
-	has(t, item(t, res, "keepass/Work/VPN"), "otp", svcore.FieldOTP,
+	vpn := item(t, res, "VPN")
+	has(t, vpn, "otp", svcore.FieldOTP,
 		"otpauth://totp/VPN:a.lovelace?issuer=VPN&secret=JBSWY3DPEHPK3PXP")
-	db1 := item(t, res, "keepass/Work/Servers/db1")
+	tagged(t, vpn, "Work")
+	db1 := item(t, res, "db1")
+	tagged(t, db1, "Work/Servers") // a group inside another
 	has(t, db1, "otp", svcore.FieldOTP, "otpauth://totp/db1:root?digits=8&issuer=db1&period=60&secret=GEZDGNBVGY3TQOJQ")
 	hasNot(t, db1, "TOTP Seed")
-	has(t, item(t, res, "keepass/Steam"), "otp", svcore.FieldOTP,
+	has(t, item(t, res, "Steam"), "otp", svcore.FieldOTP,
 		"otpauth://totp/Steam:gaben?encoder=steam&issuer=Steam&secret=STEAMSTEAMSTEAM2")
-	noItem(t, res, "keepass/Recycle Bin/Deleted thing")
-	hasFile(t, res, "keepass/Work/Servers/db1", "id_ed25519", "-----BEGIN KEY-----")
-	warned(t, res, "history", "keepass/Bank")
+	noItem(t, res, "Deleted thing")
+	hasFile(t, res, "db1", "id_ed25519", "-----BEGIN KEY-----")
+	warned(t, res, "history", "Bank")
 	warned(t, res, "1 item in the trash")
 }
 
 func TestAKeePass4FileWithAKeyFileImports(t *testing.T) {
 	data := readFixture(t, "kdbx4-chacha20-argon2d.kdbx")
 	res := mustImport(t, FormatKDBX, data, Options{Passphrase: testPassphrase, Keyfile: readFixture(t, "kdbx4-chacha20-argon2d.keyx")})
-	mail := item(t, res, "Mail & Chat/Mailbox")
-	if !reflect.DeepEqual(mail.Tags, []string{"mail", "personal"}) {
+	mail := item(t, res, "Mailbox")
+	if !reflect.DeepEqual(mail.Tags, []string{"mail", "personal", "Mail & Chat"}) {
 		t.Errorf("tags %q", mail.Tags)
 	}
 	has(t, mail, "password", svcore.FieldConcealed, "m4il-p4ss")
@@ -67,7 +70,7 @@ func TestAKeePass4FileWithAKeyFileImports(t *testing.T) {
 	for _, n := range []string{"KP2A_URL", "TimeOtp-Secret-Base32", "TimeOtp-Length"} {
 		hasNot(t, mail, n)
 	}
-	hasFile(t, res, "Mail & Chat/Mailbox", "backup-codes.txt", "code-1 code-2 code-3")
+	hasFile(t, res, "Mailbox", "backup-codes.txt", "code-1 code-2 code-3")
 	pk := item(t, res, "Passkey site")
 	if len(pk.Fields) != 1 {
 		t.Errorf("the passkey's strings were imported: %+v", pk.Fields)
@@ -262,12 +265,12 @@ func TestKeePassFilesRoundTripThroughEveryCipherAndKDF(t *testing.T) {
 			if err := writeKDBX(sampleItems(), &buf, key.pass, key.keyfile, p); err != nil {
 				t.Fatal(err)
 			}
-			res, err := Import(FormatKDBX, buf.Bytes(), Options{Passphrase: key.pass, Keyfile: key.keyfile, Prefix: "back"})
+			res, err := Import(FormatKDBX, buf.Bytes(), Options{Passphrase: key.pass, Keyfile: key.keyfile})
 			if err != nil {
 				t.Fatalf("%+v: %v", p, err)
 			}
 			checkResult(t, res)
-			sameItems(t, res.Items, sampleItems(), "back/")
+			sameItems(t, res.Items, sampleItems(), "")
 			if len(res.Warnings) != 0 {
 				t.Errorf("%+v: warnings %q", p, res.Warnings)
 			}

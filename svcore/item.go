@@ -19,7 +19,7 @@ type Item struct {
 	// Kind says what the item is, as a short lowercase word; see Kinds.
 	Kind string `json:"kind"`
 
-	// Name is the item's unique path in its vault, like "web/github.com" or
+	// Name is the item's unique path in its vault, like "github.com" or
 	// "prod/db/password". It is what pass, Vault KV and the CLI address.
 	Name string `json:"name"`
 

@@ -67,7 +67,7 @@ func TestOpenPGPKeysAreMadeExportedImportedAndUsed(t *testing.T) {
 	h.typeText("me@example.org")
 	h.tabs(4)
 	h.key(tcell.KeyEnter)
-	h.waitFor("Made a version 6 OpenPGP key, stored as pgp/me@example.org")
+	h.waitFor("Made a version 6 OpenPGP key, stored as me@example.org")
 	h.waitFor("Me <me@exampl")
 
 	// Its public key, copied and exported.
@@ -78,7 +78,7 @@ func TestOpenPGPKeysAreMadeExportedImportedAndUsed(t *testing.T) {
 	}
 	pubFile := filepath.Join(h.dir, "me.asc")
 	h.typeText("e")
-	h.waitFor("Export pgp/me@example.org")
+	h.waitFor("Export me@example.org")
 	h.tabs(1)
 	h.typeText(pubFile)
 	h.tabs(4)
@@ -93,7 +93,7 @@ func TestOpenPGPKeysAreMadeExportedImportedAndUsed(t *testing.T) {
 	// The secret key, under a new passphrase.
 	secFile := filepath.Join(h.dir, "me-secret.asc")
 	h.typeText("e")
-	h.waitFor("Export pgp/me@example.org")
+	h.waitFor("Export me@example.org")
 	h.key(tcell.KeyEnter) // open the drop-down
 	h.key(tcell.KeyDown)
 	h.key(tcell.KeyEnter)
@@ -136,7 +136,7 @@ func TestOpenPGPKeysAreMadeExportedImportedAndUsed(t *testing.T) {
 	h.typeText("its own")
 	h.key(tcell.KeyEnter)
 	h.waitFor("Imported")
-	h.waitFor("pgp/other@example.org")
+	h.waitFor("other@example.org")
 	h.key(tcell.KeyEscape)
 
 	// Sign a file, and check the signature.
@@ -145,10 +145,10 @@ func TestOpenPGPKeysAreMadeExportedImportedAndUsed(t *testing.T) {
 	h.waitFor("Sign a file")
 	h.typeText(doc)
 	h.tabs(1)
-	h.typeText("pgp/me@example.org")
+	h.typeText("me@example.org")
 	h.tabs(6)
 	h.key(tcell.KeyEnter)
-	h.waitSaid("Signed minutes.txt with pgp/me@example.org: the signature is in " + doc + ".asc")
+	h.waitSaid("Signed minutes.txt with me@example.org: the signature is in " + doc + ".asc")
 	h.menu("check a signature")
 	h.waitFor("Check a signature")
 	h.typeText(doc)
@@ -313,7 +313,7 @@ func TestSMIMEKeysAndIdentityFiles(t *testing.T) {
 	h.typeText("p12 password")
 	h.tabs(2)
 	h.key(tcell.KeyEnter)
-	h.waitFor("Imported smime/me@example.org")
+	h.waitFor("Imported me@example.org")
 	h.waitFor("me@example.org, until")
 	if h.leaked.Load() {
 		t.Fatal("the file's password was drawn")

@@ -101,7 +101,7 @@ func spotsOn(goos, hostName string) ([]BrowserSpot, error) {
 	file := hostName + ".json"
 	switch goos {
 	case "windows":
-		svHome, err := svcore.Home()
+		svHome, err := svcore.DataDir()
 		if err != nil {
 			return nil, err
 		}
@@ -227,12 +227,16 @@ func (r InstalledHost) NativeHost() NativeHost {
 	return h
 }
 
+// BrowserInstallFile is the record of the install, in the settings
+// folder.
+const BrowserInstallFile = "browser-install.json"
+
 func browserStatePath() (string, error) {
-	h, err := svcore.Home()
+	h, err := svcore.ConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(h, "browser-install.json"), nil
+	return filepath.Join(h, BrowserInstallFile), nil
 }
 
 // LoadBrowserInstall reads the record of the install; an error satisfying
@@ -245,6 +249,11 @@ func LoadBrowserInstall() (*BrowserInstall, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadBrowserInstallAt(p)
+}
+
+// loadBrowserInstallAt is LoadBrowserInstall, from the record at p.
+func loadBrowserInstallAt(p string) (*BrowserInstall, error) {
 	b, err := os.ReadFile(p)
 	if err != nil {
 		return nil, err

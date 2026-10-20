@@ -61,10 +61,10 @@ func TestRecoverySharesAreShownOnceAndOpenTheVault(t *testing.T) {
 	h.start(Options{}, "")
 	h.unlock()
 	h.typeText("K")
-	h.waitFor("Keyslots · personal")
+	h.waitFor("Ways to unlock · personal")
 	h.waitFor("passphrase")
 	h.typeText("a")
-	h.waitFor("Add a way to open personal: which?")
+	h.waitFor("Add a way to unlock personal: which?")
 	h.key(tcell.KeyDown)
 	h.key(tcell.KeyEnter)
 	h.waitFor("Add a recovery key to personal")
@@ -113,12 +113,12 @@ func TestKeyfilesPassphrasesAndRotation(t *testing.T) {
 	h.start(Options{}, newPass)
 	h.unlock()
 	h.typeText("K")
-	h.waitFor("Keyslots · personal")
+	h.waitFor("Ways to unlock · personal")
 
 	// A keyfile made here.
 	keyfile := filepath.Join(h.dir, "vault.key")
 	h.typeText("a")
-	h.waitFor("Add a way to open personal")
+	h.waitFor("Add a way to unlock personal")
 	h.key(tcell.KeyDown)
 	h.key(tcell.KeyDown)
 	h.key(tcell.KeyEnter)
@@ -150,7 +150,7 @@ func TestKeyfilesPassphrasesAndRotation(t *testing.T) {
 		}
 	})
 	h.typeText("x")
-	h.waitFor("Remove this keyslot")
+	h.waitFor("Remove this way to unlock")
 	h.typeText("y")
 	h.waitFor("no longer opens with the keyfile")
 	if got := slotTypes(h.slots()); got != "passphrase" {
@@ -180,7 +180,7 @@ func TestRotatingTheKeyShowsTheNewRecoveryKeyOnce(t *testing.T) {
 	h.start(Options{}, "")
 	h.unlock()
 	h.typeText("K")
-	h.waitFor("Keyslots · personal")
+	h.waitFor("Ways to unlock · personal")
 	h.typeText("r")
 	h.waitFor("Give vault personal a new key")
 	h.typeText(pass)
@@ -229,7 +229,7 @@ func TestSecurityKeysAreListedAndAdded(t *testing.T) {
 	h.waitGone("Opens a vault:")
 
 	h.typeText("a")
-	h.waitFor("Add a way to open personal")
+	h.waitFor("Add a way to unlock personal")
 	for range 4 {
 		h.key(tcell.KeyDown)
 	}

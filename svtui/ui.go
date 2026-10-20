@@ -6,10 +6,13 @@
 // program for the vault's passphrase (prompt.ask), which is put to the
 // person in a dialog drawn inside the interface (prompt.go).
 //
-// The screen is three panes over a status line: the vaults, the items of
-// the vault being shown, and the open item. Everything that talks to the
-// daemon runs off the interface's goroutine, because the daemon may answer
-// only after asking the person, through this same interface.
+// The screen is three tabs (tabs.go) between a line naming them and a
+// status line: Vault, three panes (the vaults, the items of the vault
+// being shown, and the open item); Disk, the encrypted disks beside the
+// one selected; and Tools.
+// Everything that talks to the daemon runs off the interface's goroutine,
+// because the daemon may answer only after asking the person, through
+// this same interface.
 //
 // Secrets are masked until revealed. Concealed values, keys and the
 // passphrases typed for the daemon are kept in byte slices, not Go
@@ -102,27 +105,42 @@ type UI struct {
 	now    func() time.Time
 	clip   func([]byte, time.Duration) (string, error)
 
-	pages     *tview.Pages
-	body      *tview.Flex
-	vaultList *tview.List
-	itemList  *tview.List
-	filter    *tview.InputField
-	middle    *tview.Flex
-	detail    *detailView
-	status    *tview.TextView
-	hints     *tview.TextView
+	pages      *tview.Pages
+	tabs       *tview.Pages    // the main page: the Vault, Disk and Tools tabs
+	top        *tview.Flex     // the line of the tabs: their names, the keys to them
+	strip      *tview.TextView // the tabs' names
+	bar        *tview.Flex     // the status line and the hints
+	body       *tview.Flex     // the Vault tab
+	disks      *panel          // the Disk tab
+	diskDetail *tview.TextView // the Disk tab's selected disk
+	tools      *panel          // the Tools tab
+	vaultList  *tview.List
+	itemList   *tview.List
+	filter     *tview.InputField
+	middle     *tview.Flex
+	detail     *detailView
+	status     *tview.TextView
+	hints      *tview.TextView
 
 	// The state below is only touched on the interface's goroutine.
 
+	tab        int             // the tab shown
+	vaultFocus tview.Primitive // what had the focus when the Vault tab was left
+	stripAt    [][2]int        // where each tab's name is on the strip
+	disksGen   int             // changes whenever the disks are asked for
+
 	vaults   []svrpc.VaultInfo
-	vault    string        // the vault whose items are shown
-	listed   bool          // its items have been listed
-	lists    int           // counts the listings
-	entries  []svrpc.Entry // its items, without their fields
-	shown    []int         // the entries the filter lets through, by index
-	cursor   string        // the item under the item list's cursor
-	redraw   bool          // the item list is being refilled
-	cur      *svrpc.Entry  // the open item, with its fields
+	vault    string            // the vault whose items are shown
+	listed   bool              // its items have been listed
+	lists    int               // counts the listings
+	entries  []svrpc.Entry     // its items, without their fields
+	kind     int               // the row of svops.KindRows whose items are listed
+	vrows    []vaultRow        // the vault list's rows: the vaults, and the open one's
+	names    map[string]string // the names the list shows them by (svops.ShownNames)
+	shown    []int             // the rows the filter lets through: entries by index
+	cursor   string            // the item under the item list's cursor
+	redraw   bool              // the item list is being refilled
+	cur      *svrpc.Entry      // the open item, with its fields
 	otp      map[int]*svotp.Key
 	revealed bool
 	itemGen  int // changes whenever the open item does
@@ -204,12 +222,7 @@ func New(opts Options) (*UI, error) {
 func (u *UI) build() {
 	u.vaultList = tview.NewList().ShowSecondaryText(false).SetHighlightFullLine(true).SetWrapAround(false)
 	u.vaultList.SetBorder(true).SetTitle(" Vaults ")
-	u.vaultList.SetSelectedFunc(func(i int, _, _ string, _ rune) {
-		if i < len(u.vaults) {
-			u.showVault(u.vaults[i].Name, true)
-			u.app.SetFocus(u.itemList)
-		}
-	})
+	u.vaultList.SetSelectedFunc(func(i int, _, _ string, _ rune) { u.vaultRowChosen(i) })
 
 	u.itemList = tview.NewList().ShowSecondaryText(false).SetHighlightFullLine(true).SetWrapAround(false)
 	u.itemList.SetBorder(true).SetTitle(" Items ")
@@ -246,20 +259,32 @@ func (u *UI) build() {
 
 	u.status = tview.NewTextView().SetDynamicColors(true).SetWrap(false)
 	u.hints = tview.NewTextView().SetDynamicColors(true).SetWrap(false).SetTextAlign(tview.AlignRight)
-	hints := "? help  / filter  q quit "
-	u.hints.SetText("[gray]" + hints)
+	u.hints.SetText("[gray]" + vaultsHints)
 
 	u.body = tview.NewFlex().
 		AddItem(u.vaultList, 20, 0, false).
 		AddItem(u.middle, 0, 2, true).
 		AddItem(u.detail, 0, 3, false)
-	u.pages = tview.NewPages().AddPage(pageMain, u.body, true, true)
-	bar := tview.NewFlex().
+	u.disks = u.newDisksTab()
+	u.tools = u.newToolsTab()
+	u.tabs = tview.NewPages().
+		AddPage(tabNames[tabVaults], u.body, true, true).
+		AddPage(tabNames[tabDisks], u.disks.frame, true, false).
+		AddPage(tabNames[tabTools], u.tools.frame, true, false)
+	u.pages = tview.NewPages().AddPage(pageMain, u.tabs, true, true)
+	u.strip = tview.NewTextView().SetDynamicColors(true).SetWrap(false)
+	u.drawStrip()
+	u.top = tview.NewFlex().
+		AddItem(u.strip, 0, 1, false).
+		AddItem(tview.NewTextView().SetDynamicColors(true).SetWrap(false).SetTextAlign(tview.AlignRight).SetText("[gray]"+tabsHint), len(tabsHint), 0, false)
+	u.top.SetMouseCapture(u.stripMouse)
+	u.bar = tview.NewFlex().
 		AddItem(u.status, 0, 1, false).
-		AddItem(u.hints, len(hints), 0, false)
+		AddItem(u.hints, len(vaultsHints), 0, false)
 	root := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(u.top, 1, 0, false).
 		AddItem(u.pages, 0, 1, true).
-		AddItem(bar, 1, 0, false)
+		AddItem(u.bar, 1, 0, false)
 
 	u.app.SetRoot(root, true).EnableMouse(true).EnablePaste(true)
 	u.app.SetInputCapture(u.keys)
@@ -386,16 +411,20 @@ func (u *UI) daemonGone() {
 		u.editor.wipe()
 		u.editor = nil
 	}
-	u.entries, u.shown, u.listed = nil, nil, false
+	u.entries, u.names, u.shown, u.listed = nil, nil, nil, false
 	u.vaults = nil
 	u.drawVaults()
 	u.drawItems()
+	u.disksGen++ // what is being asked for is dropped
+	u.disks.clear()
+	u.disks.setHead("")
+	u.drawDiskDetail()
 	u.detail.reset("secretvault's background service (secretvaultd) stopped.\n\nNothing can be shown until it is back. q quits.")
 	u.drawStatus()
 }
 
 // keys handles the keys of the main screen. Dialogs and panels have
-// their own.
+// their own, and so does the item filter while it is typed in.
 func (u *UI) keys(ev *tcell.EventKey) *tcell.EventKey {
 	if ev.Key() == tcell.KeyCtrlC {
 		u.quit()
@@ -407,6 +436,9 @@ func (u *UI) keys(ev *tcell.EventKey) *tcell.EventKey {
 	focus := u.app.GetFocus()
 	if focus == u.filter {
 		return ev
+	}
+	if u.tab != tabVaults {
+		return u.tabKeys(ev)
 	}
 	switch ev.Key() {
 	case tcell.KeyTab:
@@ -436,8 +468,6 @@ func (u *UI) keys(ev *tcell.EventKey) *tcell.EventKey {
 		return ev
 	}
 	switch ev.Rune() {
-	case '?':
-		u.showHelp()
 	case '/':
 		u.middle.ResizeItem(u.filter, 1, 0)
 		u.app.SetFocus(u.filter)
@@ -463,58 +493,14 @@ func (u *UI) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.moveItem(true)
 	case 'h':
 		u.showHistory()
-	case 'g':
-		u.showGenerator(nil)
-	case 'l':
-		u.lockVault(false)
-	case 'L':
-		u.lockVault(true)
-	case 'U':
-		u.unlockVault()
-	case 'G':
-		u.showGrants()
-	case 'A':
-		u.showAudit()
-	case 'q':
-		u.quit()
-	case ':':
-		u.showMenu()
-	case 'N':
-		u.newVault()
-	case 'V':
-		u.showVaults()
 	case 'f':
 		u.showFiles()
 	case 'y':
 		u.copyReference()
-	case 'R':
-		u.showDeleted()
-	case 'K':
-		u.showSlots()
-	case 'E':
-		u.showSharing()
-	case 'D':
-		u.showDevices()
-	case 'C':
-		u.showContacts()
-	case 'P':
-		u.showKeys()
-	case 'M':
-		u.showContainers()
-	case 'Y':
-		u.showKeyring()
-	case 'B':
-		u.showBrowsers()
-	case 'H':
-		u.showHost()
-	case 'S':
-		u.showSync()
-	case 'I':
-		u.importFile()
-	case 'X':
-		u.exportFile()
 	default:
-		return ev
+		if !u.everyTabKey(ev.Rune()) {
+			return ev
+		}
 	}
 	return nil
 }

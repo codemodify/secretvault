@@ -10,8 +10,14 @@ import (
 )
 
 // The action menu (':'): every operation, grouped as the desktop
-// manager's menus are, found by typing part of its name. Nothing needs a
-// key to be reachable; the keys are shortcuts, shown beside each entry.
+// manager's menus are (gui/svmanager/layout.go): secretvault itself, then
+// one group for each of the main screen's tabs, Vault (the vaults and
+// what is in them: items, keys, contacts, the ways each opens, sharing,
+// sync; imports and exports), Disk (encrypted disk files) and Tools
+// (files and mail, references, the password generator, identity files,
+// security keys, other programs). An entry is found by typing part of
+// its name. Nothing needs a key to be reachable; the keys are shortcuts,
+// shown beside each entry.
 
 type menuEntry struct {
 	group string
@@ -21,55 +27,69 @@ type menuEntry struct {
 }
 
 // menuGroups are the menus, in the desktop manager's order.
-var menuGroups = []string{"File", "Edit", "Vault", "Keys", "Contacts", "Tools", "Desktop", "Help"}
+var menuGroups = []string{"secretvault", "Vault", "Disk", "Tools"}
 
 // menu is every entry.
 func (u *UI) menu() []menuEntry {
 	return []menuEntry{
-		{"File", "New vault…", "N", u.newVault},
-		{"File", "Add an existing vault…", "", u.addVault},
-		{"File", "Import from a browser or another password manager…", "I", u.importFile},
-		{"File", "Export to KeePass (KDBX) or CXF…", "X", u.exportFile},
-		{"File", "Join a synced vault…", "", u.syncJoin},
-		{"File", "Emergency access: accept an invite…", "", func() { u.acceptEmergency(nil) }},
-		{"File", "Emergency access: ask for a vault you hold access to…", "", func() {
-			u.askTo("Ask for emergency access", "The vault's name here:", "", "Ask for access", func(name string) { u.requestEmergency(name, nil) })
-		}},
-		{"File", "Emergency access: open a vault after the wait…", "", func() {
-			u.askTo("Open with emergency access", "The vault's name here:", "", "Open the vault", func(name string) { u.openEmergency(name, nil) })
-		}},
-		{"File", "Quit", "q", u.quit},
-
-		{"Edit", "New item…", "n", func() { u.newItem(nil) }},
-		{"Edit", "Edit the item…", "e", u.editItem},
-		{"Edit", "Rename the item…", "m", u.renameItem},
-		{"Edit", "Delete the item…", "d", u.deleteItem},
-		{"Edit", "Move the item to another vault…", ">", func() { u.moveItem(false) }},
-		{"Edit", "Copy the item to another vault…", "+", func() { u.moveItem(true) }},
-		{"Edit", "Move the items whose names start with… to another vault", "", func() { u.movePrefix(false) }},
-		{"Edit", "Copy the items whose names start with… to another vault", "", func() { u.movePrefix(true) }},
-		{"Edit", "History of the item: every revision, who signed it, restoring one", "h", u.showHistory},
-		{"Edit", "Resolve a conflict: keep one version on every device…", "", u.showResolve},
-		{"Edit", "Files of the item: attach, save, remove", "f", u.showFiles},
-		{"Edit", "Deleted items: bring one back", "R", u.showDeleted},
-		{"Edit", "Copy the secret", "c", u.copySecret},
-		{"Edit", "Copy the username", "u", u.copyUsername},
-		{"Edit", "Copy the one-time code", "o", u.copyCode},
-		{"Edit", "Copy the item's reference (sv://…), or the selected field's", "y", u.copyReference},
-		{"Edit", "Reveal or hide the item's secrets", "r", u.toggleReveal},
-		{"Edit", "Filter the items", "/", u.startFilter},
+		{"secretvault", "Keyboard shortcuts and status", "?", u.showHelp},
+		{"secretvault", "About secretvault: versions, the background service's status", "", u.showStatus},
+		{"secretvault", "Quit", "q", u.quit},
 
 		{"Vault", "Unlock", "U", u.unlockVault},
 		{"Vault", "Unlock with a keyfile, identity, recovery key or security key…", "", u.unlockWith},
 		{"Vault", "Lock", "l", func() { u.lockVault(false) }},
 		{"Vault", "Lock every vault", "L", func() { u.lockVault(true) }},
-		{"Vault", "Vaults: list, default, forget, open at login, check", "V", u.showVaults},
-		{"Vault", "Make this vault the default", "", u.makeDefault},
-		{"Vault", "Forget this vault…", "", u.forgetVault},
-		{"Vault", "Open this vault when I log in (on or off)…", "", u.toggleLogin},
-		{"Vault", "Check every file of this vault", "", u.verifyVault},
-		{"Vault", "Keyslots: the ways this vault opens; adding, removing one", "K", u.showSlots},
-		{"Vault", "Add a way to open this vault: passphrase, recovery key, keyfile, person's key, security key…", "", func() {
+		{"Vault", "New item…", "n", func() { u.newItem(nil) }},
+		{"Vault", "Filter the items", "/", u.startFilter},
+		{"Vault", "Copy the secret", "c", u.copySecret},
+		{"Vault", "Copy the username", "u", u.copyUsername},
+		{"Vault", "Copy the one-time code", "o", u.copyCode},
+		{"Vault", "Copy the item's reference (sv://…), or the selected field's", "y", u.copyReference},
+		{"Vault", "Reveal or hide the item's secrets", "r", u.toggleReveal},
+		{"Vault", "Edit the item…", "e", u.editItem},
+		{"Vault", "Rename the item…", "m", u.renameItem},
+		{"Vault", "Move the item to another vault…", ">", func() { u.moveItem(false) }},
+		{"Vault", "Copy the item to another vault…", "+", func() { u.moveItem(true) }},
+		{"Vault", "Delete the item…", "d", u.deleteItem},
+		{"Vault", "History of the item: every revision, who signed it, restoring one", "h", u.showHistory},
+		{"Vault", "Resolve a conflict: keep one version on every device…", "", u.showResolve},
+		{"Vault", "Files of the item: attach, save, remove", "f", u.showFiles},
+		{"Vault", "Move every item to another vault…", "", func() { u.moveAll(false) }},
+		{"Vault", "Copy every item to another vault…", "", func() { u.moveAll(true) }},
+		{"Vault", "Deleted items: bring one back", "R", u.showDeleted},
+		{"Vault", "My keys: OpenPGP, S/MIME, age identities", "P", u.showKeys},
+		{"Vault", "New OpenPGP key…", "", func() {
+			if u.needVault() {
+				u.newPGPKey(u.vault, nil)
+			}
+		}},
+		{"Vault", "Import an OpenPGP key…", "", func() {
+			if u.needVault() {
+				u.importPGPKey(u.vault, nil)
+			}
+		}},
+		{"Vault", "Export an OpenPGP key, or copy its public key", "P", u.showKeys},
+		{"Vault", "Import an S/MIME key (.p12)…", "", func() {
+			if u.needVault() {
+				u.importSMIME(u.vault, nil)
+			}
+		}},
+		{"Vault", "New age identity…", "", func() {
+			if u.needVault() {
+				u.newAgeIdentity(u.vault, nil)
+			}
+		}},
+		{"Vault", "Copy an age identity's public key or identity line", "P", u.showKeys},
+		{"Vault", "Contacts: people, their keys, how each was verified", "C", u.showContacts},
+		{"Vault", "Add a contact…", "", func() { u.addContact(nil) }},
+		{"Vault", "Import keys, or a QR code you scanned…", "", func() { u.importContacts(nil) }},
+		{"Vault", "Look up keys (WKD, keyservers, directories)…", "", func() { u.lookupContact(nil) }},
+		{"Vault", "Show my QR code…", "", u.showMyCard},
+		{"Vault", "Check a signer…", "", u.checkSigner},
+		{"Vault", "Record a key seen in mail…", "", func() { u.keySeen(nil) }},
+		{"Vault", "Ways to unlock this vault: adding, removing one", "K", u.showSlots},
+		{"Vault", "Add a way to unlock this vault: passphrase, recovery key, keyfile, person's key, security key…", "", func() {
 			if u.needVault() {
 				u.addSlot(u.vault, nil)
 			}
@@ -84,63 +104,6 @@ func (u *UI) menu() []menuEntry {
 				u.rotateKey(u.vault, nil, nil)
 			}
 		}},
-		{"Vault", "Devices: who signs what is written; naming, vouching, removing", "D", u.showDevices},
-		{"Vault", "Count only signed revisions (on or off)…", "", func() {
-			if u.needVault() {
-				u.showDevices()
-			}
-		}},
-		{"Vault", "Containers: encrypted disk images; open, close, back up, passphrase", "M", u.showContainers},
-		{"Vault", "New encrypted container…", "", func() {
-			if u.needVault() {
-				u.newContainer(u.vault, nil)
-			}
-		}},
-		{"Vault", "Open an encrypted container…", "", func() {
-			if u.needVault() {
-				u.openContainer(u.vault, "", "", nil)
-			}
-		}},
-		{"Vault", "Close an encrypted container…", "", func() { u.closeContainerAsk(nil) }},
-		{"Vault", "Grants: what programs may do; forgetting a decision", "G", u.showGrants},
-		{"Vault", "Allow a program ahead of time…", "", func() {
-			if u.needVault() {
-				u.decideProgram(u.vault, true, nil)
-			}
-		}},
-		{"Vault", "Deny a program ahead of time…", "", func() {
-			if u.needVault() {
-				u.decideProgram(u.vault, false, nil)
-			}
-		}},
-		{"Vault", "Audit log", "A", u.showAudit},
-
-		{"Keys", "Keys: OpenPGP, S/MIME, age identities", "P", u.showKeys},
-		{"Keys", "New OpenPGP key…", "", func() {
-			if u.needVault() {
-				u.newPGPKey(u.vault, nil)
-			}
-		}},
-		{"Keys", "Import an OpenPGP key…", "", func() {
-			if u.needVault() {
-				u.importPGPKey(u.vault, nil)
-			}
-		}},
-		{"Keys", "Export an OpenPGP key, or copy its public key", "P", u.showKeys},
-		{"Keys", "Import an S/MIME key (.p12)…", "", func() {
-			if u.needVault() {
-				u.importSMIME(u.vault, nil)
-			}
-		}},
-		{"Keys", "New age identity…", "", func() {
-			if u.needVault() {
-				u.newAgeIdentity(u.vault, nil)
-			}
-		}},
-		{"Keys", "Copy an age identity's public key or identity line", "P", u.showKeys},
-		{"Keys", "New identity file…", "", u.newIdentityFile},
-		{"Keys", "Show an identity file's public key…", "", u.identityFileRecipient},
-		{"Keys", "Security keys plugged in, and what each can do", "K", u.showSlots},
 		{"Vault", "Sharing and emergency access: who opens this vault", "E", u.showSharing},
 		{"Vault", "Share this vault with a person, by their public key…", "", func() {
 			if u.needVault() {
@@ -154,6 +117,31 @@ func (u *UI) menu() []menuEntry {
 			}
 		}},
 		{"Vault", "Emergency access given: deny a request, revoke a grant", "E", u.showSharing},
+		{"Vault", "Devices: who signs what is written; naming, vouching, removing", "D", u.showDevices},
+		{"Vault", "Count only signed revisions (on or off)…", "", func() {
+			if u.needVault() {
+				u.showDevices()
+			}
+		}},
+		{"Vault", "Grants: what programs may do; forgetting a decision", "G", u.showGrants},
+		{"Vault", "Allow a program ahead of time…", "", func() {
+			if u.needVault() {
+				u.decideProgram(u.vault, true, nil)
+			}
+		}},
+		{"Vault", "Deny a program ahead of time…", "", func() {
+			if u.needVault() {
+				u.decideProgram(u.vault, false, nil)
+			}
+		}},
+		{"Vault", "Vaults: list, default, forget, open at login, check", "V", u.showVaults},
+		{"Vault", "New vault…", "N", u.newVault},
+		{"Vault", "Add an existing vault…", "", u.addVault},
+		{"Vault", "Join a synced vault…", "", u.syncJoin},
+		{"Vault", "Make this vault the default", "", u.makeDefault},
+		{"Vault", "Forget this vault…", "", u.forgetVault},
+		{"Vault", "Open this vault when I log in (on or off)…", "", u.toggleLogin},
+		{"Vault", "Check every file of this vault", "", u.verifyVault},
 		{"Vault", "Sync: status, devices, now, stop", "S", u.showSync},
 		{"Vault", "Sync this vault with a server…", "", func() {
 			if u.needVault() {
@@ -165,49 +153,60 @@ func (u *UI) menu() []menuEntry {
 				u.syncInvite(u.vault)
 			}
 		}},
-		{"Contacts", "Contacts: people, their keys, how each was verified", "C", u.showContacts},
-		{"Contacts", "Add a contact…", "", func() { u.addContact(nil) }},
-		{"Contacts", "Import keys, or a QR code you scanned…", "", func() { u.importContacts(nil) }},
-		{"Contacts", "Look up keys (WKD, keyservers, directories)…", "", func() { u.lookupContact(nil) }},
-		{"Contacts", "Show my QR code…", "", u.showMyCard},
-		{"Contacts", "Keep contacts in…", "", func() { u.chooseContactsVault(nil) }},
-		{"Contacts", "Directories: add, remove", "", u.showDirectories},
-		{"Contacts", "Check a signer…", "", u.checkSigner},
-		{"Contacts", "Record a key seen in mail…", "", func() { u.keySeen(nil) }},
+		{"Vault", "Emergency access: accept an invite…", "", func() { u.acceptEmergency(nil) }},
+		{"Vault", "Emergency access: ask for a vault you hold access to…", "", func() {
+			u.askTo("Ask for emergency access", "The vault's name here:", "", "Ask for access", func(name string) { u.requestEmergency(name, nil) })
+		}},
+		{"Vault", "Emergency access: open a vault after the wait…", "", func() {
+			u.askTo("Open with emergency access", "The vault's name here:", "", "Open the vault", func(name string) { u.openEmergency(name, nil) })
+		}},
+		{"Vault", "Audit log", "A", u.showAudit},
+		{"Vault", "Directories: add, remove", "", u.showDirectories},
+		{"Vault", "Keep contacts in…", "", func() { u.chooseContactsVault(nil) }},
+		{"Vault", "Import from a browser or another password manager…", "I", u.importFile},
+		{"Vault", "Export to KeePass (KDBX) or CXF…", "X", u.exportFile},
+
+		{"Disk", "Encrypted disks: mount, unmount, back up, passphrase, delete", "M", u.showDisks},
+		{"Disk", "New disk…", "", func() { u.newContainer(u.vault, u.refreshDisks) }},
+		{"Disk", "Mount a disk…", "", func() { u.openContainer(u.vault, "", "", u.refreshDisks) }},
+		{"Disk", "Unmount a disk…", "", func() { u.closeContainerAsk(u.refreshDisks) }},
+		{"Disk", "Delete a disk…", "", u.deleteDiskAsk},
+
 		{"Tools", "Password generator", "g", func() { u.showGenerator(nil) }},
-		{"Tools", "Resolve a reference (sv://…)…", "", u.resolveReference},
-		{"Tools", "Check an env file's references…", "", u.checkEnvFile},
-		{"Tools", "Check a template's references, or fill it…", "", u.checkTemplate},
-		{"Tools", "Sign a file (OpenPGP)…", "", u.signFile},
-		{"Tools", "Decrypt a file (OpenPGP)…", "", u.decryptPGPFile},
-		{"Tools", "Check a signature (OpenPGP)…", "", u.verifyPGPFile},
-		{"Tools", "Encrypt a file (age)…", "", u.encryptAge},
-		{"Tools", "Decrypt a file (age)…", "", u.decryptAge},
-		{"Tools", "Inspect a message…", "", u.inspectMail},
-		{"Tools", "Sign and encrypt a message…", "", u.composeMail},
-		{"Desktop", "System keyring: who holds it; import, take over, give back", "Y", u.showKeyring},
-		{"Desktop", "Import the system keyring's secrets…", "", func() { u.keyringImport(nil) }},
-		{"Desktop", "Become the system keyring…", "", func() { u.keyringTakeover(nil) }},
-		{"Desktop", "Give the system keyring back…", "", func() { u.keyringRestore(nil) }},
-		{"Desktop", "Browsers: which host each starts, the extensions connected", "B", u.showBrowsers},
-		{"Desktop", "Set the browsers up for the secretvault extension…", "", func() { u.browserInstall(svops.ExtensionHost, nil) }},
-		{"Desktop", "Undo the browsers' setup for the secretvault extension…", "", func() { u.browserUninstall(&svops.ExtensionHost, nil) }},
-		{"Desktop", "Write out the browser extension…", "", u.browserExtension},
-		{"Desktop", "GnuPG: let gpg use the vault's keys, or stop…", "", func() {
+		{"Tools", "Security keys plugged in, and what each can do", "", u.showSecurityKeys},
+		{"Tools", "Browsers: which host each starts, the extensions connected", "B", u.showBrowsers},
+		{"Tools", "Set the browsers up for the secretvault extension…", "", func() { u.browserInstall(svops.ExtensionHost, nil) }},
+		{"Tools", "Undo the browsers' setup for the secretvault extension…", "", func() { u.browserUninstall(&svops.ExtensionHost, nil) }},
+		{"Tools", "Write out the browser extension…", "", u.browserExtension},
+		{"Tools", "System keyring: who holds it; import, take over, give back", "Y", u.showKeyring},
+		{"Tools", "Import the system keyring's secrets…", "", func() { u.keyringImport(nil) }},
+		{"Tools", "Become the system keyring…", "", func() { u.keyringTakeover(nil) }},
+		{"Tools", "Give the system keyring back…", "", func() { u.keyringRestore(nil) }},
+		{"Tools", "Program helpers: git, docker, age", "", u.showHelpers},
+		{"Tools", "GnuPG: let gpg use the vault's keys, or stop…", "", func() {
 			if u.needVault() {
 				u.gpgSetup(u.vault)
 			}
 		}},
-		{"Desktop", "Program helpers: git, docker, age", "", u.showHelpers},
-		{"Desktop", "Open this vault when I log in (on or off)…", "", u.toggleLogin},
-		{"Desktop", "Host daemon: its identity, policy and vaults (as root)", "H", u.showHost},
-		{"Desktop", "Make the host identity…", "", func() { u.hostInit(nil) }},
-		{"Desktop", "Allow a unit's credential…", "", func() { u.hostAllowUnit(nil) }},
-		{"Desktop", "Allow a local service…", "", func() { u.hostAllowService(nil) }},
-		{"Desktop", "Deny a local service's references…", "", func() { u.hostDenyRefs(nil) }},
-		{"Desktop", "What the host delivered and refused", "", u.showHostAudit},
-		{"Help", "Keyboard shortcuts and status", "?", u.showHelp},
-		{"Help", "About secretvault: versions, the background service's status", "", u.showStatus},
+		{"Tools", "Host daemon: its identity, policy and vaults (as root)", "H", u.showHost},
+		{"Tools", "Where things are kept", "", u.showWhere},
+		{"Tools", "Make the host identity…", "", func() { u.hostInit(nil) }},
+		{"Tools", "Allow a unit's credential…", "", func() { u.hostAllowUnit(nil) }},
+		{"Tools", "Allow a local service…", "", func() { u.hostAllowService(nil) }},
+		{"Tools", "Deny a local service's references…", "", func() { u.hostDenyRefs(nil) }},
+		{"Tools", "What the host delivered and refused", "", u.showHostAudit},
+		{"Tools", "Resolve a reference (sv://…)…", "", u.resolveReference},
+		{"Tools", "Check an env file's references…", "", u.checkEnvFile},
+		{"Tools", "Check a template's references, or fill it…", "", u.checkTemplate},
+		{"Tools", "New identity file…", "", u.newIdentityFile},
+		{"Tools", "Show an identity file's public key…", "", u.identityFileRecipient},
+		{"Tools", "Sign a file (OpenPGP)…", "", u.signFile},
+		{"Tools", "Check a signature (OpenPGP)…", "", u.verifyPGPFile},
+		{"Tools", "Decrypt a file (OpenPGP)…", "", u.decryptPGPFile},
+		{"Tools", "Encrypt a file (age)…", "", u.encryptAge},
+		{"Tools", "Decrypt a file (age)…", "", u.decryptAge},
+		{"Tools", "Inspect a message…", "", u.inspectMail},
+		{"Tools", "Sign and encrypt a message…", "", u.composeMail},
 	}
 }
 

@@ -28,7 +28,7 @@ func TestSharingPlansAreSaidPlainly(t *testing.T) {
 		if n := strings.Count(p.Summary, ". ") + 1; n > 3 {
 			t.Errorf("%s: a summary of %d sentences: %q", name, n, p.Summary)
 		}
-		// (The Keyslots tab may be named, as where to go.)
+		// (The Ways to unlock tab may be named, as where to go.)
 		for _, word := range []string{"sv://", "keyslot", "recipient", "epoch", "secretvault "} {
 			if strings.Contains(p.Title+" "+p.Summary, word) {
 				t.Errorf("%s says %q: %q / %q", name, word, p.Title, p.Summary)

@@ -56,10 +56,10 @@ func (m *Manager) fillDevices(p *vaultPage, pn *pane) {
 			note = "No device is listed in this vault yet: each adds itself when it unlocks the vault."
 		}
 		col := m.paneColumn(note, p.dtable,
-			widgets.NewButton("Rename…", func() { m.labelDevice(p) }),
-			widgets.NewButton("Vouch for it…", func() { m.vouchDevice(p, false) }),
-			widgets.NewButton("Stop vouching", func() { m.vouchDevice(p, true) }),
-			widgets.NewButton("Remove…", func() { m.removeDevice(p) }))
+			newButton("Rename…", func() { m.labelDevice(p) }),
+			newButton("Vouch for it…", func() { m.vouchDevice(p, false) }),
+			newButton("Stop vouching", func() { m.vouchDevice(p, true) }),
+			newButton("Remove…", func() { m.removeDevice(p) }))
 		col.Add(widgets.NewTip("Changes not signed by a device listed here are then ignored, and the history marks them. "+
 			"Older versions of secretvault, which cannot sign, can then no longer change the vault.", signed))
 		return col
@@ -82,25 +82,24 @@ func (m *Manager) labelDevice(p *vaultPage) {
 		m.fail(err)
 		return
 	}
-	widgets.PromptFor(m.root(), "Rename the device", "A name for the device with key "+d.Key+":", widgets.MessageBoxInput{
-		Text: d.Label, Required: true, AcceptLabel: "Rename",
-		ValidateAsync: func(label string, done func(error)) {
-			label = strings.TrimSpace(label)
-			var out svrpc.Device
-			m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
-				out, err = c.LabelDevice(ctx, p.vault, d.Key, label)
-				return err
-			}, func(err error) {
-				if err != nil {
-					done(errors.New(m.describe(err)))
-					return
-				}
-				done(nil)
-				m.say("Device %s is now %q.", out.Key, out.Label)
-				m.refreshTab(p, tabDevices)
-			})
-		},
-	}, nil)
+	f := m.newForm("Rename the device")
+	f.intro("A name for the device with key " + d.Key + ".")
+	field := f.text("Name", d.Label, "")
+	f.show("Rename", func() {
+		label := strings.TrimSpace(field.Text)
+		if label == "" {
+			f.fail("Give it a name.")
+			return
+		}
+		var out svrpc.Device
+		f.call(func(ctx context.Context, c *secretvault.Client) (err error) {
+			out, err = c.LabelDevice(ctx, p.vault, d.Key, label)
+			return err
+		}, func() {
+			m.say("Device %s is now %q.", out.Key, out.Label)
+			m.refreshTab(p, tabDevices)
+		})
+	})
 }
 
 // vouchDevice vouches for the device selected, or withdraws (the CLI's

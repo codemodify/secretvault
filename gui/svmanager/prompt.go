@@ -47,7 +47,7 @@ func (m *Manager) prompt(ctx context.Context, q svrpc.PromptAsk) (svrpc.PromptAn
 	switch q.Kind {
 	case svrpc.PromptPassphrase, svrpc.PromptNewPassphrase, svrpc.PromptPIN:
 	case svrpc.PromptNotice:
-		// "Touch your security key": said in the status bar while the
+		// "Touch your security key": said in a note while the
 		// daemon waits on the key rather than on this program, and
 		// answered at once, as the CLI and the terminal manager answer
 		// it.
@@ -148,7 +148,7 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan svrpc.PromptAnswer) 
 	switch q.Kind {
 	case svrpc.PromptChoose:
 		for _, c := range q.Choices {
-			b := widgets.NewButton(c.Label, func() { finish(svrpc.PromptAnswer{Choice: c.ID}) })
+			b := newButton(c.Label, func() { finish(svrpc.PromptAnswer{Choice: c.ID}) })
 			role := widgets.RoleAction
 			if c.ID == svrpc.ChoiceDeny {
 				role = widgets.RoleReject
@@ -165,7 +165,7 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan svrpc.PromptAnswer) 
 		d.fields = append(d.fields, first)
 		form := widgets.NewForm()
 		form.AddRow(promptLabel(q.Prompt, "Passphrase"), first)
-		ok := widgets.NewButton(svops.PromptAction(q), nil)
+		ok := newButton(svops.PromptAction(q), nil)
 		submit := func() {
 			if first.Empty() {
 				return
@@ -204,7 +204,7 @@ func (m *Manager) showPrompt(q svrpc.PromptAsk, answer chan svrpc.PromptAnswer) 
 		}
 		ok.OnClick = submit
 		buttons.AddButton(ok, widgets.RoleAccept)
-		buttons.AddButton(widgets.NewButton("Cancel", cancel), widgets.RoleReject)
+		buttons.AddButton(newButton("Cancel", cancel), widgets.RoleReject)
 		col.Add(form)
 		col.Add(d.problem)
 		focus = first

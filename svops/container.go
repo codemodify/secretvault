@@ -24,14 +24,15 @@ func MountsHere() error {
 	return nil
 }
 
-// ContainerItemName is the item a new container's key goes in by default:
-// containers/ and the file's name without its extension.
+// ContainerItemName is the item a new container's key goes in when none
+// is named: the file's name without its extension (the daemon numbers it,
+// or adds "(disk)", when an item has that name).
 func ContainerItemName(path string) string {
 	base := filepath.Base(path)
 	if stem := strings.TrimSuffix(base, filepath.Ext(base)); stem != "" {
 		base = stem
 	}
-	return "containers/" + base
+	return PathSafe(base)
 }
 
 // ExistingImage is an image's absolute path, once it is known to be a

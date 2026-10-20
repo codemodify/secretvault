@@ -54,9 +54,15 @@ type Options struct {
 	// Host configures host mode.
 	Host HostOptions
 
-	// Home is the data directory (svcore.Home() when "", or in host mode
+	// Home is the data folder (svcore.DataDir() when "", or in host mode
 	// svrpc.HostDataDir()).
 	Home string
+
+	// Config is the settings folder, config.json's (svcore.ConfigDir()
+	// when it and Home are ""; Home when only Home is given, so that a
+	// daemon given a folder keeps everything in it, as tests and host
+	// mode do).
+	Config string
 
 	// Socket is the path it serves, for Status.
 	Socket string
@@ -127,7 +133,8 @@ type Options struct {
 // Daemon is a running secretvaultd.
 type Daemon struct {
 	opts   Options
-	home   string
+	home   string // the data folder
+	config string // the settings folder
 	broker *svbroker.Broker
 	audit  *svbroker.Audit
 	svOpts svcore.Options
@@ -177,11 +184,26 @@ func New(opts Options) (*Daemon, error) {
 		opts.Home = svrpc.HostDataDir()
 	}
 	if opts.Home == "" {
-		h, err := svcore.Home()
+		h, err := svcore.DataDir()
 		if err != nil {
 			return nil, err
 		}
 		opts.Home = h
+		if opts.Config == "" {
+			if opts.Config, err = svcore.ConfigDir(); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if opts.Config == "" {
+		opts.Config = opts.Home
+	}
+	if !host {
+		for _, dir := range []string{opts.Config, opts.Home} {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if opts.Now == nil {
 		opts.Now = time.Now
@@ -231,13 +253,14 @@ func New(opts Options) (*Daemon, error) {
 	if host {
 		autoLock = svrpc.AutoLock{} // nothing locks on idle unless the config says so
 	}
-	cfg, err := loadConfig(opts.Home, autoLock)
+	cfg, err := loadConfig(opts.Config, opts.Home, autoLock)
 	if err != nil {
 		return nil, err
 	}
 	d := &Daemon{
 		opts:    opts,
 		home:    opts.Home,
+		config:  opts.Config,
 		broker:  svbroker.New(device),
 		audit:   svbroker.NewAudit(filepath.Join(opts.Home, "audit")),
 		svOpts:  svcore.Options{Device: device, Signer: signer, Now: opts.Now},
@@ -479,7 +502,7 @@ func (d *Daemon) notify(method string, ev svrpc.VaultEvent) {
 
 // Status describes the daemon.
 func (d *Daemon) Status() svrpc.Status {
-	st := svrpc.Status{Version: secretvault.Version, PID: os.Getpid(), Home: d.home, Socket: d.opts.Socket}
+	st := svrpc.Status{Version: secretvault.Version, PID: os.Getpid(), Home: d.home, Config: d.config, Socket: d.opts.Socket}
 	st.Vaults = d.vaultInfos()
 	if d.host != nil {
 		st.Mode = "host"

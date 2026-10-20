@@ -105,10 +105,10 @@ func TestYourOpenPGPKeyFromTheCommandLine(t *testing.T) {
 	h := newHarness(t)
 	h.init()
 	out := h.ok("", h.with("pgp", "new", "--name", "Me", "--email", "me@example.org")...)
-	if !strings.Contains(out, "Made a version 6 OpenPGP key, stored as pgp/me@example.org") {
+	if !strings.Contains(out, "Made a version 6 OpenPGP key, stored as me@example.org") {
 		t.Fatalf("new said %q", out)
 	}
-	if out := h.ok("", h.with("pgp", "ls")...); !strings.Contains(out, "pgp/me@example.org") || !strings.Contains(out, "Me <me@example.org>") {
+	if out := h.ok("", h.with("pgp", "ls")...); !strings.Contains(out, "me@example.org") || !strings.Contains(out, "Me <me@example.org>") {
 		t.Fatalf("ls said %q", out)
 	}
 	pub, err := svpgp.ReadKey(strings.NewReader(h.ok("", h.with("pgp", "pub")...)))
@@ -179,7 +179,7 @@ func TestYourOpenPGPKeyFromTheCommandLine(t *testing.T) {
 	oldArmor, _ := old.Armor(true)
 	h.write("oldpass", "old pass\n")
 	out = h.ok("", h.with("pgp", "import", h.write("old.asc", string(oldArmor)), "--key-passphrase-file", filepath.Join(h.dir, "oldpass"))...)
-	if !strings.Contains(out, "as pgp/old@example.org") {
+	if !strings.Contains(out, "as old@example.org") {
 		t.Fatalf("import said %q", out)
 	}
 	sig = h.ok("", h.with("pgp", "sign", "-a", "--key", "old@example.org", msg)...)

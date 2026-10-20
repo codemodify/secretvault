@@ -70,7 +70,7 @@ func serve() {
 	log.SetPrefix("secretvault-server: ")
 	var (
 		listen       = flag.String("listen", ":8443", "address to listen on")
-		root         = flag.String("root", "", "directory to keep everything in (default: <secretvault home>/server)")
+		root         = flag.String("root", "", "directory to keep everything in (default: server in secretvault's data folder, ~/.data/secretvault/server)")
 		certFile     = flag.String("tls-cert", "", "TLS certificate (PEM)")
 		keyFile      = flag.String("tls-key", "", "TLS private key (PEM)")
 		selfSigned   = flag.Bool("self-signed", false, "make (once) and use a self-signed certificate kept under the root")
@@ -110,7 +110,7 @@ func serve() {
 		log.Fatal("choose one of: -tls-cert with -tls-key, -self-signed, or -insecure-http")
 	}
 	if *root == "" {
-		home, err := svcore.Home()
+		home, err := svcore.DataDir()
 		if err != nil {
 			log.Fatal(err)
 		}

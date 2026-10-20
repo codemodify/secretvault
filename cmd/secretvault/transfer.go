@@ -31,7 +31,6 @@ func (c *cli) cmdImport(args []string) error {
 		return c.importSources(args[1:])
 	}
 	fs := c.flags("import")
-	prefix := fs.String("prefix", "", "put every item under `FOLDER`, like imported/keepass")
 	dryRun := fs.Bool("dry-run", false, "list the names that would be created, and store nothing")
 	overwrite := fs.Bool("overwrite", false, "replace items that already exist (default: skip them)")
 	srcPass := fs.String("source-passphrase-file", "", "read the export's own passphrase from `FILE` instead of asking")
@@ -72,7 +71,7 @@ func (c *cli) cmdImport(args []string) error {
 		fmt.Fprintf(c.stderr, "Reading %s as %s.\n", path, f)
 	}
 
-	opts := svimport.Options{Prefix: *prefix}
+	opts := svimport.Options{}
 	if *srcPass != "" {
 		if opts.Passphrase, err = svops.ReadSecretFile(*srcPass); err != nil {
 			return err
@@ -103,7 +102,7 @@ func (c *cli) cmdImport(args []string) error {
 	if err != nil {
 		return err
 	}
-	rep, err := svops.StoreImport(c.ctx, cl, res, svops.ImportOptions{Vault: c.vault, Prefix: *prefix, Overwrite: *overwrite, Describe: describe})
+	rep, err := svops.StoreImport(c.ctx, cl, res, svops.ImportOptions{Vault: c.vault, Overwrite: *overwrite, Describe: describe})
 	if rep != nil {
 		c.printWarnings(rep.Warnings)
 	}
@@ -227,11 +226,10 @@ func (c *cli) printWarnings(ws []string) {
 
 func (c *cli) cmdExport(args []string) error {
 	fs := c.flags("export")
-	prefix := fs.String("prefix", "", "export only the items whose names start with `PREFIX`")
 	newPass := fs.String("new-passphrase-file", "", "kdbx: read the file's passphrase from `FILE` instead of asking")
 	var u unlockFlags
 	u.register(fs)
-	pos, err := parse(fs, args, 2, 2, "cxf|kdbx FILE [--prefix PREFIX]")
+	pos, err := parse(fs, args, 2, 2, "cxf|kdbx FILE")
 	if err != nil {
 		return err
 	}
@@ -253,7 +251,7 @@ func (c *cli) cmdExport(args []string) error {
 	if err != nil {
 		return err
 	}
-	items, err := svops.ReadForExport(c.ctx, cl, svops.ExportOptions{Vault: c.vault, Prefix: *prefix, Describe: describe,
+	items, err := svops.ReadForExport(c.ctx, cl, svops.ExportOptions{Vault: c.vault, Describe: describe,
 		Each: func(e svrpc.Entry) { c.warnConflicts(e) }})
 	if err != nil {
 		return err

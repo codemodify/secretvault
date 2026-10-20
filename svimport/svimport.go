@@ -9,7 +9,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/codemodify/secretvault/svcore"
 	"github.com/codemodify/secretvault/svrpc"
 )
 
@@ -41,9 +40,6 @@ type Options struct {
 	// Keyfile is a KeePass key file's contents, for KDBX files that use
 	// one.
 	Keyfile []byte
-
-	// Prefix is a folder to put every item under, like "imported/keepass".
-	Prefix string
 }
 
 // Result is what Import brought across.
@@ -109,16 +105,14 @@ var (
 // maxInput bounds what one import reads, decompressed.
 const maxInput = 512 << 20
 
-// Import reads a file of format f into items, named under opts.Prefix. On
-// ErrPassphrase, ask for the file's passphrase and call again.
+// Import reads a file of format f into items. On ErrPassphrase, ask for
+// the file's passphrase and call again.
 func Import(f Format, data []byte, opts Options) (*Result, error) {
 	if isOpenPGP(data) {
 		return nil, ErrOpenPGP
 	}
-	b, err := newBuilder(opts.Prefix)
-	if err != nil {
-		return nil, err
-	}
+	b := newBuilder()
+	var err error
 	switch f {
 	case FormatKDBX:
 		err = readKDBX(b, data, opts)
@@ -281,19 +275,4 @@ func jsonError(what string, err error) error {
 		return fmt.Errorf("%w: %s: %s is not a %s", ErrFormat, what, typ.Field, typ.Type)
 	}
 	return fmt.Errorf("%w: %s is not valid JSON", ErrFormat, what)
-}
-
-// checkPrefix validates Options.Prefix and splits it into segments.
-func checkPrefix(p string) ([]string, error) {
-	p = strings.Trim(p, "/")
-	if p == "" {
-		return nil, nil
-	}
-	if len(p) > 512 {
-		return nil, fmt.Errorf("svimport: prefix: %w: longer than 512 bytes", svcore.ErrName)
-	}
-	if err := svcore.CheckName(p); err != nil {
-		return nil, fmt.Errorf("svimport: prefix: %w", err)
-	}
-	return strings.Split(p, "/"), nil
 }

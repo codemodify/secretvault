@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/codemodify/secretvault/svops"
 )
 
 // systemctl runs systemctl; tests stand in for it, so they never touch
@@ -24,8 +26,8 @@ var hasUserSystemd = func() bool {
 	return err == nil
 }
 
-func unitPath() string      { return filepath.Join(configDir(), "systemd", "user", ServiceName) }
-func autostartPath() string { return filepath.Join(configDir(), "autostart", "secretvaultd.desktop") }
+func unitPath() string      { return svops.DaemonUnitFile() }
+func autostartPath() string { return svops.DaemonAutostartFile() }
 
 func install(exe string) (string, error) {
 	if hasUserSystemd() {

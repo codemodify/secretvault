@@ -171,10 +171,10 @@ func TestPGPKeysStayInTheDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if key.Item != "pgp/me@example.org" || key.Version != 6 || key.UserIDs[0] != "Me <me@example.org>" {
+	if key.Item != "me@example.org" || key.Version != 6 || key.UserIDs[0] != "Me <me@example.org>" {
 		t.Fatalf("generated %+v", key)
 	}
-	if _, err := cli.GeneratePGP(ctx(t), svrpc.PGPGenerateParams{Emails: []string{"me@example.org"}}); !errors.Is(err, svrpc.ErrExists) {
+	if _, err := cli.GeneratePGP(ctx(t), svrpc.PGPGenerateParams{Item: "me@example.org", Emails: []string{"me@example.org"}}); !errors.Is(err, svrpc.ErrExists) {
 		t.Fatalf("a second key under the same name: %v", err)
 	}
 	pub, err := svpgp.ReadKey(strings.NewReader(key.PublicKey))
@@ -191,7 +191,7 @@ func TestPGPKeysStayInTheDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if q := h.desk.asked[0]; !strings.Contains(q.Description, `wants to sign with "pgp/me@example.org"`) {
+	if q := h.desk.asked[0]; !strings.Contains(q.Description, `wants to sign with "me@example.org"`) {
 		t.Fatalf("the prompt said %q", q.Description)
 	}
 	res, err := svpgp.Verify(strings.NewReader("hello"), bytes.NewReader(sig.Signature), []*svpgp.Key{pub}, time.Time{})
@@ -231,7 +231,7 @@ func TestPGPKeysStayInTheDaemon(t *testing.T) {
 	if s := dec.Signatures[0]; !s.Valid || s.Signer != fpOf(bob) || s.Verdict == nil || !s.Verdict.Trusted || s.Verdict.Contact != "Bob" {
 		t.Fatalf("the signature inside: %+v", s)
 	}
-	if !strings.Contains(h.desk.asked[3].Description, `wants to decrypt with "pgp/me@example.org"`) {
+	if !strings.Contains(h.desk.asked[3].Description, `wants to decrypt with "me@example.org"`) {
 		t.Fatalf("the decrypt prompt said %q", h.desk.asked[3].Description)
 	}
 	h.desk.done(t)

@@ -36,9 +36,6 @@ import (
 // The person has already chosen in the extension's own window (a click
 // the page cannot make); these are the daemon's own decisions on top.
 
-// passkeyFolder is where new passkeys go.
-const passkeyFolder = "passkeys"
-
 // passkeyFlags are the flags of every passkey's authenticatorData: the
 // person was present (they chose it in secretvault's window), and the
 // credential is backup eligible and backed up (it is in a vault, which
@@ -192,7 +189,7 @@ func (b *extSession) CreatePasskey(ctx context.Context, vault string, o svext.Or
 			return none, svext.Errorf(svext.CodeExcluded, "vault %q already holds a passkey for this account on %s", mv.cfg.Name, c.RPID)
 		}
 	}
-	name := freeName(mv, passkeyFolder, c.RPID, c.UserName)
+	name := freeName(mv, c.RPID, c.UserName)
 	who := c.UserName
 	if who == "" {
 		who = c.UserDisplayName
@@ -210,7 +207,7 @@ func (b *extSession) CreatePasskey(ctx context.Context, vault string, o svext.Or
 	if e, err := mv.v.Get(name); err == nil {
 		// Taken while the person was deciding.
 		e.Item.Wipe()
-		name = freeName(mv, passkeyFolder, c.RPID, c.UserName)
+		name = freeName(mv, c.RPID, c.UserName)
 	}
 	kp, err := svext.NewKeyPair(alg)
 	if err != nil {

@@ -52,8 +52,9 @@ const maxName = 1000
 // A draft is one item as a reader found it.
 type draft struct {
 	kind   string   // "" to infer: login, note or generic
-	folder []string // path segments, not yet cleaned
+	folder []string // the source's folder path, not yet cleaned: a tag
 	title  string
+	name   string // the item's own name, from secretvault's own export
 	label  string // overrides title as the item's label (KDBX round trips)
 	tags   []string
 	attrs  map[string]string
@@ -168,7 +169,6 @@ func (d *draft) inferKind() string {
 
 // builder collects items and warnings for one import.
 type builder struct {
-	prefix  []string
 	items   []svrpc.Item
 	used    map[string]bool
 	warns   []string
@@ -178,12 +178,8 @@ type builder struct {
 	crypted bool // the file was encrypted (Result.Encrypted)
 }
 
-func newBuilder(prefix string) (*builder, error) {
-	p, err := checkPrefix(prefix)
-	if err != nil {
-		return nil, err
-	}
-	return &builder{prefix: p, used: map[string]bool{}}, nil
+func newBuilder() *builder {
+	return &builder{used: map[string]bool{}}
 }
 
 // warn records something that could not be brought across. It never
@@ -202,12 +198,24 @@ func (b *builder) add(d *draft) {
 	if label == "" {
 		label = strings.TrimSpace(d.title)
 	}
+	// secretvault's own export says the item's name, which comes back as
+	// it was; another's are named for their titles, their folders a tag.
+	tags, name := d.tags, ""
+	if d.name != "" && svcore.CheckName(d.name) == nil && !b.used[d.name] {
+		name = d.name
+		b.used[name] = true
+	} else {
+		name = b.name(d.title)
+		if f := folderTag(d.folder); f != "" {
+			tags = append(append([]string(nil), tags...), f)
+		}
+	}
 	it := svrpc.Item{
 		Kind:   kind,
-		Name:   b.name(d.folder, d.title),
+		Name:   name,
 		Label:  strings.ToValidUTF8(label, "?"),
 		Attrs:  d.attrs,
-		Tags:   cleanTags(d.tags),
+		Tags:   cleanTags(tags),
 		Fields: d.fields,
 	}
 	b.items = append(b.items, it)
@@ -249,39 +257,40 @@ func (b *builder) result() *Result {
 	return &Result{Items: b.items, Files: b.files, Warnings: warns, Encrypted: b.crypted}
 }
 
-// name makes a valid, unused item name from a folder path and a title.
-func (b *builder) name(folder []string, title string) string {
-	segs := append([]string(nil), b.prefix...)
-	fixed := len(segs)
-	for _, f := range folder {
-		if s := segment(f); s != "" {
-			segs = append(segs, s)
-		}
-	}
+// name makes a valid, unused item name from a title.
+func (b *builder) name(title string) string {
 	t := segment(title)
 	if t == "" {
 		t = "untitled"
 	}
-	for len(segs) > fixed && len(strings.Join(segs, "/"))+1+len(t) > maxName {
-		segs = segs[:len(segs)-1]
-	}
-	if room := maxName - len(strings.Join(segs, "/")) - 1; len(t) > room {
-		t = strings.TrimSpace(truncate(t, max(room, 1)))
+	if len(t) > maxName {
+		t = strings.TrimSpace(truncate(t, maxName))
 		if t == "" {
 			t = "untitled"
 		}
 	}
-	base := strings.Join(append(segs, t), "/")
-	name := base
+	name := t
 	for n := 2; b.used[name]; n++ {
-		name = fmt.Sprintf("%s (%d)", base, n)
+		name = fmt.Sprintf("%s (%d)", t, n)
 	}
 	b.used[name] = true
 	return name
 }
 
-// segment makes one path segment from a folder or title: no control
-// characters, no '/', not "." or "..", valid UTF-8, trimmed.
+// folderTag is the tag a source's folder path becomes, its folders joined
+// by slashes ("Work/Servers"), or "" at the top.
+func folderTag(folder []string) string {
+	var segs []string
+	for _, f := range folder {
+		if s := segment(f); s != "" {
+			segs = append(segs, s)
+		}
+	}
+	return strings.Join(segs, "/")
+}
+
+// segment makes one name from a folder or title: no control characters,
+// no '/', not "." or "..", valid UTF-8, trimmed.
 func segment(s string) string {
 	s = strings.ToValidUTF8(s, "?")
 	s = strings.Map(func(r rune) rune {

@@ -94,7 +94,7 @@ func (d *Daemon) addAccess(a EmergencyAccess) error {
 		return svrpc.Errorf(svrpc.CodeExists, "there is already emergency access called %q here", a.Name)
 	}
 	d.cfg.Emergency = append(d.cfg.Emergency, a)
-	if err := d.cfg.save(d.home); err != nil {
+	if err := d.cfg.save(d.config); err != nil {
 		d.cfg.Emergency = d.cfg.Emergency[:len(d.cfg.Emergency)-1]
 		return err
 	}
@@ -115,7 +115,7 @@ func (d *Daemon) updateAccess(name string, change func(a *EmergencyAccess)) (Eme
 	a := old
 	change(&a)
 	d.cfg.Emergency[i] = a
-	if err := d.cfg.save(d.home); err != nil {
+	if err := d.cfg.save(d.config); err != nil {
 		d.cfg.Emergency[i] = old
 		return EmergencyAccess{}, err
 	}

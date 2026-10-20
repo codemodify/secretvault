@@ -1,7 +1,11 @@
 package secretui
 
 import (
+	"bytes"
+	"embed"
+	"image/png"
 	"math"
+	"strconv"
 
 	"github.com/codemodify/paintengine2d"
 	"github.com/codemodify/uitoolkit/a11y"
@@ -127,21 +131,48 @@ func (h *Header) Paint(ctx *paintengine2d.Context) {
 	}
 }
 
-// Icon is secretvault's icon, side pixels square: the header's padlock on
-// a tile of the header's colour. It is what a secretvault window and its
-// tray icon show.
+// Icon is secretvault's icon, side pixels square: its logo (the vault
+// door, icons/logo-N.png, made from the repository's logo.png). It is what
+// a secretvault window and its tray icon show. A side it has no picture
+// for is drawn from the next larger one.
 func Icon(side int) *paintengine2d.Image {
-	img := paintengine2d.NewImage(side, side)
-	ctx := paintengine2d.NewContext(img)
-	s := float32(side)
-	ctx.DrawRoundRect(paintengine2d.XYWH(0, 0, s, s), s*0.22, s*0.22, paintengine2d.Fill(Brand))
-	paintLock(ctx, paintengine2d.XYWH(s*0.18, s*0.14, s*0.64, s*0.64))
-	return img
+	at := iconSides[len(iconSides)-1]
+	for _, s := range iconSides {
+		if s >= side {
+			at = s
+			break
+		}
+	}
+	src, err := png.Decode(bytes.NewReader(iconPNG(at)))
+	if err != nil {
+		panic("secretui: icons/logo-" + strconv.Itoa(at) + ".png: " + err.Error())
+	}
+	img := paintengine2d.NewImageFromNRGBA(src)
+	if at == side {
+		return img
+	}
+	out := paintengine2d.NewImage(side, side)
+	paintengine2d.NewContext(out).DrawImageRect(img, paintengine2d.XYWH(0, 0, float32(at), float32(at)), paintengine2d.XYWH(0, 0, float32(side), float32(side)))
+	return out
+}
+
+// iconSides are the sides icons/ holds the logo at, smallest first.
+var iconSides = []int{16, 22, 24, 32, 48, 64, 128, 256, 512}
+
+//go:embed icons/*.png
+var icons embed.FS
+
+func iconPNG(side int) []byte {
+	b, err := icons.ReadFile("icons/logo-" + strconv.Itoa(side) + ".png")
+	if err != nil {
+		panic("secretui: " + err.Error())
+	}
+	return b
 }
 
 // Icons is Icon at the sizes a desktop picks from for a window.
 func Icons() []*paintengine2d.Image {
-	return []*paintengine2d.Image{Icon(16), Icon(24), Icon(32), Icon(48), Icon(64), Icon(128)}
+	return []*paintengine2d.Image{Icon(16), Icon(24), Icon(32), Icon(48), Icon(64), Icon(128), Icon(256)}
 }
 
 // paintLock draws the padlock in box: a shackle over a body with a

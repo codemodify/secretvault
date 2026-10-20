@@ -157,8 +157,8 @@ func itemFromProperties(props map[string]svdbus.Variant) (label string, attrs ma
 	return label, attrs, nil
 }
 
-// itemName makes a unique item name for a Secret Service item, under
-// "keyring/": the label, with '/' (which would make folders) replaced.
+// itemName makes a unique item name for a Secret Service item: its
+// label, with '/' replaced.
 func itemName(mv *managedVault, label string) string {
 	base := strings.ReplaceAll(strings.TrimSpace(label), "/", "∕")
 	base = strings.Map(func(r rune) rune {
@@ -173,24 +173,7 @@ func itemName(mv *managedVault, label string) string {
 	if len(base) > 200 {
 		base = base[:200]
 	}
-	name := "keyring/" + base
-	for n := 2; ; n++ {
-		if _, err := mv.v.Get(name); err != nil {
-			return name
-		}
-		name = "keyring/" + base + " (" + itoa(n) + ")"
-	}
-}
-
-func itoa(n int) string {
-	var b [20]byte
-	i := len(b)
-	for n > 0 || i == len(b) {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
+	return mv.v.FreeName(base)
 }
 
 // createItem stores a new item (or replaces the one with the same

@@ -72,9 +72,9 @@ func (m *Manager) drawSharing(p *vaultPage, pn *pane, emErr error) widget.Compon
 	} else {
 		col.Add(widgets.NewHeightBox(min(40+28*float32(len(shared)), 180), p.shtable))
 	}
-	cut := widgets.NewButton("Cut off…", func() { m.unshare(p) })
+	cut := newButton("Cut off…", func() { m.unshare(p) })
 	cut.SetEnabled(len(shared) > 0)
-	col.Add(buttons(widgets.NewButton("Share with…", func() { m.share(p) }), cut))
+	col.Add(buttons(newButton("Share with…", func() { m.share(p) }), cut))
 
 	col.Add(section(m, "Emergency access"))
 	col.Add(m.paragraph(svops.EmergencyAbout))
@@ -108,16 +108,21 @@ func (m *Manager) drawSharing(p *vaultPage, pn *pane, emErr error) widget.Compon
 	} else if emErr == nil {
 		col.Add(m.paragraph("Nobody has emergency access to this vault: Grant… gives it to someone."))
 	}
-	deny := widgets.NewButton("Deny…", func() { m.denyEmergency(p) })
-	revoke := widgets.NewButton("Revoke…", func() { m.revokeEmergency(p) })
+	deny := newButton("Deny…", func() { m.denyEmergency(p) })
+	revoke := newButton("Revoke…", func() { m.revokeEmergency(p) })
 	deny.SetEnabled(len(given) > 0)
 	revoke.SetEnabled(len(given) > 0)
-	col.Add(buttons(widgets.NewButton("Grant…", func() { m.grantEmergency(p) }), deny, revoke))
+	col.Add(buttons(newButton("Grant…", func() { m.grantEmergency(p) }), deny, revoke))
 	if held := p.emergency.Held; len(held) > 0 {
 		col.Add(section(m, "Emergency access held here"))
 		col.Add(m.heldTable(held))
-		col.Add(m.paragraph("Emergency access others gave you to their vaults: File › Emergency access asks for one, and opens the vault once it is yours."))
+		col.Add(m.paragraph("Emergency access others gave you to their vaults: Ask for access… asks for one, and Open the vault… opens it once it is yours."))
 	}
+	// What others gave this device, whether or not any is held yet.
+	col.Add(section(m, "Emergency access given to me"))
+	col.Add(buttons(newButton("Accept an invite…", m.acceptEmergency),
+		newButton("Ask for access…", m.requestEmergency),
+		newButton("Open the vault…", m.openEmergency)))
 	return scrolled(col)
 }
 
@@ -348,7 +353,7 @@ func (m *Manager) grantEmergency(p *vaultPage) {
 			}, func() {
 				g := res.Grant
 				m.refreshTab(p, tabSharing)
-				note := "Send this invite to " + trusteeName(g) + ", to accept with File › Emergency access › Accept an invite… on their side. " +
+				note := "Send this invite to " + trusteeName(g) + ", to accept with Vault › Emergency access given to me › Accept an invite… on their side. " +
 					svops.InviteHoldsNoSecret + "\n\n" + svops.EmergencyGrantedText(trusteeName(g), g.Vault, g.Wait)
 				if res.Warning != "" {
 					note += "\n\nWarning: " + res.Warning
@@ -466,8 +471,8 @@ func (m *Manager) acceptEmergency() {
 			a, err = c.EmergencyAccept(ctx, svrpc.EmergencyAcceptParams{Invite: inv, Identity: b, Name: strings.TrimSpace(as.Text), Label: strings.TrimSpace(label.Text)})
 			return err
 		}, func() {
-			m.showText("Emergency access accepted", fmt.Sprintf("Accepted, as %q. When you need the vault, File › Emergency access › Ask for access… asks for it. "+
-				"Its owner is told, and unless they deny it within %s, File › Emergency access › Open the vault… opens it.", a.Name, svops.WaitText(a.Wait)), "")
+			m.showText("Emergency access accepted", fmt.Sprintf("Accepted, as %q. When you need the vault, Vault › Emergency access given to me › Ask for access… asks for it. "+
+				"Its owner is told, and unless they deny it within %s, Vault › Emergency access given to me › Open the vault… opens it.", a.Name, svops.WaitText(a.Wait)), "")
 			m.loadEmergency()
 		})
 	})
@@ -500,7 +505,7 @@ func (m *Manager) requestEmergency() {
 			return err
 		}, func() {
 			if a.State == svrpc.GrantReleased {
-				m.say("It is yours already: File › Emergency access › Open the vault…")
+				m.say("It is yours already: Vault › Emergency access given to me › Open the vault…")
 			} else {
 				m.say("Asked. Its owner is told; unless they deny it, it is yours on %s.", when(a.ReleasesAt))
 			}
@@ -564,7 +569,7 @@ func (m *Manager) chooseHeld(title, action, note string, do func(f *formDialog, 
 			which = f.choice("Vault", names, 0)
 		} else {
 			typed = f.text("Name", "", "as accepted")
-			f.note("No emergency access held here could be listed: type its name as it was accepted (File › Emergency access › Accept an invite…).")
+			f.note("No emergency access held here could be listed: type its name as it was accepted (Vault › Emergency access given to me › Accept an invite…).")
 		}
 		for _, fn := range more {
 			fn(f)
@@ -584,7 +589,7 @@ func (m *Manager) chooseHeld(title, action, note string, do func(f *formDialog, 
 }
 
 // loadEmergency asks the daemon which emergency requests are waiting, for
-// the status bar.
+// a note that stays while they do (drawNotes).
 func (m *Manager) loadEmergency() {
 	var st svrpc.Status
 	m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
@@ -599,7 +604,7 @@ func (m *Manager) loadEmergency() {
 	})
 }
 
-// emergencyLine is what the status bar says of an emergency request, in
+// emergencyLine is what a note says of an emergency request, in
 // this program's words (the daemon's name the CLI's commands).
 func (m *Manager) emergencyLine() string {
 	for _, n := range m.emergency {
@@ -611,7 +616,7 @@ func (m *Manager) emergencyLine() string {
 		case n.Held && n.State == svrpc.GrantRequested:
 			return "; emergency access to " + n.Vault + " is yours " + when(n.ReleasesAt) + " unless denied"
 		case n.Held && n.State == svrpc.GrantReleased:
-			return "; emergency access to " + n.Vault + " is yours: File › Emergency access › Open the vault…"
+			return "; emergency access to " + n.Vault + " is yours: Vault › Emergency access given to me › Open the vault…"
 		case n.State == svrpc.GrantRequested:
 			return "; " + who + " asked for emergency access to " + n.Vault + ": theirs " + when(n.ReleasesAt) + " unless you deny it (Vault › Sharing)"
 		case n.State == svrpc.GrantReleased:

@@ -15,10 +15,11 @@ var helpKeys = strings.TrimSpace(`
   :                      the action menu: every operation, by menu; type to find one
 
 [::b]Moving around[::-]
+  1 2 3                  the Vault, Disk and Tools tabs (Esc: back to Vault)
   Tab, Shift+Tab, ← →    move between the vaults, the items and the open item
   ↑ ↓ PgUp PgDn          move in a list
-  Enter                  open the vault or the item under the cursor
-  /                      filter the items as you type (Esc clears it)
+  Enter                  open the vault, a kind of item under it, or an item
+  /                      filter every kind as you type (Esc clears it)
 
 [::b]The item[::-]  (the one under the cursor in the list, else the open one)
   c                      copy its secret, or the field selected in the item
@@ -40,11 +41,11 @@ var helpKeys = strings.TrimSpace(`
   l                      lock this vault         L    lock every vault
   U                      unlock the vault (asks for its passphrase)
   N                      a new vault
-  K                      keyslots: the ways the vault opens; adding a
-                         passphrase, recovery key (or shares), keyfile,
-                         person's key or security key; removing one;
-                         changing the passphrase; giving the vault a new
-                         key; the security keys plugged in
+  K                      ways to unlock the vault: adding a passphrase,
+                         recovery key (or shares), keyfile, person's key
+                         or security key; removing one; changing the
+                         passphrase; giving the vault a new key; the
+                         security keys plugged in
   R                      the deleted items: bring one back
   I                      import from a browser or another password manager
   X                      export to KeePass (KDBX) or CXF
@@ -62,9 +63,10 @@ var helpKeys = strings.TrimSpace(`
   D                      devices: who signs what is written; naming,
                          vouching for and removing one; whether only
                          signed revisions count
-  M                      containers: encrypted disk images whose keys the
-                         vault keeps; making, opening, closing one, backing
-                         its header up, its own passphrase
+  M                      the Disk tab: encrypted disk files, each one's
+                         key kept in a vault; making, mounting, unmounting
+                         and deleting one, backing its header up, its own
+                         passphrase
   Y                      the system keyring: importing its secrets, taking
                          it over, giving it back (each shown first)
   B                      browsers: which host each starts, for secretvault's
@@ -91,6 +93,26 @@ var helpKeys = strings.TrimSpace(`
   Enter                  what can be done to the row selected
   Esc                    close it
 
+[::b]The Disk and Tools tabs[::-]
+  2 (or M)               every vault's encrypted disks, each with the
+                         vault that keeps its key (a locked one's by file
+                         only), beside the one selected: its file, size,
+                         key, state and what can be done to it
+  m u                    mount the disk selected, unmount it
+  f F                    mount any disk file, unmount one by its file or
+                         folder
+  b p                    back its header up, its own passphrase
+  x (or Delete)          delete it, asking first (its key goes to the
+                         deleted items)
+  U                      on a locked vault's disk: unlock its vault
+  n                      make a new disk
+  3                      every tool: files and mail, references, the
+                         password generator, identity files, security keys,
+                         other programs
+  the keys at the foot   act on the disk selected, or on the tab
+  Enter                  what can be done to the disk; runs the tool
+  the capitals, g and l  work on every tab; the item's keys only on Vault
+
 [::b]In the editor[::-]
   Tab, Shift+Tab         move between fields     Ctrl+S  save
   Ctrl+R                 show or hide secrets    Ctrl+G  generate a password
@@ -108,6 +130,6 @@ func (u *UI) showHelp() {
 		if err == nil {
 			head += " · secretvaultd " + st.Version
 		}
-		u.showText("Help", "[gray]"+tview.Escape(head)+"[-]\n\n"+helpKeys+"\n\n[::b]Status[::-]  (Help › About in the : menu)\n"+statusText(st, err))
+		u.showText("Help", "[gray]"+tview.Escape(head)+"[-]\n\n"+helpKeys+"\n\n[::b]Status[::-]  (secretvault › About in the : menu)\n"+statusText(st, err))
 	})
 }

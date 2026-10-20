@@ -5,23 +5,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codemodify/uitoolkit/platform"
 	"github.com/codemodify/uitoolkit/widgets"
 
 	"github.com/codemodify/secretvault/svrpc"
 )
 
-// menu runs the entry text of the menu title, as a click on it does; it
-// must be enabled.
+// menu runs the entry text of the menu title, or of a submenu in it, as
+// a click on it does; it must be enabled.
 func (h *harness) menu(title, text string) {
 	h.t.Helper()
 	for _, mn := range h.m.ui.menu.Menus() {
 		if mn.Title != title {
 			continue
 		}
-		for _, it := range mn.Items {
-			if it.Text != text {
-				continue
-			}
+		if it := findEntry(mn.Items, text); it != nil {
 			if it.Disabled {
 				h.t.Fatalf("%s › %s is greyed out; the window says:\n%s", title, text, h.text())
 			}
@@ -31,6 +29,19 @@ func (h *harness) menu(title, text string) {
 		}
 	}
 	h.t.Fatalf("there is no %s › %s", title, text)
+}
+
+// findEntry is the entry text among items or their submenus, or nil.
+func findEntry(items []*widgets.MenuItem, text string) *widgets.MenuItem {
+	for _, it := range items {
+		if it.Text == text && !it.HasSubmenu() {
+			return it
+		}
+		if found := findEntry(it.Submenu, text); found != nil {
+			return found
+		}
+	}
+	return nil
 }
 
 // namesIn are the names of vault's items, as the CLI lists them,
@@ -65,14 +76,14 @@ func (h *harness) toWork(title string) {
 	h.idle()
 }
 
-func TestAnItemMovesToAnotherVaultFromTheEditMenu(t *testing.T) {
+func TestAnItemMovesToAnotherVaultFromTheVaultsMenu(t *testing.T) {
 	h := newHarness(t)
 	withWork(h)
 	h.start(Options{Vault: "personal"})
 	h.unlock()
 	h.open("web/github.com")
 
-	h.menu("&Edit", "Move to vault…")
+	h.menu("&Vault", "Move to vault…")
 	h.waitText("Move web/github.com to another vault")
 	h.toWork("Move 1 item to work?")
 	for _, want := range []string{"goes from vault personal to vault work", "deleted items"} {
@@ -130,26 +141,16 @@ func TestACopyKeepsTheItem(t *testing.T) {
 	}
 }
 
-func TestAFolderMovesToAnotherVault(t *testing.T) {
+func TestItemsPickedTogetherMoveToAnotherVault(t *testing.T) {
 	h := newHarness(t)
 	withWork(h)
 	h.start(Options{Vault: "personal"})
 	h.unlock()
+	h.pickRow("web/github.com", 0)
+	h.pickRow("web/gitlab.com", platform.ModCtrl)
 
-	// With "All items" chosen there is no folder to move.
-	if !menuEntry(h, "Move folder to vault…").Disabled {
-		t.Fatal("Move folder to vault… is offered with no folder chosen")
-	}
-	n := h.m.findFolder("web/")
-	if n == nil {
-		t.Fatal("no folder web/")
-	}
-	h.m.ui.folders.Selected = n
-	h.m.folderSelected(n)
-	h.pump()
-
-	h.menu("&Edit", "Move folder to vault…")
-	h.waitText("Move folder web/ to another vault")
+	h.pressOn("Move to vault…")
+	h.waitText("Move 2 items to another vault")
 	h.toWork("Move 2 items to work?")
 	for _, want := range []string{"web/github.com", "web/gitlab.com"} {
 		if !strings.Contains(h.text(), want) {
@@ -158,8 +159,8 @@ func TestAFolderMovesToAnotherVault(t *testing.T) {
 	}
 	h.press("Move 2 items")
 	h.said("Moved 2 items to vault work.")
-	h.waitFor("the folder gone", func() bool {
-		return h.m.listed && !h.m.listing && len(h.m.entries) == 2 && h.m.folder == ""
+	h.waitFor("the items gone", func() bool {
+		return h.m.listed && !h.m.listing && len(h.m.entries) == 2 && len(h.m.picked) == 0
 	})
 	h.idle()
 	if got := h.namesIn("work"); !slices.Equal(got, []string{"web/github.com", "web/gitlab.com"}) {
@@ -174,10 +175,8 @@ func TestAFolderMovesToAnotherVault(t *testing.T) {
 func menuEntry(h *harness, text string) *widgets.MenuItem {
 	h.t.Helper()
 	for _, mn := range h.m.ui.menu.Menus() {
-		for _, it := range mn.Items {
-			if it.Text == text {
-				return it
-			}
+		if it := findEntry(mn.Items, text); it != nil {
+			return it
 		}
 	}
 	h.t.Fatalf("there is no %s", text)
@@ -189,12 +188,12 @@ func TestWithNoOtherVaultMovingSaysSo(t *testing.T) {
 	h.start(Options{})
 	h.unlock()
 	h.selectItem("web/github.com")
-	h.menu("&Edit", "Move to vault…")
-	h.said("There is no other vault to move it to: File › New vault… makes one.")
+	h.menu("&Vault", "Move to vault…")
+	h.said("There is no other vault to move it to: Vault › New vault… makes one.")
 	if h.overlay() != nil {
 		t.Fatalf("a dialog came up:\n%s", h.text())
 	}
-	h.menu("&Edit", "Copy to vault…")
+	h.menu("&Vault", "Copy to vault…")
 	h.said("There is no other vault to copy it to")
 }
 
@@ -212,7 +211,7 @@ func TestAMoveOntoANameTakenIsRefusedBeforeAnything(t *testing.T) {
 	h.start(Options{Vault: "personal"})
 	h.unlock()
 	h.selectItem("web/gitlab.com")
-	h.menu("&Edit", "Move to vault…")
+	h.menu("&Vault", "Move to vault…")
 	h.waitText("Move web/gitlab.com to another vault")
 	h.choose("To vault", 0)
 	h.press("Next")
@@ -223,5 +222,27 @@ func TestAMoveOntoANameTakenIsRefusedBeforeAnything(t *testing.T) {
 	}
 	if h.m.entry("web/gitlab.com") == nil {
 		t.Fatal("the item went")
+	}
+}
+
+// Every item of a vault moves to another from the vault's Settings, as
+// the CLI's mv --all.
+func TestEveryItemMovesToAnotherVaultFromTheSettings(t *testing.T) {
+	h := newHarness(t)
+	withWork(h)
+	h.start(Options{Vault: "personal"})
+	h.unlock()
+	h.openVaultPage(tabSettings)
+	h.pressOn("Move every item to vault…")
+	h.waitText("Move every item of personal to another vault")
+	h.toWork("Move 4 items to work?")
+	h.press("Move 4 items")
+	h.said("Moved 4 items to vault work.")
+	h.waitFor("the items gone", func() bool { return h.m.listed && !h.m.listing && len(h.m.entries) == 0 })
+	h.idle()
+	for _, want := range []string{"2fa/example", "mail/fastmail", "web/github.com", "web/gitlab.com"} {
+		if !slices.Contains(h.namesIn("work"), want) {
+			t.Fatalf("work holds %v, not %s", h.namesIn("work"), want)
+		}
 	}
 }

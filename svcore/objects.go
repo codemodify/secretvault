@@ -543,6 +543,33 @@ func (v *Vault) PutNew(it Item) (Entry, error) {
 	return v.write(svformat.NewID(), nil, payload{Type: payloadItem, Item: &it})
 }
 
+// FreeName is a name no item of the vault has: base, else "base (q)" for
+// each q of also in turn, else "base (2)", "base (3)"... It is how what a
+// program stores for someone is named (a login the browser saves, a key
+// ssh-add gives), so that it never lands on an item already there:
+// PutNew stores it, refusing a name taken meanwhile.
+func (v *Vault) FreeName(base string, also ...string) string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	free := func(n string) bool {
+		_, taken := v.idx.byName[n]
+		return !taken
+	}
+	if free(base) {
+		return base
+	}
+	for _, q := range also {
+		if n := base + " (" + q + ")"; q != "" && free(n) {
+			return n
+		}
+	}
+	for i := 2; ; i++ {
+		if n := fmt.Sprintf("%s (%d)", base, i); free(n) {
+			return n
+		}
+	}
+}
+
 // Rename moves an item to a new name, keeping its identity and history.
 func (v *Vault) Rename(from, to string) (Entry, error) {
 	v.mu.Lock()

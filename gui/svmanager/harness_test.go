@@ -463,7 +463,15 @@ func (h *harness) start(opts Options) {
 	h.pump()
 }
 
-func (h *harness) win() *app.Window { return h.m.win }
+func (h *harness) win() *app.Window {
+	if top := h.m.topDialog(); top != nil {
+		return top.win
+	}
+	return h.m.win
+}
+
+// main is the manager's own window, whatever dialog is up over it.
+func (h *harness) main() *app.Window { return h.m.win }
 
 // pump runs a frame, and whatever the daemon's answers posted.
 func (h *harness) pump() { h.app.PumpOnce() }
@@ -491,7 +499,13 @@ func (h *harness) idle() {
 
 // text is everything the window says, as assistive technology reads it:
 // names, values and descriptions, a line each.
-func (h *harness) text() string { return windowText(h.win()) }
+func (h *harness) text() string {
+	s := windowText(h.m.win)
+	for _, d := range h.m.dialogs {
+		s += windowText(d.win)
+	}
+	return s
+}
 
 func windowText(w *app.Window) string {
 	var b strings.Builder
@@ -532,13 +546,24 @@ func (h *harness) unlock() {
 	h.idle()
 }
 
-// selectItem selects an item in the list, as a click on its row does.
+// selectItem selects an item in the list, as a click on its row does,
+// its kind's tab brought forward first.
 func (h *harness) selectItem(name string) {
 	h.t.Helper()
+	if h.m.section() != secVaults {
+		h.m.showSection(secVaults)
+		h.pump()
+	}
+	if e := h.m.entry(name); e != nil {
+		if t := tabOf(e); t >= 0 && t != h.m.itemTab {
+			h.m.ui.vaultTabs.Select(t)
+			h.pump()
+		}
+	}
 	for n, i := range h.m.shown {
 		if h.m.entries[i].Item.Name == name {
-			h.m.ui.items.Selected = n
 			h.m.itemSelected(n)
+			h.m.syncList()
 			h.pump()
 			return
 		}
@@ -550,7 +575,7 @@ func (h *harness) selectItem(name string) {
 func (h *harness) open(name string) {
 	h.t.Helper()
 	h.selectItem(name)
-	h.win().FocusOn(h.m.ui.items)
+	h.win().FocusOn(h.m.ui.content)
 	h.win().Press(platform.KeyReturn)
 	h.waitFor("opening "+name, func() bool { return h.m.cur != nil && h.m.cur.Item.Name == name && h.m.ui.view.open() })
 	h.idle()
@@ -618,13 +643,26 @@ func button(root widget.Component, text string) *widgets.Button {
 }
 
 // overlay is the dialog up over the window, or nil.
-func (h *harness) overlay() widget.Component { return h.win().Overlay() }
+func (h *harness) overlay() widget.Component {
+	if top := h.m.topDialog(); top != nil {
+		return top.win.Content()
+	}
+	if o := h.m.win.Overlay(); o != nil && o != widget.Component(h.m.blocker) {
+		return o
+	}
+	return nil
+}
 
 // click presses a button the way a pointer does.
 func (h *harness) click(w *app.Window, b *widgets.Button) {
 	h.t.Helper()
 	if b == nil {
 		h.t.Fatalf("no such button; the window says:\n%s", windowText(w))
+	}
+	// A dialog's window settles first (it is sized to what it holds as
+	// it is laid out), as it has by the time a person clicks in it.
+	for range 3 {
+		h.pump()
 	}
 	// A button scrolled out of sight is scrolled to first, as a person
 	// would: uitoolkit's ClickComponent does that.

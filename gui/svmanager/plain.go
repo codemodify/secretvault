@@ -31,11 +31,11 @@ func (m *Manager) showPlan(p svops.Plain, apply, cancel func()) {
 	if p.Action == "" {
 		cancelText = "Close"
 	}
-	no := widgets.NewButton(cancelText, func() { d.Close() })
+	no := newButton(cancelText, func() { d.Close() })
 	no.Primary = true
 	buttons := widgets.NewButtonBox()
 	if p.Action != "" {
-		yes := widgets.NewButton(p.Action, func() {
+		yes := newButton(p.Action, func() {
 			applied = true
 			d.Close()
 			apply()
@@ -55,7 +55,7 @@ func (m *Manager) showPlan(p svops.Plain, apply, cancel func()) {
 func (m *Manager) showDone(title, summary string, details []string) {
 	col := plainBody(m, summary, nil, details)
 	var d *dialog
-	ok := widgets.NewButton("Close", func() { d.Close() })
+	ok := newButton("Close", func() { d.Close() })
 	d = m.showDialog(title, col, widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept), ok, nil)
 }
 

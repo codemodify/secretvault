@@ -5,16 +5,19 @@ import (
 	"github.com/codemodify/uitoolkit/platform"
 )
 
-// The tray icon: open the window, search, lock every vault, quit. With
-// one, closing the window hides it there; without one (a desktop that
-// shows no tray icons), closing the window quits.
+// The tray icon: open the window, filter the items, lock every vault,
+// quit. With one, closing the window hides it there; without one (a
+// desktop that shows no tray icons), closing the window quits.
 
 func (m *Manager) startTray() {
 	item, err := m.app.NewStatusItem(platform.StatusItemOptions{
 		ID:      "secretvault-gui",
 		Title:   "secretvault",
 		Tooltip: "secretvault",
-		Icon:    platform.StatusIcon{Name: "secretvault", Image: secretui.Icon(22)},
+		// The logo, and no theme name beside it: a name is sent as well
+		// as the picture, and which the tray shows is its own choice,
+		// while no icon theme has a "secretvault" (uitoolkit 0.23.11).
+		Icon:    platform.StatusIcon{Image: secretui.Icon(22)},
 		Menu:    m.trayMenu(),
 		OnClick: func() { m.post(m.showWindow) },
 	})
@@ -37,7 +40,7 @@ func (m *Manager) startTray() {
 func (m *Manager) trayMenu() []platform.StatusMenuItem {
 	return []platform.StatusMenuItem{
 		{Text: "Open secretvault", OnClick: func() { m.post(m.showWindow) }},
-		{Text: "Search…", OnClick: func() { m.post(m.quickSearch) }},
+		{Text: "Filter the items…", OnClick: func() { m.post(m.quickFilter) }},
 		{Text: "Lock all vaults", OnClick: func() { m.post(func() { m.lockVault(true) }) }},
 		{Separator: true},
 		{Text: "Quit", OnClick: func() { m.post(m.Quit) }},
@@ -94,9 +97,9 @@ func (m *Manager) showWindow() {
 	m.hidden = false
 }
 
-// quickSearch is the tray's Search: the window, with the search box
+// quickFilter is the tray's Filter the items: the window, with the filter
 // ready to type into.
-func (m *Manager) quickSearch() {
+func (m *Manager) quickFilter() {
 	m.showWindow()
-	m.focusSearch()
+	m.focusFilter()
 }

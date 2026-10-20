@@ -69,8 +69,8 @@ type Options struct {
 	// point it at a daemon of their own.
 	Connect func(secretvault.Options) (*secretvault.Client, error)
 
-	// Clipboard takes copies: the desktop's when nil, through the CLI
-	// beside this program or through uitoolkit (systemClipboard).
+	// Clipboard takes copies: the desktop's when nil, through uitoolkit
+	// (or, on the BSDs, the CLI beside this program: systemClipboard).
 	Clipboard Clipboard
 
 	// ClipTTL is how long a copy stays on the clipboard (30 seconds when
@@ -134,10 +134,10 @@ type Manager struct {
 	listed     bool                        // its items have been listed
 	listing    bool                        // and are being listed
 	lists      int                         // counts the listings
-	entries    []svrpc.Entry               // its items, without their fields, by name
-	shown      []int                       // the entries the search and folder let through
-	folder     string                      // the folder shown: a name prefix ending in "/", or ""
-	query      string                      // the search, as typed
+	entries    []svrpc.Entry               // its items, without their fields, in the list's order
+	names      map[string]string           // the names the list shows them by (svops.ShownNames)
+	shown      []int                       // the entries the tab and the filter let through
+	query      string                      // the filter, as typed
 	cursor     string                      // the item selected in the list
 	cur        *svrpc.Entry                // the open item, with its fields
 	otp        map[int]*svotp.Key          // the open item's one-time password keys, by field
@@ -150,15 +150,23 @@ type Manager struct {
 	copied     Copied // the last copy, taken back when its vault locks
 	copiedFrom string // the vault it came from
 
-	hist    *history      // the history page, with its revisions' fields
-	page    *tabbedPage   // the page up over the items, if one is
-	vpage   *vaultPage    // the vault's page, when it is the one up
-	kpage   *keysPage     // the keys' page, when it is
-	cpage   *contactsPage // the contacts' page, when it is
-	dpage   *desktopPage  // the desktop's page, when it is
-	editor  *editor       // the open item editor
-	asking  *promptDialog // the daemon's question on the screen
-	promptN int
+	hist     *history        // the history page, with its revisions' fields
+	page     *tabbedPage     // the page up over the items, if one is
+	vpage    *vaultPage      // the vault's page, when it is the one up
+	kpage    *keysPage       // the keys' page, when it is
+	cpage    *contactsPage   // the contacts' page, when it is
+	dpage    *desktopPage    // the other programs' tabs, the Tools tab's
+	spage    *tabbedPage     // Settings' page
+	dialogs  []*dialog       // the dialogs up in windows of their own, the top one last
+	picked   map[string]bool // the items picked together in the list, by name, when more than one is
+	itemTab  int             // the tab of items shown last (vtLogins and on): the kind the list shows
+	wantDisk [2]string       // the disk Show the disk asked for, by vault and key item, until it is listed
+	blocker  *blocker        // over the window while one is
+	tpage    *toolsPage      // the Tools tab's page, once it is made
+	disks    *disksPage      // the Disks tab's page, once it is made
+	editor   *editor         // the open item editor
+	asking   *promptDialog   // the daemon's question on the screen
+	promptN  int
 
 	gen        generator // the generator's settings, kept between uses
 	hidden     bool      // the window is hidden in the tray
@@ -177,6 +185,16 @@ type Manager struct {
 	systemdCreds func(stdin []byte, args ...string) ([]byte, error)
 
 	ui *ui
+
+	frontPart  int              // the part the front showed, which the back turns back to (flip.go)
+	switchTo   func()           // what the window turning over changes to, until it is up (flip.go)
+	clock      func() time.Time // the turn's clock: a test's (time.Now when nil)
+	flipAnyway bool             // turn over animated even offscreen (a test of the turn)
+
+	face         *lockFace // a closed vault's face, while it is up (lockface.go)
+	listingSince time.Time // when its listing began
+	faceFor      string    // the vault faceWas is of
+	faceWas      bool      // whether it was locked when last drawn
 }
 
 // New builds the manager's window and connects to secretvaultd, starting
@@ -212,7 +230,7 @@ func New(opts Options) (*Manager, error) {
 	}
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	win, err := m.app.NewWindow(platform.WindowOptions{
-		Title: "secretvault", Width: 1120, Height: 700, MinHeight: minWindowHeight,
+		Title: "secretvault", Width: 1560, Height: 860, MinHeight: minWindowHeight,
 		Headless: opts.Headless,
 	})
 	if err != nil {
@@ -220,6 +238,9 @@ func New(opts Options) (*Manager, error) {
 		return nil, err
 	}
 	m.win = win
+	// The toolkit's frame, its buttons and its resizing, crisp: without
+	// the soft shadow round it.
+	win.SetFrameShadow(false)
 	win.SetIcon(secretui.Icons()...)
 	win.SetOnCloseRequest(m.closeRequested)
 	m.build()
@@ -282,8 +303,10 @@ func (m *Manager) shutdown() {
 		if m.ui != nil {
 			// Every dialog up, and those under it, wipes what it holds as
 			// it goes (a recovery key, a generated password, a passphrase
-			// being typed). SetOverlay(nil) closes them all; DismissOverlay
-			// from outside them would close only the top one.
+			// being typed). Those in windows of their own close top first;
+			// SetOverlay(nil) closes those over the window, all of them,
+			// where DismissOverlay from outside would close only the top.
+			m.closeDialogs()
 			m.win.SetOverlay(nil)
 		}
 		if m.tray != nil {
@@ -316,10 +339,10 @@ const minWindowHeight = 440
 // whenever the page changes; a window narrower than the new floor is
 // widened to it.
 func (m *Manager) restateFloor() {
-	if m.ui == nil || m.win.Closed() || m.win.Content() == nil {
+	if m.ui == nil || m.win.Closed() || m.ui.root == nil {
 		return
 	}
-	floor := float32(math.Ceil(float64(widget.MinWidthOf(m.win.Content()) / m.win.Scale())))
+	floor := float32(math.Ceil(float64(widget.MinWidthOf(m.ui.root) / m.win.Scale())))
 	if w, h := m.win.Size(); float32(w) < floor {
 		m.win.SetSize(int(floor), h)
 	}
@@ -465,7 +488,6 @@ func (m *Manager) daemonGone() {
 	m.entries, m.shown, m.listed = nil, nil, false
 	m.vaults = nil
 	m.drawVaults()
-	m.drawFolders()
 	m.drawItems()
 	m.showGone()
 	m.drawStatus()
@@ -487,15 +509,21 @@ func (m *Manager) tick() {
 	}
 }
 
-// say puts a message in the status bar.
+// say puts a message in a note that fades after a few seconds (notes.go).
 func (m *Manager) say(format string, args ...any) {
 	m.ui.message = fmt.Sprintf(format, args...)
+	if m.ui.notes != nil {
+		m.ui.notes.note(m.ui.message, false)
+	}
 	m.drawStatus()
 }
 
-// fail puts an error in the status bar, in plain words.
+// fail says what went wrong, in plain words, in a note that stays longer.
 func (m *Manager) fail(err error) {
 	m.ui.message = m.describe(err)
+	if m.ui.notes != nil {
+		m.ui.notes.note(m.ui.message, true)
+	}
 	m.drawStatus()
 }
 
@@ -522,19 +550,19 @@ func (m *Manager) describe(err error) string {
 	// svops says these in the CLI's words, which name its commands and
 	// flags: here they are said in this program's.
 	case errors.Is(err, svops.ErrNoOwnKeys):
-		return "There is no key of yours to show: make an OpenPGP key in Keys › OpenPGP keys, or choose a person's public key."
+		return "There is no key of yours to show: make an OpenPGP key in Vault › My keys › OpenPGP keys, or choose a person's public key."
 	case errors.Is(err, svops.ErrNoDefaultVault):
-		return "There is no default vault: File › New vault… makes one, and Vault › Make it the default chooses one."
+		return "There is no default vault: Vault › New vault… makes one, and Vault › Make it the default chooses one."
 	case errors.Is(err, svops.ErrNoAgeIdentity):
-		return "That item holds no age identity: Keys › age identities › New… makes one."
+		return "That item holds no age identity: Vault › My keys › age identities › New… makes one."
 	case errors.Is(err, svops.ErrNotOneSecretKey):
-		return "That file does not hold exactly one secret key. Someone else's public key goes to Contacts › Add…"
+		return "That file does not hold exactly one secret key. Someone else's public key goes to Vault › Contacts › Add…"
 	case errors.Is(err, svops.ErrKeyExists):
 		return "There is an item of that name already: give the key another name (a key is never replaced)."
 	case errors.Is(err, svops.ErrNoGnuPGKey):
-		return "The vault holds no OpenPGP key gpg can use: make one in Keys › OpenPGP keys (version 4), or import one."
+		return "The vault holds no OpenPGP key gpg can use: make one in Vault › My keys › OpenPGP keys (version 4), or import one."
 	case errors.Is(err, svops.ErrUninstallFirst):
-		return "The browsers were set up for another program: Desktop › Browsers › Undo… first, then set them up again."
+		return "The browsers were set up for another program: Tools › Browsers › Undo… first, then set them up again."
 	case errors.Is(err, svops.ErrNoCLI):
 		return "The secretvault program is not installed beside this one, so other programs cannot be set up to start it."
 	case errors.As(err, &e):

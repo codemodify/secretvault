@@ -1,8 +1,7 @@
-//go:build !(linux || freebsd || netbsd || openbsd)
+//go:build !(freebsd || netbsd || openbsd)
 
 package svmanager
 
 // systemClipboard is where the manager's copies go: uitoolkit's secret
-// clipboard. On Windows a helper ended would leave its copy behind, so a
-// copy could not be taken back at a lock; macOS has no svclip yet.
+// clipboard (clip.go says why not the CLI's here).
 func systemClipboard() Clipboard { return desktopClipboard{} }

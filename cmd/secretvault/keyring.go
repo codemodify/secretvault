@@ -73,21 +73,20 @@ func (c *cli) keyringStatus(args []string) error {
 // keyringImport copies every secret out of the current keyring.
 func (c *cli) keyringImport(args []string) error {
 	fs := c.flags("keyring import")
-	prefix := fs.String("prefix", "imported", "put the secrets under this folder")
 	dryRun := fs.Bool("dry-run", false, "list what would be imported, and import nothing")
 	var u unlockFlags
 	u.register(fs)
-	if _, err := parse(fs, args, 0, 0, "[--prefix P] [--dry-run]"); err != nil {
+	if _, err := parse(fs, args, 0, 0, "[--dry-run]"); err != nil {
 		return err
 	}
-	n, err := c.importFromKeyring(&u, *prefix, *dryRun)
+	n, err := c.importFromKeyring(&u, *dryRun)
 	if err == nil && !*dryRun {
 		fmt.Fprintf(c.stdout, "Imported %d secrets.\n", n)
 	}
 	return err
 }
 
-func (c *cli) importFromKeyring(u *unlockFlags, prefix string, dryRun bool) (int, error) {
+func (c *cli) importFromKeyring(u *unlockFlags, dryRun bool) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	secrets, warnings, err := svops.ReadKeyring(ctx, func(o svsecret.Owner) {
@@ -105,7 +104,7 @@ func (c *cli) importFromKeyring(u *unlockFlags, prefix string, dryRun bool) (int
 		fmt.Fprintln(c.stderr, "warning:", w)
 	}
 	if dryRun {
-		names, _, _ := svops.ImportKeyring(ctx, nil, c.vault, prefix, secrets)
+		names, _, _ := svops.ImportKeyring(ctx, nil, c.vault, secrets)
 		for _, name := range names {
 			fmt.Fprintln(c.stdout, name)
 		}
@@ -115,7 +114,7 @@ func (c *cli) importFromKeyring(u *unlockFlags, prefix string, dryRun bool) (int
 	if err != nil {
 		return 0, err
 	}
-	_, n, err := svops.ImportKeyring(ctx, cl, c.vault, prefix, secrets)
+	_, n, err := svops.ImportKeyring(ctx, cl, c.vault, secrets)
 	return n, err
 }
 
@@ -123,7 +122,6 @@ func (c *cli) keyringTakeover(args []string) error {
 	fs := c.flags("keyring takeover")
 	dryRun := fs.Bool("dry-run", false, "show what would change, and change nothing")
 	noImport := fs.Bool("no-import", false, "do not copy the current keyring's secrets first")
-	prefix := fs.String("prefix", "imported", "folder for imported secrets")
 	var u unlockFlags
 	u.register(fs)
 	if _, err := parse(fs, args, 0, 0, "[--dry-run] [--no-import]"); err != nil {
@@ -154,7 +152,7 @@ func (c *cli) keyringTakeover(args []string) error {
 		return nil
 	}
 	if !*noImport && exe != "" {
-		n, err := c.importFromKeyring(&u, *prefix, false)
+		n, err := c.importFromKeyring(&u, false)
 		if err != nil {
 			return fmt.Errorf("importing first (use --no-import to skip): %w", err)
 		}

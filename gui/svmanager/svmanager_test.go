@@ -54,7 +54,7 @@ func TestUnlockingAsksForThePassphraseInItsOwnWindow(t *testing.T) {
 	h.start(Options{})
 	h.waitText("Vault personal is locked")
 	if !strings.Contains(h.text(), "personal: locked") {
-		t.Fatalf("the status bar does not say the vault is locked:\n%s", h.text())
+		t.Fatalf("the vault's breadcrumb does not say it is locked:\n%s", h.text())
 	}
 
 	h.win().Press(platform.KeyU, platform.ModCtrl)
@@ -101,7 +101,7 @@ func TestUnlockingAsksForThePassphraseInItsOwnWindow(t *testing.T) {
 	if !d.win.Closed() || h.m.asking != nil {
 		t.Fatal("the dialog stayed up")
 	}
-	for _, want := range []string{"web/github.com", "mail/fastmail", "2fa/example", "personal: unlocked, 4 items", "All items (4)", "web (2)"} {
+	for _, want := range []string{"github.com", "fastmail", "personal: unlocked, 4 items"} {
 		if !strings.Contains(h.text(), want) {
 			t.Errorf("the window lacks %q", want)
 		}
@@ -150,18 +150,22 @@ func TestAVaultUnlockedWhileShownLockedWaitsToBeAsked(t *testing.T) {
 	h.waitFor("the items", func() bool { return h.m.listed && len(h.m.entries) == 4 })
 }
 
-// Enter on a locked vault unlocks it; the items then take the keyboard.
+// Enter on a locked vault, in the vaults' drop-down, unlocks it; the
+// items then take the keyboard.
 func TestEnterOnALockedVaultUnlocksIt(t *testing.T) {
 	h := newHarness(t)
 	h.start(Options{})
 	h.waitText("Vault personal is locked")
-	h.win().FocusOn(h.m.ui.vaultList)
+	h.openCrumb("personal")
+	if h.win().Focus() != h.m.ui.vaultList {
+		t.Fatalf("the vaults' drop-down does not take the keyboard: %T", h.win().Focus())
+	}
 	h.win().Press(platform.KeyReturn)
 	d := h.asking()
 	d.win.Type(pass)
 	d.win.Press(platform.KeyReturn)
 	h.waitFor("the items", func() bool { return h.m.listed && len(h.m.entries) == 4 })
-	if h.win().Focus() != h.m.ui.items {
+	if h.win().Focus() != h.m.ui.content {
 		t.Fatalf("after unlocking the keyboard is on %T", h.win().Focus())
 	}
 }
@@ -191,68 +195,80 @@ func TestCancellingThePromptSaysSo(t *testing.T) {
 	}
 }
 
-func TestTheListFiltersAsYouTypeAndFoldersNarrowIt(t *testing.T) {
+// One filter narrows every tab of items, and stays as the tabs change; a
+// tab it lets nothing through in says which tabs have items it does.
+func TestTheFilterNarrowsEveryTab(t *testing.T) {
 	h := newHarness(t)
 	h.start(Options{})
 	h.unlock()
-	if n := h.m.ui.items.RowCount; n != 4 {
-		t.Fatalf("%d items listed, want 4", n)
+	if n := len(h.m.shown); n != 3 || h.m.itemTab != vtLogins {
+		t.Fatalf("%d items listed in tab %q, want Logins' 3", n, vaultTabTitles[h.m.itemTab])
 	}
 	h.win().Press(platform.KeyF, platform.ModCtrl)
-	if h.win().Focus() != h.m.ui.search {
+	if h.win().Focus() != h.m.ui.filter || h.m.ui.filter.AccessibleName() != "Filter" {
 		t.Fatalf("Ctrl+F put the keyboard on %T", h.win().Focus())
 	}
 	h.win().Type("git")
-	if n := h.m.ui.items.RowCount; n != 2 {
+	if n := len(h.m.shown); n != 2 {
 		t.Fatalf("%d items match git, want 2", n)
 	}
-	h.waitText("2 of 4 items")
-	// Down goes from the search to the results, the best match selected.
+	h.waitFor("2 of 3 shown", func() bool { return h.m.ui.content.Count == 2 })
+	// Down goes from the filter to the items it lets through, the best
+	// match picked.
 	h.win().Press(platform.KeyDown)
-	if h.win().Focus() != h.m.ui.items || h.m.ui.items.Selected != 0 || h.m.cursor != "web/github.com" {
-		t.Fatalf("Down: the keyboard is on %T, row %d, %q selected", h.win().Focus(), h.m.ui.items.Selected, h.m.cursor)
+	if h.win().Focus() != h.m.ui.content || h.m.cursor != "web/github.com" || h.m.ui.content.Selected != h.m.rowOf("web/github.com") {
+		t.Fatalf("Down: the keyboard is on %T, %q selected", h.win().Focus(), h.m.cursor)
 	}
-	h.win().FocusOn(h.m.ui.search)
+	h.win().FocusOn(h.m.ui.filter)
 	h.win().Press(platform.KeyEnd)
 	h.win().Type("lab")
-	if n := h.m.ui.items.RowCount; n != 1 || h.m.itemCell(0, 0) != "web/gitlab.com" {
-		t.Fatalf("gitlab: %d rows, first %q", n, h.m.itemCell(0, 0))
+	if got := h.listItems(); len(got) != 1 || got[0] != "web/gitlab.com" {
+		t.Fatalf("gitlab: the list shows %v", got)
 	}
-	// The search finds labels, tags and attributes too, never values.
-	for q, want := range map[string]int{"GitHub": 1, "dev": 1, "service": 1, "gitlab-pass": 0, "ada@": 0, "otp": 1, "LOGIN": 3} {
-		h.m.ui.search.SetText(q)
-		if n := h.m.ui.items.RowCount; n != want {
-			t.Errorf("searching %q found %d, want %d", q, n, want)
+	// It finds labels, tags and attributes too, never values.
+	for q, want := range map[string]int{"GitHub": 1, "dev": 1, "service": 1, "gitlab-pass": 0, "ada@": 0, "LOGIN": 3} {
+		h.m.ui.filter.SetText(q)
+		if n := len(h.m.shown); n != want {
+			t.Errorf("filtering %q found %d, want %d", q, n, want)
 		}
 	}
-	h.m.ui.search.SetText("fast")
-	// Enter in the search opens the match, and the list takes the keyboard.
+	// Nothing in Logins: the pane says where, and leads there, the filter
+	// kept.
+	h.m.ui.filter.SetText("otp")
+	h.idle()
+	if !strings.Contains(h.text(), `Nothing in Logins matches "otp".`) {
+		t.Fatalf("the pane does not say where the matches are:\n%s", h.text())
+	}
+	h.pressOn("One-time codes (1)")
+	if h.m.itemTab != vtCodes || len(h.m.shown) != 1 || h.m.query != "otp" {
+		t.Fatalf("in tab %q, %d shown, filter %q", vaultTabTitles[h.m.itemTab], len(h.m.shown), h.m.query)
+	}
+	h.m.ui.filter.SetText("fast")
+	h.idle()
+	h.pressOn("Logins (1)")
+	// Enter in the filter opens the match, and the list takes the keyboard.
+	h.win().FocusOn(h.m.ui.filter)
 	h.win().Press(platform.KeyReturn)
 	h.waitFor("mail/fastmail to open", func() bool { return h.m.cur != nil && h.m.cur.Item.Name == "mail/fastmail" })
-	if h.win().Focus() != h.m.ui.items {
+	if h.win().Focus() != h.m.ui.content {
 		t.Fatalf("after Enter the keyboard is on %T", h.win().Focus())
 	}
-	h.win().FocusOn(h.m.ui.search)
+	h.win().FocusOn(h.m.ui.filter)
 	h.win().Press(platform.KeyEscape) // the field's own: it empties
 	h.win().Press(platform.KeyEscape)
-	if n := h.m.ui.items.RowCount; n != 4 || h.m.query != "" {
-		t.Fatalf("after Escape: %d rows, search %q", n, h.m.query)
+	if n := len(h.m.shown); n != 3 || h.m.query != "" {
+		t.Fatalf("after Escape: %d shown, filter %q", n, h.m.query)
 	}
+	h.m.ui.filter.SetText("nothing like it")
+	h.idle()
+	if !strings.Contains(h.text(), `Nothing in vault personal matches "nothing like it".`) {
+		t.Fatalf("a filter that finds nothing anywhere:\n%s", h.text())
+	}
+	h.m.ui.filter.SetText("")
 
-	// Folders come from the names; a folder shows what is in it.
-	web := h.m.findFolder("web/")
-	if web == nil || web.Label != "web (2)" {
-		t.Fatalf("the web folder: %+v", web)
-	}
-	h.m.ui.folders.Selected = web
-	h.m.folderSelected(web)
-	h.pump()
-	if n := h.m.ui.items.RowCount; n != 2 || h.m.itemCell(0, 0) != "github.com" {
-		t.Fatalf("in web/: %d rows, first %q", n, h.m.itemCell(0, 0))
-	}
-	h.m.folderSelected(h.m.findFolder(""))
-	if n := h.m.ui.items.RowCount; n != 4 {
-		t.Fatalf("all items: %d rows", n)
+	// One list, by the names it shows, as people read them.
+	if got := h.listRows(); !slices.Equal(got, []string{"fastmail", "github.com", "gitlab.com"}) {
+		t.Fatalf("the list shows %v", got)
 	}
 }
 
@@ -270,7 +286,13 @@ func TestAnItemIsMaskedUntilRevealed(t *testing.T) {
 	h.waitText("Enter opens it")
 	h.open("web/github.com")
 	screen := h.text()
-	for _, want := range []string{"web/github.com", "login · GitHub", "username", "ada", "password", mask, "https://github.com", "dev", "service", "github", "No files: Add file… attaches one."} {
+	if title := find(h.m.ui.pane, func(*displayHeading) bool { return true }); title == nil || title.Text() != "github.com" {
+		t.Fatalf("the item's title: %+v", title)
+	}
+	if !strings.Contains(screen, "Full name: web/github.com") {
+		t.Errorf("the item does not say its whole name:\n%s", screen)
+	}
+	for _, want := range []string{"github.com", "Login · GitHub", "username", "ada", "password", mask, "https://github.com", "dev", "service", "github", "No files: Add file… attaches one."} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("the item lacks %q", want)
 		}
@@ -375,7 +397,7 @@ func TestCopiesGoToTheClipboardAndAreTakenBack(t *testing.T) {
 	// Ctrl+C in the list copies the selected item's password: fetched for
 	// the purpose, and wiped afterwards.
 	h.selectItem("web/gitlab.com")
-	h.win().FocusOn(h.m.ui.items)
+	h.win().FocusOn(h.m.ui.content)
 	h.win().Press(platform.KeyC, platform.ModCtrl)
 	h.waitFor("a copy", func() bool { return h.clip.count() == 1 })
 	c := h.clip.last()
@@ -412,7 +434,7 @@ func TestCopiesGoToTheClipboardAndAreTakenBack(t *testing.T) {
 	}
 
 	// In the search, with no text selected, Ctrl+C copies the password too.
-	h.win().FocusOn(h.m.ui.search)
+	h.win().FocusOn(h.m.ui.filter)
 	n := h.clip.count()
 	h.win().Press(platform.KeyC, platform.ModCtrl)
 	if h.clip.count() != n+1 || h.clip.last().text != "hunter2-github" {
@@ -476,7 +498,7 @@ func TestEditingAndSaving(t *testing.T) {
 	}
 
 	// A new item, from the kind's starter fields.
-	h.win().FocusOn(h.m.ui.items)
+	h.win().FocusOn(h.m.ui.content)
 	h.win().Press(platform.KeyN, platform.ModCtrl)
 	ed = h.m.editor
 	if ed == nil || ed.orig != "" {
@@ -553,7 +575,7 @@ func TestRenameAndDelete(t *testing.T) {
 	h.start(Options{})
 	h.unlock()
 	h.selectItem("mail/fastmail")
-	h.win().FocusOn(h.m.ui.items)
+	h.win().FocusOn(h.m.ui.content)
 	h.win().Press(platform.KeyF2)
 	if h.overlay() == nil || button(h.overlay(), "Rename") == nil {
 		t.Fatalf("F2 asked nothing, or its button does not say Rename:\n%s", h.text())
@@ -583,7 +605,7 @@ func TestRenameAndDelete(t *testing.T) {
 	}
 
 	h.selectItem("mail/fastmail.com")
-	h.win().FocusOn(h.m.ui.items)
+	h.win().FocusOn(h.m.ui.content)
 	h.win().Press(platform.KeyDelete)
 	d := h.overlay()
 	if d == nil || !strings.Contains(h.text(), "mail/fastmail.com goes from vault personal") {
@@ -595,7 +617,7 @@ func TestRenameAndDelete(t *testing.T) {
 	if h.m.entry("mail/fastmail.com") == nil {
 		t.Fatal("Enter deleted the item")
 	}
-	h.win().FocusOn(h.m.ui.items)
+	h.win().FocusOn(h.m.ui.content)
 	h.win().Press(platform.KeyDelete)
 	h.click(h.win(), button(h.overlay(), "Delete the item"))
 	h.waitFor("the deletion", func() bool { return h.m.entry("mail/fastmail.com") == nil })
@@ -603,11 +625,13 @@ func TestRenameAndDelete(t *testing.T) {
 		t.Fatalf("after deleting: %v", err)
 	}
 
-	// Delete in the folders, or in a field, deletes nothing.
-	h.win().FocusOn(h.m.ui.folders)
+	// Delete with no item picked deletes nothing.
+	h.m.cursor = ""
+	h.m.syncList()
+	h.win().FocusOn(h.m.ui.content)
 	h.win().Press(platform.KeyDelete)
-	if h.overlay() != nil {
-		t.Fatal("Delete in the folders offered to delete an item")
+	if h.overlay() != nil || h.m.topDialog() != nil {
+		t.Fatal("Delete with nothing picked offered to delete an item")
 	}
 }
 
@@ -790,7 +814,7 @@ func TestLockingClearsTheScreenAndWipesWhatWasHeld(t *testing.T) {
 
 	h.unlockAgain()
 	h.selectItem("web/github.com")
-	h.win().FocusOn(h.m.ui.items)
+	h.win().FocusOn(h.m.ui.content)
 	h.win().Press(platform.KeyE, platform.ModCtrl)
 	h.waitFor("the editor", func() bool { return h.m.editor != nil })
 	var secret *widgets.SecretField
@@ -841,7 +865,7 @@ func TestGrantsAreListedAndRevoked(t *testing.T) {
 	if len(p.grants) != 1 || p.gtable.RowCount != 1 || p.gtable.CellText(0, 0) != "always allowed" || p.gtable.CellText(0, 2) != "web/github.com" {
 		t.Fatalf("grants: %+v", p.grants)
 	}
-	p.tabs.Select(tabAudit)
+	h.m.selectTab(p.tabbedPage, tabAudit)
 	h.idle()
 	if len(p.audit) == 0 {
 		t.Fatal("the audit log is empty")
@@ -849,7 +873,7 @@ func TestGrantsAreListedAndRevoked(t *testing.T) {
 	if !strings.Contains(h.text(), "presented a key on this connection") {
 		t.Fatalf("the audit log does not show:\n%s", h.text())
 	}
-	p.tabs.Select(tabGrants)
+	h.m.selectTab(p.tabbedPage, tabGrants)
 	h.pump()
 	h.win().FocusOn(p.gtable)
 	h.win().Press(platform.KeyDelete)
@@ -891,7 +915,7 @@ func TestSyncStatusIsShown(t *testing.T) {
 	h.waitText("personal: unlocked, 4 items; synced")
 	h.win().Press(platform.KeyG, platform.ModCtrl|platform.ModShift)
 	h.waitFor("the vault's page", h.m.showingVaultPage)
-	h.m.vpage.tabs.Select(tabSync)
+	h.m.selectTab(h.m.vpage.tabbedPage, tabSync)
 	h.idle()
 	for _, want := range []string{srv.URL, "Last good sync", "sent"} {
 		if !strings.Contains(h.text(), want) {
@@ -943,9 +967,8 @@ func TestWhenTheDaemonGoesAwayItSaysSoAndReconnects(t *testing.T) {
 	if !allZero(held) || h.m.cur != nil {
 		t.Fatal("the open item was kept")
 	}
-	if strings.Contains(h.text(), "web/github.com") {
-		t.Fatal("items still show")
-	}
+	// (A note about the item, as it was opened, fades out as it goes.)
+	h.waitFor("the items to go", func() bool { return !strings.Contains(h.text(), "web/github.com") })
 	// Nothing can be done meanwhile, and saying so is all that happens.
 	h.win().Press(platform.KeyN, platform.ModCtrl)
 	if h.m.editor != nil {
@@ -970,8 +993,8 @@ func TestHistoryShowsTheConflictAndItsWinner(t *testing.T) {
 	if !strings.Contains(h.text(), "1 other version was saved at the same time") {
 		t.Fatalf("the conflict is not shown:\n%s", h.text())
 	}
-	if icon, _ := h.m.itemIcon(0, 0); icon != style.IconWarning {
-		t.Fatal("the list does not mark the conflict")
+	if d := h.m.rowDetail(h.m.rowOf("site")); d != "conflict" {
+		t.Fatalf("the list marks the conflict %q", d)
 	}
 	h.win().Press(platform.KeyH, platform.ModCtrl)
 	h.waitFor("the history", h.m.showingHistory)
@@ -1156,7 +1179,7 @@ func TestTheTray(t *testing.T) {
 	for _, it := range tray.Menu() {
 		texts = append(texts, it.Text)
 	}
-	if !slices.Equal(texts, []string{"Open secretvault", "Search…", "Lock all vaults", "", "Quit"}) {
+	if !slices.Equal(texts, []string{"Open secretvault", "Filter the items…", "Lock all vaults", "", "Quit"}) {
 		t.Fatalf("the tray menu is %q", texts)
 	}
 	h.unlock()
@@ -1173,7 +1196,7 @@ func TestTheTray(t *testing.T) {
 	// Search brings it back, ready to type.
 	tray.Menu()[1].OnClick()
 	h.pump()
-	if h.m.hidden || h.win().Focus() != h.m.ui.search {
+	if h.m.hidden || h.win().Focus() != h.m.ui.filter {
 		t.Fatal("Search did not bring the window back with the search ready")
 	}
 	// Lock all locks every vault in the daemon.

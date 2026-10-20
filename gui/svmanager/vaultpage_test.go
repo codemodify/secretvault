@@ -54,7 +54,7 @@ func TestKeyslotsAreListedAddedAndRemoved(t *testing.T) {
 	// One step: the kind at the head of the form, and under it only what
 	// that kind takes, the rows under it moved up with no gap
 	// (uitoolkit-gaps.md, 38 and 45).
-	h.pressOn("Add a keyslot…")
+	h.pressOn("Add a way to unlock…")
 	shows := func(name string) bool {
 		return shown(find(h.overlay(), func(c interface {
 			widget.Component
@@ -109,7 +109,7 @@ func TestKeyslotsAreListedAddedAndRemoved(t *testing.T) {
 
 	// A keyfile, made here.
 	key := filepath.Join(h.dir, "vault.key")
-	h.pressOn("Add a keyslot…")
+	h.pressOn("Add a way to unlock…")
 	h.choose("Opens with", 2)
 	h.fill("Keyfile", key)
 	h.tick("Make a new keyfile there", true)
@@ -130,7 +130,7 @@ func TestKeyslotsAreListedAddedAndRemoved(t *testing.T) {
 	if !strings.Contains(h.text(), "giving the vault a new key shuts them out") {
 		t.Fatalf("removing did not say what it does not do:\n%s", h.text())
 	}
-	h.press("Remove the keyslot")
+	h.press("Remove the way to unlock")
 	h.said(`Vault personal no longer opens with the passphrase "spare".`)
 	if got := h.slotTypes(); len(got) != 2 || got[0] == got[1] {
 		t.Fatalf("keyslots after removing: %v", got)
@@ -154,7 +154,7 @@ func TestARecoveryKeySplitIntoSharesIsShownOnceAndOpensTheVault(t *testing.T) {
 	h.start(Options{})
 	h.unlock()
 	h.openVaultPage(tabKeyslots)
-	h.pressOn("Add a keyslot…")
+	h.pressOn("Add a way to unlock…")
 	h.choose("Opens with", 1)
 	h.tick("Split it into shares", true)
 	find(h.overlay(), func(f *widgets.NumberField) bool { return f.AccessibleName() == "Shares" }).Value = 3
@@ -280,7 +280,7 @@ func TestASecurityKeyIsAddedAndUnlocks(t *testing.T) {
 	h.start(Options{})
 	h.unlock()
 	h.openVaultPage(tabKeyslots)
-	h.pressOn("Add a keyslot…")
+	h.pressOn("Add a way to unlock…")
 	h.choose("Opens with", 4)
 	h.choose("Opening asks", 2)
 	h.fill("Label", "desk key")
@@ -305,7 +305,7 @@ func TestThePINOfASecurityKeyIsAskedInItsOwnWindow(t *testing.T) {
 	h.start(Options{})
 	h.unlock()
 	h.openVaultPage(tabKeyslots)
-	h.pressOn("Add a keyslot…")
+	h.pressOn("Add a way to unlock…")
 	h.choose("Opens with", 4)
 	h.press("Add the security key")
 	d := h.asking()

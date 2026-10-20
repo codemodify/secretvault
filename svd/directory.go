@@ -41,7 +41,7 @@ func init() {
 			}
 		}
 		d.cfg.Directories = append(d.cfg.Directories, p)
-		if err := d.cfg.save(d.home); err != nil {
+		if err := d.cfg.save(d.config); err != nil {
 			d.cfg.Directories = d.cfg.Directories[:len(d.cfg.Directories)-1]
 			return nil, err
 		}
@@ -65,7 +65,7 @@ func init() {
 		for i, x := range d.cfg.Directories {
 			if x.Name == p.Name {
 				d.cfg.Directories = append(d.cfg.Directories[:i:i], d.cfg.Directories[i+1:]...)
-				return nil, d.cfg.save(d.home)
+				return nil, d.cfg.save(d.config)
 			}
 		}
 		return nil, svrpc.Errorf(svrpc.CodeNotFound, "there is no directory %q", p.Name)

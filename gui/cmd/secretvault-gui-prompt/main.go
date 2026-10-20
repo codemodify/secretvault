@@ -30,6 +30,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/codemodify/secretvault/gui/secretui"
 	"github.com/codemodify/secretvault/svcrypto"
 	"github.com/codemodify/secretvault/svpeer"
 	"github.com/codemodify/secretvault/svprompt"
@@ -218,6 +219,9 @@ func (k *desk) show(d *dialog) {
 func (k *desk) application() (*uitoolkit.Application, error) {
 	if k.app == nil {
 		k.app = uitoolkit.New(k.opts)
+		if k.opts.Look == nil {
+			secretui.UseLook(k.app) // the manager's look
+		}
 	}
 	// With no display, uitoolkit falls back to drawing offscreen, where a
 	// prompt would wait unseen until it timed out.

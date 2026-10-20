@@ -61,7 +61,6 @@ const (
 // DER) as fields, and the certificate's SHA-256 and first address as
 // attributes.
 const (
-	SMIMEItemPrefix  = "smime/"
 	SMIMECertField   = "smime_certificate"
 	SMIMEChainField  = "smime_chain"
 	SMIMEKeyField    = "smime_private_key"
@@ -70,7 +69,8 @@ const (
 )
 
 // SMIMEImportParams import a PKCS #12 (.p12, .pfx) file holding your key
-// and certificate, as item Item ("" for smime/ADDRESS).
+// and certificate, as item Item ("" for one named for
+// its address, "(S∕MIME)" or a number added if an item has that name).
 type SMIMEImportParams struct {
 	Vault    string `json:"vault,omitempty"`
 	Item     string `json:"item,omitempty"`

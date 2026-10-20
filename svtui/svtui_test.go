@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -391,12 +392,13 @@ func (h *harness) unlock() {
 	h.waitFor("Unlock vault personal")
 	h.typeText(pass)
 	h.key(tcell.KeyEnter)
-	h.waitFor("web/github.com")
+	h.waitFor("github.com")
 }
 
-// open opens an item through the filter.
+// open opens an item through the filter, its kind listed first.
 func (h *harness) open(name string) {
 	h.t.Helper()
+	h.showKindOf(name)
 	h.typeText("/" + name)
 	h.key(tcell.KeyEnter)
 	h.key(tcell.KeyEnter)
@@ -404,6 +406,21 @@ func (h *harness) open(name string) {
 	h.waitFor("revision")
 	h.key(tcell.KeyEscape) // clear the filter
 	h.waitGone("/ " + name)
+}
+
+// showKindOf lists the kind of the item named, as Enter on its row in
+// the vault list does.
+func (h *harness) showKindOf(name string) {
+	h.t.Helper()
+	h.do(func() {
+		for i := range h.u.entries {
+			if e := &h.u.entries[i]; e.Item.Name == name {
+				if k := svops.KindRowOf(&e.Item); k >= 0 {
+					h.u.showKind(k)
+				}
+			}
+		}
+	})
 }
 
 // get reads an item as the CLI would, presenting the key.
@@ -440,7 +457,7 @@ func TestUnlockingAsksForThePassphraseInADialog(t *testing.T) {
 	h.typeText(pass)
 	h.waitFor(strings.Repeat("•", len(pass)))
 	h.key(tcell.KeyEnter)
-	h.waitFor("web/github.com")
+	h.waitFor("github.com")
 	h.waitFor("personal *  unlocked")
 	h.waitFor("4 items")
 	if h.leaked.Load() {
@@ -561,14 +578,14 @@ func TestAnotherVaultIsOneEnterAway(t *testing.T) {
 	h.unlock()
 	h.waitFor("work  unlocked")
 	h.key(tcell.KeyLeft) // to the vaults
-	h.key(tcell.KeyDown)
+	h.key(tcell.KeyEnd)  // past what personal holds, to work
 	h.key(tcell.KeyEnter)
 	// This terminal has not shown it knows work's passphrase, unless the
 	// CLI proved it from the same terminal session (as when these tests
 	// run in one): then the daemon asks nothing. Run with no terminal, the
 	// program is what is asked about.
 	deadline := time.Now().Add(waitTime)
-	for s := h.text(); !strings.Contains(s, "work/vpn"); s = h.text() {
+	for s := h.text(); !strings.Contains(s, "vpn"); s = h.text() {
 		if strings.Contains(s, "has not used vault") {
 			h.typeText(pass)
 			h.key(tcell.KeyEnter)
@@ -580,9 +597,28 @@ func TestAnotherVaultIsOneEnterAway(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	h.waitFor("work unlocked · 1 item")
-	h.waitFor("Items · work")
-	if s := h.text(); strings.Contains(s, "web/github.com") {
+	h.waitFor("Logins · work")
+	if s := h.text(); strings.Contains(s, "github.com") {
 		t.Fatalf("personal's items still show:\n%s", s)
+	}
+}
+
+// The list shows the kind's items, each by the last part of its name,
+// sorted as people read them: there are no folders.
+func TestTheListShowsNamesWithoutTheirOldPlaces(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{}, "")
+	h.unlock()
+	h.waitFor("fastmail")
+	var rows []string
+	h.do(func() {
+		for i := range h.u.itemList.GetItemCount() {
+			main, _ := h.u.itemList.GetItemText(i)
+			rows = append(rows, main)
+		}
+	})
+	if !slices.Equal(rows, []string{"fastmail", "github.com", "gitlab.com"}) {
+		t.Fatalf("the list shows %q", rows)
 	}
 }
 
@@ -590,26 +626,57 @@ func TestTheListFiltersAsYouType(t *testing.T) {
 	h := newHarness(t)
 	h.start(Options{}, "")
 	h.unlock()
-	h.waitFor("2fa/example")
+	h.waitFor("fastmail")
 	count := func() (n int) {
 		h.do(func() { n = h.u.itemList.GetItemCount() })
 		return n
 	}
-	if n := count(); n != 4 {
-		t.Fatalf("%d items listed, want 4", n)
+	if n := count(); n != 3 {
+		t.Fatalf("%d logins listed, want 3", n)
 	}
 	h.typeText("/git")
-	h.waitFor("2 of 4")
+	h.waitFor("2 of 3")
 	if n := count(); n != 2 {
 		t.Fatalf("%d items match git, want 2", n)
 	}
 	h.typeText("lab")
-	h.waitFor("1 of 4")
+	h.waitFor("1 of 3")
 	h.key(tcell.KeyEscape)
-	h.waitGone("of 4")
-	if n := count(); n != 4 {
-		t.Fatalf("%d items after clearing the filter, want 4", n)
+	h.waitGone("of 3")
+	if n := count(); n != 3 {
+		t.Fatalf("%d items after clearing the filter, want 3", n)
 	}
+}
+
+// The vault shown opens, in the vaults pane, into every kind of item with
+// its count, My keys, Contacts and About this vault; Enter on a kind lists
+// its items, the counts follow the filter, and a kind it finds nothing in
+// leads to those it does.
+func TestTheVaultOpensIntoWhatItHolds(t *testing.T) {
+	h := newHarness(t)
+	h.start(Options{}, "")
+	h.unlock()
+	h.waitFor("Logins               3")
+	h.waitFor("One-time codes       1")
+	h.waitFor("About this vault")
+	var at int
+	h.do(func() {
+		at = slices.Index(h.u.vrows, vaultRow{vault: 0, part: 3})
+		h.u.app.SetFocus(h.u.vaultList)
+		h.u.vaultList.SetCurrentItem(at)
+	})
+	h.key(tcell.KeyEnter)
+	h.waitFor(" One-time codes · personal ")
+	h.waitFor("example")
+	h.typeText("/fast")
+	h.waitFor("Nothing here matches; in:")
+	h.waitFor("→ Logins (1)")
+	h.waitFor("Logins               1")
+	h.key(tcell.KeyEnter) // to the list
+	h.key(tcell.KeyDown)
+	h.key(tcell.KeyEnter)
+	h.waitFor(" Logins · personal ")
+	h.waitFor("fastmail")
 }
 
 func TestAnItemIsMaskedUntilRevealed(t *testing.T) {
@@ -618,7 +685,7 @@ func TestAnItemIsMaskedUntilRevealed(t *testing.T) {
 	h.unlock()
 	h.open("web/github.com")
 	screen := h.text()
-	for _, want := range []string{"login", "GitHub", "dev", "service", "github", "username", "ada", "password", mask, "concealed"} {
+	for _, want := range []string{"Login", "GitHub", "dev", "service", "github", "username", "ada", "password", mask, "concealed"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("the item view lacks %q", want)
 		}
@@ -851,7 +918,7 @@ func TestLockingClearsSecretsFromTheScreenAndMemory(t *testing.T) {
 	h.waitFor("Unlock vault personal")
 	h.typeText(pass)
 	h.key(tcell.KeyEnter)
-	h.waitFor("web/github.com")
+	h.waitFor("github.com")
 	h.open("web/github.com")
 	h.typeText("r")
 	h.waitFor("hunter2-github")
@@ -865,7 +932,7 @@ func TestLockingClearsSecretsFromTheScreenAndMemory(t *testing.T) {
 	h.waitFor("Unlock vault personal")
 	h.typeText(pass)
 	h.key(tcell.KeyEnter)
-	h.waitFor("web/github.com")
+	h.waitFor("github.com")
 	h.open("web/github.com")
 	h.typeText("r")
 	h.waitFor("hunter2-github")

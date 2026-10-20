@@ -59,17 +59,21 @@ type HelpersPlan struct {
 	DockerPrevious string
 }
 
-// helpersRecord is what Apply keeps for Undo, beside the vaults.
+// helpersRecord is what Apply keeps for Undo, in the settings folder.
 type helpersRecord struct {
 	DockerPrevious string `json:"docker_previous,omitempty"`
 }
 
+// HelpersFile is the record of the helpers' setup, in the settings
+// folder.
+const HelpersFile = "helpers.json"
+
 func helpersRecordPath() (string, error) {
-	h, err := svcore.Home()
+	h, err := svcore.ConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(h, "helpers.json"), nil
+	return filepath.Join(h, HelpersFile), nil
 }
 
 // helperStore is the name git and docker are given: they run
@@ -226,6 +230,9 @@ func (p *HelpersPlan) Apply() ([]string, error) {
 		}
 		if p.DockerStore != "" {
 			b, _ := json.Marshal(helpersRecord{DockerPrevious: p.DockerStore})
+			if err := os.MkdirAll(filepath.Dir(rp), 0o700); err != nil {
+				return done, err
+			}
 			if err := WriteReplacing(rp, b, 0o600); err != nil {
 				return done, err
 			}

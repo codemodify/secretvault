@@ -48,7 +48,7 @@ func TestPasskeysAreMadeKeptAndSignedWithInTheDaemon(t *testing.T) {
 	if r["ok"] != true {
 		t.Fatalf("create: %v", r)
 	}
-	if q := h.desk.questions()[asked]; !strings.Contains(q, `wants to save a new passkey "passkeys/example.com" for example.com (account "ada@example.com"), for https://login.example.com, through the secretvault extension.`) {
+	if q := h.desk.questions()[asked]; !strings.Contains(q, `wants to save a new passkey "example.com" for example.com (account "ada@example.com"), for https://login.example.com, through the secretvault extension.`) {
 		t.Fatalf("the save prompt: %q", q)
 	}
 	cred, err := rp.VerifyRegistration([]byte(cd), unb64(t, r["attestationObject"]), ch, false)
@@ -64,13 +64,13 @@ func TestPasskeysAreMadeKeptAndSignedWithInTheDaemon(t *testing.T) {
 
 	// It is an item of kind passkey, with no secret where people look.
 	out := h.ok("", h.with("ls")...)
-	if !strings.Contains(out, "passkeys/example.com") {
+	if !strings.Contains(out, "example.com") {
 		t.Fatalf("ls: %s", out)
 	}
-	if _, errs, code := h.run("", h.with("get", "passkeys/example.com")...); code == 0 || !strings.Contains(errs, "is a passkey") {
+	if _, errs, code := h.run("", h.with("get", "example.com")...); code == 0 || !strings.Contains(errs, "is a passkey") {
 		t.Fatalf("get printed a passkey's key: %d %s", code, errs)
 	}
-	if out := h.ok("", h.with("get", "passkeys/example.com", "--field", "rp_id")...); out != "example.com\n" {
+	if out := h.ok("", h.with("get", "example.com", "--field", "rp_id")...); out != "example.com\n" {
 		t.Fatalf("get --field rp_id: %q", out)
 	}
 	// Renamed and deleted like any item (below, after it is used).
@@ -106,7 +106,7 @@ func TestPasskeysAreMadeKeptAndSignedWithInTheDaemon(t *testing.T) {
 	if r := sign(""); refused(r) != svext.CodeDenied {
 		t.Fatalf("a refused sign: %v", r)
 	}
-	if q := h.desk.questions()[asked]; !strings.Contains(q, `wants to sign in to example.com as "ada@example.com" with the passkey "passkeys/example.com", for https://login.example.com`) {
+	if q := h.desk.questions()[asked]; !strings.Contains(q, `wants to sign in to example.com as "ada@example.com" with the passkey "example.com", for https://login.example.com`) {
 		t.Fatalf("the sign prompt: %q", q)
 	}
 	h.desk.answer(svrpc.ChoiceAlways, "")
@@ -186,7 +186,7 @@ func TestPasskeysAreMadeKeptAndSignedWithInTheDaemon(t *testing.T) {
 	}
 
 	// Renamed, it is still the site's passkey; deleted, it is gone.
-	h.ok("", h.with("mv", "passkeys/example.com", "passkeys/work")...)
+	h.ok("", h.with("mv", "example.com", "passkeys/work")...)
 	h.desk.answer(svrpc.ChoiceAlways, "")
 	if r := sign(""); r["ok"] != true {
 		t.Fatalf("sign after a rename: %v", r)

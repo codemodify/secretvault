@@ -160,7 +160,7 @@ func TestOutgoingMailIsSignedWithYourKeyAndEncryptedToTheirs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Format != "openpgp" || res.SignedWith != "pgp/me@example.org" || len(res.EncryptedTo) != 1 {
+	if res.Format != "openpgp" || res.SignedWith != "me@example.org" || len(res.EncryptedTo) != 1 {
 		t.Fatalf("composed: %+v", res)
 	}
 	if q := h.desk.asked[len(h.desk.asked)-1]; !strings.Contains(q.Description, "sign") {
@@ -194,7 +194,7 @@ func TestYourSMIMEKeyDecryptsAndSigns(t *testing.T) {
 		t.Fatalf("a wrong password: %v", err)
 	}
 	k, err := cli.ImportSMIME(ctx(t), svrpc.SMIMEImportParams{PKCS12: p12, Password: []byte("p12 password")})
-	if err != nil || k.Item != "smime/me@example.org" {
+	if err != nil || k.Item != "me@example.org" {
 		t.Fatalf("import: %+v, %v", k, err)
 	}
 	if ks, err := cli.SMIMEKeys(ctx(t), ""); err != nil || len(ks) != 1 || ks[0].SHA256 != k.SHA256 {
@@ -228,7 +228,7 @@ func TestYourSMIMEKeyDecryptsAndSigns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Format != "smime" || res.SignedWith != "smime/me@example.org" {
+	if res.Format != "smime" || res.SignedWith != "me@example.org" {
 		t.Fatalf("composed: %+v", res)
 	}
 	dec, _ := svcms.KeyDecrypter(aliceCert, aliceKey)

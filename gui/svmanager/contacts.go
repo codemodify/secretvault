@@ -20,7 +20,7 @@ import (
 // finding keys (by WKD, keyservers and organisations' directories),
 // verifying them, your own keys as a QR code for others to scan, and the
 // trust store's verdict on a signer. They live in the contacts vault
-// (Contacts › Keep contacts in…).
+// (Vault › Contacts › Keep contacts in…).
 
 // The contacts page's tabs.
 const (
@@ -52,18 +52,20 @@ func (m *Manager) showContactsPage(tab int) {
 		m.fail(errGone)
 		return
 	}
-	if m.cpage != nil && m.up(m.cpage.tabbedPage) {
+	m.showVaultTab(vtContacts)
+	if m.cpage != nil {
 		m.selectTab(m.cpage.tabbedPage, tab)
-		return
 	}
-	m.closeVaultPage()
+}
+
+// makeContactsPage makes the contacts' page.
+func (m *Manager) makeContactsPage() {
 	p := &contactsPage{tabbedPage: &tabbedPage{kind: pageContacts, title: "Contacts"}, detail: newSlot()}
 	p.panes = []*pane{
 		newPane("People", func(pn *pane) { m.fillPeople(p, pn) }),
 		newPane("Directories", func(pn *pane) { m.fillDirectories(p, pn) }),
 	}
 	m.cpage = p
-	m.openPage(p.tabbedPage, tab)
 }
 
 // refreshContacts lists the contacts again, if their page is up.
@@ -104,8 +106,8 @@ func (m *Manager) fillPeople(p *contactsPage, pn *pane) {
 		})
 		p.ctable.OnSelect = func(i int) { m.showContact(p, i) }
 		p.ctable.OnActivate = func(i int) { m.showContact(p, i) }
-		search := widgets.NewTextField(p.query, "Search the contacts", nil)
-		search.SetAccessibleName("Search the contacts")
+		search := widgets.NewTextField(p.query, "Filter the contacts", nil)
+		search.SetAccessibleName("Filter the contacts")
 		search.OnSubmit = func(q string) {
 			p.query = strings.TrimSpace(q)
 			pn.refresh()
@@ -122,12 +124,15 @@ func (m *Manager) fillPeople(p *contactsPage, pn *pane) {
 		col := widgets.NewColumn(search,
 			widgets.NewHeightBox(200, p.ctable),
 			buttons(
-				widgets.NewButton("Add…", m.addContact),
-				widgets.NewButton("Import…", m.importContacts),
-				widgets.NewButton("Look up…", m.lookupContact),
-				widgets.NewButton("Verify…", func() { m.verifyContact(p) }),
-				widgets.NewButton("Remove…", func() { m.removeContact(p) }),
-				widgets.NewButton("Show my QR code…", m.showMyQR),
+				newButton("Add…", m.addContact),
+				newButton("Import…", m.importContacts),
+				newButton("Look up…", m.lookupContact),
+				newButton("Verify…", func() { m.verifyContact(p) }),
+				newButton("Remove…", func() { m.removeContact(p) }),
+				newButton("Show my QR code…", m.showMyQR),
+				newButton("Check a signer…", m.checkSigner),
+				newButton("Record a key seen in mail…", m.recordSeen),
+				newButton("Keep contacts in…", m.contactsVault),
 			),
 			p.detail).WithGap(gap).WithPad(gap)
 		col.AddFlex(p.detail, 1)
@@ -620,7 +625,7 @@ func (m *Manager) showMyQR() {
 				uri := card.URI()
 				qr, code := m.qrCode("contact code", []byte(uri), "Scan it with the other device's camera.")
 				m.showTextWith("My contact code", "Let them scan this code from your screen: it holds no secret. "+
-					"Or send them the text below, for Contacts › Import… on their side.", uri, qr, code.forget)
+					"Or send them the text below, for Vault › Contacts › Import… on their side.", uri, qr, code.forget)
 			})
 		})
 	})
@@ -702,9 +707,9 @@ func (m *Manager) fillDirectories(p *contactsPage, pn *pane) {
 		if len(dirs) == 0 {
 			note = "No directories yet. " + svops.DirectoriesAbout + " Add… adds one."
 		}
-		remove := widgets.NewButton("Remove…", func() { m.removeDirectory(p) })
+		remove := newButton("Remove…", func() { m.removeDirectory(p) })
 		remove.SetEnabled(len(dirs) > 0)
-		return m.paneColumn(note, p.dtable, widgets.NewButton("Add…", func() { m.addDirectory(p) }), remove)
+		return m.paneColumn(note, p.dtable, newButton("Add…", func() { m.addDirectory(p) }), remove)
 	})
 }
 

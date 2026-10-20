@@ -27,7 +27,7 @@ func (m *Manager) fillSlots(p *vaultPage, pn *pane) {
 		return err
 	}, func() widget.Component {
 		p.slots = slots
-		p.stable = table("Keyslots", []widgets.TableColumn{
+		p.stable = table("Ways to unlock", []widgets.TableColumn{
 			{Title: "ID", Width: 110},
 			{Title: "Type", Width: 90},
 			{Title: "Label"},
@@ -51,13 +51,13 @@ func (m *Manager) fillSlots(p *vaultPage, pn *pane) {
 			return s.Detail
 		})
 		pn.focus = p.stable
-		remove := widgets.NewButton("Remove…", func() { m.removeSlot(p) })
+		remove := newButton("Remove…", func() { m.removeSlot(p) })
 		remove.SetEnabled(len(slots) > 1)
 		return m.paneColumn(svops.KeyslotsNote, p.stable,
-			widgets.NewButton("Add a keyslot…", func() { m.addSlot(p) }),
+			newButton("Add a way to unlock…", func() { m.addSlot(p) }),
 			remove,
-			widgets.NewButton("Change the passphrase…", func() { m.changePassphrase(p) }),
-			widgets.NewButton("Give the vault a new key…", func() { m.rotateKey(p, nil, "") }))
+			newButton("Change the passphrase…", func() { m.changePassphrase(p) }),
+			newButton("Give the vault a new key…", func() { m.rotateKey(p, nil, "") }))
 	})
 }
 
@@ -231,7 +231,7 @@ func (m *Manager) removeSlot(p *vaultPage) {
 	if s.Type == svformat.SlotEmergency {
 		// Removing it would end the grant only half: the server would
 		// still hold it. Revoking ends it whole.
-		m.say("That keyslot is emergency access: end it on the Sharing tab, under Emergency access, with Revoke….")
+		m.say("That way to unlock is emergency access: end it on the Sharing tab, under Emergency access, with Revoke….")
 		m.selectTab(p.tabbedPage, tabSharing)
 		return
 	}

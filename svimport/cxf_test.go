@@ -11,10 +11,10 @@ import (
 	"github.com/codemodify/secretvault/svcore"
 )
 
-func TestACXFDocumentImportsWithCollectionsAsFolders(t *testing.T) {
+func TestACXFDocumentImportsWithCollectionsAsTags(t *testing.T) {
 	res := mustImport(t, FormatCXF, readFixture(t, "cxf.json"), Options{})
-	login := item(t, res, "Work/Example Login")
-	if login.Kind != "login" || !reflect.DeepEqual(login.Tags, []string{"demo", "web"}) {
+	login := item(t, res, "Example Login")
+	if login.Kind != "login" || !reflect.DeepEqual(login.Tags, []string{"demo", "web", "Work"}) {
 		t.Errorf("login: %s %q", login.Kind, login.Tags)
 	}
 	has(t, login, "username", svcore.FieldText, "ada")
@@ -27,10 +27,11 @@ func TestACXFDocumentImportsWithCollectionsAsFolders(t *testing.T) {
 	has(t, login, "Security", svcore.FieldText, "42") // an unlabelled field takes its section's label
 	has(t, login, "notes", svcore.FieldText, "created for the demo")
 	// Its passkey is an item of its own.
-	pk := item(t, res, "Work/Example Login passkey")
+	pk := item(t, res, "Example Login passkey")
 	if pk.Kind != "passkey" {
 		t.Errorf("the passkey's kind %q", pk.Kind)
 	}
+	tagged(t, pk, "demo", "web", "Work")
 	has(t, pk, "rp_id", svcore.FieldText, "example.com")
 	has(t, pk, "username", svcore.FieldText, "ada")
 
@@ -38,14 +39,16 @@ func TestACXFDocumentImportsWithCollectionsAsFolders(t *testing.T) {
 	if card.Kind != "card" {
 		t.Errorf("card kind %q", card.Kind)
 	}
+	tagged(t, card) // in no collection
 	has(t, card, "number", svcore.FieldConcealed, "4111111111111111")
 	has(t, card, "expiry", svcore.FieldText, "04/2028")
 	has(t, card, "pin", svcore.FieldConcealed, "9876")
 
-	key := item(t, res, "Work/Servers/build server key")
+	key := item(t, res, "build server key")
 	if key.Kind != "ssh-key" {
 		t.Errorf("ssh kind %q", key.Kind)
 	}
+	tagged(t, key, "Work/Servers") // a collection inside another
 	has(t, key, "private_key", svcore.FieldKey,
 		"-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIF3C5VoSK+HAlK8JXXAzeP+ABEeD6s1cc1+pW8lwEAJk\n-----END PRIVATE KEY-----\n")
 	// The public key derived here matches what ssh-keygen -y derives.
@@ -53,14 +56,16 @@ func TestACXFDocumentImportsWithCollectionsAsFolders(t *testing.T) {
 	has(t, key, "comment", svcore.FieldText, "ada@build")
 	has(t, key, "source", svcore.FieldText, "https://git.example/settings/keys")
 
-	api := item(t, res, "Work/Servers/Deploy API")
+	api := item(t, res, "Deploy API")
 	if api.Kind != "api-key" {
 		t.Errorf("api kind %q", api.Kind)
 	}
+	tagged(t, api, "Work/Servers")
 	has(t, api, "key", svcore.FieldConcealed, "sk_live_abc")
 	has(t, api, "url", svcore.FieldURL, "https://api.example")
 
-	wifi := item(t, res, "Home/Home network")
+	wifi := item(t, res, "Home network")
+	tagged(t, wifi, "Home")
 	has(t, wifi, "password", svcore.FieldConcealed, "w1f1")
 	has(t, wifi, "security", svcore.FieldText, "wpa3-personal")
 
@@ -120,7 +125,7 @@ func TestCXFExportsRoundTrip(t *testing.T) {
 		t.Error("the OpenSSH key was not written as PKCS#8, as the fixture made by openssl has it")
 	}
 
-	res := mustImport(t, FormatCXF, buf.Bytes(), Options{Prefix: "back"})
+	res := mustImport(t, FormatCXF, buf.Bytes(), Options{})
 	if len(res.Warnings) != 0 {
 		t.Errorf("warnings: %q", res.Warnings)
 	}
@@ -130,10 +135,10 @@ func TestCXFExportsRoundTrip(t *testing.T) {
 		for _, f := range it.Fields {
 			fields[f.Name] = f.Type + " " + string(f.Value)
 		}
-		back[strings.TrimPrefix(it.Name, "back/")] = fields
+		back[it.Name] = fields
 		want := sampleItems()
 		for _, w := range want {
-			if "back/"+w.Name == it.Name && (it.Kind != w.Kind || !reflect.DeepEqual(it.Tags, w.Tags) || !reflect.DeepEqual(it.Attrs, w.Attrs)) {
+			if w.Name == it.Name && (it.Kind != w.Kind || !reflect.DeepEqual(it.Tags, w.Tags) || !reflect.DeepEqual(it.Attrs, w.Attrs)) {
 				t.Errorf("%s: kind %q tags %q attrs %v; want %q %q %v", w.Name, it.Kind, it.Tags, it.Attrs, w.Kind, w.Tags, w.Attrs)
 			}
 		}

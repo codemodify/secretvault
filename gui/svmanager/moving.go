@@ -10,9 +10,9 @@ import (
 	"github.com/codemodify/secretvault/svrpc"
 )
 
-// Items going to another vault: Edit › Move to vault… and Copy to vault…
-// for the item chosen, and Move folder to vault… and Copy folder to
-// vault… for every item in the folder chosen. The daemon carries them
+// Items going to another vault: Move to vault… and Copy to vault… for the
+// item chosen, and for the items picked together in the list; Move every
+// item to vault… and Copy every item to vault… on the vault's Settings. The daemon carries them
 // (item.move, item.copy), so nothing secret passes through this program.
 // It is asked first what would go (a plan, which changes nothing), that
 // is shown in svops's words, the same as the TUI's and the CLI's, and
@@ -35,19 +35,14 @@ func (m *Manager) moveItem(copy bool) {
 	m.moveTo(svrpc.MoveParams{Vault: m.vault, Names: []string{name}}, name, "it", copy)
 }
 
-// moveFolder moves every item in the folder chosen to another vault;
-// copy keeps them where they are too.
-func (m *Manager) moveFolder(copy bool) {
+// moveAll moves every item of vault to another vault; copy keeps them
+// where they are too.
+func (m *Manager) moveAll(vault string, copy bool) {
 	if m.editor != nil {
 		m.say("Save or cancel the edit first.")
 		return
 	}
-	folder := m.folder
-	if folder == "" || !m.listed {
-		m.say("Choose a folder first.")
-		return
-	}
-	m.moveTo(svrpc.MoveParams{Vault: m.vault, Prefix: svrpc.PrefixOf(folder)}, "folder "+folder, "them", copy)
+	m.moveTo(svrpc.MoveParams{Vault: vault, Prefix: svrpc.PrefixOf("")}, "every item of "+vault, "them", copy)
 }
 
 // otherVaults are the vaults items of the one shown can go to: the
@@ -64,7 +59,7 @@ func (m *Manager) otherVaults() []string {
 
 // moveTo asks which vault what p names goes to, then what would go
 // (svops.MovePlain), and only then moves or copies it. what names it in
-// the title ("web/github.com", "folder web/"), and it is "it" or "them"
+// the title ("github.com", "3 items"), and it is "it" or "them"
 // in a sentence.
 func (m *Manager) moveTo(p svrpc.MoveParams, what, it string, copy bool) {
 	if m.gone {
@@ -77,7 +72,7 @@ func (m *Manager) moveTo(p svrpc.MoveParams, what, it string, copy bool) {
 	}
 	others := m.otherVaults()
 	if len(others) == 0 {
-		m.say("There is no other vault to %s %s to: File › New vault… makes one.", verb, it)
+		m.say("There is no other vault to %s %s to: Vault › New vault… makes one.", verb, it)
 		return
 	}
 	f := m.newForm(fmt.Sprintf("%s %s to another vault", title, what))
@@ -105,7 +100,7 @@ func moveCall(ctx context.Context, c *secretvault.Client, p svrpc.MoveParams, co
 
 // confirmMove shows the plan, and carries it out when the person says
 // yes: the items it named, and only those, whatever was added to the
-// folder meanwhile.
+// vault meanwhile.
 func (m *Manager) confirmMove(p svrpc.MoveParams, plan svrpc.MoveResult, copy bool) {
 	if len(plan.Items) == 0 {
 		m.say("There are no items there.")

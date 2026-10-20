@@ -11,10 +11,11 @@ import (
 
 func TestABitwardenExportImportsEveryItemType(t *testing.T) {
 	res := mustImport(t, FormatBitwarden, readFixture(t, "bitwarden.json"), Options{})
-	gh := item(t, res, "Personal/GitHub")
+	gh := item(t, res, "GitHub")
 	if gh.Kind != "login" {
 		t.Errorf("kind %q", gh.Kind)
 	}
+	tagged(t, gh, "Personal")
 	has(t, gh, "username", svcore.FieldText, "ada")
 	has(t, gh, "password", svcore.FieldConcealed, "gh-p4ss")
 	has(t, gh, "url", svcore.FieldURL, "https://github.com/login")
@@ -25,13 +26,17 @@ func TestABitwardenExportImportsEveryItemType(t *testing.T) {
 	has(t, gh, "API token", svcore.FieldConcealed, "ghp_0123456789")
 	has(t, gh, "2FA on", svcore.FieldText, "true")
 	hasNot(t, gh, "user alias") // a linked field has no value of its own
-	warned(t, res, "Personal/GitHub", "passkey")
-	warned(t, res, "history", "Personal/GitHub")
+	warned(t, res, "GitHub", "passkey")
+	warned(t, res, "history", "GitHub")
 	// The same name twice in one folder.
-	has(t, item(t, res, "Personal/GitHub (2)"), "username", svcore.FieldText, "ada-work")
+	gh2 := item(t, res, "GitHub (2)")
+	has(t, gh2, "username", svcore.FieldText, "ada-work")
+	tagged(t, gh2, "Personal")
 
-	has(t, item(t, res, "Work/Servers/db1"), "otp", svcore.FieldOTP,
+	db1 := item(t, res, "db1")
+	has(t, db1, "otp", svcore.FieldOTP,
 		"otpauth://totp/Steam:root?encoder=steam&issuer=Steam&secret=STEAMSTEAMSTEAM2")
+	tagged(t, db1, "Work/Servers")
 	if n := item(t, res, "Wifi"); n.Kind != "note" {
 		t.Errorf("secure note kind %q", n.Kind)
 	}
@@ -76,11 +81,13 @@ func TestABitwardenExportImportsEveryItemType(t *testing.T) {
 	warned(t, res, "From the future", "type 42")
 }
 
-func TestAnOrganisationExportUsesCollectionsAsFolders(t *testing.T) {
+func TestAnOrganisationExportUsesCollectionsAsTags(t *testing.T) {
 	data := `{"encrypted":false,"collections":[{"id":"c1","organizationId":"o","name":"Shared/Ops"}],
 		"items":[{"type":1,"name":"pager","collectionIds":["c1"],"login":{"username":"ops","password":"p"}}]}`
-	res := mustImport(t, FormatBitwarden, []byte(data), Options{Prefix: "bw"})
-	has(t, item(t, res, "bw/Shared/Ops/pager"), "username", svcore.FieldText, "ops")
+	res := mustImport(t, FormatBitwarden, []byte(data), Options{})
+	pager := item(t, res, "pager")
+	has(t, pager, "username", svcore.FieldText, "ops")
+	tagged(t, pager, "Shared/Ops")
 }
 
 func TestPasswordProtectedBitwardenExportsOpen(t *testing.T) {
@@ -93,7 +100,8 @@ func TestPasswordProtectedBitwardenExportsOpen(t *testing.T) {
 			t.Errorf("%s with a wrong password: %v", file, err)
 		}
 		res := mustImport(t, FormatBitwarden, data, Options{Passphrase: testPassphrase})
-		db := item(t, res, "Work/Servers/db.example")
+		db := item(t, res, "db.example")
+		tagged(t, db, "Work/Servers")
 		has(t, db, "password", svcore.FieldConcealed, "pg-secret")
 		has(t, db, "root pw", svcore.FieldConcealed, "hunter22")
 		has(t, db, "otp", svcore.FieldOTP, "otpauth://totp/db.example:dba?issuer=db.example&secret=JBSWY3DPEHPK3PXP")

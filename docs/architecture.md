@@ -452,6 +452,80 @@ records and the policy are left as they are, readable down the epoch
 chain, since signing them would adopt what others wrote. Sync moves their
 files like any other: what arrives is checked when it is read in.
 
+## Where things are kept
+
+secretvault keeps two folders for each person, made 0700, and nothing
+else of its own outside them but its sockets:
+
+| | Linux, BSD | macOS | Windows |
+| --- | --- | --- | --- |
+| Settings | `~/.config/secretvault` (`$XDG_CONFIG_HOME/secretvault`) | `~/Library/Preferences/secretvault` | `%APPDATA%\secretvault` |
+| Data | `~/.data/secretvault` | `~/Library/Application Support/secretvault` | `%LOCALAPPDATA%\secretvault` |
+
+`SECRETVAULT_CONFIG` moves the settings folder and `SECRETVAULT_HOME` the
+data folder; `SECRETVAULT_HOME` set alone keeps the settings in it too,
+one folder for everything (as tests and second installations want).
+[`svcore`](../svcore/paths.go) (`ConfigDir`, `DataDir`) says where they
+are.
+
+- **Settings** are what was chosen, and the records of what secretvault
+  changed in other programs, which undoing reads:
+  - `config.json`: the vaults and where each is, the default, prompts,
+    the faces served, GnuPG folders pointed at the daemon, directories,
+    emergency access held, programs told not to ask for vaults again;
+  - `browser-install.json`: the browsers' manifests (and Windows
+    registry keys) `secretvault browser install` wrote;
+  - `keyring-takeover.json`: the files `secretvault keyring takeover`
+    wrote, and the units it restarted;
+  - `helpers.json`: docker's `credsStore` before `secretvault helpers
+    setup`.
+- **Data** is everything else: `vaults/` (one folder per vault, unless
+  made or added elsewhere), `audit/` (each vault's audit log), the device
+  ID and signing key (`device.json`, `device-signing.key`), the disks
+  seen (`disks.json`), the login keys (`login/`), sync state and the
+  waits of emergency access (`sync/`), the sync key
+  (`sync-device.key`), secretvault's own GnuPG folder (`gnupg/`),
+  `secretvault-server`'s default root (`server/`), and on Windows the
+  browsers' manifests (`browser/`).
+- **While running**, the daemon's socket, its lock and the agents'
+  sockets live in `$XDG_RUNTIME_DIR/secretvault` (Talking to the daemon).
+- **Elsewhere**, only what the records above list, the start-at-login
+  entry (`secretvaultd install`), the helpers' links beside the CLI,
+  git's and docker's settings, and gpg's socket links and `gpg.conf`
+  line in a GnuPG folder pointed at the daemon. The host daemon keeps
+  `/var/lib/secretvault` and `/run/secretvault`, as before.
+
+**Every face shows it.** The daemon's `where` method lists every place,
+as it uses them (its environment, its config's vaults wherever they are,
+its sockets, its records of other programs' files), grouped as Settings,
+Data, While running, Other programs and Host daemon, each with a plain
+sentence saying what it is and whether it is there now; only
+secretvault's own programs are told. [`svops.Where`](../svops/where.go)
+builds the list, and `svops.WhereHere` builds it from the environment
+when no daemon runs. `secretvault where [--json]` prints it, and both
+managers have Where things are kept (the desktop one in Settings, the
+terminal one in Tools), which copies a path.
+
+**Moving from one folder.** Earlier versions kept everything in
+`~/.local/share/secretvault` (`$XDG_DATA_HOME/secretvault`; on macOS and
+Windows, the data folder, from which only the settings move).
+secretvaultd moves it as it starts, after taking its socket's lock and
+before reading anything; the CLI and the managers move it first when no
+daemon holds that lock, and hold it meanwhile
+([`svops.MoveOldFolderHere`](../svops/oldfolder.go),
+`MoveOldFolderUnlessRunning`). The settings files go to the settings
+folder, the rest to the data folder; each is renamed, or across
+filesystems copied, synced, checked against the original and only then
+removed. What the new place has already is not written over: both stay,
+the daemon's log says so, and a folder both have is merged file by file.
+`config.json`'s paths into the old folder (vaults, a GnuPG folder, its
+sockets, which gpg is asked for again) are pointed at the new places;
+others are left alone. The old folder keeps a `README.txt` saying where
+everything went (and what was left, if anything), and a link to the
+GnuPG folder if that moved, for a `GNUPGHOME` that still names it. A
+second start finds nothing to move, and a move cut short is finished.
+Nothing moves when `SECRETVAULT_HOME` is set.
+
 ## Emergency access
 
 Like Bitwarden's and 1Password's: a person you trust (a contact with a
@@ -537,7 +611,8 @@ $ secretvault emergency revoke 3f2a --rotate            # the owner ends it, and
     The `session` collection is an in-memory vault.
   - **Portal.** The Flatpak portal backend (`org.freedesktop.impl.portal.Secret`)
     gives sandboxed apps their per-app secret: a key of each app's own
-    (`flatpak/<app id>` in the default vault, made on first use), under the
+    (an item of the default vault named for the app and found by its
+    `flatpak-app` attribute, made on first use), under the
     usual per-app consent. It answers on the Secret Service's connection at
     `/org/freedesktop/portal/desktop`, which `gnome-keyring.portal` points
     at, and only to xdg-desktop-portal itself: anyone else on the bus could
@@ -579,6 +654,13 @@ $ secretvault emergency revoke 3f2a --rotate            # the owner ends it, and
 - **Everyday tools.** A password generator, attachments (each a
   stream-encrypted blob under a key only its item holds),
   history, and a conflict view.
+- **No folders.** A vault's items are one list for each kind of item
+  (the managers' tabs), each item shown by the last part of its name
+  (`svops.ShownNames`): a `/` in a name is part of it, as pass and Vault
+  KV paths have them, and nothing groups items by it. What secretvault
+  stores for programs is named for what it is (`github.com`, a disk's file
+  name, a key's address), never over an item already there, and found by
+  its attributes rather than by a place in its name.
 - **Clipboard.** Copies clear themselves after a timeout and carry the
   "concealed" hints that clipboard managers respect.
 - **Import.** From 1Password (1PUX), Bitwarden (JSON), KeePass (KDBX 4),
@@ -611,7 +693,7 @@ $ secretvault emergency revoke 3f2a --rotate            # the owner ends it, and
     only from its own binary, then looks up the host's parent process
     itself (`svpeer.Parent`) and names that in every prompt and audit
     entry: "firefox (/usr/lib/firefox/firefox) wants the login
-    "web/github.com" for https://github.com, through the secretvault
+    "github.com" for https://github.com, through the secretvault
     extension". **What page** is the origin the extension names, the
     browser's word.
   - **Consent.**
@@ -668,15 +750,14 @@ answer only after asking the person, through the same program.
   meanwhile, is dropped and wiped, as is a newer one's elder; what a
   request would have sent is wiped when it is sent, or at once if there is
   no daemon to send it to.
-- **Copies** go, on Linux and the BSDs, through the CLI beside the manager
-  (`secretvault __clip`, as the CLI and the TUI copy: svclip, in a process
-  of its own), and elsewhere, or where the CLI cannot reach a clipboard,
-  to uitoolkit's secret clipboard: CLIPBOARD only, marked for clipboard
-  managers not to keep, cleared after 30 seconds and on quit, and taken
-  back when the vault they came from locks. The status bar says when one
-  has gone. (uitoolkit's falls short on Wayland, where it answers the
-  clipboard managers' hint with the secret, and in clearing whatever is on
-  the clipboard by then: `uitoolkit-gaps.md`, 47 and 48.)
+- **Copies** go to uitoolkit's secret clipboard: CLIPBOARD only, marked
+  for clipboard managers not to keep, cleared after 30 seconds and on
+  quit, and taken back when the vault they came from locks; only what is
+  still the manager's own copy is cleared. A note says when one has gone.
+  On the BSDs, where uitoolkit has no clipboard, they go through the CLI
+  beside the manager (`secretvault __clip`, as the CLI and the TUI copy:
+  svclip, in a process of its own). On Linux they went that way too until
+  uitoolkit v0.23.6 (`uitoolkit-gaps.md`, 7 and 56 to 60).
 - **Dialogs stack.** One raised over another (a recovery key arriving, the
   keys list, a file chooser) goes over it, and the one underneath is there
   as it was, its fields still holding what was typed. Quitting closes them
@@ -855,7 +936,8 @@ as it is, and can be replaced the same way.
       secretvault as gpg's `agent-program`, so that a gpg that finds no
       agent starts secretvault, which starts the daemon and links the
       socket again. The home is secretvault's own
-      (`DATA/gnupg`) unless another is named; `~/.gnupg` only when named.
+      (`DATA/gnupg`, in the data folder) unless another is named;
+      `~/.gnupg` only when named.
     - **Not on Windows**, where gpg reaches its agent through Assuan's
       socket emulation (a TCP port and a nonce in a file), which the face
       does not serve yet.
@@ -888,7 +970,13 @@ as it is, and can be replaced the same way.
   opens with a passphrase, for opening it with cryptsetup alone.
 - **Consent** is the vault's: creating a container writes an item;
   opening one is `mount` on its item, asked naming the image, and is not
-  reading the key. Closing needs none.
+  reading the key. Closing needs none. Deleting one
+  (`container.delete`, `secretvault container delete`, Delete… on the
+  managers' Disk tab) is `delete` on its item, asked naming the image: the
+  image file goes for good, then the item goes to the vault's deleted
+  items, so a copy of the image kept elsewhere still opens once it is
+  brought back. Only an image not in use, a LUKS2 image whose UUID is the
+  item's, is deleted.
 - **Inside** is the OS's own filesystem: ext4 by default, or exFAT, FAT or
   btrfs.
 - **Mounting with the OS's own tools, no kernel code of ours.**
@@ -905,6 +993,21 @@ as it is, and can be replaced the same way.
     iSCSI, `hdiutil`) comes later.
 - **Locking** a vault leaves its containers mounted, as VeraCrypt does;
   `close_containers_on_lock` in the config closes them with the vault.
+- **A locked vault's disks are listed too.** A disk is known by the item
+  that keeps its key, which a locked vault cannot show; so the daemon
+  remembers, in `disks.json` in its data directory (0600, outside the
+  vaults), the image files it has seen for each vault: those
+  `container.list`, `create`, `open` and `passwd` named. It forgets a file
+  when `container.delete` deletes it or a listing of its vault no longer
+  names it, and every file of a vault forgotten. Only vault names and
+  paths are kept there, never a key or an item's name.
+  `container.known` (`secretvault container ls --all`, the managers' Disk
+  tab) lists every vault's disks: an unlocked vault's as `container.list`
+  does, a locked one's from that memory, marked locked, with the file, its
+  LUKS UUID (the header names it without the key) and its state (attached
+  or mounted, as the OS says; `missing` when the file is gone). It never
+  unlocks a vault; mounting, changing or deleting such a disk asks for the
+  vault's passphrase as before.
 
 ### Secret delivery
 

@@ -125,7 +125,7 @@ func (d *Daemon) gnupgLink(_ context.Context, cl *client, decode func(any) error
 		unlinkSocket(known.SSHSocket, cmp.Or(ssh, svrpc.SSHAgentSocket()))
 		d.mu.Lock()
 		d.cfg.GnuPG = slices.DeleteFunc(d.cfg.GnuPG, func(h GnuPGHome) bool { return h.Home == known.Home })
-		err := d.cfg.save(d.home)
+		err := d.cfg.save(d.config)
 		d.mu.Unlock()
 		return svrpc.GnuPGLinkResult{}, err
 	}
@@ -156,7 +156,7 @@ func (d *Daemon) gnupgLink(_ context.Context, cl *client, decode func(any) error
 		d.mu.Lock()
 		d.cfg.GnuPG = slices.DeleteFunc(d.cfg.GnuPG, func(h GnuPGHome) bool { return idx >= 0 && h.Home == known.Home })
 		d.cfg.GnuPG = append(d.cfg.GnuPG, want)
-		err := d.cfg.save(d.home)
+		err := d.cfg.save(d.config)
 		d.mu.Unlock()
 		if err != nil {
 			return nil, err

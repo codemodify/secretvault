@@ -133,7 +133,7 @@ The Chromium ID comes from the public key in `manifest.json`'s `key`
   secretvault program carries (package [`browser`](../browser) embeds
   it), for Firefox or for Chromium, each with its own manifest
   ([Chromium](#chromium)). The CLI makes it with `secretvault browser
-  extension`, the GUI with Desktop › Browsers › Save the extension…,
+  extension`, the GUI with Tools › Browsers › Save the extension…,
   and the TUI with `B` then `e`.
 
 ## The protocol
@@ -331,7 +331,7 @@ for (Firefox) is confirmed in secretvault's own prompt.
 
 A passkey is an item of kind `passkey`
 ([`svext/passkeyitem.go`](../svext/passkeyitem.go)), named
-`passkeys/SITE` (with the account's name, or a number, when taken):
+for its site (with the account's name, or a number, when taken):
 
 | Field | What it is |
 | --- | --- |
@@ -725,7 +725,7 @@ section covers what the extension adds. It is enforced in the files named.
    $ secretvault browser status              # which program each browser starts
    ```
 
-   Desktop › Browsers › Set up… in the desktop manager, and `B` then `i`
+   Tools › Browsers › Set up… in the desktop manager, and `B` then `i`
    in the terminal manager, do the same. `secretvault browser uninstall`
    undoes it exactly.
 
@@ -741,7 +741,7 @@ section covers what the extension adds. It is enforced in the files named.
    ```
 
    Without `--target`, a folder is for Chromium and a zip for Firefox.
-   The desktop manager (Desktop › Browsers › Save the extension…) and the
+   The desktop manager (Tools › Browsers › Save the extension…) and the
    terminal manager (`B` then `e`) offer the same three: a .zip for
    Firefox, a folder for Chromium, a .zip for the Chrome Web Store.
 

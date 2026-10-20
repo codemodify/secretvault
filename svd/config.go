@@ -12,11 +12,13 @@ import (
 	"time"
 
 	"github.com/codemodify/secretvault/svformat"
+	"github.com/codemodify/secretvault/svops"
 	"github.com/codemodify/secretvault/svrpc"
 	"github.com/codemodify/secretvault/svsync"
 )
 
-// Config is secretvaultd's settings, kept in <home>/config.json (0600).
+// Config is secretvaultd's settings, kept in config.json (0600) in the
+// settings folder.
 type Config struct {
 	Vaults  []VaultConfig `json:"vaults"`
 	Default string        `json:"default,omitempty"`
@@ -128,18 +130,22 @@ func checkVaultName(name string) error {
 	return nil
 }
 
-func configPath(home string) string { return filepath.Join(home, "config.json") }
+// ConfigFile is the settings file, in the settings folder.
+const ConfigFile = svops.ConfigFile
 
-// loadConfig reads the config, and registers any vault folder found under
-// <home>/vaults that it does not list yet (vaults made before the daemon
-// existed, or copied in by hand), locking as autoLock says.
-func loadConfig(home string, autoLock svrpc.AutoLock) (*Config, error) {
+func configPath(dir string) string { return filepath.Join(dir, ConfigFile) }
+
+// loadConfig reads the config from the settings folder, and registers
+// any vault folder found under <home>/vaults, in the data folder, that it
+// does not list yet (vaults made before the daemon existed, or copied in
+// by hand), locking as autoLock says.
+func loadConfig(config, home string, autoLock svrpc.AutoLock) (*Config, error) {
 	cfg := &Config{}
-	b, err := os.ReadFile(configPath(home))
+	b, err := os.ReadFile(configPath(config))
 	switch {
 	case err == nil:
 		if err := json.Unmarshal(b, cfg); err != nil {
-			return nil, fmt.Errorf("%s: %w", configPath(home), err)
+			return nil, fmt.Errorf("%s: %w", configPath(config), err)
 		}
 	case !errors.Is(err, fs.ErrNotExist):
 		return nil, err
@@ -188,13 +194,13 @@ func (c *Config) firstDefault() string {
 	return first
 }
 
-// save writes the config atomically.
-func (c *Config) save(home string) error {
+// save writes the config atomically into the settings folder.
+func (c *Config) save(config string) error {
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	return writeAtomic(configPath(home), append(b, '\n'))
+	return writeAtomic(configPath(config), append(b, '\n'))
 }
 
 // writeAtomic replaces the file at path with b (mode 0600): readers see

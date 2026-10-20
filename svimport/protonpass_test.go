@@ -13,13 +13,14 @@ func TestAProtonPassExportImportsEveryItemType(t *testing.T) {
 		"Proton Pass/files/receipt.pdf": []byte("%PDF"),
 	})
 	res := mustImport(t, FormatProtonPass, data, Options{})
-	if res.Items[0].Name != "Personal/Proton" {
+	if res.Items[0].Name != "Proton" {
 		t.Errorf("vaults are not read in name order: first is %s", res.Items[0].Name)
 	}
-	p := item(t, res, "Personal/Proton")
+	p := item(t, res, "Proton")
 	if p.Kind != "login" {
 		t.Errorf("kind %q", p.Kind)
 	}
+	tagged(t, p, "Personal") // its vault
 	has(t, p, "username", svcore.FieldText, "ada")
 	has(t, p, "email", svcore.FieldEmail, "ada@proton.me")
 	has(t, p, "password", svcore.FieldConcealed, "pr0t0n")
@@ -31,44 +32,45 @@ func TestAProtonPassExportImportsEveryItemType(t *testing.T) {
 	has(t, p, "plan", svcore.FieldText, "unlimited")
 	has(t, p, "renewal", svcore.FieldText, "1700000000")
 	has(t, p, "notes", svcore.FieldText, "my account")
-	warned(t, res, "Personal/Proton", "passkey")
+	warned(t, res, "Proton", "passkey")
 
-	if n := item(t, res, "Personal/Door code"); n.Kind != "note" {
+	if n := item(t, res, "Door code"); n.Kind != "note" {
 		t.Errorf("note kind %q", n.Kind)
 	}
-	card := item(t, res, "Personal/Mastercard")
+	card := item(t, res, "Mastercard")
 	has(t, card, "number", svcore.FieldConcealed, "5555555555554444")
 	has(t, card, "cvv", svcore.FieldConcealed, "999")
 	has(t, card, "expiry", svcore.FieldText, "03/2027")
 	has(t, card, "pin", svcore.FieldConcealed, "0000")
-	me := item(t, res, "Personal/Me")
+	me := item(t, res, "Me")
 	has(t, me, "full_name", svcore.FieldText, "Ada Lovelace")
 	has(t, me, "ssn", svcore.FieldConcealed, "AB123456C")
 	has(t, me, "postal_code", svcore.FieldText, "SW1Y 4JH")
 	has(t, me, "xHandle", svcore.FieldText, "@ada")
 	has(t, me, "favourite engine", svcore.FieldText, "analytical")
 	has(t, me, "locker", svcore.FieldConcealed, "L-12")
-	has(t, item(t, res, "Personal/Shop alias"), "username", svcore.FieldText, "shop.xyz@passmail.net")
-	wifi := item(t, res, "Personal/Home wifi")
+	has(t, item(t, res, "Shop alias"), "username", svcore.FieldText, "shop.xyz@passmail.net")
+	wifi := item(t, res, "Home wifi")
 	has(t, wifi, "ssid", svcore.FieldText, "home")
 	has(t, wifi, "password", svcore.FieldConcealed, "w1f1-p4ss")
-	custom := item(t, res, "Personal/Bank account")
+	custom := item(t, res, "Bank account")
 	has(t, custom, "IBAN", svcore.FieldText, "GB00 0000")
 	has(t, custom, "PIN", svcore.FieldConcealed, "2468")
-	key := item(t, res, "Work/deploy")
+	key := item(t, res, "deploy")
 	if key.Kind != "ssh-key" {
 		t.Errorf("ssh key kind %q", key.Kind)
 	}
+	tagged(t, key, "Work")
 	has(t, key, "public_key", svcore.FieldText, testSSHPublicKey)
 	has(t, key, "host", svcore.FieldText, "git.example")
-	noItem(t, res, "Personal/Trashed")
+	noItem(t, res, "Trashed")
 	warned(t, res, "1 item in the trash")
 	warned(t, res, "1 attached file")
 }
 
 func TestAProtonPassDataJSONAloneImports(t *testing.T) {
 	res := mustImport(t, FormatProtonPass, readFixture(t, "protonpass-data.json"), Options{})
-	item(t, res, "Work/deploy")
+	tagged(t, item(t, res, "deploy"), "Work")
 }
 
 func TestAnEncryptedProtonPassExportWaitsForOpenPGP(t *testing.T) {

@@ -166,6 +166,25 @@ func Inspect(path string) (*svluks.Header, error) {
 	return readHeader(f, path)
 }
 
+// Identify reads an image's header, and says which file it read it from,
+// so that what is at path later can be told apart from it (os.SameFile).
+func Identify(path string) (*svluks.Header, os.FileInfo, error) {
+	f, err := openImage(path, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
+	h, err := readHeader(f, path)
+	if err != nil {
+		return nil, nil, err
+	}
+	return h, st, nil
+}
+
 func readHeader(f *os.File, path string) (*svluks.Header, error) {
 	h, err := svluks.Read(f)
 	if errors.Is(err, svluks.ErrNotLUKS) {

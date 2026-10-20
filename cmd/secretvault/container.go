@@ -22,6 +22,7 @@ import (
 //	container ls
 //	container header-backup FILE OUT
 //	container passwd FILE [--remove]             the passphrase keyslot
+//	container delete FILE [--item NAME] [--yes]  the file, for good, and its key
 
 func (c *cli) cmdContainer(args []string) error {
 	if len(args) == 0 {
@@ -40,8 +41,10 @@ func (c *cli) cmdContainer(args []string) error {
 		return c.containerHeaderBackup(args[1:])
 	case "passwd":
 		return c.containerPasswd(args[1:])
+	case "delete":
+		return c.containerDelete(args[1:])
 	}
-	fmt.Fprintf(c.stderr, "secretvault container: unknown subcommand %q (create, open, close, ls, header-backup, passwd)\n", args[0])
+	fmt.Fprintf(c.stderr, "secretvault container: unknown subcommand %q (create, open, close, ls, header-backup, passwd, delete)\n", args[0])
 	return errUsage
 }
 
@@ -50,7 +53,7 @@ func (c *cli) containerCreate(args []string) error {
 	size := fs.String("size", "", "the whole image's size: `N` bytes, or with K, M, G or T (1G)")
 	fsType := fs.String("fs", svcontainer.Filesystems[0], "the filesystem: "+strings.Join(svcontainer.Filesystems, ", "))
 	label := fs.String("label", "", "the filesystem's label")
-	item := fs.String("item", "", "the item to keep the key in (default: containers/ and the file's name)")
+	item := fs.String("item", "", "the item to keep the key in (default: the file's name)")
 	withPass := fs.Bool("passphrase", false, "also make a passphrase keyslot, asked for now, so the image opens with cryptsetup alone")
 	passFile := fs.String("new-passphrase-file", "", "as --passphrase, reading the passphrase from `FILE`")
 	sector := fs.Int("sector-size", 4096, "the encryption sector size, 512 or 4096")
@@ -74,9 +77,6 @@ func (c *cli) containerCreate(args []string) error {
 	path, err := filepath.Abs(pos[0])
 	if err != nil {
 		return err
-	}
-	if *item == "" {
-		*item = svops.ContainerItemName(path)
 	}
 	var pass []byte
 	if *withPass || *passFile != "" {
@@ -163,9 +163,10 @@ func (c *cli) containerClose(args []string) error {
 
 func (c *cli) containerList(args []string) error {
 	fs := c.flags("container ls")
+	all := fs.Bool("all", false, "every vault's containers; a locked vault's by file only, as secretvault last saw them, without unlocking it")
 	var u unlockFlags
 	u.register(fs)
-	if _, err := parse(fs, args, 0, 0, ""); err != nil {
+	if _, err := parse(fs, args, 0, 0, "[--all]"); err != nil {
 		return err
 	}
 	cl, err := c.open(&u)
@@ -174,27 +175,58 @@ func (c *cli) containerList(args []string) error {
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
-	list, err := cl.Containers(ctx, c.vault)
+	var list []svrpc.ContainerInfo
+	if *all {
+		list, err = cl.KnownContainers(ctx)
+	} else {
+		list, err = cl.Containers(ctx, c.vault)
+	}
 	if err != nil {
 		return err
 	}
 	if len(list) == 0 {
-		fmt.Fprintln(c.stderr, "No containers in this vault; make one with 'secretvault container create'.")
+		where := "in this vault"
+		if *all {
+			where = "known here"
+		}
+		fmt.Fprintf(c.stderr, "No containers %s; make one with 'secretvault container create'.\n", where)
 		return nil
 	}
 	tw := tabwriter.NewWriter(c.stdout, 0, 4, 2, ' ', 0)
+	if *all {
+		fmt.Fprint(tw, "VAULT\t")
+	}
 	fmt.Fprintln(tw, "ITEM\tFILE\tSTATE")
+	locked := false
 	for _, ci := range list {
 		state := ci.State
 		switch ci.State {
 		case "mounted":
 			state = "mounted at " + ci.MountPoint
+		case "missing":
+			state = "missing (the file is not there)"
 		case "unknown":
 			state = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", ci.Item, ci.Path, state)
+		item := ci.Item
+		switch {
+		case ci.Locked:
+			item, locked = "(vault locked)", true
+		case item == "":
+			item = "-"
+		}
+		if *all {
+			fmt.Fprintf(tw, "%s\t", ci.Vault)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", item, ci.Path, state)
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if locked {
+		fmt.Fprintln(c.stderr, "A locked vault's containers are those secretvault saw last; 'secretvault unlock' shows which item holds each key.")
+	}
+	return nil
 }
 
 func (c *cli) containerHeaderBackup(args []string) error {
@@ -247,5 +279,67 @@ func (c *cli) containerPasswd(args []string) error {
 	} else {
 		fmt.Fprintf(c.stderr, "%s opens with the new passphrase (and cryptsetup alone).\n", info.Path)
 	}
+	return nil
+}
+
+// containerDelete deletes a container's image file, for good, and its key
+// item, which goes to the vault's deleted items ('secretvault restore'
+// brings it back, for a copy of the image kept elsewhere). It asks on the
+// terminal first, Enter meaning no; --yes does not ask.
+func (c *cli) containerDelete(args []string) error {
+	fs := c.flags("container delete")
+	item := fs.String("item", "", "the item that holds the key (default: the one made for this image)")
+	yes := fs.Bool("yes", false, "delete it without asking first")
+	var u unlockFlags
+	u.register(fs)
+	pos, err := parse(fs, args, 1, 1, "FILE [--item NAME] [--yes]")
+	if err != nil {
+		return err
+	}
+	path, err := svops.ExistingImage(pos[0])
+	if err != nil {
+		return err
+	}
+	if !*yes && !c.canAsk {
+		return fmt.Errorf("there is no terminal to ask on: run it again with --yes to delete %s and its key", path)
+	}
+	cl, err := c.open(&u)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := c.ctx()
+	defer cancel()
+	if !*yes {
+		// What is known of it before asking: the vault its key is in,
+		// and whether it is in use (which the daemon refuses anyway).
+		vault := c.vault
+		if list, err := cl.Containers(ctx, c.vault); err == nil {
+			for _, ci := range list {
+				if svcontainer.Canonical(ci.Path) != svcontainer.Canonical(path) || (*item != "" && ci.Item != *item) {
+					continue
+				}
+				vault = ci.Vault
+				switch ci.State {
+				case "mounted":
+					return fmt.Errorf("%s is mounted, its files in %s: unmount it first ('secretvault container close %s'), then delete it", path, ci.MountPoint, path)
+				case "unlocked", "attached":
+					return fmt.Errorf("%s is still attached as a disk: unmount it first ('secretvault container close %s'), then delete it", path, path)
+				}
+			}
+		}
+		fmt.Fprintln(c.stderr, svops.DeleteDiskTitle(path))
+		fmt.Fprintln(c.stderr, svops.DeleteDiskText(path, vault))
+		if ok, err := c.confirm("Delete it? [y/N] "); err != nil {
+			return err
+		} else if !ok {
+			return errors.New("nothing was deleted")
+		}
+	}
+	info, err := cl.DeleteContainer(ctx, svrpc.ContainerDeleteParams{Vault: c.vault, Item: *item, Path: path})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(c.stderr, "Deleted %s. Its key, the item %s, is in the deleted items of vault %s: 'secretvault restore %s --vault %s' brings it back.\n",
+		info.Path, info.Item, info.Vault, info.Item, info.Vault)
 	return nil
 }

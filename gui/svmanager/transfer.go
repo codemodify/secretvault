@@ -20,7 +20,7 @@ import (
 // CXF files, as the CLI's import and export do: svimport reads and writes
 // the formats, svops reads the files and stores what was read.
 
-// importItems is File › Import…, in steps: where the passwords are now;
+// importItems is Vault › Import…, in steps: where the passwords are now;
 // then how to export them from there, and only what that export needs;
 // then the names it would make (the CLI's --dry-run); and only then the
 // import. An export that was not encrypted is offered for deletion once
@@ -80,7 +80,7 @@ func (m *Manager) importFrom(vault string, i int) {
 	var path string
 	chosen := m.muted("No file chosen yet")
 	chosen.Wrap = true
-	choose := widgets.NewButton("Choose the export file…", func() {
+	choose := newButton("Choose the export file…", func() {
 		m.pickFile(PickOpen, src.File, func(p string) {
 			if p == "" {
 				return
@@ -103,23 +103,18 @@ func (m *Manager) importFrom(vault string, i int) {
 		keyfile.field.Placeholder = "Only if you use one"
 	}
 
-	more := widgets.NewForm()
-	prefix := widgets.NewTextField("", "Optional, like imported/"+src.Name, nil)
-	prefix.SetAccessibleName("Put them in a folder")
-	more.Row("Put them in a folder", prefix)
 	overwrite := widgets.NewCheckbox("Replace items that exist (else they are skipped)", false, nil)
-	options := widgets.NewColumn(more, overwrite).WithGap(gap)
-	f.addLine(widgets.NewExpander("More options", false, options))
+	f.addLine(widgets.NewExpander("More options", false, overwrite))
 	f.note("Nothing is stored until you have seen the names it would make.")
 	f.back = func() { m.chooseImportSource(i) }
 
 	f.show("Preview", func() {
 		if path == "" {
 			f.fail("Choose the export file first.")
-			m.win.RequestFocus(choose)
+			m.focus(choose)
 			return
 		}
-		opts := svimport.Options{Prefix: strings.TrimSpace(prefix.Text)}
+		opts := svimport.Options{}
 		if pass != nil {
 			opts.Passphrase = pass.Bytes()
 		}
@@ -156,7 +151,7 @@ func (m *Manager) importFrom(vault string, i int) {
 		}, func() {
 			// The preview takes the form's place, holding what was read
 			// until it is imported or put down.
-			m.previewImport(vault, path, read, opts.Prefix, replace)
+			m.previewImport(vault, path, read, replace)
 		})
 	})
 }
@@ -164,7 +159,7 @@ func (m *Manager) importFrom(vault string, i int) {
 // previewImport shows the names an import would make, and its warnings,
 // and stores it if the person says so; an export that was not encrypted
 // is offered for deletion once it is in.
-func (m *Manager) previewImport(vault, path string, res *svimport.Result, prefix string, overwrite bool) {
+func (m *Manager) previewImport(vault, path string, res *svimport.Result, overwrite bool) {
 	var names []string
 	for _, it := range res.Items {
 		names = append(names, it.Name)
@@ -176,7 +171,7 @@ func (m *Manager) previewImport(vault, path string, res *svimport.Result, prefix
 			defer res.Wipe()
 			rep, err = svops.StoreImport(func() (context.Context, context.CancelFunc) {
 				return context.WithTimeout(m.ctx, callTimeout)
-			}, c, res, svops.ImportOptions{Vault: vault, Prefix: prefix, Overwrite: overwrite, Describe: m.describe,
+			}, c, res, svops.ImportOptions{Vault: vault, Overwrite: overwrite, Describe: m.describe,
 				Skipped: func(name string) string {
 					return name + ": the vault has it already, so it was skipped (More options › Replace items that exist replaces it)"
 				}})
@@ -194,7 +189,7 @@ func (m *Manager) previewImport(vault, path string, res *svimport.Result, prefix
 					intro = m.describe(err) + " " + intro
 				}
 				var d *dialog
-				ok := widgets.NewButton("Close", func() { d.Close() })
+				ok := newButton("Close", func() { d.Close() })
 				d = m.showDialog("Imported into "+vault, plainBody(m, intro, nil, rep.Warnings),
 					widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept), ok, then)
 				m.say("%s", intro)
@@ -218,7 +213,7 @@ func (m *Manager) offerDeleteExport(path, vault string) {
 	body := widgets.NewLabel(svops.DeleteExportNote(path, vault))
 	body.Wrap = true
 	var d *dialog
-	del := widgets.NewButton("Delete the file", func() {
+	del := newButton("Delete the file", func() {
 		d.Close()
 		m.work(func() error { return svops.RemoveExport(path) }, func(err error) {
 			if err != nil {
@@ -228,14 +223,14 @@ func (m *Manager) offerDeleteExport(path, vault string) {
 			m.say("Deleted %s.", path)
 		})
 	})
-	keep := widgets.NewButton("Keep it", func() { d.Close() })
+	keep := newButton("Keep it", func() { d.Close() })
 	keep.Primary = true
 	buttons := widgets.NewButtonBox().AddButton(del, widgets.RoleDestructive).AddButton(keep, widgets.RoleReject)
 	d = m.showDialog("Delete "+filepath.Base(path)+"?", body, buttons, keep, nil)
 }
 
-// exportItems writes the vault's items (or a folder of them) to a new
-// KeePass or CXF file (the CLI's export).
+// exportItems writes the vault's items to a new KeePass or CXF file (the
+// CLI's export).
 func (m *Manager) exportItems() {
 	vault := m.vault
 	if vault == "" || m.gone {
@@ -244,7 +239,6 @@ func (m *Manager) exportItems() {
 	f := m.newForm("Export from " + vault)
 	format := f.choice("Format", []string{"KeePass (KDBX), encrypted with a passphrase", "CXF, not encrypted"}, 0)
 	file := f.path("File", PickSave, vault+".kdbx")
-	prefix := f.text("Folder", "", "optional: only the items under it")
 	newPass := f.newPassphrase("Its passphrase")
 	f.warn("A CXF file is not encrypted: anyone who can read it has every secret in it. Import it where it is going, then delete it. KeePass files take the passphrase above.")
 	f.show("Export", func() {
@@ -271,10 +265,10 @@ func (m *Manager) exportItems() {
 		f.call(func(ctx context.Context, c *secretvault.Client) error {
 			items, err := svops.ReadForExport(func() (context.Context, context.CancelFunc) {
 				return context.WithTimeout(m.ctx, callTimeout)
-			}, c, svops.ExportOptions{Vault: vault, Prefix: strings.TrimSpace(prefix.Text), Describe: m.describe,
+			}, c, svops.ExportOptions{Vault: vault, Describe: m.describe,
 				Each: func(e svrpc.Entry) {
 					if len(e.Conflicts) > 0 {
-						warnings = append(warnings, fmt.Sprintf("%s has %d conflicting versions; the newest is exported (Edit › History shows them)", e.Item.Name, len(e.Conflicts)))
+						warnings = append(warnings, fmt.Sprintf("%s has %d conflicting versions; the newest is exported (Vault › Items › History shows them)", e.Item.Name, len(e.Conflicts)))
 					}
 					if e.Signature.Status == svrpc.SigBad {
 						warnings = append(warnings, fmt.Sprintf("the current revision of %s has a bad signature: someone who can open the vault changed it, posing as another device", e.Item.Name))

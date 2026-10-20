@@ -232,7 +232,7 @@ func (u *UI) revokeEmergency(vault string, g svrpc.EmergencyGrant, then func()) 
 				u.say("%s", msg)
 				u.rotateKey(vault, nil, then)
 			case res.Released != nil:
-				u.showText("Revoked", tview.Escape(msg+"\n\n"+svops.KeptACopyText(svops.When(res.Released))+" (Keyslots, r)"))
+				u.showText("Revoked", tview.Escape(msg+"\n\n"+svops.KeptACopyText(svops.When(res.Released))+" (Ways to unlock, r)"))
 			default:
 				u.say("%s", msg)
 			}

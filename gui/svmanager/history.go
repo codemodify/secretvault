@@ -125,7 +125,7 @@ func (m *Manager) drawHistory() {
 	}
 	note := m.muted(explain)
 	note.Wrap = true
-	back := tip(widgets.NewButton("Back to the item", m.closeHistory), "Escape")
+	back := tip(newButton("Back to the item", m.closeHistory), "Escape")
 	col := widgets.NewColumn(heading("History of "+h.name), note, h.table, h.below, widgets.NewRow(back)).WithGap(gap)
 	col.AddFlex(h.table, 1)
 	col.AddFlex(h.below, 2)
@@ -140,7 +140,7 @@ func (m *Manager) drawHistory() {
 		h.table.Selected = 0
 		m.openRevision(0)
 	}
-	m.win.RequestFocus(h.table)
+	m.focus(h.table)
 }
 
 // openRevision shows revision i below the list, read-only.
@@ -170,9 +170,9 @@ func (m *Manager) openRevision(i int) {
 	case len(h.heads) > 0 && (e.Rev == h.cur || h.heads[e.Rev]):
 		// Changed on two devices at once: this version is kept, and
 		// the others go, on every device (the CLI's resolve --keep).
-		head.Add(widgets.NewButton("Keep this version on every device…", func() { m.restoreRevision(name, rev, true) }))
+		head.Add(newButton("Keep this version on every device…", func() { m.restoreRevision(name, rev, true) }))
 	case e.Rev != h.cur:
-		head.Add(widgets.NewButton("Go back to this version…", func() { m.restoreRevision(name, rev, false) }))
+		head.Add(newButton("Go back to this version…", func() { m.restoreRevision(name, rev, false) }))
 	}
 	h.below.Set(widgets.NewColumn(widgets.NewSeparator(), head, h.view.root).WithGap(gap))
 	if col, ok := h.below.Page().(*widgets.FlexBox); ok {
@@ -232,7 +232,7 @@ func (m *Manager) closeHistory() {
 	if name != "" && m.entry(name) != nil {
 		m.openItem(name, false)
 	}
-	m.win.RequestFocus(m.ui.items)
+	m.focus(m.ui.content)
 }
 
 // leaveHistory takes the history down, wiping its revisions, and shows

@@ -40,7 +40,7 @@ func (m *Manager) pickFile(mode PickMode, suggested string, done func(string)) (
 		opts.Mode = widgets.FileOpen
 		opts.Title = "Choose a file"
 	}
-	fd := widgets.ShowFileDialog(m.root(), opts)
+	fd := widgets.ShowFileDialog(m.overlayRoot(), opts)
 	return func() {
 		// That chooser, wherever it is in the stack, and nothing else; or
 		// the window of its own it is in, where this window is too small to

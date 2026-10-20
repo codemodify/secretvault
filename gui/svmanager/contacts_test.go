@@ -74,8 +74,8 @@ func TestContactsAreAddedVerifiedAndRemoved(t *testing.T) {
 	h.said("verified in person")
 	h.idle()
 
-	// The search narrows the list.
-	search := find(h.m.ui.main, func(f *widgets.TextField) bool { return f.AccessibleName() == "Search the contacts" })
+	// The filter narrows the list.
+	search := find(h.area(), func(f *widgets.TextField) bool { return f.AccessibleName() == "Filter the contacts" })
 	h.win().FocusOn(search)
 	h.win().Type("nobody")
 	search.OnSubmit(search.Text)
@@ -83,7 +83,7 @@ func TestContactsAreAddedVerifiedAndRemoved(t *testing.T) {
 	if len(p.list) != 0 {
 		t.Fatalf("the search found %+v", p.list)
 	}
-	search = find(h.m.ui.main, func(f *widgets.TextField) bool { return f.AccessibleName() == "Search the contacts" })
+	search = find(h.area(), func(f *widgets.TextField) bool { return f.AccessibleName() == "Filter the contacts" })
 	search.SetText("")
 	search.OnSubmit("")
 	h.idle()
@@ -166,8 +166,8 @@ func TestMyQRCodeAndContactsVaultAndDirectories(t *testing.T) {
 	// The code and its text in one dialog.
 	h.waitText("QR code of the contact code")
 	code := find(h.overlay(), func(*qrView) bool { return true })
-	if code == nil || !strings.Contains(h.text(), "secretvault-contact:") || len(h.win().Overlays()) != 1 {
-		t.Fatalf("no QR code, or not beside its text, in one dialog (%d up)", len(h.win().Overlays()))
+	if code == nil || !strings.Contains(h.text(), "secretvault-contact:") || len(h.m.dialogs) != 1 {
+		t.Fatalf("no QR code, or not beside its text, in one dialog (%d up)", len(h.m.dialogs))
 	}
 	h.press("Close")
 	if h.overlay() != nil || code.code != nil {

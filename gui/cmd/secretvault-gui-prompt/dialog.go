@@ -261,6 +261,7 @@ func (d *dialog) build(a *uitoolkit.Application) (body, actions, first widget.Co
 
 func (d *dialog) button(id, text string, onClick func()) *widgets.Button {
 	b := widgets.NewButton(text, onClick)
+	b.Icon = secretui.ButtonIcon(text)
 	d.buttons[id] = b
 	return b
 }

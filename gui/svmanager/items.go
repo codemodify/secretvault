@@ -1,16 +1,14 @@
 package svmanager
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 
-	"github.com/codemodify/paintengine2d"
-	"github.com/codemodify/uitoolkit/style"
-	"github.com/codemodify/uitoolkit/widgets"
+	"github.com/codemodify/uitoolkit/widget"
 
 	"github.com/codemodify/secretvault"
 	"github.com/codemodify/secretvault/svcore"
@@ -19,14 +17,18 @@ import (
 	"github.com/codemodify/secretvault/svrpc"
 )
 
-// Items: listing, folders, searching, opening, copying, renaming and
-// deleting them.
+// Items: listing, filtering, opening, copying, renaming and deleting
+// them.
 
 // loadItems lists the shown vault's items.
 func (m *Manager) loadItems() {
 	vault, gen := m.vault, m.listGen
 	var entries []svrpc.Entry
-	m.listing = true
+	m.listing, m.listingSince = true, m.flipNow()
+	if m.ui != nil && m.ui.vaultHost != nil {
+		// A listing that waits (on a prompt) shows the vault's face.
+		widget.After(m.ui.vaultHost, faceWait, m.syncFace)
+	}
 	m.call(func(ctx context.Context, c *secretvault.Client) (err error) {
 		entries, err = c.List(ctx, vault, "")
 		return err
@@ -41,129 +43,54 @@ func (m *Manager) loadItems() {
 			}
 			m.fail(err)
 			m.drawItems()
+			m.syncFace()
 			m.reloadVaults()
 			return
 		}
-		slices.SortFunc(entries, func(a, b svrpc.Entry) int { return strings.Compare(a.Item.Name, b.Item.Name) })
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Item.Name
+		}
+		m.names = svops.ShownNames(names)
+		// By the names the list shows, as people read them.
+		slices.SortFunc(entries, func(a, b svrpc.Entry) int {
+			return cmp.Or(strings.Compare(strings.ToLower(m.names[a.Item.Name]), strings.ToLower(m.names[b.Item.Name])),
+				strings.Compare(a.Item.Name, b.Item.Name))
+		})
 		m.entries, m.listed = entries, true
 		m.lists++
-		m.drawFolders()
 		m.applyFilter()
 		if m.cur == nil && m.editor == nil && !m.showingVaultPage() && !m.showingHistory() {
 			m.showSelected()
 		}
+		m.syncFace() // the items are here: a closed vault's face goes
 		m.reloadVaults()
 	})
 }
 
-// folderOf is the folder an item name is in: everything up to its last
-// slash ("web/" for "web/github.com"), or "" at the top.
-func folderOf(name string) string {
-	if i := strings.LastIndex(name, "/"); i >= 0 {
-		return name[:i+1]
-	}
-	return ""
-}
-
-// drawFolders makes the folder tree from the items' names: every prefix
-// that ends in a slash is a folder, and a folder holds the folders and
-// items under it. "All items" is the root.
-func (m *Manager) drawFolders() {
-	t := m.ui.folders
-	if !m.listed {
-		t.SetRoots(nil)
-		t.Selected = nil
-		return
-	}
-	counts := map[string]int{}
-	for _, e := range m.entries {
-		name := e.Item.Name
-		for i := 0; i < len(name); i++ {
-			if name[i] == '/' {
-				counts[name[:i+1]]++
-			}
-		}
-	}
-	paths := make([]string, 0, len(counts))
-	for p := range counts {
-		paths = append(paths, p)
-	}
-	sort.Strings(paths)
-	all := widgets.NewTreeNode(fmt.Sprintf("All items (%d)", len(m.entries)))
-	all.Data = ""
-	all.Expanded = true
-	nodes := map[string]*widgets.TreeNode{"": all}
-	for _, p := range paths {
-		parent := folderOf(strings.TrimSuffix(p, "/"))
-		seg := strings.TrimSuffix(strings.TrimPrefix(p, parent), "/")
-		n := widgets.NewTreeNode(fmt.Sprintf("%s (%d)", seg, counts[p]))
-		n.Data = p
-		pn := nodes[parent]
-		if pn == nil {
-			pn = all
-		}
-		pn.Children = append(pn.Children, n)
-		pn.Expanded = true
-		nodes[p] = n
-	}
-	// Folders that were closed stay closed.
-	for p, n := range nodes {
-		if old := m.findFolder(p); old != nil && !old.Expanded && len(n.Children) > 0 {
-			n.Expanded = false
-		}
-	}
-	if nodes[m.folder] == nil {
-		m.folder = ""
-	}
-	t.SetRoots([]*widgets.TreeNode{all})
-	t.Selected = nodes[m.folder]
-	t.Invalidate()
-}
-
-// findFolder is the node of folder p in the tree as it is, or nil.
-func (m *Manager) findFolder(p string) *widgets.TreeNode {
-	var found *widgets.TreeNode
-	var walk func([]*widgets.TreeNode)
-	walk = func(ns []*widgets.TreeNode) {
-		for _, n := range ns {
-			if s, ok := n.Data.(string); ok && s == p {
-				found = n
-				return
-			}
-			walk(n.Children)
-		}
-	}
-	walk(m.ui.folders.Roots)
-	return found
-}
-
-func (m *Manager) folderSelected(n *widgets.TreeNode) {
-	p, _ := n.Data.(string)
-	if p == m.folder {
-		return
-	}
-	m.folder = p
-	m.applyFilter()
-}
-
-// setQuery searches as the person types.
+// setQuery filters as the person types. When the item chosen is not let
+// through, nothing is chosen, and the pane says what the filter finds.
 func (m *Manager) setQuery(q string) {
 	if q == m.query {
 		return
 	}
 	m.query = q
 	m.applyFilter()
+	if m.rowOf(m.cursor) < 0 && len(m.picked) < 2 && m.editor == nil && !m.showingHistory() && !m.showingVaultPage() {
+		m.cursor = ""
+		m.closeItem()
+	}
 }
 
-// matches reports whether an item holds every word of the search in its
+// matches reports whether an item holds every word of the filter in its
 // name, label, kind, tags or attributes, ignoring case. Field values are
-// not searched: the list holds none.
+// not looked at: the list holds none.
 func matches(e *svrpc.Entry, words []string) bool {
 	if len(words) == 0 {
 		return true
 	}
 	var b strings.Builder
-	b.WriteString(e.Item.Name + " " + e.Item.Label + " " + e.Item.Kind + " " + strings.Join(e.Item.Tags, " "))
+	b.WriteString(e.Item.Name + " " + e.Item.Label + " " + e.Item.Kind + " " + svops.KindText(e.Item.Kind) + " " + strings.Join(e.Item.Tags, " "))
 	for k, v := range e.Item.Attrs {
 		b.WriteString(" " + k + " " + v)
 	}
@@ -176,98 +103,34 @@ func matches(e *svrpc.Entry, words []string) bool {
 	return true
 }
 
-// applyFilter shows the items of the folder chosen that match the search.
-// A search looks in every folder when the folder chosen has no match.
+// applyFilter shows the items of the tab shown that match the filter: the
+// filter is one for every tab, kept as the tabs change.
 func (m *Manager) applyFilter() {
 	before := m.cursor
 	words := strings.Fields(strings.ToLower(m.query))
 	m.shown = m.shown[:0]
 	for i := range m.entries {
-		e := &m.entries[i]
-		if strings.HasPrefix(e.Item.Name, m.folder) && matches(e, words) {
+		if m.inItemTab(&m.entries[i]) && matches(&m.entries[i], words) {
 			m.shown = append(m.shown, i)
 		}
 	}
 	m.drawItems()
-	if m.cursor != before && m.editor == nil && !m.showingHistory() {
-		// The search moved the selection: the item beside the list
+	if m.cursor != before && m.editor == nil && !m.showingHistory() && !m.showingVaultPage() {
+		// The filter moved the selection: the item beside the list
 		// follows it, and one that was open closes.
 		m.closeItem()
 	}
 }
 
-// drawItems fills the item list, keeping the selection on the item it was
-// on.
+// drawItems fills the list with the items shown, keeping the selection
+// on the item it was on.
 func (m *Manager) drawItems() {
-	t := m.ui.items
-	t.RowCount = len(m.shown)
-	t.Selected = -1
-	for n, i := range m.shown {
-		if m.entries[i].Item.Name == m.cursor {
-			t.Selected = n
-		}
-	}
-	if t.Selected < 0 && len(m.shown) > 0 && m.query != "" {
-		// Searching: the best match is selected, so Enter opens it.
-		t.Selected = 0
+	if m.query != "" && len(m.shown) > 0 && !slices.ContainsFunc(m.shown, func(i int) bool { return m.entries[i].Item.Name == m.cursor }) {
+		// Filtering: the best match is selected, so Enter opens it.
 		m.cursor = m.entries[m.shown[0]].Item.Name
 	}
-	if t.Selected >= 0 {
-		t.EnsureVisible(t.Selected)
-	}
-	t.Invalidate()
-
-	note := ""
-	switch v := m.vaultInfo(m.vault); {
-	case m.gone:
-		note = "secretvault's background service is not running: nothing can be shown until it is back."
-	case m.vault == "":
-	case v != nil && v.ID == "":
-		note = "This vault's folder is missing."
-	case v != nil && !m.listed && v.Locked:
-		note = "Locked. Enter or Ctrl+U unlocks it."
-	case !m.listed && m.listing:
-		note = "Listing…"
-	case !m.listed:
-		note = "Not listed yet. Enter on the vault lists its items."
-	case len(m.entries) == 0:
-		note = "No items yet: Ctrl+N makes one."
-	case len(m.shown) == 0:
-		note = "Nothing matches."
-	case len(m.shown) != len(m.entries):
-		note = fmt.Sprintf("%d of %d items", len(m.shown), len(m.entries))
-	default:
-		note = plural(len(m.entries), "item")
-	}
-	m.ui.itemsNote.SetText(note)
+	m.drawContent()
 	m.enableMenus()
-}
-
-func (m *Manager) itemCell(row, col int) string {
-	if row < 0 || row >= len(m.shown) {
-		return ""
-	}
-	e := &m.entries[m.shown[row]]
-	if col == 1 {
-		return e.Item.Kind
-	}
-	// Inside a folder, the folder goes without saying.
-	return strings.TrimPrefix(e.Item.Name, m.folder)
-}
-
-// itemIcon marks an item whose versions conflict, and one with files.
-func (m *Manager) itemIcon(row, col int) (style.ToolIcon, paintengine2d.Color) {
-	if col != 0 || row < 0 || row >= len(m.shown) {
-		return style.IconNone, paintengine2d.Color{}
-	}
-	e := &m.entries[m.shown[row]]
-	switch {
-	case len(e.Conflicts) > 0:
-		return style.IconWarning, m.win.Look().Palette().Warning
-	case len(e.Item.Files) > 0:
-		return style.IconAttach, paintengine2d.Color{}
-	}
-	return style.IconNone, paintengine2d.Color{}
 }
 
 // entry is the listed item of that name, or nil.
@@ -324,7 +187,7 @@ func (m *Manager) openSelected() {
 	}
 }
 
-// openFirstMatch is Enter in the search: the selected match opens, and the
+// openFirstMatch is Enter in the filter: the selected match opens, and the
 // list takes the keyboard.
 func (m *Manager) openFirstMatch() {
 	if len(m.shown) == 0 {
@@ -333,7 +196,7 @@ func (m *Manager) openFirstMatch() {
 	if m.cursor == "" || m.entry(m.cursor) == nil {
 		m.cursor = m.entries[m.shown[0]].Item.Name
 	}
-	m.win.RequestFocus(m.ui.items)
+	m.focus(m.ui.content)
 	m.openItem(m.cursor, false)
 }
 
@@ -377,6 +240,13 @@ func (m *Manager) openItem(name string, reveal bool) {
 			return
 		}
 		m.say("")
+		// An item opened from elsewhere (one just saved, one brought
+		// back) brings its kind's tab forward, where the list shows it.
+		if t := tabOf(&e); t >= 0 && t != m.itemTab && m.ui.vaultTabs.Selected() <= lastItemTab {
+			m.ui.vaultTabs.Select(t)
+			m.cursor = name
+			m.syncList()
+		}
 		m.hold(&e, reveal)
 		m.reloadVaults() // the open may have unlocked the vault
 	})
@@ -544,14 +414,21 @@ func (m *Manager) copyCode() {
 
 // copyValue puts a copy of v on the clipboard, for the clipboard to wipe;
 // v itself stays with its owner, who may wipe it at any time. what says
-// what it was, for the status bar; vault is the vault it came from, whose
-// locking takes it back ("" for none: a generated password).
+// what it was, for the note that says so; vault is the vault it came
+// from, whose locking takes it back ("" for none: a generated password).
 func (m *Manager) copyValue(v []byte, what, vault string) bool {
 	if len(v) == 0 {
 		m.say("That is empty: nothing was copied.")
 		return false
 	}
 	c := m.clip.SetSecret(append([]byte(nil), v...), m.ttl)
+	if r, ok := c.(interface{ Cleared() bool }); ok && r.Cleared() {
+		// The desktop would not take it (another program holding the
+		// clipboard open, say): uitoolkit hands a refused copy back
+		// already cleared, and wiped.
+		m.fail(fmt.Errorf("%s could not be copied: the clipboard is busy. Try again in a moment.", what))
+		return false
+	}
 	m.copied, m.copiedFrom = c, vault
 	m.say("%s is on the clipboard for %d seconds.", what, int(m.ttl.Seconds()))
 	// Said when the copy goes by itself, at its timeout. Taken back (its
@@ -600,7 +477,7 @@ func (m *Manager) deleteItem() {
 		return
 	}
 	vault := m.vault
-	m.confirm("Delete "+name+"?", svops.DeleteItemText(name, vault, "Edit › Deleted items"), svops.DeleteItemAction,
+	m.confirm("Delete "+name+"?", svops.DeleteItemText(name, vault, "Vault › Items › Deleted items"), svops.DeleteItemAction,
 		func() {
 			m.call(func(ctx context.Context, c *secretvault.Client) error {
 				return c.Delete(ctx, vault, name)
@@ -634,48 +511,38 @@ func (m *Manager) renameItem() {
 		return
 	}
 	vault := m.vault
-	// uitoolkit's prompt: a name that cannot be used is refused where it
-	// was typed, with what was typed still there, rather than after the
-	// dialog has gone. That includes the daemon's refusal: the rename is
-	// the prompt's check (ValidateAsync), so the dialog waits for the
-	// answer and says under the field why a name was not taken.
-	widgets.PromptFor(m.root(), "Rename "+name, "New name:", widgets.MessageBoxInput{
-		Text: name, Required: true, AcceptLabel: "Rename",
-		ValidateAsync: func(to string, done func(error)) {
-			to = strings.TrimSpace(to)
-			switch {
-			case to == name:
-				done(nil)
-				return
-			case svcore.CheckName(to) != nil:
-				done(errors.New(svops.BadItemName(to)))
-				return
-			case m.entry(to) != nil:
-				done(fmt.Errorf("There is an item called %s already.", to))
-				return
+	// A name that cannot be used is refused in the dialog, with what was
+	// typed still there, rather than after the dialog has gone; so is the
+	// daemon's refusal (the dialog stays up for it).
+	f := m.newForm("Rename " + name)
+	field := f.text("New name", name, "")
+	f.show("Rename", func() {
+		to := strings.TrimSpace(field.Text)
+		switch {
+		case to == name:
+			f.close()
+			return
+		case svcore.CheckName(to) != nil:
+			f.fail(svops.BadItemName(to))
+			return
+		case m.entry(to) != nil:
+			f.fail(fmt.Sprintf("There is an item called %s already.", to))
+			return
+		}
+		f.call(func(ctx context.Context, c *secretvault.Client) error {
+			_, err := c.Rename(ctx, vault, name, to)
+			return err
+		}, func() {
+			m.say("Renamed %s to %s.", name, to)
+			m.cursor = to
+			if m.cur != nil && m.cur.Item.Name == name {
+				m.openItem(to, false)
 			}
-			m.call(func(ctx context.Context, c *secretvault.Client) error {
-				_, err := c.Rename(ctx, vault, name, to)
-				return err
-			}, func(err error) {
-				if err != nil {
-					done(errors.New(m.describe(err)))
-					return
-				}
-				// Renamed, whether or not the dialog is still up to be
-				// told: the window follows either way.
-				done(nil)
-				m.say("Renamed %s to %s.", name, to)
-				m.cursor = to
-				if m.cur != nil && m.cur.Item.Name == name {
-					m.openItem(to, false)
-				}
-				if vault == m.vault {
-					m.loadItems()
-				}
-			})
-		},
-	}, nil)
+			if vault == m.vault {
+				m.loadItems()
+			}
+		})
+	})
 }
 
 // reopen fetches the open item again, keeping what was revealed.
@@ -718,11 +585,12 @@ func (m *Manager) reopen() {
 	})
 }
 
-// focusSearch is Ctrl+F.
-func (m *Manager) focusSearch() {
-	m.closeVaultPage() // which covers the search
-	m.win.RequestFocus(m.ui.search)
-	m.ui.search.SelectAll()
+// focusFilter is Ctrl+F.
+func (m *Manager) focusFilter() {
+	m.showSection(secVaults)
+	m.closeVaultPage() // which covers the filter
+	m.focus(m.ui.filter)
+	m.ui.filter.SelectAll()
 }
 
 // minimise gets the window out of the way (after copying, for pasting

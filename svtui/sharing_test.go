@@ -270,6 +270,29 @@ func TestSharingAndEmergencyAccess(t *testing.T) {
 		return false
 	})
 	owner.waitFor("REQUESTED")
+	// A refresh asked for above may still land, redraw the table and put
+	// the selection back by its row: the request is picked again until it
+	// has stayed picked for a few looks, so that d denies it.
+	stable := 0
+	owner.eventually("the request staying picked", func() bool {
+		p := owner.u.panels[pagePanel]
+		if p == nil {
+			return false
+		}
+		r, _ := p.t.GetSelection()
+		if g, ok := p.t.GetCell(r, 0).GetReference().(svrpc.EmergencyGrant); ok && g.State == svrpc.GrantRequested {
+			stable++
+			return stable >= 3
+		}
+		stable = 0
+		for r := 1; r < p.t.GetRowCount(); r++ {
+			if g, ok := p.t.GetCell(r, 0).GetReference().(svrpc.EmergencyGrant); ok && g.State == svrpc.GrantRequested {
+				p.t.Select(r, 0)
+				break
+			}
+		}
+		return false
+	})
 	owner.typeText("d")
 	owner.waitFor("denying gives them nothing")
 	owner.typeText("y")

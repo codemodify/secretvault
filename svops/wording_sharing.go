@@ -87,7 +87,7 @@ const (
 // that it is safe: it works once, until expires.
 func SyncInviteNote(expires string) string {
 	return "It works once, until " + expires + ". The other device gets the vault encrypted: opening it still takes the passphrase, " +
-		"or another way in (a keyslot) you add for it."
+		"or another way to unlock it that you add for it."
 }
 
 // RemoveSyncDevicePlain asks before taking a device off vault's sync
@@ -170,7 +170,7 @@ func RemoveDevicePlain(label, key string) Plain {
 	return Plain{
 		Title: "Mark " + orDevice(label) + " as removed?",
 		Summary: SentenceStart(orDevice(label)) + " can still open and change the vault until the vault gets a new key without it " +
-			"(Cut off… under Sharing, or a new key under Keyslots). Marking it removed shows its changes from now on as a removed device's.",
+			"(Cut off… under Sharing, or a new key under Ways to unlock). Marking it removed shows its changes from now on as a removed device's.",
 		Action:  "Mark as removed",
 		Details: []string{"Device key: " + key},
 	}

@@ -445,7 +445,7 @@ func (d *Daemon) contactVault(ctx context.Context, cl *client, decode func(any) 
 		d.mu.Lock()
 		old := d.cfg.ContactsVault
 		d.cfg.ContactsVault = name
-		err := d.cfg.save(d.home)
+		err := d.cfg.save(d.config)
 		if err != nil {
 			d.cfg.ContactsVault = old
 		}

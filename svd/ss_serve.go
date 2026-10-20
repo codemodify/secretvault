@@ -66,7 +66,7 @@ func (d *Daemon) StopSecretService() {
 func (d *Daemon) setSecretService(ctx context.Context, on bool) error {
 	d.mu.Lock()
 	d.cfg.SecretService = on
-	err := d.cfg.save(d.home)
+	err := d.cfg.save(d.config)
 	d.mu.Unlock()
 	if err != nil {
 		return err

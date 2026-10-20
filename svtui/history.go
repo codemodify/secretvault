@@ -268,7 +268,7 @@ func (u *UI) showDeleted() {
 				p.none("Nothing deleted from it.")
 			}
 			for _, d := range del {
-				p.row(d, d.Name, d.Kind, d.Deleted.Local().Format("2006-01-02 15:04"))
+				p.row(d, d.Name, svops.KindText(d.Kind), d.Deleted.Local().Format("2006-01-02 15:04"))
 			}
 			p.done()
 		})

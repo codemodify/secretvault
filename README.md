@@ -13,6 +13,8 @@ One secret store for Linux, Windows and macOS, written in Go.
 It never phones home. Sync goes through your own server, a folder you
 already sync, or nothing.
 
+![The desktop manager: a vault's logins, one of them open, its password masked](docs/screenshots/manager.png)
+
 > **Status: pre-release.** On Linux, the vault engine, the daemon with its
 > consent prompts, the CLI, and the terminal and desktop managers work, and
 > so do the desktop keyring (Secret Service), the SSH agent, gpg's agent,
@@ -44,7 +46,7 @@ decision. If there is none, it asks you.
 | --- | --- |
 | **`secretvaultd`** | The daemon: holds the keys, opens the vaults, brokers every access, keeps the audit log. It links no UI code. With `--host`, the machine's system service that hands its services their secrets. |
 | **`secretvault`** | The CLI, a client of the daemon (which it starts when needed). |
-| **`secretvault-gui`** | The desktop manager, on [uitoolkit](https://github.com/codemodify/uitoolkit): vaults and their folders, instant search, items masked until revealed, one-time codes, files, history and conflicts, the generator, grants and the audit log, and a tray icon to search and lock everything. It asks for passphrases in a window of its own. |
+| **`secretvault-gui`** | The desktop manager, on [uitoolkit](https://github.com/codemodify/uitoolkit): vaults and a tab for each kind of item, one filter for them all as you type, items masked until revealed, one-time codes, files, history and conflicts, the generator, grants and the audit log, and a tray icon to filter the items and lock everything. It asks for passphrases in a window of its own. |
 | **`secretvault-tui`** | The terminal manager: vaults, items, one-time codes, the generator, history, grants and the audit log, full-screen. |
 | **`secretvault-tui-prompt`** | Asks you on a terminal, over the pinentry protocol: a pinentry for gpg-agent, an askpass helper, and (`--agent`) the daemon's prompter where there is no desktop. |
 | **`secretvault-gui-prompt`** | The same in a small window: the desktop prompt secretvaultd starts for each question, a pinentry for gpg-agent, and an askpass helper. The passphrase field holds bytes, never a string, and the keyboard is held while you type. |
@@ -114,8 +116,15 @@ They build with cgo against a release of
 any other module:
 
 ```bash
-(cd gui && CGO_ENABLED=1 go build -o ../bin/ ./cmd/...)
+(cd gui && CGO_ENABLED=1 go build -tags theme_engine_hangar,theme_engine_plastik -o ../bin/ ./cmd/...)
 ```
+
+`theme_engine_hangar` builds in Hangar, the uitoolkit look secretvault's
+windows wear (a dark telemetry console: a gunmetal ground, one ember
+accent, hairline boxes with cut corners, labels in capitals), whatever the
+desktop is set to, and `theme_engine_plastik` keeps uitoolkit's default
+beside it; without them the windows are in secretvault's own dark
+colours, drawn flat by uitoolkit's base engine.
 
 With `secretvault-gui-prompt` in `bin/` beside the daemon, secretvaultd asks
 you in its window rather than the system's pinentry. To see it on its own,
@@ -141,18 +150,18 @@ scripts/install.sh              # [--prefix DIR] [--no-service] [--uninstall]
 
 ```console
 $ bin/secretvault init --recovery            # asks for a new passphrase, prints a recovery key
-$ bin/secretvault set web/github.com --kind login --field username=ada   # asks for the password
-$ bin/secretvault get web/github.com         # first use in this terminal asks for the passphrase
+$ bin/secretvault set github.com --kind login --field username=ada   # asks for the password
+$ bin/secretvault get github.com             # first use in this terminal asks for the passphrase
 hunter2
 $ bin/secretvault set api/token --generate 32   # generate, store, and print a secret
 $ bin/secretvault ls -l
-$ bin/secretvault history web/github.com     # every revision, and which device signed it
-$ bin/secretvault restore web/github.com 3f2a9c   # an earlier revision back; or a deleted item (ls --deleted)
-$ bin/secretvault resolve web/github.com     # changed on two devices at once: see both, --keep one
+$ bin/secretvault history github.com         # every revision, and which device signed it
+$ bin/secretvault restore github.com 3f2a9c   # an earlier revision back; or a deleted item (ls --deleted)
+$ bin/secretvault resolve github.com         # changed on two devices at once: see both, --keep one
 $ bin/secretvault device ls                  # the devices that write to the vault, and their keys
 $ bin/secretvault attach bank ~/scans/card.pdf   # files go into the vault too
 $ bin/secretvault file get bank card.pdf -o -    # and come back out
-$ bin/secretvault import keepass ~/Downloads/passwords.kdbx --prefix imported/keepass   # or firefox, bitwarden... (import sources)
+$ bin/secretvault import keepass ~/Downloads/passwords.kdbx   # or firefox, bitwarden... (import sources)
 $ bin/secretvault export kdbx backup.kdbx    # asks for the new file's passphrase
 $ bin/secretvault grant list                 # what programs may do
 $ bin/secretvault audit                      # who accessed what
@@ -183,12 +192,12 @@ say:
 $ bin/secretvault import sources            # where they can come from, and the names import takes
 $ bin/secretvault import firefox            # how to export them: about:logins › ⋯ › Export Passwords…
 $ bin/secretvault import firefox ~/Downloads/logins.csv --dry-run   # the names it would make
-$ bin/secretvault import firefox ~/Downloads/logins.csv --prefix imported/firefox
+$ bin/secretvault import firefox ~/Downloads/logins.csv
 Imported 42 items, skipped 0, with 0 warnings.
 /home/ada/Downloads/logins.csv is not encrypted, and what it holds is in the vault now: delete it (rm -- '/home/ada/Downloads/logins.csv').
 ```
 
-In the managers it is one guided flow, in the same words: File › Import…
+In the managers it is one guided flow, in the same words: Vault › Import…
 in the window, `I` in the terminal. It asks where your passwords are now,
 then shows that program's steps for its export, asks for the file and
 only what that export needs (the password of an encrypted Bitwarden or
@@ -247,7 +256,7 @@ GnuPG's own gpg can use those keys too, with secretvaultd as its agent:
 $ bin/secretvault pgp new --name "Ada Lovelace" --email ada@example.org --v4   # GnuPG 2.4 reads version 4 keys
 $ bin/secretvault pgp gpg-setup --dry-run    # what it would change
 $ bin/secretvault pgp gpg-setup              # a GnuPG home of secretvault's own, pointed at the daemon
-$ export GNUPGHOME=~/.local/share/secretvault/gnupg
+$ export GNUPGHOME=~/.data/secretvault/gnupg
 $ gpg --clearsign notes.txt                  # asked about as any program is; the key stays in the daemon
 $ gpg --decrypt message.asc
 ```
@@ -281,6 +290,7 @@ $ bin/secretvault container open ~/work.img     # asked about as "mount", not as
 $ bin/secretvault container ls
 $ bin/secretvault container passwd ~/work.img   # a passphrase keyslot: cryptsetup opens it alone
 $ bin/secretvault container header-backup ~/work.img ~/work.header
+$ bin/secretvault container delete ~/work.img   # asks first; the key goes to the deleted items
 ```
 
 - **On Linux** UDisks2 attaches the image and the kernel's dm-crypt decrypts
@@ -311,7 +321,7 @@ For git, docker and age, the CLI sets up their helpers: it links itself
 beside itself as `git-credential-secretvault`,
 `docker-credential-secretvault` and `age-plugin-secretvault`, adds
 secretvault to git's `credential.helper`, and makes it docker's
-`credsStore` (the managers do the same from Desktop › Program helpers):
+`credsStore` (the managers do the same from Tools › Program helpers):
 
 ```console
 $ bin/secretvault helpers setup --dry-run   # what would change
@@ -353,7 +363,7 @@ model.
   same registrable domain by the Public Suffix List:
   `--field url=https://github.com`.
 - **Saving.** A login sent from a form is offered for saving on the
-  toolbar button. New logins go under `web/`.
+  toolbar button. A new login is named for its site (github.com).
 - **One-time codes and new passwords** fill from the panel too.
 
 For age and SOPS, its plugin must be on `PATH` (`helpers setup` links it
@@ -361,14 +371,14 @@ beside the CLI, as above):
 
 ```console
 $ bin/secretvault helpers setup             # or: ln -s secretvault bin/age-plugin-secretvault
-$ bin/secretvault age keygen --name age/sops >> ~/.config/sops/age/keys.txt
+$ bin/secretvault age keygen --name sops >> ~/.config/sops/age/keys.txt
 $ tail -2 ~/.config/sops/age/keys.txt
 # recipient: age1...
 AGE-PLUGIN-SECRETVAULT-1...
 $ sops encrypt --age age1... secrets.yaml > secrets.enc.yaml   # or age: in .sops.yaml
 $ sops decrypt secrets.enc.yaml    # the plugin asks secretvaultd for the key
 $ age -d -i ~/.config/sops/age/keys.txt file.age               # age and rage alike
-$ bin/secretvault age decrypt -i sv://-/age/sops file.age      # or no age at all
+$ bin/secretvault age decrypt -i sv://-/sops file.age          # or no age at all
 ```
 
 - **The recipient is a plain age key** (`age1...`, or `age1pq1...` with
@@ -412,10 +422,24 @@ puts the password in `$CREDENTIALS_DIRECTORY/db-password` when it starts.
   choice protects.
 
 - **The daemon owns the vaults.** Vaults live under
-  `~/.local/share/secretvault/vaults/` (macOS: `~/Library/Application
+  `~/.data/secretvault/vaults/` (macOS: `~/Library/Application
   Support/secretvault/…`; Windows: `%LOCALAPPDATA%\secretvault\…`), or
   anywhere with `init --path DIR`. `vault add NAME DIR` registers an
   existing one, and `--vault NAME` picks one.
+- **Two folders, and nothing hidden.** Settings go in
+  `~/.config/secretvault` (`config.json`, and the records of what
+  secretvault changed in other programs, so that it can undo it);
+  everything else (vaults, keys, logs, sync state) in
+  `~/.data/secretvault`. macOS keeps settings in
+  `~/Library/Preferences/secretvault`, Windows in `%APPDATA%\secretvault`.
+  `secretvault where` lists every folder and file secretvault keeps, and
+  every file it changed elsewhere, with what each holds (Settings › Where
+  things are kept in the desktop manager, Tools › Where things are kept
+  in the terminal one). An earlier version's
+  `~/.local/share/secretvault` is moved there the first time the daemon
+  starts, and keeps a `README.txt` saying where everything went.
+  `SECRETVAULT_HOME` moves the data folder (and the settings with it,
+  unless `SECRETVAULT_CONFIG` moves them elsewhere).
 - **Proving it is you.** The first command in a terminal asks for the vault's
   passphrase there (or its security key, if one is plugged in), which allows
   that terminal until the vault locks. Or pass `--passphrase-file`,
@@ -439,7 +463,7 @@ $ bin/secretvault slot add fido2         # enrol it: its PIN if it has one, then
 $ bin/secretvault slot add fido2 --no-uv # or: a touch alone opens the vault
 $ bin/secretvault lock
 $ bin/secretvault unlock --fido2         # the PIN (if the slot needs it) and a touch
-$ bin/secretvault get web/github.com     # with the key plugged in, it is asked for before the passphrase
+$ bin/secretvault get github.com         # with the key plugged in, it is asked for before the passphrase
 ```
 
 - **The PIN** is asked for wherever a passphrase would be, saying how many

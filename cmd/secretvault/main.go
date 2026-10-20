@@ -20,8 +20,8 @@
 //	get NAME                   print an item's secret, a field, or the whole item
 //	ls [PREFIX]                list items
 //	mv FROM TO                 rename an item
-//	mv --to VAULT NAME...      move items to another vault (--prefix P: those whose names start with P)
-//	cp --to VAULT NAME...      copy items to another vault (--prefix P, as for mv)
+//	mv --to VAULT NAME...      move items to another vault (--all: every item)
+//	cp --to VAULT NAME...      copy items to another vault (--all, as for mv)
 //	rm NAME                    delete an item
 //	history NAME               list an item's revisions, and who signed each
 //	device ls|label|rm|vouch   the devices registered in a vault, whose keys sign what they write
@@ -53,6 +53,7 @@
 //	pgp ls|new|import|export|pub|sign|decrypt|verify|gpg-setup   your OpenPGP keys, used inside the daemon (and by gpg)
 //	verify                     re-authenticate every file of the vault
 //	host init|allow|deny|ls|status|audit    set up the host daemon (as root)
+//	where [--json]             every folder and file secretvault keeps, and what it changed elsewhere
 //	version                    print the version
 //
 // Installed as git-credential-secretvault or docker-credential-secretvault
@@ -89,10 +90,16 @@
 // new file, mode 0600, never over an existing one: KDBX asks for the
 // file's passphrase; CXF is not encrypted, and says so.
 //
+// secretvault keeps its settings in ~/.config/secretvault and its data
+// in ~/.data/secretvault ('where' lists everything). Run before any
+// daemon has, it moves what an earlier version kept in
+// ~/.local/share/secretvault there first.
+//
 // Environment: SECRETVAULT_VAULT names the vault to use, SECRETVAULT_SOCK
-// the daemon's socket; SECRETVAULT_HOST=1 is --host, and
-// SECRETVAULT_HOST_DATA and SECRETVAULT_HOST_RUNTIME move the host
-// daemon's data and sockets.
+// the daemon's socket; SECRETVAULT_HOME moves the data folder (and the
+// settings with it, unless SECRETVAULT_CONFIG moves them elsewhere);
+// SECRETVAULT_HOST=1 is --host, and SECRETVAULT_HOST_DATA and
+// SECRETVAULT_HOST_RUNTIME move the host daemon's data and sockets.
 package main
 
 import (
@@ -126,11 +133,13 @@ type cli struct {
 	stderr     io.Writer
 	stdinIsTTY bool
 
-	// ask and askNew prompt on the terminal; tests replace them. canAsk
-	// says whether there is a terminal to ask on at all.
-	ask    func(prompt string) ([]byte, error)
-	askNew func(prompt string, min int) ([]byte, error)
-	canAsk bool
+	// ask and askNew prompt on the terminal, and askLine asks a question
+	// whose answer is shown as it is typed (ask when nil); tests replace
+	// them. canAsk says whether there is a terminal to ask on at all.
+	ask     func(prompt string) ([]byte, error)
+	askNew  func(prompt string, min int) ([]byte, error)
+	askLine func(prompt string) (string, error)
+	canAsk  bool
 
 	// connect reaches the daemon (tests point it at their own).
 	connect func(secretvault.Options) (*secretvault.Client, error)
@@ -173,11 +182,13 @@ func main() {
 		stdinIsTTY: term.IsTerminal(int(os.Stdin.Fd())),
 		ask:        svterm.Secret,
 		askNew:     svterm.NewSecret,
+		askLine:    svterm.Line,
 		connect:    secretvault.Connect,
 	}
 	if len(os.Args) > 1 && os.Args[1] == clipCommand {
 		os.Exit(clipHelper(os.Args[2:]))
 	}
+	moveOldFolder()
 	if t, err := svterm.OpenTerminal(""); err == nil {
 		t.Close()
 		c.canAsk = true
@@ -214,8 +225,8 @@ func init() {
 		{"set", "store or update an item", (*cli).cmdSet},
 		{"get", "print an item's secret, a field, or the whole item", (*cli).cmdGet},
 		{"ls", "list items", (*cli).cmdList},
-		{"mv", "rename an item, or move items to another vault (--to VAULT NAME..., --prefix P)", (*cli).cmdMove},
-		{"cp", "copy items to another vault (--to VAULT NAME..., --prefix P)", (*cli).cmdCopy},
+		{"mv", "rename an item, or move items to another vault (--to VAULT NAME..., --all)", (*cli).cmdMove},
+		{"cp", "copy items to another vault (--to VAULT NAME..., --all)", (*cli).cmdCopy},
 		{"rm", "delete an item", (*cli).cmdRemove},
 		{"history", "list an item's revisions, and who signed each", (*cli).cmdHistory},
 		{"restore", "make an earlier revision, or a deleted item, current again", (*cli).cmdRestore},
@@ -247,7 +258,7 @@ func init() {
 		{"mail", "inspect a message (its signers, against your contacts; --decrypt), or compose one signed and encrypted", (*cli).cmdMail},
 		{"smime", "your S/MIME keys: import a .p12, ls", (*cli).cmdSMIME},
 		{"age", "age files with vault-held keys: keygen, recipient, identity, encrypt, decrypt", (*cli).cmdAge},
-		{"container", "encrypted containers: create, open, close, ls, header-backup, passwd", (*cli).cmdContainer},
+		{"container", "encrypted containers: create, open, close, ls, header-backup, passwd, delete", (*cli).cmdContainer},
 		{"age-plugin", "age's plugin protocol (run as age-plugin-secretvault)", (*cli).cmdAgePlugin},
 		{"identity", "make (new) or show (pub) a recipient identity", (*cli).cmdIdentity},
 		{"contact", "people and their keys: ls, show, add, import, rm, verify, lookup, qr, vault", (*cli).cmdContact},
@@ -255,6 +266,7 @@ func init() {
 		{"pgp", "your OpenPGP keys: ls, new, import, export, pub, sign, decrypt, verify", (*cli).cmdPGP},
 		{"verify", "re-authenticate every file of the vault", (*cli).cmdVerify},
 		{"host", "set up the host daemon, as root: init, allow, deny, ls, status, audit", (*cli).cmdHost},
+		{"where", "every folder and file secretvault keeps, and what it changed in other programs", (*cli).cmdWhere},
 		{"version", "print the version", (*cli).cmdVersion},
 	}
 }

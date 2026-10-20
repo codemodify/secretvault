@@ -55,6 +55,7 @@ type formDialog struct {
 	problem *widgets.Label
 	accept  *widgets.Button
 	secrets []*widgets.SecretField
+	texts   []*widgets.TextField
 	areas   []*widgets.SecretArea
 	closers []func()
 	caps    bool // a new passphrase is typed: Caps Lock is said beside the buttons
@@ -151,6 +152,7 @@ func (f *formDialog) text(label, value, placeholder string) *widgets.TextField {
 	t.SetAccessibleName(label)
 	f.addRow(label, t)
 	f.focusFirst(t)
+	f.texts = append(f.texts, t)
 	return t
 }
 
@@ -184,11 +186,11 @@ func (f *formDialog) newPassphraseMin(label string, least int) func() ([]byte, b
 	}
 	pass := f.secret(label, hint)
 	again := f.secret("Repeat", "The same again")
-	pass.OnSubmit = func(*widgets.SecretField) { f.m.win.RequestFocus(again) }
+	pass.OnSubmit = func(*widgets.SecretField) { f.m.focus(again) }
 	return func() ([]byte, bool) {
 		if pass.Len() < least {
 			f.fail(fmt.Sprintf("Use a passphrase of at least %d characters.", least))
-			f.m.win.RequestFocus(pass)
+			f.m.focus(pass)
 			return nil, false
 		}
 		p, a := pass.Bytes(), again.Bytes()
@@ -199,7 +201,7 @@ func (f *formDialog) newPassphraseMin(label string, least int) func() ([]byte, b
 			pass.Wipe()
 			again.Wipe()
 			f.fail("The two passphrases differ.")
-			f.m.win.RequestFocus(pass)
+			f.m.focus(pass)
 			return nil, false
 		}
 		return p, true
@@ -276,14 +278,14 @@ func (f *formDialog) show(acceptLabel string, accept func()) *formDialog {
 			accept()
 		}
 	}
-	f.accept = widgets.NewButton(acceptLabel, run)
-	cancel := widgets.NewButton("Cancel", func() { f.close() })
+	f.accept = newButton(acceptLabel, run)
+	cancel := newButton("Cancel", func() { f.close() })
 	buttons := widgets.NewButtonBox().AddButton(f.accept, widgets.RoleAccept).AddButton(cancel, widgets.RoleReject)
 	if f.back != nil {
 		// Back to the step before, at the far left in every look, where
 		// an assistant's Back goes; what was typed here is wiped.
 		back := f.back
-		buttons.AddButton(widgets.NewButton("Back", func() {
+		buttons.AddButton(newButton("Back", func() {
 			f.close()
 			back()
 		}), widgets.RoleHelp)
@@ -302,6 +304,13 @@ func (f *formDialog) show(acceptLabel string, accept func()) *formDialog {
 	for _, s := range f.secrets {
 		if s.OnSubmit == nil {
 			s.OnSubmit = func(*widgets.SecretField) { run() }
+		}
+	}
+	// Enter in a field of one line does what the button does, as in
+	// any dialog.
+	for _, t := range f.texts {
+		if t.OnSubmit == nil {
+			t.OnSubmit = func(string) { run() }
 		}
 	}
 	f.d = f.m.showDialog(f.title, f.body, foot, focus, func() {
@@ -410,7 +419,7 @@ type pathField struct {
 func newPathField(m *Manager, label string, mode PickMode, suggested string) *pathField {
 	p := &pathField{field: widgets.NewTextField("", pathPlaceholder(mode), nil)}
 	p.field.SetAccessibleName(label)
-	choose := widgets.NewButton("Choose…", func() {
+	choose := newButton("Choose…", func() {
 		m.pickFile(mode, suggested, func(path string) {
 			if path != "" {
 				p.field.SetText(path)
@@ -463,10 +472,10 @@ func (m *Manager) showTextWith(title, intro, text string, below widget.Component
 		col.Add(below)
 	}
 	var d *dialog
-	ok := widgets.NewButton("Close", func() { d.Close() })
+	ok := newButton("Close", func() { d.Close() })
 	buttons := widgets.NewButtonBox().AddButton(ok, widgets.RoleAccept)
 	if text != "" {
-		buttons.AddButton(widgets.NewButton("Copy", func() { m.copyValue([]byte(text), title, "") }), widgets.RoleAction)
+		buttons.AddButton(newButton("Copy", func() { m.copyValue([]byte(text), title, "") }), widgets.RoleAction)
 	}
 	d = m.showDialog(title, col, buttons, ok, onClose)
 }
@@ -499,7 +508,7 @@ func (m *Manager) showSecrets(title, note string, secrets []secretShown, withQR 
 		value, label := s.value, s.label
 		spacer := widgets.NewSpacer()
 		head := widgets.NewRow(m.muted(s.label), spacer,
-			widgets.NewButton("Copy", func() { m.copyValue(value, label, "") })).WithGap(gap).WithAlign(layout.AlignCenter)
+			newButton("Copy", func() { m.copyValue(value, label, "") })).WithGap(gap).WithAlign(layout.AlignCenter)
 		head.AddFlex(spacer, 1)
 		list.Add(head)
 		list.Add(t)
@@ -517,7 +526,7 @@ func (m *Manager) showSecrets(title, note string, secrets []secretShown, withQR 
 		doneLabel = "Done"
 	}
 	var d *dialog
-	done := widgets.NewButton(doneLabel, func() { d.Close() })
+	done := newButton(doneLabel, func() { d.Close() })
 	d = m.showDialog(title, col, widgets.NewButtonBox().AddButton(done, widgets.RoleAccept), done, func() {
 		code.forget() // it was made from these bytes
 		for _, t := range texts {

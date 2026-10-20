@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -119,6 +120,14 @@ func hasNot(t *testing.T, it svrpc.Item, name string) {
 	}
 }
 
+// tagged checks an item's tags, in order; a source's folder is the last.
+func tagged(t *testing.T, it svrpc.Item, tags ...string) {
+	t.Helper()
+	if !slices.Equal(it.Tags, tags) {
+		t.Errorf("%s: tags %q, want %q", it.Name, it.Tags, tags)
+	}
+}
+
 func warned(t *testing.T, res *Result, parts ...string) {
 	t.Helper()
 	for _, w := range res.Warnings {
@@ -152,35 +161,41 @@ func zipOf(t *testing.T, files map[string][]byte) []byte {
 }
 
 func TestNamesAreMadeValidAndUnique(t *testing.T) {
-	b, err := newBuilder("imported/keepass/")
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := newBuilder()
 	for _, c := range []struct {
-		folder []string
-		title  string
-		want   string
+		title string
+		want  string
 	}{
-		{[]string{"Work", "Servers"}, "db1", "imported/keepass/Work/Servers/db1"},
-		{[]string{"Work", "Servers"}, "db1", "imported/keepass/Work/Servers/db1 (2)"},
-		{[]string{"Work", "Servers"}, "db1", "imported/keepass/Work/Servers/db1 (3)"},
-		{nil, "https://example.com/login", "imported/keepass/https:--example.com-login"},
-		{[]string{"", " . ", ".."}, "..", "imported/keepass/_/__/__"},
-		{nil, "", "imported/keepass/untitled"},
-		{nil, "tab\there\x00and\u0085more", "imported/keepass/tab here and more"},
-		{[]string{"bad\xffutf8"}, "x", "imported/keepass/bad?utf8/x"},
+		{"db1", "db1"},
+		{"db1", "db1 (2)"},
+		{"db1", "db1 (3)"},
+		{"https://example.com/login", "https:--example.com-login"},
+		{"..", "__"},
+		{"", "untitled"},
+		{"tab\there\x00and\u0085more", "tab here and more"},
+		{"bad\xffutf8", "bad?utf8"},
 	} {
-		if got := b.name(c.folder, c.title); got != c.want {
-			t.Errorf("name(%q, %q) = %q, want %q", c.folder, c.title, got, c.want)
+		if got := b.name(c.title); got != c.want {
+			t.Errorf("name(%q) = %q, want %q", c.title, got, c.want)
 		}
 	}
-	long := b.name([]string{strings.Repeat("f", 300), strings.Repeat("g", 300), strings.Repeat("h", 300)}, strings.Repeat("é", 400))
+	long := b.name(strings.Repeat("é", 800))
 	if err := svcore.CheckName(long); err != nil || len(long) > maxName {
 		t.Errorf("a long name is %d bytes: %v", len(long), err)
 	}
-	for _, p := range []string{"a/../b", "x/\x01", strings.Repeat("p", 600)} {
-		if _, err := newBuilder(p); !errors.Is(err, svcore.ErrName) {
-			t.Errorf("prefix %q accepted: %v", p, err)
+}
+
+// A source's folders become a tag, not a part of the name: there are no
+// folders.
+func TestFoldersBecomeATag(t *testing.T) {
+	b := newBuilder()
+	b.add(&draft{folder: []string{"Work", "Servers"}, title: "db1", tags: []string{"prod"}})
+	b.add(&draft{folder: []string{"", " . "}, title: "db2"})
+	b.add(&draft{title: "db3"})
+	want := [][]string{{"prod", "Work/Servers"}, {"_"}, nil}
+	for i, it := range b.items {
+		if it.Name != []string{"db1", "db2", "db3"}[i] || !slices.Equal(it.Tags, want[i]) {
+			t.Errorf("item %d: %q, tags %q; want tags %q", i, it.Name, it.Tags, want[i])
 		}
 	}
 }

@@ -106,32 +106,24 @@ func TestCopyingAnItemKeepsIt(t *testing.T) {
 	h.waitFor(" mail/fastmail ─") // still open
 }
 
-func TestMovingTheItemsWhoseNamesStartAlike(t *testing.T) {
+func TestMovingEveryItem(t *testing.T) {
 	h := newHarness(t)
 	h.withWork()
 	h.start(Options{}, "")
 	h.unlock()
 	h.waitFor("work  unlocked")
-	h.open("web/github.com")
-	h.menu("move the items whose names start")
-	h.waitFor("Move items to another vault")
-	h.waitLine("Names that start with:", "web/") // the open item's folder
+	h.menu("move every item")
+	h.waitFor("Move every item of personal to which vault?")
 	h.key(tcell.KeyEnter)
-	h.waitFor("Move the items whose names start with web/ to which vault?")
-	h.key(tcell.KeyEnter)
-	h.planAnswered("Move 2 items to work?", "2 items go from vault personal to vault work")
-	h.waitSaid("Moved 2 items to vault work.")
-	h.waitFor("Nothing open.")
-	for _, name := range []string{"web/github.com", "web/gitlab.com"} {
+	h.planAnswered("Move 4 items to work?", "4 items go from vault personal to vault work")
+	h.waitSaid("Moved 4 items to vault work.")
+	for _, name := range []string{"web/github.com", "web/gitlab.com", "mail/fastmail", "2fa/example"} {
 		if _, err := h.inWork(name); err != nil {
 			t.Fatalf("%s in work after moving: %v", name, err)
 		}
 		if _, err := h.get(name); !errors.Is(err, svrpc.ErrNotFound) {
 			t.Fatalf("%s in personal after moving: %v", name, err)
 		}
-	}
-	if _, err := h.get("mail/fastmail"); err != nil {
-		t.Fatalf("an item of another folder moved too: %v", err)
 	}
 }
 
@@ -142,8 +134,6 @@ func TestMovingWithNoOtherVaultSaysSo(t *testing.T) {
 	h.open("web/gitlab.com")
 	h.typeText(">")
 	h.waitSaid("There is no other vault to move it to: N makes one.")
-	h.menu("copy the items whose names start")
-	h.waitFor("Copy items to another vault")
-	h.key(tcell.KeyEnter)
+	h.menu("copy every item")
 	h.waitSaid("There is no other vault to copy them to: N makes one.")
 }

@@ -301,7 +301,7 @@ func (c *cli) cmdMove(args []string) error {
 	fs := c.flags("mv")
 	var u unlockFlags
 	u.register(fs)
-	pos, err := parse(fs, args, 2, 2, "FROM TO, or --to VAULT NAME... | --to VAULT --prefix PREFIX")
+	pos, err := parse(fs, args, 2, 2, "FROM TO, or --to VAULT NAME... | --to VAULT --all")
 	if err != nil {
 		return err
 	}
@@ -321,9 +321,8 @@ func (c *cli) cmdCopy(args []string) error { return c.cmdTransfer("cp", args, tr
 // cmdTransfer moves (or copies) items to another vault, inside the
 // daemon:
 //
-//	secretvault [--vault FROM] mv --to VAULT NAME...
-//	secretvault [--vault FROM] mv --to VAULT --prefix PREFIX   ("" is every item)
-//	secretvault [--vault FROM] cp --to VAULT NAME... | --prefix PREFIX
+//	secretvault [--vault FROM] mv --to VAULT NAME... | --all
+//	secretvault [--vault FROM] cp --to VAULT NAME... | --all
 //
 // --dry-run says what would go, and who else reads VAULT. Into a vault
 // others read too (people's keys, emergency access, other devices, a
@@ -334,19 +333,15 @@ func (c *cli) cmdTransfer(name string, args []string, copy bool) error {
 	var u unlockFlags
 	u.register(fs)
 	to := fs.String("to", "", "the vault the items go to")
-	var prefix *string
-	fs.Func("prefix", `every item whose name starts with this ("" for every item), in place of names`, func(s string) error {
-		prefix = &s
-		return nil
-	})
+	all := fs.Bool("all", false, "every item of the vault, in place of names")
 	dryRun := fs.Bool("dry-run", false, "say what would go, and who else reads the vault it goes to; change nothing")
 	yes := fs.Bool("yes", false, "go ahead even when others read the vault the items go to")
-	pos, err := parse(fs, args, 0, -1, "--to VAULT NAME... | --to VAULT --prefix PREFIX [--dry-run] [--yes]")
+	pos, err := parse(fs, args, 0, -1, "--to VAULT NAME... | --to VAULT --all [--dry-run] [--yes]")
 	if err != nil {
 		return err
 	}
-	if *to == "" || (prefix == nil) == (len(pos) == 0) {
-		fmt.Fprintf(c.stderr, "usage: secretvault %s --to VAULT NAME... | --to VAULT --prefix PREFIX [--dry-run] [--yes]\n", name)
+	if *to == "" || *all == (len(pos) > 0) {
+		fmt.Fprintf(c.stderr, "usage: secretvault %s --to VAULT NAME... | --to VAULT --all [--dry-run] [--yes]\n", name)
 		return errUsage
 	}
 	cl, err := c.open(&u)
@@ -355,7 +350,10 @@ func (c *cli) cmdTransfer(name string, args []string, copy bool) error {
 	}
 	ctx, cancel := c.ctx()
 	defer cancel()
-	p := svrpc.MoveParams{Vault: c.vault, To: *to, Names: pos, Prefix: prefix}
+	p := svrpc.MoveParams{Vault: c.vault, To: *to, Names: pos}
+	if *all {
+		p.Prefix = svrpc.PrefixOf("")
+	}
 	do := cl.MoveItems
 	if copy {
 		do = cl.CopyItems
@@ -386,7 +384,7 @@ func (c *cli) cmdTransfer(name string, args []string, copy bool) error {
 		return fmt.Errorf("%s Run it again with --yes to %s them there (--dry-run lists them)",
 			svops.ReadersText(pl.To, pl.Readers), map[bool]string{false: "move", true: "copy"}[copy])
 	default:
-		// What goes is what the plan found, not whatever a prefix finds
+		// What goes is what the plan found, not whatever is in the vault
 		// a moment later.
 		p.Names, p.Prefix = pl.Items, nil
 	}

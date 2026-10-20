@@ -57,7 +57,7 @@ func (u *UI) copyReference() {
 // masked until revealed (r), copied with c.
 func (u *UI) resolveReference() {
 	f := u.newForm("Resolve a reference", svops.ResolveReferenceAbout)
-	ref := f.text("Reference", "", "sv://-/web/example.com#password")
+	ref := f.text("Reference", "", "sv://-/example.com#password")
 	f.show("Show what it names", func() string {
 		r, err := svrpc.ParseRef(trimmed(ref))
 		if err != nil {

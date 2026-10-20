@@ -14,7 +14,8 @@ import (
 )
 
 // The credential helpers other programs run: git's and docker's, which
-// keep their logins as items under git/ and docker/. An interface lists
+// keep their logins as items of their own, found by their attributes
+// (git_host..., docker_server) whatever they are named. An interface lists
 // and edits those items like any others; these say which item a helper
 // reads.
 
@@ -37,16 +38,18 @@ func HelperName(argv0 string) string {
 // GitCredentialFields are the request's fields that pick a login.
 var GitCredentialFields = []string{"protocol", "host", "path", "username"}
 
-// GitItemName is the item git's helper stores a login as.
+// GitItemName is the name git's helper gives a new login: the user and
+// host, as in an address (me@github.com), and the repository's path when
+// git sends one; UniqueName keeps it off an item already there.
 func GitItemName(kv map[string]string) string {
-	name := "git/" + PathSafe(kv["host"])
-	if kv["path"] != "" {
-		name += "/" + PathSafe(kv["path"])
-	}
+	name := kv["host"]
 	if kv["username"] != "" {
-		name += "/" + PathSafe(kv["username"])
+		name = kv["username"] + "@" + name
 	}
-	return name
+	if kv["path"] != "" {
+		name += "/" + kv["path"]
+	}
+	return PathSafe(name)
 }
 
 // GitMatches reports whether an item stored by git's helper answers a
@@ -58,6 +61,17 @@ func GitMatches(it *svrpc.Item, kv map[string]string) bool {
 		}
 	}
 	return it.Attrs["git_host"] != ""
+}
+
+// GitSame reports whether an item stored by git's helper is the login of
+// a request to store one: the one to replace.
+func GitSame(it *svrpc.Item, kv map[string]string) bool {
+	for _, k := range GitCredentialFields {
+		if it.Attrs["git_"+k] != kv[k] {
+			return false
+		}
+	}
+	return true
 }
 
 // GitItem is the item git's helper stores for a request with a password.
@@ -119,13 +133,27 @@ func HelperLinks(cli string) []HelperLink {
 	return out
 }
 
-// DockerItemName is the item docker's helper keeps a registry's login as.
+// DockerItemName is the name docker's helper gives a new registry login:
+// the registry, without its scheme; UniqueName keeps it off an item
+// already there.
 func DockerItemName(server string) string {
-	u := server
-	if p, err := url.Parse(server); err == nil && p.Host != "" {
+	return PathSafe(dockerRegistry(server))
+}
+
+// dockerRegistry is a server as docker names it, without its scheme.
+func dockerRegistry(server string) string {
+	u := strings.TrimSpace(server)
+	if p, err := url.Parse(u); err == nil && p.Host != "" {
 		u = p.Host + p.Path
 	}
-	return "docker/" + PathSafe(u)
+	return u
+}
+
+// DockerMatches reports whether an item stored by docker's helper is the
+// login for server, with or without its scheme.
+func DockerMatches(it *svrpc.Item, server string) bool {
+	s := it.Attrs["docker_server"]
+	return s != "" && dockerRegistry(s) == dockerRegistry(server)
 }
 
 // DockerItem is the item docker's helper stores for a registry.

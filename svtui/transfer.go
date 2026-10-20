@@ -28,7 +28,7 @@ func (u *UI) newCtx() (context.Context, context.CancelFunc) {
 }
 
 // importFile is 'secretvault import SOURCE FILE', in steps, as the GUI's
-// File › Import… is: where the passwords are now (svops.ImportSources),
+// Vault › Import… is: where the passwords are now (svops.ImportSources),
 // then how to export them from there and only what that export needs,
 // then the names (the dry run), and only then the import. An export that
 // was not encrypted is offered for deletion once it is in.
@@ -73,7 +73,6 @@ func (u *UI) importFrom(vault string, i int) {
 	if src.Keyfile {
 		srcKey = f.path("Key file", "", "only if you use one")
 	}
-	prefix := f.text("Put them in a folder", "", "optional, like imported/"+src.Name)
 	overwrite := f.check("Replace items that exist", false)
 	f.back = func() { u.chooseImportSource(i) }
 	f.show("Read it", func() string {
@@ -81,7 +80,7 @@ func (u *UI) importFrom(vault string, i int) {
 		if p == "" {
 			return "Give the export file's path."
 		}
-		opts := svimport.Options{Prefix: strings.TrimSpace(trimmed(prefix))}
+		opts := svimport.Options{}
 		if srcKey != nil {
 			if k := filePath(srcKey); k != "" {
 				b, err := os.ReadFile(k)
@@ -155,7 +154,7 @@ func (u *UI) readExport(vault, path, format string, opts svimport.Options, overw
 		}
 		plain := !res.Encrypted
 		u.showPlan(pl, func() {
-			u.storeImport(vault, path, res, opts.Prefix, overwrite, plain)
+			u.storeImport(vault, path, res, overwrite, plain)
 		}, res.Wipe)
 	})
 }
@@ -163,11 +162,11 @@ func (u *UI) readExport(vault, path, format string, opts svimport.Options, overw
 // storeImport stores what was read (svops.StoreImport), and says how it
 // went; an export that was not encrypted (plain) is then offered for
 // deletion.
-func (u *UI) storeImport(vault, path string, res *svimport.Result, prefix string, overwrite, plain bool) {
+func (u *UI) storeImport(vault, path string, res *svimport.Result, overwrite, plain bool) {
 	var rep *svops.ImportReport
 	u.call(func(_ context.Context, c *secretvault.Client) (err error) {
 		defer res.Wipe()
-		rep, err = svops.StoreImport(u.newCtx, c, res, svops.ImportOptions{Vault: vault, Prefix: prefix, Overwrite: overwrite, Describe: describeErr,
+		rep, err = svops.StoreImport(u.newCtx, c, res, svops.ImportOptions{Vault: vault, Overwrite: overwrite, Describe: describeErr,
 			Skipped: func(name string) string {
 				return name + ": the vault has it already, so it was skipped (tick Replace to replace it)"
 			}})
@@ -221,7 +220,6 @@ func (u *UI) exportFile() {
 	f := u.newForm("Export from "+vault, "Writes the vault's items to a new file, for another password manager. A KeePass file is encrypted with the passphrase you give here; a CXF file is not encrypted: anyone who can read it has every secret in it.")
 	format := f.choice("Format", []string{"CXF, not encrypted", "KeePass (KDBX), encrypted"}, 1)
 	path := f.path("New file", "", "only a new file is written, never over one")
-	prefix := f.text("Only the items under", "", "a folder (optional: all of them)")
 	pass := f.secret("KeePass passphrase")
 	again := f.secret("Repeat it")
 	f.show("Export", func() string {
@@ -240,7 +238,7 @@ func (u *UI) exportFile() {
 			}
 			secret = pass.value()
 		}
-		do := func() { u.writeExport(vault, fmtName, p, trimmed(prefix), secret) }
+		do := func() { u.writeExport(vault, fmtName, p, secret) }
 		if fmtName == "cxf" {
 			u.post(func() {
 				u.confirm("Export without encryption?", "The new file will not be encrypted: anyone who can read it has every secret in it. Import it where it is going, then delete it.", "Export unencrypted", do)
@@ -254,12 +252,12 @@ func (u *UI) exportFile() {
 
 // writeExport reads the items (svops.ReadForExport), encodes them
 // (svops.EncodeExport) and writes the new file (svops.WriteNew).
-func (u *UI) writeExport(vault, format, path, prefix string, pass []byte) {
+func (u *UI) writeExport(vault, format, path string, pass []byte) {
 	var n int
 	var conflicts []string
 	u.call(func(_ context.Context, c *secretvault.Client) error {
 		defer clear(pass)
-		items, err := svops.ReadForExport(u.newCtx, c, svops.ExportOptions{Vault: vault, Prefix: prefix, Describe: describeErr,
+		items, err := svops.ReadForExport(u.newCtx, c, svops.ExportOptions{Vault: vault, Describe: describeErr,
 			Each: func(e svrpc.Entry) {
 				if len(e.Conflicts) > 0 {
 					conflicts = append(conflicts, e.Item.Name)

@@ -129,9 +129,11 @@ type HelloResult struct {
 
 // Status describes the running daemon.
 type Status struct {
-	Version string      `json:"version"`
-	PID     int         `json:"pid"`
-	Home    string      `json:"home"`
+	Version string `json:"version"`
+	PID     int    `json:"pid"`
+	Home    string `json:"home"` // the data folder
+	// Config is the settings folder (the data folder's, in host mode).
+	Config  string      `json:"config,omitempty"`
 	Socket  string      `json:"socket"`
 	Vaults  []VaultInfo `json:"vaults"`
 	Prompts string      `json:"prompts"` // how desktop prompts are shown

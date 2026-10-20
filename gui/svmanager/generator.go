@@ -188,23 +188,23 @@ func (m *Manager) showGenerator(use func([]byte)) *dialog {
 	buttons := widgets.NewButtonBox()
 	var first *widgets.Button
 	if use != nil {
-		first = widgets.NewButton("Use this password", func() {
+		first = newButton("Use this password", func() {
 			use(pw)
 			d.Close()
 		})
 		buttons.AddButton(first, widgets.RoleAccept)
 	} else {
-		first = widgets.NewButton("Copy", func() { m.copyValue(pw, "The password", "") })
+		first = newButton("Copy", func() { m.copyValue(pw, "The password", "") })
 		buttons.AddButton(first, widgets.RoleAccept)
-		buttons.AddButton(widgets.NewButton("New item with it", func() {
+		buttons.AddButton(newButton("New item with it", func() {
 			p := append([]byte(nil), pw...)
 			d.Close()
 			m.newItem(p)
 			clear(p)
 		}), widgets.RoleAction)
 	}
-	buttons.AddButton(widgets.NewButton("Make another", regenerate), widgets.RoleAction)
-	buttons.AddButton(widgets.NewButton("Close", func() { d.Close() }), widgets.RoleReject)
+	buttons.AddButton(newButton("Make another", regenerate), widgets.RoleAction)
+	buttons.AddButton(newButton("Close", func() { d.Close() }), widgets.RoleReject)
 	regenerate()
 	d = m.showDialog("Password generator", body, buttons, first, func() {
 		preview.Forget()

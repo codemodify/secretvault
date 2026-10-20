@@ -89,7 +89,7 @@ func TestPasskeysInChromium(t *testing.T) {
 		t.Errorf("the RP registered: %s", got)
 	}
 	asked := strings.Join(h.desk.questions(), "\n")
-	if !strings.Contains(asked, `wants to save a new passkey "passkeys/localhost" for localhost (account "ada@example.com"), for `+origin) {
+	if !strings.Contains(asked, `wants to save a new passkey "localhost" for localhost (account "ada@example.com"), for `+origin) {
 		t.Errorf("secretvault was asked:\n%s", asked)
 	}
 
@@ -104,7 +104,7 @@ func TestPasskeysInChromium(t *testing.T) {
 		t.Errorf("the RP said: %s", got)
 	}
 	asked = strings.Join(h.desk.questions(), "\n")
-	if !strings.Contains(asked, `wants to sign in to localhost as "ada@example.com" with the passkey "passkeys/localhost"`) {
+	if !strings.Contains(asked, `wants to sign in to localhost as "ada@example.com" with the passkey "localhost"`) {
 		t.Errorf("secretvault was asked:\n%s", asked)
 	}
 

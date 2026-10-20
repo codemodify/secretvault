@@ -23,7 +23,9 @@ type panel struct {
 	frame   *tview.Flex
 	acts    []panelAct
 	enter   func(ref any) // Enter on a row; nil: the row's actions, as a menu
+	enterIs string        // what Enter does, said at the foot ("" for "open" or "actions")
 	onClose func()        // runs when it closes
+	tab     bool          // it is a tab of the main screen (Disk, Tools), not a page over it
 	reload  func()
 	cols    int
 	at      int // the row selected before a refill
@@ -170,6 +172,33 @@ func (p *panel) done() {
 	}
 }
 
+// hasKey reports whether one of the panel's actions has key.
+func (p *panel) hasKey(key rune) bool {
+	for _, a := range p.acts {
+		if a.key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// applies reports whether one of the panel's actions has key and does
+// something now: it needs no row, or the row selected is one it takes.
+func (p *panel) applies(key rune) bool {
+	for _, a := range p.acts {
+		if a.key != key {
+			continue
+		}
+		if a.on == nil {
+			return true
+		}
+		if ref := p.selected(); ref != nil && a.on(ref) {
+			return true
+		}
+	}
+	return false
+}
+
 // selectable reports whether any row can be selected.
 func (p *panel) selectable() bool {
 	for r := 1; r < p.t.GetRowCount(); r++ {
@@ -203,7 +232,15 @@ func (p *panel) drawFoot() {
 	if p.enter != nil {
 		enter = "open"
 	}
-	parts = append(parts, "[yellow]Enter[-] "+enter, "[yellow]:[-] every action", "[yellow]Esc[-] close")
+	if p.enterIs != "" {
+		enter = p.enterIs
+	}
+	parts = append(parts, "[yellow]Enter[-] "+enter, "[yellow]:[-] every action")
+	if p.tab {
+		parts = append(parts, "[yellow]1 2 3[-] tabs", "[yellow]Esc[-] back to Vault")
+	} else {
+		parts = append(parts, "[yellow]Esc[-] close")
+	}
 	text := strings.Join(parts, "  ")
 	p.foot.SetText(text)
 	p.frame.ResizeItem(p.foot, wrappedLines(stripTags(text), 110), 0)
@@ -217,6 +254,15 @@ func (p *panel) show() {
 	p.u.openPage(p.page, p.frame, p.t)
 	p.u.panels[p.page] = p
 	p.refresh()
+}
+
+// embed makes the panel a tab of the main screen (u.tabs holds its
+// frame): it is never a page of its own, and Esc brings the Vault tab
+// back rather than close it.
+func (p *panel) embed() {
+	p.tab = true
+	p.frame.SetTitle(" " + tview.Escape(p.title) + " ")
+	p.drawFoot()
 }
 
 // refresh fills the panel again.
@@ -239,6 +285,9 @@ func (p *panel) close() {
 func (p *panel) keys(ev *tcell.EventKey) *tcell.EventKey {
 	switch {
 	case ev.Key() == tcell.KeyEscape || (ev.Key() == tcell.KeyRune && ev.Rune() == 'q'):
+		if p.tab {
+			return ev // the main screen's (u.keys)
+		}
 		p.close()
 		return nil
 	case ev.Key() == tcell.KeyRune && ev.Rune() == ':':

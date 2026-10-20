@@ -321,6 +321,41 @@ The full list of methods and shapes is in
   inside the daemon (above). `item.rename` still renames within one
   vault. -32006 from them means a name the other vault has already, and
   their errors carry `data` naming the items.
+- **`container.delete` is new** (`Client.DeleteContainer`): it deletes
+  an encrypted container's image file, for good, then its key's item,
+  which goes to the vault's deleted items as `item.delete` puts it (so a
+  copy of the image kept elsewhere opens again once `item.restore` brings
+  the key back). It is asked about as deleting the item, the question
+  naming the file. It refuses an image attached, unlocked or mounted
+  ("unmount it first"), a file that is not a LUKS2 image, an image whose
+  LUKS UUID is not the one the item records, and a copy while the image
+  the item was made for is still there. Its answer is the
+  `svrpc.ContainerInfo` of what was deleted, with state `deleted`.
+- **What secretvault stores for programs is named without a place in
+  front.** Logins the browser extension saves are named for the site
+  (`github.com`, once `web/github.com`), passkeys too (once
+  `passkeys/...`); the Secret Service's items for their label (once
+  `keyring/...`); keys ssh-add gives for their comment (once `ssh/...`); a
+  new OpenPGP or S/MIME key, with no item named, for its address (once
+  `pgp/...`, `smime/...`); a new disk's key, with no item named
+  (`container.create`'s `item` may now be left out), for its file (once
+  `containers/...`); git's and docker's logins for the host or registry
+  (once `git/...`, `docker/...`). A name an item has already gets
+  " (OpenPGP)", " (disk)", the account's name or a number added: nothing
+  is ever stored over an item already there. The Flatpak portal finds an
+  app's key by its `flatpak-app` attribute, and git's and docker's helpers
+  their logins by their `git_` and `docker_server` attributes, so items
+  made before keep their names and still work. A program that looked for
+  one of those items by its old name should look by its attributes.
+  Imports name items for their titles, the source's folder becoming a tag;
+  secretvault's own KDBX and CXF exports keep each item's exact name, and
+  bring it back.
+- **`container.known` is new** (`Client.KnownContainers`, no params): every
+  vault's disks, an unlocked vault's as `container.list` lists them and a
+  locked one's as the daemon remembers them, marked `"locked": true`, with
+  their file, LUKS UUID and state but no `item`. It never unlocks a vault.
+  `svrpc.ContainerInfo` has the new `locked` field, and a state `missing`
+  for an image file that is not there (`container.list` says it too).
 
 Faces that speak other protocols keep their own terms: the Secret
 Service answers `NoSuchObject` for a collection that is not there, as for

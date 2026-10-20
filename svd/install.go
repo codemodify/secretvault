@@ -2,9 +2,10 @@ package svd
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/codemodify/secretvault/svops"
 )
 
 // Starting at login. `secretvaultd install` makes the daemon start with
@@ -17,7 +18,7 @@ import (
 // `secretvaultd uninstall` undoes it; a running daemon keeps running.
 
 // ServiceName is the systemd user unit's name.
-const ServiceName = "secretvaultd.service"
+const ServiceName = svops.DaemonUnitName
 
 // Install makes the daemon at exe start at every login, and says what it
 // did.
@@ -80,12 +81,4 @@ Exec=` + desktopQuote(exe) + `
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
 `
-}
-
-func configDir() string {
-	if d := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(d) {
-		return d
-	}
-	h, _ := os.UserHomeDir()
-	return filepath.Join(h, ".config")
 }
